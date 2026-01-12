@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -9,6 +11,18 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+
+/// Marker trait for types that can be executed.
+pub trait Executable: Sized {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
+}
+
+impl dyn Array + '_ {
+    /// Execute this array to produce an instance of `E`.
+    pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
+        E::execute(self, ctx)
+    }
+}
 
 /// The result of executing an array, which can either be a constant (scalar repeated)
 /// or a fully materialized canonical array.
@@ -40,30 +54,21 @@ impl ExecutionCtx {
     }
 }
 
-/// Executor for exporting Vortex arrays to canonical form.
-pub trait VectorExecutor {
-    /// Recursively execute the array to canonical form.
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
-
-    /// Execute the array and return a [`CanonicalOutput`].
-    ///
-    /// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
-    /// instead of fully materializing the array.
-    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput>;
-}
-
-impl VectorExecutor for ArrayRef {
-    fn execute(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+/// Recursively execute the array to canonical form.
+/// This will replace the recursive usage of `to_canonical()`.
+/// An `ExecutionCtx` is will be used to limit access to buffers.
+impl Executable for Canonical {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // Try and dispatch to a child that can optimize execution.
-        for (child_idx, child) in self.children().iter().enumerate() {
+        for (child_idx, child) in array.children().iter().enumerate() {
             if let Some(result) = child
                 .encoding()
                 .as_dyn()
-                .execute_canonical_parent(child, self, child_idx, ctx)?
+                .execute_canonical_parent(child, &array, child_idx, ctx)?
             {
                 tracing::debug!(
                     "Executed array {} via child {} optimization.",
-                    self.encoding_id(),
+                    array.encoding_id(),
                     child.encoding_id()
                 );
                 return Ok(result);
@@ -71,20 +76,26 @@ impl VectorExecutor for ArrayRef {
         }
 
         // Otherwise fall back to the default execution.
-        self.encoding().as_dyn().execute_canonical(self, ctx)
+        array.encoding().as_dyn().execute_canonical(&array, ctx)
     }
+}
 
-    fn execute_output(&self, ctx: &mut ExecutionCtx) -> VortexResult<CanonicalOutput> {
+/// Execute the array and return a [`CanonicalOutput`].
+///
+/// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
+/// instead of fully materializing the array.
+impl Executable for CanonicalOutput {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // Attempt to short-circuit constant arrays.
-        if let Some(constant) = self.as_opt::<ConstantVTable>() {
+        if let Some(constant) = array.as_opt::<ConstantVTable>() {
             return Ok(CanonicalOutput::Constant(ConstantArray::new(
                 constant.scalar().clone(),
                 constant.len(),
             )));
         }
 
-        tracing::debug!("Executing array {}:\n{}", self, self.display_tree());
-        Ok(CanonicalOutput::Array(self.execute(ctx)?))
+        tracing::debug!("Executing array {}:\n{}", array, array.display_tree());
+        Ok(CanonicalOutput::Array(array.execute(ctx)?))
     }
 }
 

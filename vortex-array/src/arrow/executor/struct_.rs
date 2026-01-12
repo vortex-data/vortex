@@ -16,13 +16,13 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::VectorExecutor;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructVTable;
@@ -79,11 +79,7 @@ pub(super) fn to_arrow_struct(
         vortex_dtype::Nullability::Nullable,
     ))?;
 
-    let struct_array = array
-        .execute(ctx)?
-        .execute_vector(ctx)?
-        .into_struct()
-        .into_arrow()?;
+    let struct_array = array.execute::<Vector>(ctx)?.into_struct().into_arrow()?;
 
     // Finally, we cast to Arrow to ensure any types not representable by Vortex (e.g. Dictionary)
     // are properly converted.

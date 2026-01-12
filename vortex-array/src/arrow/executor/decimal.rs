@@ -14,10 +14,10 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 
@@ -45,7 +45,7 @@ pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
     ))?;
 
     // Execute the array as a vector and downcast to our native type.
-    let vector = array.execute(ctx)?.execute_vector(ctx)?.into_decimal();
+    let vector = array.execute::<Vector>(ctx)?.into_decimal();
     vortex_ensure!(
         vector.decimal_type() == N::DECIMAL_TYPE,
         "Decimal array conversion produced unexpected decimal type: expected {:?}, got {:?}",

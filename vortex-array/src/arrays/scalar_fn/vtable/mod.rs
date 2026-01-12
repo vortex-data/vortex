@@ -17,12 +17,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::VectorExecutor;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
@@ -146,7 +146,7 @@ impl VTable for ScalarFnVTable {
         let mut input_dtypes = Vec::with_capacity(array.children.len());
         for child in array.children.iter() {
             match child.as_opt::<ConstantVTable>() {
-                None => datums.push(Datum::Vector(child.execute(ctx)?.execute_vector(ctx)?)),
+                None => datums.push(Datum::Vector(child.clone().execute::<Vector>(ctx)?)),
                 Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
             }
             input_dtypes.push(child.dtype().clone());

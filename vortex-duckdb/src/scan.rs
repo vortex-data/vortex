@@ -25,9 +25,9 @@ use num_traits::AsPrimitive;
 use url::Url;
 use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
@@ -342,7 +342,9 @@ impl TableFunction for VortexTableFunction {
                             pack_options.nullability.into(),
                         )
                     } else {
-                        array_result.execute(&mut global_state.ctx)?.into_struct()
+                        array_result
+                            .execute::<Canonical>(&mut global_state.ctx)?
+                            .into_struct()
                     }
                 } else {
                     array_result.to_struct()

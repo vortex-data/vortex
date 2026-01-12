@@ -12,10 +12,11 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
+use vortex_vector::Vector;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -36,7 +37,7 @@ where
     }
 
     // Otherwise, we execute the array to a BinaryView vector and cast from there.
-    let binary_view = array.execute(ctx)?.execute_vector(ctx)?.into_arrow()?;
+    let binary_view = array.execute::<Vector>(ctx)?.into_arrow()?;
     arrow_cast::cast(&binary_view, &T::DATA_TYPE).map_err(VortexError::from)
 }
 
@@ -52,7 +53,7 @@ where
     let offsets = array
         .offsets()
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<T::Offset>()
         .into_arrow_offset_buffer();

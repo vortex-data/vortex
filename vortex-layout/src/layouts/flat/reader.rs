@@ -15,7 +15,6 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Root;
-use vortex_array::mask::MaskExecutor;
 use vortex_array::serde::ArrayParts;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -155,14 +154,14 @@ impl LayoutReader for FlatReader {
                     let array = array.apply(&expr)?;
                     let array = array.filter(mask.clone())?;
                     let mut ctx = session.create_execution_ctx();
-                    let array_mask = array.execute_mask(&mut ctx)?;
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
 
                     mask.intersect_by_rank(&array_mask)
                 } else {
                     // Run over the full array, with a simpler bitand at the end.
                     let array = array.apply(&expr)?;
                     let mut ctx = session.create_execution_ctx();
-                    let array_mask = array.execute_mask(&mut ctx)?;
+                    let array_mask = array.execute::<Mask>(&mut ctx)?;
 
                     mask.bitand(&array_mask)
                 }

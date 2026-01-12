@@ -8,16 +8,15 @@ use bitvec::macros::internal::funty::Fundamental;
 use num_traits::AsPrimitive;
 use parking_lot::Mutex;
 use vortex::array::Array;
+use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::IntoArray;
 use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::ConstantArray;
 use vortex::array::arrays::ConstantVTable;
 use vortex::array::arrays::DictArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::builtins::ArrayBuiltins;
-use vortex::array::mask::MaskExecutor;
 use vortex::array::validity::Validity;
 use vortex::array::vtable::ValidityHelper;
 use vortex::compute;
@@ -177,12 +176,16 @@ pub(crate) fn new_operator_exporter_with_flatten(
     if let Some(constant) = values.as_opt::<ConstantVTable>() {
         return constant::new_exporter_with_mask(
             &ConstantArray::new(constant.scalar().clone(), array.codes().len()),
-            array.codes().is_null()?.not()?.execute_mask(ctx)?,
+            array.codes().is_null()?.not()?.execute::<Mask>(ctx)?,
             cache,
         );
     }
 
-    let codes = array.codes().execute(ctx)?.into_primitive();
+    let codes = array
+        .codes()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
 
     match codes.validity() {
         Validity::AllValid | Validity::NonNullable => {}
@@ -217,7 +220,7 @@ pub(crate) fn new_operator_exporter_with_flatten(
         return new_operator_array_exporter(
             unsafe { DictArray::new_unchecked(codes.into_array(), canonical.into_array()) }
                 .into_array()
-                .execute(ctx)?
+                .execute::<Canonical>(ctx)?
                 .into_array(),
             // Take::take(values, &codes).into_array(array.dtype()),
             cache,

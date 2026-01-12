@@ -4,9 +4,9 @@
 use std::marker::PhantomData;
 
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::search_sorted::SearchSorted;
 use vortex::array::search_sorted::SearchSortedSide;
@@ -58,7 +58,11 @@ pub(crate) fn new_operator_exporter(
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let ends = array.ends().execute(ctx)?.into_primitive();
+    let ends = array
+        .ends()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
     let values = array.values().clone();
     let values_exporter = new_operator_array_exporter(values.clone(), cache, ctx)?;
 

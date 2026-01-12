@@ -8,13 +8,11 @@ use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::VectorExecutor;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::mask::MaskExecutor;
 use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
 use vortex_array::vectors::VectorIntoArray;
@@ -68,7 +66,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         let uncompressed_lens = array
             .uncompressed_lengths()
             .filter(parent.filter_mask().clone())?
-            .execute(ctx)?
+            .execute::<Canonical>(ctx)?
             .into_primitive();
 
         // Extract the filtered validity
@@ -77,7 +75,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 Mask::new_true(parent.filter_mask().true_count())
             }
             Validity::AllInvalid => Mask::new_false(parent.filter_mask().true_count()),
-            Validity::Array(a) => a.execute_mask(ctx)?,
+            Validity::Array(a) => a.execute::<Mask>(ctx)?,
         };
 
         // First we unpack the codes VarBinArray to get access to the raw data.
@@ -86,7 +84,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .codes()
             .offsets()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
-            .execute(ctx)?
+            .execute::<Canonical>(ctx)?
             .into_primitive()
             .buffer::<u32>();
 

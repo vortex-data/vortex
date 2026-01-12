@@ -26,7 +26,6 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::VectorExecutor;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;

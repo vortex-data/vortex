@@ -14,11 +14,12 @@ use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_vector::Vector;
 use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrow::ArrowArrayExecutor;
@@ -38,8 +39,7 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     // Otherwise, we execute as a vector and convert.
     let mut vector = array
-        .execute(ctx)?
-        .execute_vector(ctx)?
+        .execute::<Vector>(ctx)?
         .into_list_opt()
         .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
 
@@ -73,13 +73,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>()
         .into_arrow_scalar_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute(ctx)?
+        .execute::<Canonical>(ctx)?
         .into_primitive()
         .buffer::<O>()
         .into_arrow_scalar_buffer();

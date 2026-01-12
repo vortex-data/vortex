@@ -5,9 +5,9 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::ListArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::IntegerPType;
@@ -177,7 +177,11 @@ pub(crate) fn new_operator_exporter(
         }
     };
 
-    let offsets = array.offsets().execute(ctx)?.into_primitive();
+    let offsets = array
+        .offsets()
+        .clone()
+        .execute::<Canonical>(ctx)?
+        .into_primitive();
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         Box::new(ListExporter {
