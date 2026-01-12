@@ -32,6 +32,7 @@ humansize = { workspace = true }
 indicatif = { workspace = true, features = ["futures"] }
 itertools = { workspace = true }
 mimalloc = { workspace = true }
+object_store = { workspace = true, features = ["aws", "http", "fs"] }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
 parking_lot = { workspace = true }
@@ -64,3 +65,4 @@ vortex = { workspace = true, features = [
     "zstd",
     "unstable_encodings",
 ] }
+vortex-scan = { workspace = true }
