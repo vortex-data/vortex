@@ -10036,6 +10036,7 @@ dependencies = [
  "mimalloc",
  "noodles-bgzf",
  "noodles-vcf",
+ "object_store",
  "parking_lot",
  "parquet 57.2.0",
  "rand 0.9.2",
