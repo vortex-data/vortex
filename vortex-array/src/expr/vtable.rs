@@ -39,6 +39,7 @@ use crate::expr::stats::Stat;
 pub trait VTable: 'static + Sized + Send + Sync {
     /// Options for this expression.
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
+    type Children<'a>: From<&'a [Expression]>;
 
     /// Returns the ID of the expr vtable.
     fn id(&self) -> ExprId;

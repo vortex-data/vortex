@@ -40,8 +40,31 @@ use crate::expr::exprs::operators::Operator;
 /// separate comparisons combined with a logical AND.
 pub struct Between;
 
+pub struct BetweenChildren<'a> {
+    children: &'a [Expression],
+}
+
+impl<'a> BetweenChildren<'a> {
+    pub fn array(&self) -> &'a Expression {
+        return &self.children[0];
+    }
+    pub fn lower(&self) -> &'a Expression {
+        return &self.children[1];
+    }
+    pub fn upper(&self) -> &'a Expression {
+        return &self.children[2];
+    }
+}
+
+impl<'a> From<&'a [Expression]> for BetweenChildren<'a> {
+    fn from(value: &'a [Expression]) -> Self {
+        Self { children: value }
+    }
+}
+
 impl VTable for Between {
     type Options = BetweenOptions;
+    type Children<'a> = BetweenChildren<'a>;
 
     fn id(&self) -> ExprId {
         ExprId::from("vortex.between")

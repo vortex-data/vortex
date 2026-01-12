@@ -18,6 +18,7 @@ use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
+use crate::expr::VTable;
 use crate::expr::display::DisplayTreeExpr;
 use crate::expr::stats::Stat;
 
@@ -42,6 +43,11 @@ impl Deref for Expression {
 }
 
 impl Expression {
+    pub fn as_opt_with_children<'a, V: VTable>(&'a self) -> Option<(&V::Options, V::Children<'a>)> {
+        self.as_opt::<V>()
+            .map(|opts| (opts, V::Children::from(&self.children)))
+    }
+
     /// Create a new expression node from a scalar_fn expression and its children.
     pub fn try_new(
         scalar_fn: ScalarFn,
