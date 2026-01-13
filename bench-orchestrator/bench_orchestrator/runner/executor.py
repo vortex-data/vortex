@@ -34,6 +34,7 @@ class BenchmarkExecutor:
         iterations: int = 5,
         options: dict[str, str] | None = None,
         track_memory: bool = False,
+        samply: bool = False,
         on_result: Callable[[str], None] | None = None,
     ) -> list[str]:
         """
@@ -73,6 +74,9 @@ class BenchmarkExecutor:
         if options:
             for k, v in options.items():
                 cmd.extend(["--opt", f"{k}={v}"])
+
+        if samply:
+            cmd = ["samply", "record", "--"] + cmd
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
