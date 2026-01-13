@@ -78,6 +78,12 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
             return Ok(None);
         }
 
+        // If the dictionary has less codes than values don't push down this might
+        // happen if the dictionary is sliced.
+        if array.values().len() > array.codes().len() {
+            return Ok(None);
+        }
+
         // If the scalar function is fallible, we cannot push it down since it may fail over a
         // value that isn't referenced by any code.
         if !array.all_values_referenced && sig.is_fallible() {
