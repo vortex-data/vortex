@@ -10,7 +10,6 @@ use vortex::expr::stats::Precision;
 
 mod convert;
 mod persistent;
-pub mod vendor;
 
 pub use convert::exprs::ExpressionConvertor;
 pub use persistent::*;

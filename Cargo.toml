@@ -63,16 +63,16 @@ anyhow = "1.0.95"
 arbitrary = "1.3.2"
 arcref = "0.2.0"
 arrayref = "0.3.7"
-arrow-arith = "57"
-arrow-array = "57"
-arrow-buffer = "57"
-arrow-cast = "57"
-arrow-data = "57"
-arrow-ipc = "57"
-arrow-ord = "57"
-arrow-schema = "57"
-arrow-select = "57"
-arrow-string = "57"
+arrow-arith = "57.1"
+arrow-array = "57.1"
+arrow-buffer = "57.1"
+arrow-cast = "57.1"
+arrow-data = "57.1"
+arrow-ipc = "57.1"
+arrow-ord = "57.1"
+arrow-schema = "57.1"
+arrow-select = "57.1"
+arrow-string = "57.1"
 async-compat = "0.2.5"
 async-fs = "2.2.0"
 async-stream = "0.3.6"
@@ -80,7 +80,7 @@ async-trait = "0.1.89"
 bindgen = "0.72.0"
 bit-vec = "0.8.0"
 bitvec = "1.0.1"
-bytes = "1.10"
+bytes = "1.11"
 bzip2 = "0.6.0"
 cbindgen = "0.29.0"
 cc = "1.2"
@@ -97,19 +97,19 @@ cudarc = { version = "0.18.0", features = [
     "nvrtc",
 ], default-features = false }
 dashmap = "6.1.0"
-datafusion = { version = "51", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "51" }
-datafusion-common = { version = "51" }
-datafusion-common-runtime = { version = "51" }
-datafusion-datasource = { version = "51", default-features = false }
-datafusion-execution = { version = "51" }
-datafusion-expr = { version = "51" }
-datafusion-functions = { version = "51" }
-datafusion-physical-expr = { version = "51" }
-datafusion-physical-expr-adapter = { version = "51" }
-datafusion-physical-expr-common = { version = "51" }
-datafusion-physical-plan = { version = "51" }
-datafusion-pruning = { version = "51" }
+datafusion = { version = "52", default-features = false, features = ["sql"] }
+datafusion-catalog = { version = "52" }
+datafusion-common = { version = "52" }
+datafusion-common-runtime = { version = "52" }
+datafusion-datasource = { version = "52", default-features = false }
+datafusion-execution = { version = "52" }
+datafusion-expr = { version = "52" }
+datafusion-functions = { version = "52" }
+datafusion-physical-expr = { version = "52" }
+datafusion-physical-expr-adapter = { version = "52" }
+datafusion-physical-expr-common = { version = "52" }
+datafusion-physical-plan = { version = "52" }
+datafusion-pruning = { version = "52" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
@@ -122,7 +122,7 @@ get_dir = "0.5.0"
 glob = "0.3.2"
 goldenfile = "1"
 half = { version = "2.7.1", features = ["std", "num-traits"] }
-hashbrown = "0.16.0"
+hashbrown = "0.16.1"
 humansize = "2.1.3"
 indicatif = "0.18.0"
 insta = "1.43"
@@ -149,7 +149,7 @@ opentelemetry = "0.31.0"
 opentelemetry-otlp = "0.31.0"
 opentelemetry_sdk = "0.31.0"
 parking_lot = { version = "0.12.3", features = ["nightly"] }
-parquet = "57"
+parquet = "57.1"
 paste = "1.0.15"
 pco = "0.4.4"
 pin-project-lite = "0.2.15"
@@ -203,7 +203,7 @@ tracing = { version = "0.1.41", default-features = false }
 tracing-perfetto = "0.1.5"
 tracing-subscriber = "0.3"
 url = "2.5.7"
-uuid = { version = "1.18", features = ["js"] }
+uuid = { version = "1.19", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
