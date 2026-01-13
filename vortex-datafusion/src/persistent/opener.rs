@@ -195,15 +195,16 @@ impl FileOpener for VortexOpener {
                 &projected_physical_schema,
             )?;
 
-            let stream_schema = scan_projection
-                .return_dtype(vxf.dtype())
-                .and_then(|dtype| dtype.to_arrow_schema())
-                .map_err(|_e| exec_datafusion_err!("oops"))?;
+            // The schema of the stream returned from the vortex scan.
+            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
+                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+            })?;
+            let stream_schema = scan_dtype.to_arrow_schema().map_err(|_e| {
+                exec_datafusion_err!("Couldn't get the schema for the underlying Vortex scan")
+            })?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
-
-            let projected_physical_schema = leftover_projection.project_schema(&stream_schema)?;
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
@@ -297,7 +298,7 @@ impl FileOpener for VortexOpener {
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
                     let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&projected_physical_schema, &mut ctx)
+                    chunk.execute_record_batch(&stream_schema, &mut ctx)
                 })
                 .into_stream()
                 .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
