@@ -10,6 +10,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -69,12 +70,21 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    FILTER_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into(), mask.into()],
-            options: &(),
-        })?
-        .unwrap_array()
+    vortex_ensure!(
+        array.len() == mask.len(),
+        "array len {} must equal mask len {}",
+        array.len(),
+        mask.len()
+    );
+    if array.is_empty() {
+        return Ok(array.to_array());
+    }
+    if array.all_invalid() {
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().clone()), mask.true_count()).into_array(),
+        );
+    }
+    array.filter(mask.clone())
 }
 
 struct Filter;

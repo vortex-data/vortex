@@ -18,6 +18,9 @@ use crate::vtable::ValidityHelper;
 
 impl FilterKernel for PrimitiveVTable {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
+        if true {
+            todo!("filter prim")
+        }
         let validity = array.validity().filter(mask)?;
 
         match_each_native_ptype!(array.ptype(), |T| {

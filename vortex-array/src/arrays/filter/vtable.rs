@@ -96,6 +96,8 @@ impl VTable for FilterVTable {
         Ok(FilterArray {
             child,
             mask: metadata.0.clone(),
+            offset: 0,
+            len,
             stats: Default::default(),
         })
     }
@@ -120,7 +122,7 @@ impl VTable for FilterVTable {
 
         let canonical = filter_canonical(array.child.clone().execute(ctx)?, &array.mask);
 
-        let result_len = array.mask.true_count();
+        let full_len = array.mask.true_count();
         vortex_ensure!(
             canonical.as_ref().dtype() == array.dtype(),
             "Filter result dtype mismatch: expected {:?}, got {:?}",
@@ -128,11 +130,19 @@ impl VTable for FilterVTable {
             canonical.as_ref().dtype()
         );
         vortex_ensure!(
-            canonical.as_ref().len() == result_len,
+            canonical.as_ref().len() == full_len,
             "Filter result length mismatch: expected {}, got {}",
-            result_len,
+            full_len,
             canonical.as_ref().len()
         );
+
+        // If this is a sliced view, slice the result
+        if array.offset > 0 || array.len < full_len {
+            let sliced = canonical
+                .as_ref()
+                .slice(array.offset..array.offset + array.len);
+            return sliced.execute(ctx);
+        }
 
         Ok(canonical)
     }
@@ -151,22 +161,21 @@ pub(super) fn execute_fast_path(
     array: &FilterArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Canonical>> {
-    let true_count = array.mask.true_count();
-
-    // Empty result - mask selects nothing
-    if true_count == 0 {
+    // Empty result - array has no elements
+    if array.len == 0 {
         return Ok(Some(Canonical::empty(array.dtype())));
     }
 
-    // Full pass-through - mask selects everything
-    if true_count == array.mask.len() {
+    // Full pass-through - mask selects everything and no offset/slice
+    let true_count = array.mask.true_count();
+    if true_count == array.mask.len() && array.offset == 0 && array.len == true_count {
         return Ok(Some(array.child.clone().execute(ctx)?));
     }
 
     // All null - child has no valid values
     if array.validity_mask().true_count() == 0 {
         return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+            ConstantArray::new(Scalar::null(array.dtype().clone()), array.len)
                 .into_array()
                 .execute(ctx)?,
         ));
@@ -177,7 +186,7 @@ pub(super) fn execute_fast_path(
 
 impl BaseArrayVTable<FilterVTable> for FilterVTable {
     fn len(array: &FilterArray) -> usize {
-        array.mask.true_count()
+        array.len
     }
 
     fn dtype(array: &FilterArray) -> &DType {
@@ -207,19 +216,21 @@ impl CanonicalVTable<FilterVTable> for FilterVTable {
 
 impl OperationsVTable<FilterVTable> for FilterVTable {
     fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
-        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
+        array.slice(range.start, range.len()).into_array()
     }
 
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
-        let rank_idx = array.mask.rank(index);
-        array.child.scalar_at(rank_idx)
+        let logical_idx = array.offset + index;
+        let physical_idx = array.mask.rank(logical_idx);
+        array.child.scalar_at(physical_idx)
     }
 }
 
 impl ValidityVTable<FilterVTable> for FilterVTable {
     fn is_valid(array: &FilterArray, index: usize) -> bool {
-        let rank_idx = array.mask.rank(index);
-        array.child.is_valid(rank_idx)
+        let logical_idx = array.offset + index;
+        let physical_idx = array.mask.rank(logical_idx);
+        array.child.is_valid(physical_idx)
     }
 
     fn all_valid(array: &FilterArray) -> bool {
@@ -233,11 +244,23 @@ impl ValidityVTable<FilterVTable> for FilterVTable {
     }
 
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
-        array.child.validity()?.filter(&array.mask)
+        let full_validity = array.child.validity()?.filter(&array.mask)?;
+        // If this is a sliced view, slice the validity
+        let full_len = array.mask.true_count();
+        if array.offset > 0 || array.len < full_len {
+            return Ok(full_validity.slice(array.offset..array.offset + array.len));
+        }
+        Ok(full_validity)
     }
 
     fn validity_mask(array: &FilterArray) -> Mask {
-        Filter::filter(&array.child.validity_mask(), &array.mask)
+        let full_mask = Filter::filter(&array.child.validity_mask(), &array.mask);
+        // If this is a sliced view, slice the mask
+        let full_len = array.mask.true_count();
+        if array.offset > 0 || array.len < full_len {
+            return full_mask.slice(array.offset..array.offset + array.len);
+        }
+        full_mask
     }
 }
 
@@ -260,5 +283,135 @@ impl Debug for FilterMetadata {
             self.0.len(),
             self.0.density()
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::FilterArray;
+    use crate::arrays::PrimitiveArray;
+
+    #[test]
+    fn test_slice_basic() -> VortexResult<()> {
+        // child = [0, 1, 2, 3, 4]
+        // mask = [T, F, T, F, T] (selects indices 0, 2, 4)
+        // FilterArray logical elements: [0, 2, 4] with logical indices 0, 1, 2
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        assert_eq!(filter_array.len(), 3);
+
+        // slice(0..2) should give [0, 2] (logical indices 0 and 1)
+        let sliced = filter_array.slice(0..2);
+        assert_eq!(sliced.len(), 2);
+        assert_eq!(sliced.scalar_at(0).as_primitive().as_::<i32>(), Some(0));
+        assert_eq!(sliced.scalar_at(1).as_primitive().as_::<i32>(), Some(2));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_middle() -> VortexResult<()> {
+        // child = [0, 1, 2, 3, 4]
+        // mask = [T, F, T, F, T] (selects indices 0, 2, 4)
+        // FilterArray logical elements: [0, 2, 4]
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        // slice(1..3) should give [2, 4] (logical indices 1 and 2)
+        let sliced = filter_array.slice(1..3);
+        assert_eq!(sliced.len(), 2);
+        assert_eq!(sliced.scalar_at(0).as_primitive().as_::<i32>(), Some(2));
+        assert_eq!(sliced.scalar_at(1).as_primitive().as_::<i32>(), Some(4));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_single_element() -> VortexResult<()> {
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        // slice(1..2) should give [2] (logical index 1 only)
+        let sliced = filter_array.slice(1..2);
+        assert_eq!(sliced.len(), 1);
+        assert_eq!(sliced.scalar_at(0).as_primitive().as_::<i32>(), Some(2));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_empty() -> VortexResult<()> {
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        // slice(1..1) should give empty array
+        let sliced = filter_array.slice(1..1);
+        assert_eq!(sliced.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at() -> VortexResult<()> {
+        // child = [0, 1, 2, 3, 4]
+        // mask = [T, F, T, F, T] (selects indices 0, 2, 4)
+        // FilterArray logical elements: [0, 2, 4]
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        assert_eq!(
+            filter_array.scalar_at(0).as_primitive().as_::<i32>(),
+            Some(0)
+        );
+        assert_eq!(
+            filter_array.scalar_at(1).as_primitive().as_::<i32>(),
+            Some(2)
+        );
+        assert_eq!(
+            filter_array.scalar_at(2).as_primitive().as_::<i32>(),
+            Some(4)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_chained() -> VortexResult<()> {
+        // Test that chained slices work correctly (verifies O(1) offset accumulation)
+        // child = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        // mask = [T, F, T, F, T, F, T, F, T, F] (selects indices 0, 2, 4, 6, 8)
+        // FilterArray logical elements: [0, 2, 4, 6, 8]
+        let child = PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9]).into_array();
+        let mask = Mask::from_iter([
+            true, false, true, false, true, false, true, false, true, false,
+        ]);
+        let filter_array = FilterArray::new(child, mask).into_array();
+
+        assert_eq!(filter_array.len(), 5);
+
+        // First slice: [1..4] -> [2, 4, 6]
+        let sliced1 = filter_array.slice(1..4);
+        assert_eq!(sliced1.len(), 3);
+        assert_eq!(sliced1.scalar_at(0).as_primitive().as_::<i32>(), Some(2));
+        assert_eq!(sliced1.scalar_at(1).as_primitive().as_::<i32>(), Some(4));
+        assert_eq!(sliced1.scalar_at(2).as_primitive().as_::<i32>(), Some(6));
+
+        // Second slice of the first slice: [1..2] -> [4]
+        let sliced2 = sliced1.slice(1..2);
+        assert_eq!(sliced2.len(), 1);
+        assert_eq!(sliced2.scalar_at(0).as_primitive().as_::<i32>(), Some(4));
+
+        Ok(())
     }
 }
