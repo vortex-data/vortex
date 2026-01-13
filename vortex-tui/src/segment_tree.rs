@@ -14,7 +14,7 @@ use vortex::utils::aliases::hash_map::HashMap;
 
 /// Information about a single segment for display purposes.
 pub struct SegmentDisplay {
-    /// Name of the segment (e.g., "data", "[0]", "zones")
+    /// Name of the segment (e.g., "data", `[0]`, "zones")
     pub name: FieldName,
     /// The underlying segment specification
     pub spec: SegmentSpec,
