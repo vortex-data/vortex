@@ -139,15 +139,6 @@ pub trait VortexRead: Send + Sync + 'static {
     }
 }
 
-/// Type alias for a reference-counted `VortexRead` trait object.
-pub type VortexReadRef = Arc<dyn VortexRead>;
-
-// Backwards compatibility alias
-#[deprecated(since = "0.30.0", note = "Use VortexRead instead")]
-pub trait VortexReadAt: VortexRead {}
-#[allow(deprecated)]
-impl<T: VortexRead> VortexReadAt for T {}
-
 impl<R: VortexRead> VortexRead for Arc<R> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.as_ref().uri()

@@ -14,7 +14,7 @@ use futures::channel::mpsc;
 use vortex_error::vortex_panic;
 use vortex_metrics::VortexMetrics;
 
-use crate::VortexReadRef;
+use crate::VortexRead;
 use crate::file::FileRead;
 use crate::file::IoRequestStream;
 use crate::runtime::AbortHandleRef;
@@ -146,7 +146,7 @@ impl Handle {
     /// Open a file for I/O on this runtime using a [`VortexRead`] source.
     ///
     /// This wraps the source in a [`FileRead`] which provides request coalescing and cancellation.
-    pub fn open_read(&self, source: VortexReadRef, metrics: VortexMetrics) -> FileRead {
+    pub fn open_read(&self, source: Arc<dyn VortexRead>, metrics: VortexMetrics) -> FileRead {
         let (send, recv) = mpsc::unbounded();
 
         let uri = source
