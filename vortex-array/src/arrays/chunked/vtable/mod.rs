@@ -178,33 +178,4 @@ impl VTable for ChunkedVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        if array.nchunks() == 0 {
-            return Ok(Canonical::empty(array.dtype()));
-        }
-
-        // Single chunk: just execute it directly
-        if array.nchunks() == 1 {
-            return array.chunks()[0].clone().execute(ctx);
-        }
-
-        // Multiple chunks: execute all chunks first, then combine
-        // We execute all chunks to canonical form, then use the existing
-        // canonicalize logic which will be cheap since chunks are already canonical
-        let canonical_chunks: Vec<ArrayRef> = array
-            .chunks()
-            .iter()
-            .map(|chunk| Ok(chunk.clone().execute::<Canonical>(ctx)?.into_array()))
-            .collect::<VortexResult<_>>()?;
-
-        // Create a temporary chunked array with the canonical chunks
-        // SAFETY: chunks have same dtype as original and are valid arrays
-        let canonical_chunked =
-            unsafe { ChunkedArray::new_unchecked(canonical_chunks, array.dtype().clone()) };
-
-        // Now canonicalize - since chunks are already canonical, the to_struct()/to_listview()
-        // calls will just clone rather than decompress
-        Ok(Self::CanonicalVTable::canonicalize(&canonical_chunked))
-    }
 }
