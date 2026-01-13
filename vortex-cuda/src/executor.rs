@@ -55,6 +55,12 @@ impl CudaExecutionCtx {
         // SAFETY: No safety guarantees for allocations on the GPU.
         unsafe {
             self.stream
+                // Note that alloc is async in case the device and driver support this.
+                //
+                // The condition for alloc to be async is support for memory pools:
+                // `CU_DEVICE_ATTRIBUTE_MEMORY_POOLS_SUPPORTED`. Any kernel
+                // submitted to the stream after alloc can safely use the memory,
+                // as operations on the stream are ordered sequentially.
                 .alloc::<T>(len)
                 .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
         }
@@ -79,8 +85,7 @@ impl CudaExecutionCtx {
     /// On `synchronize` the host waits for all pending operations of the stream to complete.
     #[cfg(test)]
     pub fn synchronize(&self) -> VortexResult<()> {
-        self.context
-            .default_stream()
+        self.stream
             .synchronize()
             .map_err(|e| vortex_err!("Failed to synchronize device: {}", e))
     }
