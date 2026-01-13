@@ -5,6 +5,8 @@
 
 use std::str::from_utf8;
 
+use vortex_array::Canonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
@@ -15,6 +17,10 @@ use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::expr::eq;
+use vortex_array::expr::lit;
+use vortex_array::expr::root;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
@@ -109,14 +115,14 @@ fn bench_compare_sliced_dict_primitive(
     let dict = dict_encode(primitive_arr.as_ref()).unwrap();
     let dict = dict.slice(0..codes_len);
     let value = primitive_arr.as_slice::<i32>()[0];
+    let session = VortexSession::empty();
 
     bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        compare(
-            dict.as_ref(),
-            ConstantArray::new(value, codes_len).as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
+        let mut ctx = session.create_execution_ctx();
+        dict.apply(&eq(root(), lit(value)))
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
     })
 }
 
@@ -130,13 +136,13 @@ fn bench_compare_sliced_dict_varbinview(
     let dict = dict.slice(0..codes_len);
     let bytes = varbin_arr.with_iterator(|i| i.next().unwrap().unwrap().to_vec());
     let value = from_utf8(bytes.as_slice()).unwrap();
+    let session = VortexSession::empty();
 
     bencher.with_inputs(|| &dict).bench_refs(|dict| {
-        compare(
-            dict.as_ref(),
-            ConstantArray::new(value, codes_len).as_ref(),
-            Operator::Eq,
-        )
-        .unwrap()
+        let mut ctx = session.create_execution_ctx();
+        dict.apply(&eq(root(), lit(value)))
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
     })
 }
