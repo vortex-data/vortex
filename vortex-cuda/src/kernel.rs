@@ -2,21 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! CUDA kernel configuration.
-//!
-//! This module provides types for configuring CUDA kernels that are used
-//! within `CudaSupport` trait implementations.
 
 use std::fmt::Debug;
 
 use vortex_array::vtable::ArrayId;
 use vortex_utils::aliases::dash_map::DashMap;
 
-/// Represents configuration for a CUDA kernel.
+/// Configuration for a CUDA kernel.
 #[derive(Debug, Clone)]
 pub struct KernelConfig {
     /// The name of the kernel function.
     pub name: String,
-    /// PTX source code for the kernel (optional - may be loaded from file).
+    /// PTX source code for the kernel
     pub ptx: Option<String>,
     /// Number of threads per block.
     pub block_size: u32,
