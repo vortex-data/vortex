@@ -27,7 +27,6 @@ use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::ToCanonical;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
@@ -48,7 +47,6 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -328,26 +326,22 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
-                let array_result = if *USE_VORTEX_OPERATORS {
-                    let array_result = array_result.optimize_recursive()?;
-                    if let Some(array) = array_result.as_opt::<StructVTable>() {
-                        array.clone()
-                    } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
-                        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                    {
-                        StructArray::new(
-                            pack_options.names.clone(),
-                            array.children(),
-                            array.len(),
-                            pack_options.nullability.into(),
-                        )
-                    } else {
-                        array_result
-                            .execute::<Canonical>(&mut global_state.ctx)?
-                            .into_struct()
-                    }
+                let array_result = array_result.optimize_recursive()?;
+                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
+                    array.clone()
+                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                {
+                    StructArray::new(
+                        pack_options.names.clone(),
+                        array.children(),
+                        array.len(),
+                        pack_options.nullability.into(),
+                    )
                 } else {
-                    array_result.to_struct()
+                    array_result
+                        .execute::<Canonical>(&mut global_state.ctx)?
+                        .into_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(

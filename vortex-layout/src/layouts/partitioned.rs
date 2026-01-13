@@ -22,7 +22,6 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::ArrayFuture;
-use crate::layouts::USE_VORTEX_OPERATORS;
 
 pub trait PartitionedExprEval<P> {
     fn into_mask_future(
@@ -90,14 +89,8 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            let root_mask = if *USE_VORTEX_OPERATORS {
-                let mut ctx = session.create_execution_ctx();
-                root_scope.apply(&self.root)?.execute::<Mask>(&mut ctx)?
-            } else {
-                self.root
-                    .evaluate(&root_scope)?
-                    .try_to_mask_fill_null_false()?
-            };
+            let mut ctx = session.create_execution_ctx();
+            let root_mask = root_scope.apply(&self.root)?.execute::<Mask>(&mut ctx)?;
 
             let mask = mask.bitand(&root_mask);
 
@@ -131,11 +124,7 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             )?
             .into_array();
 
-            if *USE_VORTEX_OPERATORS {
-                root_scope.apply(&self.root)
-            } else {
-                self.root.evaluate(&root_scope)
-            }
+            root_scope.apply(&self.root)
         }))
     }
 }

@@ -12,9 +12,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::compute::filter;
 use vortex_array::expr::Expression;
-use vortex_array::expr::Root;
 use vortex_array::serde::ArrayParts;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -25,7 +23,6 @@ use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
-use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::flat::FlatLayout;
 use crate::segments::SegmentSource;
 
@@ -146,52 +143,23 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            let array_mask = if *USE_VORTEX_OPERATORS {
-                if mask.density() < EXPR_EVAL_THRESHOLD {
-                    // We have the choice to apply the filter or the expression first, we apply the
-                    // expression first so that it can try pushing down itself and then the filter
-                    // after this.
-                    let array = array.apply(&expr)?;
-                    let array = array.filter(mask.clone())?;
-                    let mut ctx = session.create_execution_ctx();
-                    let array_mask = array.execute::<Mask>(&mut ctx)?;
+            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                // We have the choice to apply the filter or the expression first, we apply the
+                // expression first so that it can try pushing down itself and then the filter
+                // after this.
+                let array = array.apply(&expr)?;
+                let array = array.filter(mask.clone())?;
+                let mut ctx = session.create_execution_ctx();
+                let array_mask = array.execute::<Mask>(&mut ctx)?;
 
-                    mask.intersect_by_rank(&array_mask)
-                } else {
-                    // Run over the full array, with a simpler bitand at the end.
-                    let array = array.apply(&expr)?;
-                    let mut ctx = session.create_execution_ctx();
-                    let array_mask = array.execute::<Mask>(&mut ctx)?;
-
-                    mask.bitand(&array_mask)
-                }
+                mask.intersect_by_rank(&array_mask)
             } else {
-                // TODO(ngates): the mask may actually be dense within a range, as is often the case when
-                //  we have approximate mask results from a zone map. In which case we could look at
-                //  the true_count between the mask's first and last true positions.
-                // TODO(ngates): we could also track runtime statistics about whether it's worth selecting
-                //   or not.
-                if mask.density() < EXPR_EVAL_THRESHOLD {
-                    // Evaluate only the selected rows of the mask.
-                    array = filter(&array, &mask)?;
-                    // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-                    // can inspect nulls (e.g. `is_null`).
-                    // you will need to call the array evaluation instead of the mask evaluation.
-                    let array_mask = expr
-                        .evaluate(&array)
-                        .map_err(|err| {
-                            err.with_context(format!("While evaluating filter {}", expr))
-                        })?
-                        .try_to_mask_fill_null_false()?;
-                    mask.intersect_by_rank(&array_mask)
-                } else {
-                    // Evaluate all rows, avoiding the more expensive rank intersection.
-                    array = expr.evaluate(&array).map_err(|err| {
-                        err.with_context(format!("While evaluating filter {}", expr))
-                    })?;
-                    let array_mask = array.try_to_mask_fill_null_false()?;
-                    mask.bitand(&array_mask)
-                }
+                // Run over the full array, with a simpler bitand at the end.
+                let array = array.apply(&expr)?;
+                let mut ctx = session.create_execution_ctx();
+                let array_mask = array.execute::<Mask>(&mut ctx)?;
+
+                mask.bitand(&array_mask)
             };
 
             tracing::debug!(
@@ -231,33 +199,18 @@ impl LayoutReader for FlatReader {
                 array = array.slice(row_range.clone());
             }
 
-            Ok(if *USE_VORTEX_OPERATORS {
-                // First apply the filter to the array.
-                // NOTE(ngates): we *must* filter first before applying the expression, as the
-                // expression may depend on the filtered rows being removed e.g.
-                //  `CAST(a, u8) WHERE a < 256`
-                if !mask.all_true() {
-                    array = array.filter(mask)?;
-                }
+            // First apply the filter to the array.
+            // NOTE(ngates): we *must* filter first before applying the expression, as the
+            // expression may depend on the filtered rows being removed e.g.
+            //  `CAST(a, u8) WHERE a < 256`
+            if !mask.all_true() {
+                array = array.filter(mask)?;
+            }
 
-                // Evaluate the projection expression.
-                array = array.apply(&expr)?;
+            // Evaluate the projection expression.
+            array = array.apply(&expr)?;
 
-                array
-            } else {
-                // Filter the array based on the row mask.
-                if !mask.all_true() {
-                    array = filter(&array, &mask)?;
-                }
-
-                // Evaluate the projection expression.
-                if !expr.is::<Root>() {
-                    array = expr.evaluate(&array).map_err(|err| {
-                        err.with_context(format!("While evaluating projection {}", expr))
-                    })?;
-                }
-                array
-            })
+            Ok(array)
         }
         .boxed())
     }

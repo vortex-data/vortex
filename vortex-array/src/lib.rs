@@ -69,12 +69,6 @@ pub mod flatbuffers {
     pub use vortex_flatbuffers::array::*;
 }
 
-static USE_VORTEX_OPERATORS: LazyLock<bool> = LazyLock::new(|| {
-    std::env::var("VORTEX_OPERATORS")
-        .map(|v| v != "0" && v.to_lowercase() != "false")
-        .unwrap_or(true)
-});
-
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...

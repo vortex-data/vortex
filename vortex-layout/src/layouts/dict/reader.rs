@@ -19,9 +19,6 @@ use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
-use vortex_array::compute::MinMaxResult;
-use vortex_array::compute::min_max;
-use vortex_array::compute::take;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -38,7 +35,6 @@ use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::SharedArrayFuture;
-use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::segments::SegmentSource;
 
 pub struct DictReader {
@@ -104,14 +100,10 @@ impl DictReader {
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
                     .map(move |array| {
-                        if *USE_VORTEX_OPERATORS {
-                            // We execute the array to avoid re-evaluating for every split.
-                            let array = array?;
-                            let mut ctx = ExecutionCtx::new(session);
-                            Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
-                        } else {
-                            Ok(array?.to_canonical().into_array())
-                        }
+                        // We execute the array to avoid re-evaluating for every split.
+                        let array = array?;
+                        let mut ctx = ExecutionCtx::new(session);
+                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
                     })
                     .boxed()
                     .shared()
@@ -130,14 +122,10 @@ impl DictReader {
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
-                        if *USE_VORTEX_OPERATORS {
-                            let array = array?.apply(&expr)?;
-                            // We execute the array to avoid re-evaluating for every split.
-                            let mut ctx = ExecutionCtx::new(session);
-                            Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
-                        } else {
-                            expr.evaluate(&array?).map_err(Arc::new)
-                        }
+                        let array = array?.apply(&expr)?;
+                        // We execute the array to avoid re-evaluating for every split.
+                        let mut ctx = ExecutionCtx::new(session);
+                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
                     })
                     .boxed()
                     .shared()
@@ -206,35 +194,8 @@ impl LayoutReader for DictReader {
             let (codes, values) = try_join!(codes_eval, values_eval.map_err(VortexError::from))?;
             let mask = mask.await?;
 
-            let dict_mask = if *USE_VORTEX_OPERATORS {
-                let mut ctx = session.create_execution_ctx();
-                values.take(codes)?.execute::<Mask>(&mut ctx)?
-            } else {
-                // Short-circuit when the values are all true/false.
-                if values.all_valid()
-                    && let Some(MinMaxResult { min, max }) = min_max(&values)?
-                {
-                    #[expect(clippy::bool_comparison, reason = "easy to follow")]
-                    if max.as_bool().value().vortex_expect("non null") == false {
-                        // All values are false
-                        return Ok(Mask::AllFalse(mask.len()));
-                    }
-                    #[expect(clippy::bool_comparison, reason = "easy to follow")]
-                    if min.as_bool().value().vortex_expect("not null") == true {
-                        // All values are true, but we still need to respect codes validity
-                        return Ok(mask.bitand(&codes.validity_mask()));
-                    }
-                }
-
-                // Creating a mask from the dict array would canonicalize it,
-                // it should be fine for now as long as values is already canonical,
-                // so different row ranges do not canonicalize to the same array
-                // multiple times.
-                // TODO(joe): fixme casting null to false is *VERY* unsound, if the expression in the filter
-                // can inspect nulls (e.g. `is_null`).
-                // See `FlatEvaluation` for more details.
-                take(&values, &codes)?.try_to_mask_fill_null_false()?
-            };
+            let mut ctx = session.create_execution_ctx();
+            let dict_mask = values.take(codes)?.execute::<Mask>(&mut ctx)?;
 
             Ok(mask.bitand(&dict_mask))
         }))
@@ -270,11 +231,7 @@ impl LayoutReader for DictReader {
             .to_array()
             .optimize()?;
 
-            if *USE_VORTEX_OPERATORS {
-                array.apply(&expr)
-            } else {
-                expr.evaluate(&array)
-            }
+            array.apply(&expr)
         }
         .boxed())
     }

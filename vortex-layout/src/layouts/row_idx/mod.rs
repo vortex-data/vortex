@@ -41,7 +41,6 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ArrayFuture;
 use crate::LayoutReader;
-use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::partitioned::PartitionedExprEval;
 
 pub struct RowIdxLayoutReader {
@@ -263,12 +262,8 @@ fn row_idx_mask_future(
     MaskFuture::new(mask.len(), async move {
         let array = idx_array(row_offset, &row_range).into_array();
 
-        let result_mask = if *USE_VORTEX_OPERATORS {
-            let mut ctx = session.create_execution_ctx();
-            array.apply(&expr)?.execute::<Mask>(&mut ctx)
-        } else {
-            expr.evaluate(&array)?.try_to_mask_fill_null_false()
-        }?;
+        let mut ctx = session.create_execution_ctx();
+        let result_mask = array.apply(&expr)?.execute::<Mask>(&mut ctx)?;
 
         Ok(result_mask.bitand(&mask.await?))
     })
@@ -285,11 +280,7 @@ fn row_idx_array_future(
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
         let array = filter(&array, &mask.await?)?;
-        if *USE_VORTEX_OPERATORS {
-            array.apply(&expr)
-        } else {
-            expr.evaluate(&array)
-        }
+        array.apply(&expr)
     }
     .boxed()
 }

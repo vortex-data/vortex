@@ -29,9 +29,6 @@ use crate::ArrayHash;
 use crate::Canonical;
 use crate::DynArrayEq;
 use crate::DynArrayHash;
-use crate::LEGACY_SESSION;
-use crate::USE_VORTEX_OPERATORS;
-use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
@@ -628,12 +625,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> Canonical {
-        let canonical = if *USE_VORTEX_OPERATORS {
-            V::execute(&self.0, &mut LEGACY_SESSION.create_execution_ctx())
-                .vortex_expect("legacy to_canonical cannot panic")
-        } else {
-            <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)
-        };
+        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0);
 
         assert_eq!(
             self.len(),

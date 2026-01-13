@@ -39,7 +39,6 @@ use vortex::encodings::sequence::SequenceVTable;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 
 use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
 use crate::duckdb::DataChunk;
@@ -62,13 +61,7 @@ impl ArrayExporter {
         let fields = array
             .fields()
             .iter()
-            .map(|field| {
-                if *USE_VORTEX_OPERATORS {
-                    new_operator_array_exporter(field.clone(), cache, ctx)
-                } else {
-                    new_array_exporter(field.as_ref(), cache)
-                }
-            })
+            .map(|field| new_operator_array_exporter(field.clone(), cache, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Self {
             fields,

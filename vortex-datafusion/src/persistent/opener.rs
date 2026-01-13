@@ -8,7 +8,6 @@ use std::sync::Weak;
 use arrow_schema::ArrowError;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
-use datafusion_common::arrow::array::RecordBatch;
 use datafusion_datasource::FileRange;
 use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
@@ -40,7 +39,6 @@ use vortex::error::vortex_err;
 use vortex::expr::root;
 use vortex::expr::select;
 use vortex::layout::LayoutReader;
-use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
@@ -296,13 +294,9 @@ impl FileOpener for VortexOpener {
                 .with_some_filter(filter)
                 .with_ordered(has_output_ordering)
                 .map(move |chunk| {
-                    if *USE_VORTEX_OPERATORS {
-                        let schema = chunk.dtype().to_arrow_schema()?;
-                        let mut ctx = chunk_session.create_execution_ctx();
-                        chunk.execute_record_batch(&schema, &mut ctx)
-                    } else {
-                        RecordBatch::try_from(chunk.as_ref())
-                    }
+                    let schema = chunk.dtype().to_arrow_schema()?;
+                    let mut ctx = chunk_session.create_execution_ctx();
+                    chunk.execute_record_batch(&schema, &mut ctx)
                 })
                 .into_stream()
                 .map_err(|e| {

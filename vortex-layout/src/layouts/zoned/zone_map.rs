@@ -25,7 +25,6 @@ use vortex_error::vortex_bail;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-use crate::layouts::USE_VORTEX_OPERATORS;
 use crate::layouts::zoned::builder::MAX_IS_TRUNCATED;
 use crate::layouts::zoned::builder::MIN_IS_TRUNCATED;
 use crate::layouts::zoned::builder::StatsArrayBuilder;
@@ -151,17 +150,11 @@ impl ZoneMap {
     ///
     /// All zones where the predicate evaluates to `true` can be skipped entirely.
     pub fn prune(&self, predicate: &Expression, session: &VortexSession) -> VortexResult<Mask> {
-        if *USE_VORTEX_OPERATORS {
-            let mut ctx = session.create_execution_ctx();
-            self.array
-                .to_array()
-                .apply(predicate)?
-                .execute::<Mask>(&mut ctx)
-        } else {
-            predicate
-                .evaluate(&self.array.to_array())?
-                .try_to_mask_fill_null_false()
-        }
+        let mut ctx = session.create_execution_ctx();
+        self.array
+            .to_array()
+            .apply(predicate)?
+            .execute::<Mask>(&mut ctx)
     }
 }
 

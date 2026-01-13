@@ -13,10 +13,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrow::ArrowArrayExecutor;
-use vortex_array::arrow::IntoArrowArray;
 use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
-use vortex_layout::layouts::USE_VORTEX_OPERATORS;
 
 use crate::ScanBuilder;
 
@@ -69,13 +67,8 @@ fn to_record_batch(
     data_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    if *USE_VORTEX_OPERATORS {
-        let arrow = chunk.execute_arrow(data_type, ctx)?;
-        Ok(RecordBatch::from(arrow.as_struct().clone()))
-    } else {
-        let arrow = chunk.into_arrow(data_type)?;
-        Ok(RecordBatch::from(arrow.as_struct().clone()))
-    }
+    let arrow = chunk.execute_arrow(data_type, ctx)?;
+    Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
 /// We create an adapter for record batch iterators that supports clone.
