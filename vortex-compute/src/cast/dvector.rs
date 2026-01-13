@@ -6,6 +6,7 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PrecisionScale;
+use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -154,6 +155,13 @@ impl<D: NativeDecimalType> Cast for DScalar<D> {
                     )
                     .map(|ds| ds.into())
                     .ok_or_else(|| vortex_err!("Couldn't cast DScalar ({self:?} to {ddt:?}"))
+                } else if p <= <i256 as NativeDecimalType>::MAX_PRECISION {
+                    DScalar::maybe_new(
+                        PrecisionScale::<i256>::new(ddt.precision(), ddt.scale()),
+                        self.value().and_then(|v| v.to_i256()),
+                    )
+                    .map(|ds| ds.into())
+                    .ok_or_else(|| vortex_err!("Couldn't cast DScalar ({self:?} to {ddt:?}"))
                 } else {
                     vortex_bail!(
                         "Target precision {p} is out of range for supported decimal values"
@@ -182,6 +190,7 @@ mod tests {
     use vortex_dtype::NativeDecimalType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PrecisionScale;
+    use vortex_dtype::i256;
     use vortex_error::VortexResult;
     use vortex_vector::ScalarOps;
     use vortex_vector::decimal::DScalar;
@@ -353,6 +362,7 @@ mod tests {
     #[case(<i32 as NativeDecimalType>::MAX_PRECISION)]
     #[case(<i64 as NativeDecimalType>::MAX_PRECISION)]
     #[case(<i128 as NativeDecimalType>::MAX_PRECISION)]
+    #[case(<i256 as NativeDecimalType>::MAX_PRECISION)]
     fn cast_dscalar_to_max_precision_boundary(#[case] target_precision: u8) -> VortexResult<()> {
         let ps = PrecisionScale::<i8>::new(1, 0);
         let scalar = DScalar::maybe_new(ps, Some(1i8)).unwrap();
