@@ -113,12 +113,14 @@ impl VTable for RunEndVTable {
 
         let values = children.get(1, dtype, runs)?;
 
-        RunEndArray::try_new_offset_length(
-            ends,
-            values,
-            usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize"),
-            len,
-        )
+        let offset = usize::try_from(metadata.offset).vortex_expect("Offset must be a valid usize");
+
+        if cfg!(debug_assertions) {
+            RunEndArray::try_new_offset_length(ends, values, offset, len)
+        } else {
+            // SAFETY: Layout/metadata are validated at write time; children are type-checked above.
+            Ok(unsafe { RunEndArray::new_unchecked(ends, values, offset, len) })
+        }
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

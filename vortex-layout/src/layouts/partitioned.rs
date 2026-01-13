@@ -123,10 +123,15 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
             let field_arrays = try_join_all(field_evals);
             let (field_arrays, mask) = try_join!(field_arrays, mask)?;
 
+            let row_count = field_arrays
+                .first()
+                .map(|array| array.len())
+                .unwrap_or_else(|| mask.true_count());
+
             let root_scope = StructArray::try_new(
                 self.partition_names.clone(),
                 field_arrays,
-                mask.true_count(),
+                row_count,
                 Validity::NonNullable,
             )?
             .into_array();
