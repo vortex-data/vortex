@@ -4,6 +4,7 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::compute::mask;
@@ -54,5 +55,10 @@ impl MaskedArray {
         // Invert the validity mask - we want to set values to null where validity is false.
         let inverted_mask = !self.validity.to_mask(self.len());
         mask(&self.child, &inverted_mask)
+    }
+
+    /// Get the validity mask for this array.
+    pub fn validity_mask(&self) -> Mask {
+        self.validity.to_mask(self.len())
     }
 }

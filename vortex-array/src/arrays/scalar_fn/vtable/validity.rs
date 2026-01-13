@@ -7,9 +7,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
 use crate::Array;
+use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
@@ -95,7 +97,8 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         match output {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
             CanonicalOutput::Array(a) => a
-                .to_vector(&mut ctx)
+                .into_array()
+                .execute::<Vector>(&mut ctx)
                 .vortex_expect("Failed to convert canonical to vector")
                 .validity()
                 .clone(),

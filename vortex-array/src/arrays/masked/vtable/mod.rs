@@ -11,15 +11,18 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
-use crate::compute::mask;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -109,8 +112,27 @@ impl VTable for MaskedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        // TODO(joe): remove compute function.
-        mask(array.child(), &array.validity_mask()).and_then(|a| a.execute(ctx))
+        if let Some(canonical) = execute_fast_path(array, ctx)? {
+            return Ok(canonical);
+        }
+
+        let child = array.child().clone().execute::<Canonical>(ctx)?;
+        let canonical = mask_validity_canonical(child, &array.validity_mask());
+
+        vortex_ensure!(
+            canonical.as_ref().dtype() == array.dtype(),
+            "Mask result dtype mismatch: expected {:?}, got {:?}",
+            array.dtype(),
+            canonical.as_ref().dtype()
+        );
+        vortex_ensure!(
+            canonical.as_ref().len() == array.len(),
+            "Mask result length mismatch: expected {}, got {}",
+            array.len(),
+            canonical.as_ref().len()
+        );
+
+        Ok(canonical)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -134,6 +156,35 @@ impl VTable for MaskedVTable {
         *array = new_array;
         Ok(())
     }
+}
+
+/// Check for fast-path execution conditions.
+pub(super) fn execute_fast_path(
+    array: &MaskedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    let validity_mask = array.validity_mask();
+
+    // All valid - no masking needed
+    if validity_mask.all_true() {
+        return Ok(Some(array.child.clone().execute(ctx)?));
+    }
+
+    // All masked - result is all nulls
+    if validity_mask.all_false() {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                .into_array()
+                .execute::<Canonical>(ctx)?,
+        ));
+    }
+
+    // Child is already all nulls - masking has no effect
+    if array.child.all_invalid() {
+        return Ok(Some(array.child.clone().execute(ctx)?));
+    }
+
+    Ok(None)
 }
 
 #[cfg(test)]

@@ -3,7 +3,8 @@
 
 use std::mem::transmute;
 
-use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::chunk_range;
@@ -13,13 +14,14 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
 
 use crate::ALPArray;
 use crate::ALPFloat;
 use crate::Exponents;
 use crate::match_each_alp_float_ptype;
 
-/// Decompresses an ALP-encoded array.
+/// Decompresses an ALP-encoded array using `to_primitive` (legacy path).
 ///
 /// # Returns
 ///
@@ -29,50 +31,97 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
-        decompress_chunked(
-            encoded,
+        let prim_encoded = encoded.to_primitive();
+        // We need to drop ALPArray here in case converting encoded buffer into
+        // primitive didn't create a copy. In that case both alp_encoded and array
+        // will hold a reference to the buffer we want to mutate.
+        drop(encoded);
+        let patches_chunk_offsets = chunk_offsets.as_ref().to_primitive();
+        let patches_indices = patches.indices().to_primitive();
+        let patches_values = patches.values().to_primitive();
+        decompress_chunked_core(
+            prim_encoded,
             exponents,
+            &patches_indices,
+            &patches_values,
+            &patches_chunk_offsets,
             patches,
-            &chunk_offsets.as_ref().to_primitive(),
             dtype,
         )
     } else {
-        decompress_unchunked(encoded, exponents, patches, dtype)
+        let encoded_prim = encoded.to_primitive();
+        // We need to drop ALPArray here in case converting encoded buffer into
+        // primitive didn't create a copy. In that case both alp_encoded and array
+        // will hold a reference to the buffer we want to mutate.
+        drop(encoded);
+        decompress_unchunked_core(encoded_prim, exponents, patches, dtype)
     }
 }
 
-/// Decompresses an ALP-encoded array in 1024-element chunks.
+/// Decompresses an ALP-encoded array using `execute` (execution path).
+///
+/// This version uses `execute` on child arrays instead of `to_primitive`,
+/// ensuring proper recursive execution through the execution context.
 ///
 /// # Returns
 ///
-/// A `PrimitiveArray` containing the decompressed values with all patches applied.
+/// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
+pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
+    let (encoded, exponents, patches, dtype) = array.into_parts();
+    if let Some(ref patches) = patches
+        && let Some(chunk_offsets) = patches.chunk_offsets()
+    {
+        let encoded = encoded.execute::<Canonical>(ctx)?.into_primitive();
+        let patches_chunk_offsets = chunk_offsets
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+        let patches_indices = patches
+            .indices()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+        let patches_values = patches
+            .values()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+        Ok(decompress_chunked_core(
+            encoded,
+            exponents,
+            &patches_indices,
+            &patches_values,
+            &patches_chunk_offsets,
+            patches,
+            dtype,
+        ))
+    } else {
+        let encoded = encoded.execute::<Canonical>(ctx)?.into_primitive();
+        Ok(decompress_unchunked_core(encoded, exponents, None, dtype))
+    }
+}
+
+/// Core decompression logic for chunked ALP arrays.
+///
+/// Takes pre-resolved `PrimitiveArray` inputs to avoid duplication between
+/// the `to_primitive` and `execute` paths.
 #[expect(
     clippy::cognitive_complexity,
     reason = "complexity is from nested match_each_* macros"
 )]
-fn decompress_chunked(
-    array: ArrayRef,
+fn decompress_chunked_core(
+    encoded: PrimitiveArray,
     exponents: Exponents,
-    patches: &Patches,
+    patches_indices: &PrimitiveArray,
+    patches_values: &PrimitiveArray,
     patches_chunk_offsets: &PrimitiveArray,
+    patches: &Patches,
     dtype: DType,
 ) -> PrimitiveArray {
-    let encoded = array.to_primitive();
-
     let validity = encoded.validity().clone();
-
-    let patches_indices = patches.indices().to_primitive();
-    let patches_values = patches.values().to_primitive();
     let ptype = dtype.as_ptype();
-    let array_len = array.len();
-
-    // Number of patches to skip at the start of the first chunk.
+    let array_len = encoded.len();
     let offset_within_chunk = patches.offset_within_chunk().unwrap_or(0);
-
-    // We need to drop ALPArray here in case converting encoded buffer into
-    // primitive didn't create a copy. In that case both alp_encoded and array
-    // will hold a reference to the buffer we want to mutate.
-    drop(array);
 
     match_each_alp_float_ptype!(ptype, |T| {
         let patches_values = patches_values.as_slice::<T>();
@@ -108,24 +157,16 @@ fn decompress_chunked(
     })
 }
 
-/// Decompresses an ALP-encoded array without chunk offsets.
+/// Core decompression logic for unchunked ALP arrays.
 ///
-/// # Returns
-///
-/// A `PrimitiveArray` containing the decompressed values with all patches applied.
-fn decompress_unchunked(
-    array: ArrayRef,
+/// Takes a pre-resolved `PrimitiveArray` to avoid duplication between
+/// the `to_primitive` and `execute` paths.
+fn decompress_unchunked_core(
+    encoded: PrimitiveArray,
     exponents: Exponents,
     patches: Option<Patches>,
     dtype: DType,
 ) -> PrimitiveArray {
-    let encoded = array.to_primitive();
-
-    // We need to drop ALPArray here in case converting encoded buffer into
-    // primitive didn't create a copy. In that case both alp_encoded and array
-    // will hold a reference to the buffer we want to mutate.
-    drop(array);
-
     let validity = encoded.validity().clone();
     let ptype = dtype.as_ptype();
 

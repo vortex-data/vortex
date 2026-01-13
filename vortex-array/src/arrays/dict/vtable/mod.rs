@@ -8,17 +8,20 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
 
 use super::DictArray;
 use super::DictMetadata;
+use super::take_canonical;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
+use crate::arrays::ConstantArray;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -131,8 +134,41 @@ impl VTable for DictVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        // TODO(joe): remove take compute fn
-        take(array.values(), array.codes()).and_then(|a| a.execute(ctx))
+        if let Some(canonical) = execute_fast_path(array, ctx)? {
+            return Ok(canonical);
+        }
+
+        let values = array.values().clone().execute::<Canonical>(ctx)?;
+        let codes = array
+            .codes()
+            .clone()
+            .execute::<Canonical>(ctx)?
+            .into_primitive();
+
+        // TODO(ngates): if indices are sorted and unique (strict-sorted), then we should delegate to
+        //  the filter function since they're typically optimised for this case.
+        // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
+        //  such that canonicalize does less work.
+
+        let canonical = take_canonical(values, &codes);
+
+        let result_dtype = array
+            .dtype()
+            .union_nullability(array.codes().dtype().nullability());
+        vortex_ensure!(
+            canonical.as_ref().dtype() == &result_dtype,
+            "Dict result dtype mismatch: expected {:?}, got {:?}",
+            result_dtype,
+            canonical.as_ref().dtype()
+        );
+        vortex_ensure!(
+            canonical.as_ref().len() == array.len(),
+            "Dict result length mismatch: expected {}, got {}",
+            array.len(),
+            canonical.as_ref().len()
+        );
+
+        Ok(canonical)
     }
 
     fn reduce_parent(
@@ -142,4 +178,29 @@ impl VTable for DictVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+}
+
+/// Check for fast-path execution conditions.
+pub(super) fn execute_fast_path(
+    array: &DictArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    // Empty array - nothing to do
+    if array.is_empty() {
+        let result_dtype = array
+            .dtype()
+            .union_nullability(array.codes().dtype().nullability());
+        return Ok(Some(Canonical::empty(&result_dtype)));
+    }
+
+    // All codes are null - result is all nulls
+    if array.codes.all_invalid() {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
+                .into_array()
+                .execute(ctx)?,
+        ));
+    }
+
+    Ok(None)
 }

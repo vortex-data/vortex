@@ -47,6 +47,7 @@ use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::alp_encode;
 use crate::alp::decompress::decompress_into_array;
+use crate::alp::decompress::execute_decompress;
 
 vtable!(ALP);
 
@@ -183,9 +184,12 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // TODO(joe): take by value
-        Ok(decompress_into_array(array.clone()).to_canonical())
+        Ok(Canonical::Primitive(execute_decompress(
+            array.clone(),
+            ctx,
+        )?))
     }
 }
 

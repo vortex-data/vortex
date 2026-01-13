@@ -3,9 +3,11 @@
 
 use vortex_error::VortexExpect;
 use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::Canonical;
+use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
@@ -28,7 +30,8 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             ) {
                 CanonicalOutput::Constant(c) => Datum::Scalar(c.scalar().to_vector_scalar()),
                 CanonicalOutput::Array(a) => Datum::Vector(
-                    a.to_vector(&mut ctx)
+                    a.into_array()
+                        .execute::<Vector>(&mut ctx)
                         .vortex_expect("Failed to convert canonical to vector"),
                 ),
             };
@@ -49,6 +52,6 @@ impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
             .vortex_expect("Canonicalize should be fallible")
             .unwrap_into_vector(len);
 
-        result_vector.into_array(&array.dtype).to_canonical()
+        result_vector.into_array(&array.dtype)
     }
 }
