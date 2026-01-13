@@ -15,7 +15,7 @@ use crate::executor::CudaExecute;
 /// Maintains a registry of CUDA kernel implementations for array encodings.
 #[derive(Debug, Default)]
 pub struct CudaSession {
-    executors: DashMap<ArrayId, &'static dyn CudaExecute>,
+    kernels: DashMap<ArrayId, &'static dyn CudaExecute>,
 }
 
 impl CudaSession {
@@ -29,8 +29,8 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
-    pub fn register(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
-        self.executors.insert(array_id, executor);
+    pub fn register_kernel(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
+        self.kernels.insert(array_id, executor);
     }
 
     /// Retrieves the CUDA support implementation for an encoding, if registered.
@@ -38,22 +38,8 @@ impl CudaSession {
     /// # Arguments
     ///
     /// * `array_id` - The encoding ID to look up
-    pub fn executor(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
-        self.executors.get(array_id).map(|entry| *entry.value())
-    }
-
-    /// Returns the number of registered executors.
-    pub fn executor_count(&self) -> usize {
-        self.executors.len()
-    }
-
-    /// Checks whether CUDA support is registered for a specific encoding.
-    ///
-    /// # Arguments
-    ///
-    /// * `array_id` - The encoding ID to check
-    pub fn has_executor(&self, array_id: &ArrayId) -> bool {
-        self.executors.contains_key(array_id)
+    pub fn kernel(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
+        self.kernels.get(array_id).map(|entry| *entry.value())
     }
 }
 

@@ -146,7 +146,7 @@ impl CudaArrayExt for ArrayRef {
             return Ok(self.to_canonical());
         }
 
-        let Some(support) = ctx.session.executor(&self.encoding_id()) else {
+        let Some(support) = ctx.session.kernel(&self.encoding_id()) else {
             tracing::debug!(
                 encoding = %self.encoding().id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
