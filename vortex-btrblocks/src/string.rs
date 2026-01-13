@@ -412,6 +412,8 @@ impl Scheme for NullDominated {
         // We pass None as we only run this pathway for NULL-dominated float arrays
         let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
 
+        println!("spare ennc {}", sparse_encoded.display_tree());
+
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
             let new_excludes = vec![integer::SparseScheme.code()];
@@ -424,6 +426,8 @@ impl Scheme for NullDominated {
                 allowed_cascading - 1,
                 &new_excludes,
             )?;
+
+            println!("sparse {}", compressed_indices.display_tree());
 
             SparseArray::try_new(
                 compressed_indices,
@@ -440,6 +444,7 @@ impl Scheme for NullDominated {
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -479,6 +484,10 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
-        assert!(compressed.is::<SparseVTable>());
+        assert!(
+            compressed.is::<SparseVTable>(),
+            "got encoding {}",
+            compressed.encoding()
+        );
     }
 }

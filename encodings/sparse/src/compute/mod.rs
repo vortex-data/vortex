@@ -15,8 +15,15 @@ use crate::SparseVTable;
 
 mod binary_numeric;
 mod cast;
+mod filter;
 mod invert;
 mod take;
+
+use filter::SparseFilterKernel;
+use vortex_array::kernel::ParentKernelSet;
+
+pub(crate) const PARENT_KERNELS: ParentKernelSet<SparseVTable> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&SparseFilterKernel)]);
 
 impl FilterKernel for SparseVTable {
     fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -37,11 +44,15 @@ register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -49,16 +60,20 @@ mod test {
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::compute::filter;
+    use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
+    use vortex_session::VortexSession;
 
     use crate::SparseArray;
-    use crate::SparseVTable;
+
+    pub static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
 
     #[fixture]
     fn array() -> ArrayRef {
@@ -73,42 +88,107 @@ mod test {
     }
 
     #[rstest]
-    fn test_filter(array: ArrayRef) {
+    fn test_filter(array: ArrayRef) -> VortexResult<()> {
         let mut predicate = vec![false, false, true];
         predicate.extend_from_slice(&[false; 17]);
         let mask = Mask::from_iter(predicate);
+        let mut ctx = SESSION.create_execution_ctx();
 
-        let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = filtered_array.as_::<SparseVTable>();
+        let filtered_array = filter(&array, &mask)?;
+        let filtered_array = filtered_array.execute::<Canonical>(&mut ctx)?;
 
         assert_eq!(filtered_array.len(), 1);
-        assert_eq!(filtered_array.patches().values().len(), 1);
         assert_arrays_eq!(
-            filtered_array.patches().indices(),
-            PrimitiveArray::from_iter([0u64])
+            filtered_array.into_primitive(),
+            PrimitiveArray::from_option_iter([Some(33_i32)])
         );
+
+        Ok(())
     }
 
     #[test]
-    fn true_fill_value() {
+    fn true_fill_value() -> VortexResult<()> {
         let mask = Mask::from_iter([false, true, false, true, false, true, true]);
         let array = SparseArray::try_new(
             buffer![0_u64, 3, 6].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
             Scalar::null_typed::<i32>(),
-        )
-        .unwrap()
+        )?
         .into_array();
+        let mut ctx = SESSION.create_execution_ctx();
 
-        let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = filtered_array.as_::<SparseVTable>();
+        let filtered_array = filter(&array, &mask)?.optimize()?;
+        let filtered_array = filtered_array.execute::<Canonical>(&mut ctx)?;
 
         assert_eq!(filtered_array.len(), 4);
         assert_arrays_eq!(
-            filtered_array.patches().indices(),
-            PrimitiveArray::from_iter([1u64, 3])
+            filtered_array.into_primitive(),
+            PrimitiveArray::from_option_iter([None, Some(44_i32), None, Some(55)])
         );
+
+        Ok(())
+    }
+
+    /// Test that the SparseFilterKernel execute_parent is invoked when executing
+    /// a FilterArray wrapping a SparseArray.
+    #[test]
+    fn test_sparse_filter_execute_parent() -> VortexResult<()> {
+        // Create a sparse array: [null, null, 100, null, 200, null]
+        let sparse = SparseArray::try_new(
+            buffer![2u64, 4].into_array(),
+            PrimitiveArray::new(buffer![100i32, 200], Validity::AllValid).into_array(),
+            6,
+            Scalar::null_typed::<i32>(),
+        )?
+        .into_array();
+
+        // Create a filter mask that selects indices [1, 2, 4, 5]
+        // This should result in: [null, 100, 200, null]
+        let mask = Mask::from_iter([false, true, true, false, true, true]);
+
+        // Create a FilterArray directly (bypassing the filter compute function)
+        let filter_array = FilterArray::new(sparse, mask).into_array();
+
+        // Execute the filter - this should trigger execute_parent on SparseVTable
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        assert_eq!(result.len(), 4);
+        assert_arrays_eq!(
+            result.into_primitive(),
+            PrimitiveArray::from_option_iter([None, Some(100i32), Some(200), None])
+        );
+
+        Ok(())
+    }
+
+    /// Test execute_parent with a non-null fill value
+    #[test]
+    fn test_sparse_filter_execute_parent_with_fill_value() -> VortexResult<()> {
+        // Create a sparse array with fill value 42: [42, 42, 100, 42, 200, 42]
+        let sparse = SparseArray::try_new(
+            buffer![2u64, 4].into_array(),
+            buffer![100i32, 200].into_array(),
+            6,
+            Scalar::from(42i32),
+        )?
+        .into_array();
+
+        // Filter to select [1, 2, 3] -> [42, 100, 42]
+        let mask = Mask::from_iter([false, true, true, true, false, false]);
+        let filter_array = FilterArray::new(sparse, mask).into_array();
+
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        assert_eq!(result.len(), 3);
+        assert_arrays_eq!(
+            result.into_primitive(),
+            PrimitiveArray::from_iter([42i32, 100, 42])
+        );
+
+        Ok(())
     }
 
     #[rstest]

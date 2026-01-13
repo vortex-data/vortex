@@ -8,12 +8,15 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType::I32;
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::*;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::builders::ArrayBuilder;
@@ -22,23 +25,24 @@ use crate::compute::filter;
 use crate::validity::Validity;
 
 #[test]
-fn test_empty_list_array() {
+fn test_empty_list_array() -> VortexResult<()> {
     let elements = PrimitiveArray::empty::<u32>(Nullability::NonNullable);
     let offsets = buffer![0].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets, validity).unwrap();
+    let list = ListArray::try_new(elements.into_array(), offsets, validity)?;
 
     assert_eq!(0, list.len());
+    Ok(())
 }
 
 #[test]
-fn test_simple_list_array() {
+fn test_simple_list_array() -> VortexResult<()> {
     let elements = buffer![1i32, 2, 3, 4, 5].into_array();
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity)?;
 
     assert_eq!(
         Scalar::list(
@@ -60,56 +64,54 @@ fn test_simple_list_array() {
         Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
         list.scalar_at(2)
     );
+    Ok(())
 }
 
 #[test]
-fn test_simple_list_array_from_iter() {
+fn test_simple_list_array_from_iter() -> VortexResult<()> {
     let elements = buffer![1i32, 2, 3].into_array();
     let offsets = buffer![0, 2, 3].into_array();
     let validity = Validity::NonNullable;
 
-    let list = ListArray::try_new(elements, offsets, validity).unwrap();
+    let list = ListArray::try_new(elements, offsets, validity)?;
 
     let list_from_iter =
-        ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))
-            .unwrap();
+        ListArray::from_iter_slow::<u32, _>(vec![vec![1i32, 2], vec![3]], Arc::new(I32.into()))?;
 
     assert_eq!(list.len(), list_from_iter.len());
     assert_eq!(list.scalar_at(0), list_from_iter.scalar_at(0));
     assert_eq!(list.scalar_at(1), list_from_iter.scalar_at(1));
+    Ok(())
 }
 
 #[test]
-fn test_simple_list_filter() {
+fn test_simple_list_filter() -> VortexResult<()> {
     let elements = PrimitiveArray::from_option_iter([None, Some(2), Some(3), Some(4), Some(5)]);
     let offsets = buffer![0, 2, 4, 5].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements.into_array(), offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements.into_array(), offsets, validity)?.into_array();
 
-    let filtered = filter(&list, &Mask::from(BitBuffer::from(vec![false, true, true])));
+    let _filtered = filter(&list, &Mask::from(BitBuffer::from(vec![false, true, true])))?;
 
-    assert!(filtered.is_ok())
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_dense_mask() {
+fn test_list_filter_dense_mask() -> VortexResult<()> {
     // Test filtering with a dense mask (high density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     // Dense mask: keep most elements (indices 1, 2, 3, 4, 5).
     let mask = Mask::from(BitBuffer::from(vec![false, true, true, true, true, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     // Should have 5 lists remaining.
     assert_eq!(filtered_list.len(), 5);
@@ -119,26 +121,26 @@ fn test_list_filter_dense_mask() {
     assert_eq!(first_list.len(), 15); // 25 - 10
     assert_eq!(first_list.scalar_at(0), 10.into());
     assert_eq!(first_list.scalar_at(14), 24.into());
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_sparse_mask() {
+fn test_list_filter_sparse_mask() -> VortexResult<()> {
     // Test filtering with a sparse mask (low density of true values).
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 10, 25, 40, 60, 85, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     // Sparse mask: keep only a few elements (indices 0 and 5).
     let mask = Mask::from(BitBuffer::from(vec![
         true, false, false, false, false, true,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     // Should have 2 lists remaining.
     assert_eq!(filtered_list.len(), 2);
@@ -154,23 +156,23 @@ fn test_list_filter_sparse_mask() {
     assert_eq!(second_list.len(), 15); // 100 - 85
     assert_eq!(second_list.scalar_at(0), 85.into());
     assert_eq!(second_list.scalar_at(14), 99.into());
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_empty_lists() {
+fn test_list_filter_empty_lists() -> VortexResult<()> {
     // Test filtering arrays that contain empty lists.
     let elements = buffer![0..10].into_array();
     let offsets = buffer![0, 0, 3, 3, 7, 10, 10].into_array(); // Lists at indices 0, 2, 5 are empty.
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::from(BitBuffer::from(vec![true, true, true, false, false, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     assert_eq!(filtered_list.len(), 4);
 
@@ -187,10 +189,11 @@ fn test_list_filter_empty_lists() {
 
     // Fourth list is empty.
     assert_eq!(filtered_list.list_elements_at(3).len(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_with_nulls() {
+fn test_list_filter_with_nulls() -> VortexResult<()> {
     // Test filtering lists with null validity.
     let elements = buffer![0..15].into_array();
     let offsets = buffer![0, 3, 7, 10, 12, 15].into_array();
@@ -199,14 +202,13 @@ fn test_list_filter_with_nulls() {
         Nullability::Nullable,
     );
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::from(BitBuffer::from(vec![true, true, false, true, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     assert_eq!(filtered_list.len(), 4);
 
@@ -215,23 +217,23 @@ fn test_list_filter_with_nulls() {
     assert!(!filtered_list.scalar_at(1).is_valid()); // Was null.
     assert!(!filtered_list.scalar_at(2).is_valid()); // Was null.
     assert!(filtered_list.scalar_at(3).is_valid());
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_all_true() {
+fn test_list_filter_all_true() -> VortexResult<()> {
     // Test filtering with an all-true mask.
     let elements = buffer![0..20].into_array();
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::AllTrue(4);
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     // All lists should be preserved.
     assert_eq!(filtered_list.len(), 4);
@@ -242,43 +244,42 @@ fn test_list_filter_all_true() {
         assert_eq!(list_at_i.len(), 5);
         assert_eq!(list_at_i.scalar_at(0), (i * 5).into());
     }
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_all_false() {
+fn test_list_filter_all_false() -> VortexResult<()> {
     // Test filtering with an all-false mask.
     let elements = buffer![0..20].into_array();
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::AllFalse(4);
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = filter(&list, &mask)?;
 
     // When mask is AllFalse, filter returns a canonical empty array (ListViewArray).
     // We need to check the length directly without casting to a specific type.
     assert_eq!(filtered.len(), 0);
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_single_element() {
+fn test_list_filter_single_element() -> VortexResult<()> {
     // Test filtering to keep only one element.
     let elements = buffer![0..50].into_array();
     let offsets = buffer![0, 10, 20, 30, 40, 50].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::from(BitBuffer::from(vec![false, false, true, false, false]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     assert_eq!(filtered_list.len(), 1);
 
@@ -286,26 +287,26 @@ fn test_list_filter_single_element() {
     assert_eq!(single_list.len(), 10);
     assert_eq!(single_list.scalar_at(0), 20.into());
     assert_eq!(single_list.scalar_at(9), 29.into());
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_alternating_pattern() {
+fn test_list_filter_alternating_pattern() -> VortexResult<()> {
     // Test filtering with an alternating pattern.
     let elements = buffer![0..60].into_array();
     let offsets = buffer![0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     // Keep every other list.
     let mask = Mask::from(BitBuffer::from(vec![
         true, false, true, false, true, false, true, false, true, false, true, false,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     assert_eq!(filtered_list.len(), 6);
 
@@ -315,25 +316,25 @@ fn test_list_filter_alternating_pattern() {
         assert_eq!(list_at_i.len(), 5);
         assert_eq!(list_at_i.scalar_at(0), (*expected_start).into());
     }
+    Ok(())
 }
 
 #[test]
-fn test_list_filter_variable_sizes() {
+fn test_list_filter_variable_sizes() -> VortexResult<()> {
     // Test filtering lists with highly variable sizes.
     let elements = buffer![0..100].into_array();
     let offsets = buffer![0, 1, 2, 5, 10, 20, 35, 60, 100].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
-        .unwrap()
-        .into_array();
+    let list = ListArray::try_new(elements, offsets, validity)?.into_array();
 
     let mask = Mask::from(BitBuffer::from(vec![
         true, false, true, true, false, true, true, true,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let filtered = filter(&list, &mask)?;
+    let filtered_list = filtered.execute::<Canonical>(&mut ctx)?.into_listview();
 
     assert_eq!(filtered_list.len(), 6);
 
@@ -344,62 +345,53 @@ fn test_list_filter_variable_sizes() {
     assert_eq!(filtered_list.list_elements_at(3).len(), 15); // Size 15
     assert_eq!(filtered_list.list_elements_at(4).len(), 25); // Size 25
     assert_eq!(filtered_list.list_elements_at(5).len(), 40); // Size 40
+    Ok(())
 }
 
 #[test]
-fn test_offset_to_0() {
+fn test_offset_to_0() -> VortexResult<()> {
     let mut builder =
         ListBuilder::<u32>::with_capacity(Arc::new(I32.into()), Nullability::NonNullable, 10, 5);
-    builder
-        .append_value(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![1.into(), 2.into(), 3.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
+    builder.append_value(
+        Scalar::list(
+            Arc::new(I32.into()),
+            vec![1.into(), 2.into(), 3.into()],
+            Nullability::NonNullable,
         )
-        .vortex_expect("operation should succeed in test");
-    builder
-        .append_value(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![4.into(), 5.into(), 6.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
+        .as_list(),
+    )?;
+    builder.append_value(
+        Scalar::list(
+            Arc::new(I32.into()),
+            vec![4.into(), 5.into(), 6.into()],
+            Nullability::NonNullable,
         )
-        .vortex_expect("operation should succeed in test");
-    builder
-        .append_value(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![7.into(), 8.into(), 9.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
+        .as_list(),
+    )?;
+    builder.append_value(
+        Scalar::list(
+            Arc::new(I32.into()),
+            vec![7.into(), 8.into(), 9.into()],
+            Nullability::NonNullable,
         )
-        .vortex_expect("operation should succeed in test");
-    builder
-        .append_value(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![10.into(), 11.into(), 12.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
+        .as_list(),
+    )?;
+    builder.append_value(
+        Scalar::list(
+            Arc::new(I32.into()),
+            vec![10.into(), 11.into(), 12.into()],
+            Nullability::NonNullable,
         )
-        .vortex_expect("operation should succeed in test");
-    builder
-        .append_value(
-            Scalar::list(
-                Arc::new(I32.into()),
-                vec![13.into(), 14.into(), 15.into()],
-                Nullability::NonNullable,
-            )
-            .as_list(),
+        .as_list(),
+    )?;
+    builder.append_value(
+        Scalar::list(
+            Arc::new(I32.into()),
+            vec![13.into(), 14.into(), 15.into()],
+            Nullability::NonNullable,
         )
-        .vortex_expect("operation should succeed in test");
+        .as_list(),
+    )?;
     let list = builder.finish().slice(2..4);
 
     // The sliced list should be a ListArray since we built it with ListBuilder
@@ -415,6 +407,7 @@ fn test_offset_to_0() {
     // Each list has 3 elements
     assert_eq!(list_array.list_elements_at(0).len(), 3);
     assert_eq!(list_array.list_elements_at(1).len(), 3);
+    Ok(())
 }
 
 type OptVec<T> = Vec<Option<T>>;

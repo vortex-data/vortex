@@ -14,10 +14,12 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::Operator;
@@ -56,10 +58,13 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
 mod canonical;
 mod compute;
 mod ops;
+
+use compute::PARENT_KERNELS;
 
 vtable!(Sparse);
 
@@ -163,6 +168,15 @@ impl VTable for SparseVTable {
         );
 
         Ok(())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -270,7 +284,11 @@ impl SparseArray {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    pub fn encode(
+        array: &dyn Array,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && array.dtype() != fill_value.dtype()
         {
@@ -289,7 +307,10 @@ impl SparseArray {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
-            let non_null_values = filter(array, &mask)?;
+            // TODO(joe): this might do too much work.
+            let non_null_values = filter(array, &mask)?
+                .execute::<Canonical>(ctx)?
+                .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
@@ -341,7 +362,10 @@ impl SparseArray {
             .clone(),
         );
 
-        let non_top_values = filter(array, &non_top_mask)?;
+        // TODO(joe): this might do too much work.
+        let non_top_values = filter(array, &non_top_mask)?
+            .execute::<Canonical>(ctx)?
+            .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
             Mask::AllTrue(count) => {
@@ -499,8 +523,9 @@ impl EncodeVTable<SparseVTable> for SparseVTable {
         // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
         let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
 
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         // TODO(ngates): encode should only handle arrays that _can_ be made sparse.
-        Ok(SparseArray::encode(input.as_ref(), fill_value)?
+        Ok(SparseArray::encode(input.as_ref(), fill_value, &mut ctx)?
             .as_opt::<SparseVTable>()
             .cloned())
     }
@@ -674,6 +699,7 @@ mod test {
 
     #[test]
     fn encode_with_nulls() {
+        let mut ctx = VortexSession::empty().create_execution_ctx();
         let sparse = SparseArray::encode(
             &PrimitiveArray::new(
                 buffer![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
@@ -683,6 +709,7 @@ mod test {
             )
             .into_array(),
             None,
+            &mut ctx,
         )
         .vortex_expect("SparseArray::encode should succeed for test data");
         let canonical = sparse.to_primitive();

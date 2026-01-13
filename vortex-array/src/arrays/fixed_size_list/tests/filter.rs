@@ -364,7 +364,7 @@ fn test_mask_expansion_threshold_boundary() -> VortexResult<()> {
     sparse_mask[25] = true;
     sparse_mask[75] = true;
     let mask = Mask::from(BitBuffer::from(sparse_mask));
-    let mut ctx = &mut LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
     let filtered = filter(fsl.as_ref(), &mask)?;
     let filtered_fsl = filtered.execute::<Canonical>(&mut ctx)?;
@@ -422,7 +422,7 @@ fn test_filter_large_list_size() -> VortexResult<()> {
         Validity::NonNullable,
         num_lists,
     );
-    let mut ctx = &mut LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
 
     // Apply a filter keeping lists 1, 3, 4.
     let mask = Mask::from_iter([false, true, false, true, true]);
