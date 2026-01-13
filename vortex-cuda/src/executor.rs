@@ -3,6 +3,8 @@
 
 use std::fmt::Debug;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaContext;
@@ -10,11 +12,14 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::ValidAsZeroBits;
+use dashmap::DashMap;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::session::CudaSession;
 
@@ -22,17 +27,28 @@ use crate::session::CudaSession;
 ///
 /// Provides access to the CUDA context and stream for kernel execution.
 /// Handles memory allocation and data transfers between host and device.
-#[derive(Clone)]
-pub struct ExecutionCtx {
-    pub context: Arc<CudaContext>,
-    pub session: Arc<CudaSession>,
-    // hold vortex array execution context
+pub struct CudaExecutionCtx {
+    context: Arc<CudaContext>,
+    session: Arc<CudaSession>,
+    array_ctx: ExecutionCtx,
+    stream_counter: Arc<AtomicU64>,
+    streams: Arc<DashMap<u64, Arc<CudaStream>>>,
 }
 
-impl ExecutionCtx {
+impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub(crate) fn new(context: Arc<CudaContext>, session: Arc<CudaSession>) -> Self {
-        Self { context, session }
+    pub(crate) fn new(
+        context: Arc<CudaContext>,
+        session: Arc<CudaSession>,
+        array_ctx: ExecutionCtx,
+    ) -> Self {
+        Self {
+            context,
+            session,
+            array_ctx,
+            stream_counter: Arc::new(AtomicU64::new(0)),
+            streams: Arc::new(DashMap::new()),
+        }
     }
 
     /// Allocates a typed buffer on the GPU.
@@ -59,14 +75,27 @@ impl ExecutionCtx {
             .map_err(|e| vortex_err!("Failed to copy from device: {}", e))
     }
 
-    /// Returns a reference to the default CUDA stream.
-    pub fn stream(&self) -> Arc<CudaStream> {
-        self.context.
+    /// Creates a new CUDA stream with a unique index.
+    ///
+    /// Returns both the stream and its assigned index.
+    pub fn new_stream(&self) -> VortexResult<(u64, Arc<CudaStream>)> {
+        let idx = self.stream_counter.fetch_add(1, Ordering::SeqCst);
+        let stream = self
+            .context
+            .new_stream()
+            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
+        self.streams.insert(idx, stream.clone());
+        Ok((idx, stream))
     }
 
     /// Returns a reference to the CUDA context.
     pub fn context(&self) -> Arc<CudaContext> {
         self.context.clone()
+    }
+
+    /// Retrieves a previously created stream by its index.
+    pub fn stream(&self, idx: u64) -> Option<Arc<CudaStream>> {
+        self.streams.get(&idx).map(|entry| entry.clone())
     }
 
     /// Synchronizes the stream
@@ -92,8 +121,8 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// Returns an error if execution fails on the GPU.
     async fn execute_canonical(
         &self,
-        array: &ArrayRef,
-        ctx: &ExecutionCtx,
+        array: ArrayRef,
+        ctx: &CudaExecutionCtx,
     ) -> VortexResult<Canonical>;
 }
 
@@ -108,12 +137,12 @@ pub trait CudaArrayExt: Array {
     /// # Errors
     ///
     /// Returns an error if execution fails.
-    async fn execute_cuda(&self, ctx: &ExecutionCtx) -> VortexResult<Canonical>;
+    async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>;
 }
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
-    async fn execute_cuda(&self, ctx: &ExecutionCtx) -> VortexResult<Canonical> {
+    async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         // Short-circuit if already canonical
         if self.is_canonical() {
             return Ok(self.to_canonical());
@@ -124,7 +153,7 @@ impl CudaArrayExt for ArrayRef {
                 encoding = %self.encoding().id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
-            return Ok(self.execute(ctx));
+            return self.clone().execute(&mut ctx.array_ctx);
         };
 
         tracing::debug!(
@@ -189,8 +218,9 @@ impl CudaExecutor {
     }
 
     /// Creates a new execution context for this executor.
-    pub fn create_execution_ctx(&self) -> ExecutionCtx {
-        ExecutionCtx::new(self.context.clone(), self.session.clone())
+    pub fn create_execution_ctx(&self) -> CudaExecutionCtx {
+        let array_ctx = ExecutionCtx::new(VortexSession::empty());
+        CudaExecutionCtx::new(self.context.clone(), self.session.clone(), array_ctx)
     }
 
     /// Synchronizes the GPU device, waiting for all pending operations.

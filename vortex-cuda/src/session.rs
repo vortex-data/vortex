@@ -4,6 +4,8 @@
 use std::fmt::Debug;
 
 use vortex_array::vtable::ArrayId;
+use vortex_session::Ref;
+use vortex_session::SessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::executor::CudaExecute;
@@ -54,3 +56,12 @@ impl CudaSession {
         self.executors.contains_key(array_id)
     }
 }
+
+/// Extension trait for accessing the CUDA session from a Vortex session.
+pub trait CudaSessionExt: SessionExt {
+    /// Returns the CUDA session.
+    fn cuda(&self) -> Ref<'_, CudaSession> {
+        self.get::<CudaSession>()
+    }
+}
+impl<S: SessionExt> CudaSessionExt for S {}

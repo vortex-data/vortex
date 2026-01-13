@@ -19,6 +19,7 @@ pub use executor::CudaExecutor;
 pub use kernel::KernelConfig;
 pub use kernel::KernelRegistry;
 pub use session::CudaSession;
+pub use session::CudaSessionExt;
 
 /// Registers CUDA kernels for a given CUDA session.
 pub fn initialize_cuda(session: &CudaSession) {
