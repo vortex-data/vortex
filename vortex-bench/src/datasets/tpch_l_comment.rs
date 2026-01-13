@@ -73,7 +73,7 @@ impl Dataset for TPCHLCommentChunked {
                 .to_string_lossy()
                 .as_ref(),
         )? {
-            let file = SESSION.open_options().open(path?).await?;
+            let file = SESSION.open_options().open_path(path?).await?;
             let file_chunks: Vec<_> = file
                 .scan()?
                 .with_projection(pack(vec![("l_comment", col("l_comment"))], NonNullable))

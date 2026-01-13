@@ -11,7 +11,7 @@ use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 use vortex_metrics::VortexMetrics;
 
-use crate::file::read::CoalesceWindow;
+use crate::CoalesceConfig;
 use crate::file::read::CoalescedRequest;
 use crate::file::read::IoRequest;
 use crate::file::read::ReadEvent;
@@ -32,7 +32,7 @@ pin_project! {
         #[pin]
         events: S,
         inner_done: bool,
-        coalesce_window: Option<CoalesceWindow>,
+        coalesce_window: Option<CoalesceConfig>,
         state: State,
     }
 }
@@ -42,7 +42,7 @@ impl<S> IoRequestStream<S> {
     //  expanding the request by coalesce_distance, but stop if we hit max_read_size.
     pub(crate) fn new(
         events: S,
-        coalesce_window: Option<CoalesceWindow>,
+        coalesce_window: Option<CoalesceConfig>,
         metrics: VortexMetrics,
     ) -> Self
     where
@@ -152,7 +152,7 @@ impl State {
     }
 
     /// Get the next request, if any.
-    fn next(&mut self, coalesce_window: Option<&CoalesceWindow>) -> Option<IoRequest> {
+    fn next(&mut self, coalesce_window: Option<&CoalesceConfig>) -> Option<IoRequest> {
         match coalesce_window {
             None => self.next_uncoalesced().map(|request| {
                 self.metrics.counter("io.requests.individual").inc();
@@ -186,7 +186,7 @@ impl State {
         None
     }
 
-    fn next_coalesced(&mut self, window: &CoalesceWindow) -> Option<CoalescedRequest> {
+    fn next_coalesced(&mut self, window: &CoalesceConfig) -> Option<CoalescedRequest> {
         // Find the next valid request in priority order
         let first_req = self.next_uncoalesced()?;
 
@@ -319,7 +319,7 @@ mod tests {
 
     async fn collect_outputs(
         events: Vec<ReadEvent>,
-        coalesce_window: Option<CoalesceWindow>,
+        coalesce_window: Option<CoalesceConfig>,
     ) -> Vec<IoRequest> {
         let event_stream = stream::iter(events);
         let metrics = VortexMetrics::default();
@@ -380,7 +380,7 @@ mod tests {
 
         let outputs = collect_outputs(
             events,
-            Some(CoalesceWindow {
+            Some(CoalesceConfig {
                 distance: 0,
                 max_size: 1024,
             }),
@@ -411,7 +411,7 @@ mod tests {
         // Gap is 5, window is 6 - should coalesce
         let outputs = collect_outputs(
             events,
-            Some(CoalesceWindow {
+            Some(CoalesceConfig {
                 distance: 6,
                 max_size: 1024,
             }),
@@ -510,7 +510,7 @@ mod tests {
 
         let outputs = collect_outputs(
             events,
-            Some(CoalesceWindow {
+            Some(CoalesceConfig {
                 distance: 60,
                 max_size: 1024,
             }),
@@ -555,7 +555,7 @@ mod tests {
 
         let outputs = collect_outputs(
             events,
-            Some(CoalesceWindow {
+            Some(CoalesceConfig {
                 distance: 5,
                 max_size: 1024,
             }),
@@ -587,7 +587,7 @@ mod tests {
         let metrics = VortexMetrics::default();
         let io_stream = IoRequestStream::new(
             event_stream,
-            Some(CoalesceWindow {
+            Some(CoalesceConfig {
                 distance: 5,
                 max_size: 1024,
             }),

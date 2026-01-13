@@ -57,7 +57,7 @@ impl Executor for tokio::runtime::Handle {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        tokio::runtime::Handle::spawn(self, task.source.drive_send(task.stream).in_current_span());
+        tokio::runtime::Handle::spawn(self, task.source.drive(task.stream).in_current_span());
     }
 }
 
@@ -86,8 +86,7 @@ impl Executor for CurrentTokioRuntime {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        tokio::runtime::Handle::current()
-            .spawn(task.source.drive_send(task.stream).in_current_span());
+        tokio::runtime::Handle::current().spawn(task.source.drive(task.stream).in_current_span());
     }
 }
 

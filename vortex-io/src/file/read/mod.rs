@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod request;
-mod source;
 
 use std::fmt;
 use std::fmt::Debug;
@@ -15,14 +14,12 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::ready;
 
-use async_trait::async_trait;
 use futures::FutureExt;
 use futures::TryFutureExt;
 use futures::channel::mpsc;
 use futures::future::BoxFuture;
 use futures::future::Shared;
 pub use request::*;
-pub use source::*;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::SharedVortexResult;
@@ -30,7 +27,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::VortexReadAt;
+use crate::VortexRead;
 
 /// A handle to an open file that can be read using a Vortex runtime.
 ///
@@ -93,11 +90,6 @@ impl FileRead {
             next_id: Arc::new(AtomicUsize::new(0)),
         }
     }
-
-    /// The URI of the file.
-    pub fn uri(&self) -> &Arc<str> {
-        &self.uri
-    }
 }
 
 /// A future that resolves a read request from a [`FileRead`].
@@ -145,8 +137,15 @@ pub(crate) enum ReadEvent {
     Dropped(RequestId),
 }
 
-#[async_trait]
-impl VortexReadAt for FileRead {
+impl VortexRead for FileRead {
+    fn uri(&self) -> Option<&Arc<str>> {
+        Some(&self.uri)
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.size.clone().map_err(VortexError::from).boxed()
+    }
+
     fn read_at(
         &self,
         offset: u64,
@@ -175,9 +174,5 @@ impl VortexReadAt for FileRead {
             events: self.events.clone(),
         }
         .boxed()
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        self.size.clone().map_err(VortexError::from).boxed()
     }
 }

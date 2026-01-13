@@ -26,7 +26,7 @@ impl Executor for smol::Executor<'static> {
     }
 
     fn spawn_io(&self, task: IoTask) {
-        smol::Executor::spawn(self, task.source.drive_send(task.stream).in_current_span()).detach()
+        smol::Executor::spawn(self, task.source.drive(task.stream).in_current_span()).detach()
     }
 }
 

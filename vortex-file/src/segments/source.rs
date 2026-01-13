@@ -8,7 +8,7 @@ use futures::TryFutureExt;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
-use vortex_io::VortexReadAt;
+use vortex_io::VortexRead;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
@@ -17,11 +17,11 @@ use crate::SegmentSpec;
 
 pub struct FileSegmentSource {
     segments: Arc<[SegmentSpec]>,
-    read: Arc<dyn VortexReadAt>,
+    read: Arc<dyn VortexRead>,
 }
 
 impl FileSegmentSource {
-    pub fn new(segments: Arc<[SegmentSpec]>, read: Arc<dyn VortexReadAt>) -> Self {
+    pub fn new(segments: Arc<[SegmentSpec]>, read: Arc<dyn VortexRead>) -> Self {
         Self { segments, read }
     }
 }

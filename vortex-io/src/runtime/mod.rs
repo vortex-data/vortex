@@ -16,8 +16,8 @@
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 
+use crate::VortexReadRef;
 use crate::file::IoRequest;
-use crate::file::ReadSourceRef;
 
 mod blocking;
 pub use blocking::*;
@@ -86,12 +86,12 @@ pub(crate) type AbortHandleRef = Box<dyn AbortHandle>;
 // NOTE(ngates): We could in theory make IoSource support as_any if we wanted each runtime to implement the
 // actual read logic themselves? Not sure yet...
 pub(crate) struct IoTask {
-    pub(crate) source: ReadSourceRef,
+    pub(crate) source: VortexReadRef,
     pub(crate) stream: BoxStream<'static, IoRequest>,
 }
 
 impl IoTask {
-    pub(crate) fn new(source: ReadSourceRef, stream: BoxStream<'static, IoRequest>) -> Self {
+    pub(crate) fn new(source: VortexReadRef, stream: BoxStream<'static, IoRequest>) -> Self {
         IoTask { source, stream }
     }
 }
