@@ -66,6 +66,7 @@ pub struct VortexSource {
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
     /// Whether to enable expression pushdown into the underlying Vortex scan.
     projection_pushdown: bool,
+    scan_concurrency: Option<usize>,
 }
 
 impl VortexSource {
@@ -92,6 +93,7 @@ impl VortexSource {
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
             projection_pushdown: false,
+            scan_concurrency: None,
         }
     }
 
@@ -134,6 +136,12 @@ impl VortexSource {
         self.file_metadata_cache = Some(file_metadata_cache);
         self
     }
+
+    /// Set the underlying scan concurrency. This limit is used per Vortex scan operations.
+    pub fn with_scan_concurrency(mut self, scan_concurrency: usize) -> Self {
+        self.scan_concurrency = Some(scan_concurrency);
+        self
+    }
 }
 
 impl FileSource for VortexSource {
@@ -174,6 +182,7 @@ impl FileSource for VortexSource {
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: self.file_metadata_cache.clone(),
             projection_pushdown: self.projection_pushdown,
+            scan_concurrency: self.scan_concurrency,
         };
 
         Ok(Arc::new(opener))

@@ -100,6 +100,8 @@ config_namespace! {
         /// the scan. When disabled, Vortex reads only the referenced columns and
         /// all expressions are evaluated after the scan.
         pub projection_pushdown: bool, default = false
+        /// The per-file Vortex scan concurrency.
+        pub scan_concurrency: Option<usize>, default = None
     }
 }
 
@@ -507,10 +509,14 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(
-            VortexSource::new(table_schema, self.session.clone())
-                .with_projection_pushdown(self.opts.projection_pushdown),
-        )
+        let mut source = VortexSource::new(table_schema, self.session.clone())
+            .with_projection_pushdown(self.opts.projection_pushdown);
+
+        if let Some(scan_concurrency) = self.opts.scan_concurrency {
+            source = source.with_scan_concurrency(scan_concurrency);
+        }
+
+        Arc::new(source) as _
     }
 }
 
@@ -548,7 +554,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION 'table/' \
-                OPTIONS( footer_initial_read_size_bytes '12345' );",
+                OPTIONS( footer_initial_read_size_bytes '12345', scan_concurrency '3' );",
             )
             .await?
             .collect()
