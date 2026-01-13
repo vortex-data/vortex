@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaContext;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
@@ -13,6 +12,9 @@ use cudarc::driver::ValidAsZeroBits;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -23,27 +25,19 @@ use crate::session::CudaSession;
 /// Provides access to the CUDA context and stream for kernel execution.
 /// Handles memory allocation and data transfers between host and device.
 pub struct CudaExecutionCtx {
-    #[allow(dead_code)] // TODO(0ax1)
-    context: Arc<CudaContext>,
     session: Arc<CudaSession>,
     array_ctx: vortex_array::ExecutionCtx,
-    pub stream: Arc<CudaStream>,
+    stream: Arc<CudaStream>,
 }
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    #[allow(dead_code)] // TODO(0ax1)
-    fn new(
-        context: Arc<CudaContext>,
+    pub fn new(
+        stream: Arc<CudaStream>,
         session: Arc<CudaSession>,
         array_ctx: vortex_array::ExecutionCtx,
     ) -> VortexResult<Self> {
-        let stream = context
-            .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
-
         Ok(Self {
-            context,
             session,
             array_ctx,
             stream,
@@ -74,10 +68,25 @@ impl CudaExecutionCtx {
     }
 
     /// Copies data from device to host.
-    pub fn to_host<T: DeviceRepr>(&self, buffer: &CudaSlice<T>) -> VortexResult<Vec<T>> {
+    ///
+    /// Returns a `Buffer<T>` with the specified alignment.
+    pub fn to_host<T: DeviceRepr>(
+        &self,
+        buffer: &CudaSlice<T>,
+        alignment: Alignment,
+    ) -> VortexResult<Buffer<T>> {
+        let len = buffer.len();
+        let mut host_buffer = BufferMut::<T>::with_capacity_aligned(len, alignment);
+
         self.stream
-            .clone_dtoh(buffer)
-            .map_err(|e| vortex_err!("Failed to copy from device: {}", e))
+            .memcpy_dtoh(buffer, unsafe {
+                // SAFETY: We allocated with sufficient capacity and fill the entire buffer.
+                host_buffer.set_len(len);
+                host_buffer.as_mut_slice()
+            })
+            .map_err(|e| vortex_err!("Failed to copy from device: {}", e))?;
+
+        Ok(host_buffer.freeze())
     }
 
     /// Synchronizes the stream

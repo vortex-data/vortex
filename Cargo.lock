@@ -10150,6 +10150,7 @@ dependencies = [
  "cudarc",
  "tracing",
  "vortex-array",
+ "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
  "vortex-session",
