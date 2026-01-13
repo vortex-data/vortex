@@ -19,14 +19,12 @@ use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
