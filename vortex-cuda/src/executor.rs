@@ -52,9 +52,12 @@ impl CudaExecutionCtx {
 
     /// Allocates a typed buffer on the GPU.
     pub fn alloc<T: DeviceRepr + ValidAsZeroBits>(&self, len: usize) -> VortexResult<CudaSlice<T>> {
-        self.stream
-            .alloc_zeros::<T>(len)
-            .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
+        // SAFETY: No safety guarantees for allocations on the GPU.
+        unsafe {
+            self.stream
+                .alloc::<T>(len)
+                .map_err(|e| vortex_err!("Failed to allocate device memory: {}", e))
+        }
     }
 
     /// Copies data from host to device.
