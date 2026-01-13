@@ -6,14 +6,14 @@ use std::fmt::Debug;
 use vortex_array::vtable::ArrayId;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use crate::executor::CudaSupport;
+use crate::executor::CudaExecute;
 
 /// CUDA session for GPU accelerated execution.
 ///
 /// Maintains a registry of CUDA kernel implementations for array encodings.
 #[derive(Debug, Default)]
 pub struct CudaSession {
-    executors: DashMap<ArrayId, &'static dyn CudaSupport>,
+    executors: DashMap<ArrayId, &'static dyn CudaExecute>,
 }
 
 impl CudaSession {
@@ -27,7 +27,7 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
-    pub fn register(&self, array_id: ArrayId, executor: &'static dyn CudaSupport) {
+    pub fn register(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
         self.executors.insert(array_id, executor);
     }
 
@@ -36,7 +36,7 @@ impl CudaSession {
     /// # Arguments
     ///
     /// * `array_id` - The encoding ID to look up
-    pub fn get_executor(&self, array_id: &ArrayId) -> Option<&'static dyn CudaSupport> {
+    pub fn get_executor(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
         self.executors.get(array_id).map(|entry| *entry.value())
     }
 

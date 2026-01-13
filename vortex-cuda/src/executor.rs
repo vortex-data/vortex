@@ -26,6 +26,7 @@ use crate::session::CudaSession;
 pub struct ExecutionCtx {
     pub context: Arc<CudaContext>,
     pub session: Arc<CudaSession>,
+    // hold vortex array execution context
 }
 
 impl ExecutionCtx {
@@ -60,7 +61,7 @@ impl ExecutionCtx {
 
     /// Returns a reference to the default CUDA stream.
     pub fn stream(&self) -> Arc<CudaStream> {
-        self.context.default_stream().clone()
+        self.context.
     }
 
     /// Returns a reference to the CUDA context.
@@ -83,7 +84,7 @@ impl ExecutionCtx {
 ///
 /// Implementations provide CUDA-specific execution for array encodings.
 #[async_trait]
-pub trait CudaSupport: 'static + Send + Sync + Debug {
+pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// Executes the array on CUDA, returning a canonical array.
     ///
     /// # Errors
@@ -123,7 +124,7 @@ impl CudaArrayExt for ArrayRef {
                 encoding = %self.encoding().id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
-            return Ok(self.to_canonical());
+            return Ok(self.execute(ctx));
         };
 
         tracing::debug!(
@@ -188,29 +189,19 @@ impl CudaExecutor {
     }
 
     /// Creates a new execution context for this executor.
-    pub fn create_context(&self) -> ExecutionCtx {
+    pub fn create_execution_ctx(&self) -> ExecutionCtx {
         ExecutionCtx::new(self.context.clone(), self.session.clone())
-    }
-
-    /// Executes an array to canonical form on GPU.
-    ///
-    /// # Arguments
-    ///
-    /// * `array` - The array to execute
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if execution fails on the GPU.
-    pub async fn execute_canonical(&self, array: ArrayRef) -> VortexResult<Canonical> {
-        let ctx = self.create_context();
-        array.execute_cuda(&ctx).await
     }
 
     /// Synchronizes the GPU device, waiting for all pending operations.
     ///
+    /// This function is conditionally compiled for `test` to discourage
+    /// blocking waits on the CPU in production.
+    ///
     /// # Errors
     ///
     /// Returns an error if synchronization fails.
+    #[cfg(test)]
     pub fn synchronize(&self) -> VortexResult<()> {
         self.context
             .default_stream()

@@ -14,8 +14,8 @@ pub mod kernel;
 pub mod session;
 
 pub use executor::CudaArrayExt;
+pub use executor::CudaExecute;
 pub use executor::CudaExecutor;
-pub use executor::CudaSupport;
 pub use kernel::KernelConfig;
 pub use kernel::KernelRegistry;
 pub use session::CudaSession;
