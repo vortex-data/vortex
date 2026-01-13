@@ -145,7 +145,7 @@ impl<D: NativeDecimalType> VectorIntoArray<DecimalArray> for DVector<D> {
 
 impl<T: BinaryViewType> VectorIntoArray<VarBinViewArray> for BinaryViewVector<T> {
     fn into_array(self, dtype: &DType) -> VarBinViewArray {
-        assert!(matches!(dtype, DType::Utf8(_)));
+        assert!(matches!(dtype, DType::Utf8(_) | DType::Binary(_)));
 
         let (views, buffers, validity) = self.into_parts();
         let validity = Validity::from_mask(validity, dtype.nullability());
