@@ -16,7 +16,6 @@ use dashmap::DashMap;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -29,7 +28,7 @@ use crate::session::CudaSession;
 pub struct CudaExecutionCtx {
     context: Arc<CudaContext>,
     session: Arc<CudaSession>,
-    array_ctx: ExecutionCtx,
+    array_ctx: vortex_array::ExecutionCtx,
     stream_counter: Arc<AtomicU64>,
     streams: Arc<DashMap<u64, Arc<CudaStream>>>,
 }
@@ -39,7 +38,7 @@ impl CudaExecutionCtx {
     pub fn new(
         context: Arc<CudaContext>,
         session: Arc<CudaSession>,
-        array_ctx: ExecutionCtx,
+        array_ctx: vortex_array::ExecutionCtx,
     ) -> Self {
         Self {
             context,

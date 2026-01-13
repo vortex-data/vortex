@@ -59,23 +59,8 @@ impl KernelRegistry {
     /// Retrieves a kernel configuration by array ID.
     ///
     /// Returns `None` if the kernel hasn't been registered.
-    pub fn get_config(&self, array_id: ArrayId) -> Option<KernelConfig> {
+    pub fn config(&self, array_id: ArrayId) -> Option<KernelConfig> {
         self.configs.get(&array_id).map(|entry| entry.clone())
-    }
-
-    /// Checks if a kernel is registered for an array encoding.
-    pub fn has_kernel(&self, array_id: ArrayId) -> bool {
-        self.configs.contains_key(&array_id)
-    }
-
-    /// Returns the number of registered kernels.
-    pub fn kernel_count(&self) -> usize {
-        self.configs.len()
-    }
-
-    /// Clears all registered kernels.
-    pub fn clear(&self) {
-        self.configs.clear();
     }
 }
 
