@@ -35,7 +35,7 @@ pub struct CudaExecutionCtx {
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub fn new(
+    fn new(
         context: Arc<CudaContext>,
         session: Arc<CudaSession>,
         array_ctx: vortex_array::ExecutionCtx,
@@ -87,8 +87,8 @@ impl CudaExecutionCtx {
     }
 
     /// Returns a reference to the CUDA context.
-    pub fn context(&self) -> Arc<CudaContext> {
-        self.context.clone()
+    pub fn context(&self) -> &Arc<CudaContext> {
+        &self.context
     }
 
     /// Retrieves a previously created stream by its index.
@@ -99,6 +99,7 @@ impl CudaExecutionCtx {
     /// Synchronizes the stream
     ///
     /// On `synchronize` the host waits for all pending operations of the stream to complete.
+    #[cfg(test)]
     pub fn synchronize(&self) -> VortexResult<()> {
         self.context
             .default_stream()

@@ -21,16 +21,12 @@ pub use session::CudaSession;
 pub use session::CudaSessionExt;
 
 /// Registers CUDA kernels for a given CUDA session.
-pub fn initialize_cuda(session: &CudaSession) {
+pub fn initialize_cuda(_session: &CudaSession) {
     tracing::info!("Initializing CUDA support");
 
-    // Register CUDA kernel implementations for supported array encodings.
+    // Register CUDA kernel implementations for supported encodings.
+    // This is only for arrays living in vortex-array.
     //
     // session.register(BitPackedVTable::ID, &bitpacking::CUDA_SUPPORT);
     // session.register(RLEVTable::ID, &rle::CUDA_SUPPORT);
-
-    tracing::debug!(
-        registered_executors = session.executor_count(),
-        "CUDA support initialized"
-    );
 }
