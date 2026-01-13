@@ -1,80 +1,37 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
+use crate::arrays::filter::filter_slice;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
-// This is modeled after the constant with the equivalent name in arrow-rs.
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
-
 impl FilterKernel for PrimitiveVTable {
     fn filter(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().filter(mask)?;
 
-        let mask_values = mask
-            .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
-
-        match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => {
-                match_each_native_ptype!(array.ptype(), |T| {
-                    let values =
-                        filter_primitive_indices(array.as_slice::<T>(), indices.iter().copied());
-
-                    Ok(PrimitiveArray::new(values, validity).into_array())
-                })
-            }
-            MaskIter::Slices(slices) => {
-                match_each_native_ptype!(array.ptype(), |T| {
-                    let values = filter_primitive_slices(
-                        array.as_slice::<T>(),
-                        mask.true_count(),
-                        slices.iter().copied(),
-                    );
-
-                    Ok(PrimitiveArray::new(values, validity).into_array())
-                })
-            }
-        }
+        match_each_native_ptype!(array.ptype(), |T| {
+            let values = filter_slice(
+                array.as_slice::<T>(),
+                mask,
+                FILTER_SLICES_SELECTIVITY_THRESHOLD,
+            );
+            Ok(PrimitiveArray::new(values, validity).into_array())
+        })
     }
 }
 
 register_kernel!(FilterKernelAdapter(PrimitiveVTable).lift());
-
-fn filter_primitive_indices<T: Copy>(
-    values: &[T],
-    indices: impl Iterator<Item = usize>,
-) -> Buffer<T> {
-    indices
-        .map(|idx| *unsafe { values.get_unchecked(idx) })
-        .collect()
-}
-
-fn filter_primitive_slices<T: Clone>(
-    values: &[T],
-    indices_len: usize,
-    indices: impl Iterator<Item = (usize, usize)>,
-) -> Buffer<T> {
-    let mut output = BufferMut::with_capacity(indices_len);
-    for (start, end) in indices {
-        output.extend_from_slice(&values[start..end]);
-    }
-    output.freeze()
-}
 
 #[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]

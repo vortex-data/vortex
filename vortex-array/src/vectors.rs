@@ -25,6 +25,7 @@ use vortex_vector::primitive::PrimitiveVector;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
@@ -45,19 +46,27 @@ pub trait VectorIntoArray<T> {
 
 impl VectorIntoArray<ArrayRef> for Vector {
     fn into_array(self, dtype: &DType) -> ArrayRef {
+        VectorIntoArray::<Canonical>::into_array(self, dtype).into_array()
+    }
+}
+
+impl VectorIntoArray<Canonical> for Vector {
+    fn into_array(self, dtype: &DType) -> Canonical {
         match dtype {
-            DType::Null => self.into_null().into_array(dtype).into_array(),
-            DType::Bool(_) => self.into_bool().into_array(dtype).into_array(),
-            DType::Primitive(..) => self.into_primitive().into_array(dtype).into_array(),
-            DType::Decimal(..) => self.into_decimal().into_array(dtype).into_array(),
-            DType::Utf8(_) => self.into_string().into_array(dtype).into_array(),
-            DType::Binary(_) => self.into_binary().into_array(dtype).into_array(),
-            DType::List(..) => self.into_list().into_array(dtype).into_array(),
-            DType::FixedSizeList(..) => self.into_fixed_size_list().into_array(dtype).into_array(),
-            DType::Struct(..) => self.into_struct().into_array(dtype).into_array(),
+            DType::Null => Canonical::Null(self.into_null().into_array(dtype)),
+            DType::Bool(_) => Canonical::Bool(self.into_bool().into_array(dtype)),
+            DType::Primitive(..) => Canonical::Primitive(self.into_primitive().into_array(dtype)),
+            DType::Decimal(..) => Canonical::Decimal(self.into_decimal().into_array(dtype)),
+            DType::Utf8(_) => Canonical::VarBinView(self.into_string().into_array(dtype)),
+            DType::Binary(_) => Canonical::VarBinView(self.into_binary().into_array(dtype)),
+            DType::List(..) => Canonical::List(self.into_list().into_array(dtype)),
+            DType::FixedSizeList(..) => {
+                Canonical::FixedSizeList(self.into_fixed_size_list().into_array(dtype))
+            }
+            DType::Struct(..) => Canonical::Struct(self.into_struct().into_array(dtype)),
             DType::Extension(ext_dtype) => {
-                let storage = self.into_array(ext_dtype.storage_dtype());
-                ExtensionArray::new(ext_dtype.clone(), storage).into_array()
+                let storage: Canonical = self.into_array(ext_dtype.storage_dtype());
+                Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage.into_array()))
             }
         }
     }

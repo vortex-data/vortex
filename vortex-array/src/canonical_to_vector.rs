@@ -42,6 +42,7 @@ impl Canonical {
     ///
     /// This is the reverse of `VectorIntoArray` - it takes a fully materialized
     /// canonical array and converts it into the corresponding vector type.
+    /// TODO(joe): move over the execute_mask
     pub fn to_vector(self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
