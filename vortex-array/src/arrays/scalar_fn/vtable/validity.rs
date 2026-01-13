@@ -7,13 +7,16 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
+use vortex_vector::Vector;
 use vortex_vector::VectorOps;
 
 use crate::Array;
+use crate::IntoArray;
 use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::executor::VectorExecutor;
+use crate::executor::CanonicalOutput;
 use crate::expr::ExecutionArgs;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
@@ -86,13 +89,19 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     }
 
     fn validity_mask(array: &ScalarFnArray) -> Mask {
-        let datum = array
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let output = array
             .to_array()
-            .execute_datum(&LEGACY_SESSION)
+            .execute::<CanonicalOutput>(&mut ctx)
             .vortex_expect("Validity mask computation should be fallible");
-        match datum {
-            Datum::Scalar(s) => Mask::new(array.len, s.is_valid()),
-            Datum::Vector(v) => v.validity().clone(),
+        match output {
+            CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
+            CanonicalOutput::Array(a) => a
+                .into_array()
+                .execute::<Vector>(&mut ctx)
+                .vortex_expect("Failed to convert canonical to vector")
+                .validity()
+                .clone(),
         }
     }
 }

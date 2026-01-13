@@ -2,27 +2,22 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs;
-use std::fs::File;
 use std::path::Path;
 use std::path::PathBuf;
 
-use arrow_array::RecordBatchReader;
 use futures::StreamExt;
 use futures::TryStreamExt;
-use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
+use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
 use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
 use vortex::array::ArrayRef;
+use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
-use vortex::array::iter::ArrayIteratorAdapter;
-use vortex::array::iter::ArrayIteratorExt;
-use vortex::array::stream::ArrayStream;
-use vortex::dtype::DType;
-use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
+use vortex::array::builders::builder_with_capacity;
 use vortex::file::WriteOptionsSessionExt;
 
 use crate::CompactionStrategy;
@@ -31,18 +26,23 @@ use crate::SESSION;
 use crate::utils::file::idempotent_async;
 
 /// Read a Parquet file and return it as a Vortex ArrayStream.
-pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStream> {
-    let reader = ParquetRecordBatchReaderBuilder::try_new(File::open(parquet_path)?)?.build()?;
+pub async fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<ChunkedArray> {
+    let file = File::open(parquet_path).await?;
+    let mut reader = ParquetRecordBatchStreamBuilder::new(file).await?.build()?;
+    let mut chunks = vec![];
 
-    let array_iter = ArrayIteratorAdapter::new(
-        DType::from_arrow(reader.schema()),
-        reader.map(|br| {
-            br.map_err(VortexError::from)
-                .map(|b| ArrayRef::from_arrow(b, false))
-        }),
-    );
+    while let Some(rb) = reader.next().await {
+        let rb = rb?;
+        let chunk = ArrayRef::from_arrow(rb, false);
 
-    Ok(array_iter.into_array_stream())
+        // Make sure data is uncompressed and canonicalized
+        let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+        chunk.append_to_builder(builder.as_mut());
+        let chunk = builder.finish();
+        chunks.push(chunk);
+    }
+
+    Ok(ChunkedArray::from_iter(chunks))
 }
 
 /// Convert all Parquet files in a directory to Vortex format.
@@ -94,7 +94,7 @@ pub async fn convert_parquet_to_vortex(
                             "Processing file '{filename}' with {:?} strategy",
                             compaction
                         );
-                        let array_stream = parquet_to_vortex(parquet_file_path)?;
+                        let chunked_array = parquet_to_vortex(parquet_file_path).await?;
                         let mut f = OpenOptions::new()
                             .write(true)
                             .truncate(true)
@@ -104,7 +104,9 @@ pub async fn convert_parquet_to_vortex(
 
                         let write_options = compaction.apply_options(SESSION.write_options());
 
-                        write_options.write(&mut f, array_stream).await?;
+                        write_options
+                            .write(&mut f, chunked_array.to_array_stream())
+                            .await?;
 
                         anyhow::Ok(())
                     })

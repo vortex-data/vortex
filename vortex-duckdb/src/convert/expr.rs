@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use tracing::debug;
 use vortex::compute::BetweenOptions;
 use vortex::compute::LikeOptions;
 use vortex::compute::StrictComparison;
@@ -146,7 +147,10 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
                 );
                 list_contains(lit(list), element)
             }
-            _ => todo!("operator {:?}", operator.op),
+            _ => {
+                debug!(op=?operator.op, "cannot be pushed down");
+                return Ok(None);
+            }
         },
         duckdb::ExpressionClass::BoundFunction(func) => match func.scalar_function.name() {
             DUCKDB_FUNCTION_NAME_CONTAINS => {

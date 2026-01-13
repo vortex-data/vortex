@@ -14,6 +14,8 @@ use crossterm::event::KeyCode;
 use crossterm::event::KeyEventKind;
 use crossterm::event::KeyModifiers;
 use ratatui::DefaultTerminal;
+use ui::QueryFocus;
+use ui::SortDirection;
 use ui::render_app;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -81,10 +83,62 @@ fn navigate_layout_down(app: &mut AppState, amount: usize) {
     }
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
     if let Event::Key(key) = event
         && key.kind == KeyEventKind::Press
     {
+        // Check if we're in Query tab with SQL input focus - handle text input first
+        let in_sql_input =
+            app.current_tab == Tab::Query && app.query_state.focus == QueryFocus::SqlInput;
+
+        // Handle SQL input mode - most keys should type into the input
+        if in_sql_input {
+            match (key.code, key.modifiers) {
+                // These keys exit/switch even in SQL input mode
+                (KeyCode::Tab, _) => {
+                    app.current_tab = Tab::Layout;
+                }
+                (KeyCode::Esc, _) => {
+                    app.query_state.toggle_focus();
+                }
+                (KeyCode::Enter, _) => {
+                    // Execute the SQL query with COUNT(*) for pagination
+                    app.query_state.sort_column = None;
+                    app.query_state.sort_direction = SortDirection::None;
+                    let file_path = app.file_path.clone();
+                    app.query_state
+                        .execute_initial_query(app.session, &file_path);
+                    // Switch focus to results table after executing
+                    app.query_state.focus = QueryFocus::ResultsTable;
+                }
+                // Navigation keys
+                (KeyCode::Left, _) => app.query_state.move_cursor_left(),
+                (KeyCode::Right, _) => app.query_state.move_cursor_right(),
+                (KeyCode::Home, _) => app.query_state.move_cursor_start(),
+                (KeyCode::End, _) => app.query_state.move_cursor_end(),
+                // Control key shortcuts
+                (KeyCode::Char('a'), KeyModifiers::CONTROL) => app.query_state.move_cursor_start(),
+                (KeyCode::Char('e'), KeyModifiers::CONTROL) => app.query_state.move_cursor_end(),
+                (KeyCode::Char('u'), KeyModifiers::CONTROL) => app.query_state.clear_input(),
+                (KeyCode::Char('b'), KeyModifiers::CONTROL) => app.query_state.move_cursor_left(),
+                (KeyCode::Char('f'), KeyModifiers::CONTROL) => app.query_state.move_cursor_right(),
+                (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                    app.query_state.delete_char_forward()
+                }
+                // Delete keys
+                (KeyCode::Backspace, _) => app.query_state.delete_char(),
+                (KeyCode::Delete, _) => app.query_state.delete_char_forward(),
+                // All other characters get typed into the input
+                (KeyCode::Char(c), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                    app.query_state.insert_char(c);
+                }
+                _ => {}
+            }
+            return HandleResult::Continue;
+        }
+
+        // Normal mode handling for all other cases
         match (key.code, key.modifiers) {
             (KeyCode::Char('q'), _) => {
                 return HandleResult::Exit;
@@ -92,30 +146,62 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
             (KeyCode::Tab, _) => {
                 app.current_tab = match app.current_tab {
                     Tab::Layout => Tab::Segments,
-                    Tab::Segments => Tab::Layout,
+                    Tab::Segments => Tab::Query,
+                    Tab::Query => Tab::Layout,
                 };
             }
+
+            // Query tab: '[' for previous page
+            (KeyCode::Char('['), KeyModifiers::NONE) => {
+                if app.current_tab == Tab::Query {
+                    app.query_state
+                        .prev_page(app.session, &app.file_path.clone());
+                }
+            }
+
+            // Query tab: ']' for next page
+            (KeyCode::Char(']'), KeyModifiers::NONE) => {
+                if app.current_tab == Tab::Query {
+                    app.query_state
+                        .next_page(app.session, &app.file_path.clone());
+                }
+            }
+
             (KeyCode::Up | KeyCode::Char('k'), _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
                 match app.current_tab {
                     Tab::Layout => navigate_layout_up(app, SCROLL_LINE),
                     Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_LINE),
+                    Tab::Query => {
+                        app.query_state.table_state.select_previous();
+                    }
                 }
             }
             (KeyCode::Down | KeyCode::Char('j'), _)
             | (KeyCode::Char('n'), KeyModifiers::CONTROL) => match app.current_tab {
                 Tab::Layout => navigate_layout_down(app, SCROLL_LINE),
                 Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_LINE),
+                Tab::Query => {
+                    app.query_state.table_state.select_next();
+                }
             },
             (KeyCode::PageUp, _) | (KeyCode::Char('v'), KeyModifiers::ALT) => {
                 match app.current_tab {
                     Tab::Layout => navigate_layout_up(app, SCROLL_PAGE),
                     Tab::Segments => app.segment_grid_state.scroll_up(SEGMENT_SCROLL_PAGE),
+                    Tab::Query => {
+                        app.query_state
+                            .prev_page(app.session, &app.file_path.clone());
+                    }
                 }
             }
             (KeyCode::PageDown, _) | (KeyCode::Char('v'), KeyModifiers::CONTROL) => {
                 match app.current_tab {
                     Tab::Layout => navigate_layout_down(app, SCROLL_PAGE),
                     Tab::Segments => app.segment_grid_state.scroll_down(SEGMENT_SCROLL_PAGE),
+                    Tab::Query => {
+                        app.query_state
+                            .next_page(app.session, &app.file_path.clone());
+                    }
                 }
             }
             (KeyCode::Home, _) | (KeyCode::Char('<'), KeyModifiers::ALT) => match app.current_tab {
@@ -123,12 +209,18 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 Tab::Segments => app
                     .segment_grid_state
                     .scroll_left(SEGMENT_SCROLL_HORIZONTAL_JUMP),
+                Tab::Query => {
+                    app.query_state.table_state.select_first();
+                }
             },
             (KeyCode::End, _) | (KeyCode::Char('>'), KeyModifiers::ALT) => match app.current_tab {
                 Tab::Layout => app.layouts_list_state.select_last(),
                 Tab::Segments => app
                     .segment_grid_state
                     .scroll_right(SEGMENT_SCROLL_HORIZONTAL_JUMP),
+                Tab::Query => {
+                    app.query_state.table_state.select_last();
+                }
             },
             (KeyCode::Enter, _) => {
                 if app.current_tab == Tab::Layout && app.cursor.layout().nchildren() > 0 {
@@ -147,6 +239,10 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                 Tab::Segments => app
                     .segment_grid_state
                     .scroll_left(SEGMENT_SCROLL_HORIZONTAL_STEP),
+                Tab::Query => {
+                    app.query_state.horizontal_scroll =
+                        app.query_state.horizontal_scroll.saturating_sub(1);
+                }
             },
             (KeyCode::Right | KeyCode::Char('l'), _) | (KeyCode::Char('b'), KeyModifiers::ALT) => {
                 match app.current_tab {
@@ -154,11 +250,34 @@ fn handle_normal_mode(app: &mut AppState, event: Event) -> HandleResult {
                     Tab::Segments => app
                         .segment_grid_state
                         .scroll_right(SEGMENT_SCROLL_HORIZONTAL_STEP),
+                    Tab::Query => {
+                        let max_col = app.query_state.column_count().saturating_sub(1);
+                        if app.query_state.horizontal_scroll < max_col {
+                            app.query_state.horizontal_scroll += 1;
+                        }
+                    }
                 }
             }
 
             (KeyCode::Char('/'), _) | (KeyCode::Char('s'), KeyModifiers::CONTROL) => {
-                app.key_mode = KeyMode::Search;
+                if app.current_tab != Tab::Query {
+                    app.key_mode = KeyMode::Search;
+                }
+            }
+
+            (KeyCode::Char('s'), KeyModifiers::NONE) => {
+                if app.current_tab == Tab::Query {
+                    // Sort by selected column - modifies the SQL query
+                    let col = app.query_state.selected_column();
+                    app.query_state.apply_sort(app.session, col, &app.file_path);
+                }
+            }
+
+            (KeyCode::Esc, _) => {
+                if app.current_tab == Tab::Query {
+                    // Toggle focus in Query tab
+                    app.query_state.toggle_focus();
+                }
             }
 
             _ => {}

@@ -68,6 +68,7 @@ def run(
     iterations: Annotated[int, typer.Option("--iterations", "-i", help="Iterations per query")] = 5,
     label: Annotated[str | None, typer.Option("--label", "-l", help="Label for this run")] = None,
     track_memory: Annotated[bool, typer.Option("--track-memory", help="Track memory usage")] = False,
+    samply: Annotated[bool, typer.Option("--samply", help="Record a profile using samply")] = False,
     build: Annotated[bool, typer.Option("--build/--no-build", help="Build binaries before running")] = True,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Log underlying commands")] = False,
     options: Annotated[list[str] | None, typer.Option("--opt", help="Engine or benchmark specific options")] = None,
@@ -150,6 +151,7 @@ def run(
                     iterations=iterations,
                     options=options,
                     track_memory=track_memory,
+                    samply=samply,
                     on_result=ctx.write_raw_json,
                 )
                 console.print(f"[green]{eng.value}: {len(results)} results[/green]")

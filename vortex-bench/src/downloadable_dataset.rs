@@ -60,6 +60,8 @@ impl Dataset for DownloadableDataset {
         let parquet = self.to_parquet_path().await?;
         let dir = format!("{}/", self.name()).to_data_path();
         let vortex = dir.join(format!("{}.vortex", self.name()));
+
+        let data = parquet_to_vortex(parquet).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
             SESSION
                 .write_options()
@@ -67,7 +69,7 @@ impl Dataset for DownloadableDataset {
                     &mut File::create(path)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                    parquet_to_vortex(parquet)?,
+                    data.to_array_stream(),
                 )
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;

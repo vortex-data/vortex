@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
-use std::time::Instant;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -97,7 +96,7 @@ pub trait Compressor: Send + Sync {
     ///
     /// This method first compresses the data to the target format, then decompresses it.
     /// The timing returned should only measure the decompression phase.
-    async fn decompress(&self, parquet_path: &Path) -> Result<usize>;
+    async fn decompress(&self, parquet_path: &Path) -> Result<Duration>;
 }
 
 /// Run a compression benchmark for the given compressor.
@@ -154,9 +153,7 @@ pub async fn benchmark_decompress(
     let mut fastest = Duration::MAX;
 
     for _ in 0..iterations {
-        let start = Instant::now();
-        let _ = compressor.decompress(parquet_path).await?;
-        let elapsed = start.elapsed();
+        let elapsed = compressor.decompress(parquet_path).await?;
 
         fastest = fastest.min(elapsed);
     }

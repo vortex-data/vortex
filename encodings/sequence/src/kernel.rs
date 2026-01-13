@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::VectorExecutor;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
@@ -14,6 +14,7 @@ use vortex_array::compute::Operator;
 use vortex_array::expr::Binary;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
+use vortex_buffer::bitbuffer;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -24,7 +25,6 @@ use vortex_error::VortexResult;
 use vortex_runend::RunEndArray;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
-use vortex_vector::Vector;
 
 use crate::SequenceArray;
 use crate::SequenceVTable;
@@ -50,7 +50,7 @@ impl ExecuteParentKernel<SequenceVTable> for SequenceCompareKernel {
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         // Only handle comparison operators
         let Some(cmp_op) = parent.options.maybe_cmp_operator() else {
             return Ok(None);
@@ -117,7 +117,7 @@ fn compare_eq_neq(
     nullability: Nullability,
     negate: bool,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Vector>> {
+) -> VortexResult<Option<Canonical>> {
     // For Eq: match_val=true, default_val=false
     // For NotEq: match_val=false, default_val=true
     let match_val = !negate;
@@ -148,15 +148,21 @@ fn compare_eq_neq(
 
     let (ends, values) = if idx == 0 {
         let ends = buffer![1u64, len].into_array();
-        let values = BoolArray::from_iter([match_val, not_match_val]).into_array();
+        let values =
+            BoolArray::new(bitbuffer![match_val, not_match_val], nullability.into()).into_array();
         (ends, values)
     } else if idx == len - 1 {
         let ends = buffer![idx, len].into_array();
-        let values = BoolArray::from_iter([not_match_val, match_val]).into_array();
+        let values =
+            BoolArray::new(bitbuffer![not_match_val, match_val], nullability.into()).into_array();
         (ends, values)
     } else {
         let ends = buffer![idx, idx + 1, len].into_array();
-        let values = BoolArray::from_iter([not_match_val, match_val, not_match_val]).into_array();
+        let values = BoolArray::new(
+            bitbuffer![not_match_val, match_val, not_match_val],
+            nullability.into(),
+        )
+        .into_array();
         (ends, values)
     };
     let result_array = RunEndArray::try_new(ends, values)?.into_array();
@@ -169,7 +175,7 @@ fn compare_ordering(
     operator: Operator,
     nullability: Nullability,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Vector>> {
+) -> VortexResult<Option<Canonical>> {
     let transition = find_transition_point(
         array.base(),
         array.multiplier(),
@@ -192,13 +198,13 @@ fn compare_ordering(
         Transition::FalseToTrue(idx) => {
             // [0..idx) is false, [idx..len) is true
             let ends = buffer![idx as u64, array.length as u64].into_array();
-            let values = BoolArray::from_iter([false, true]).into_array();
+            let values = BoolArray::new(bitbuffer![false, true], nullability.into()).into_array();
             RunEndArray::try_new(ends, values)?.into_array()
         }
         Transition::TrueToFalse(idx) => {
             // [0..idx) is true, [idx..len) is false
             let ends = buffer![idx as u64, array.length as u64].into_array();
-            let values = BoolArray::from_iter([true, false]).into_array();
+            let values = BoolArray::new(bitbuffer![true, false], nullability.into()).into_array();
             RunEndArray::try_new(ends, values)?.into_array()
         }
     };
@@ -307,261 +313,265 @@ fn binary_search_transition<P: NativePType>(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::VectorExecutor;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::ScalarFnArrayExt;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::Binary;
     use vortex_array::expr::Operator as ExprOperator;
+    use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
+    use vortex_buffer::bitbuffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType;
     use vortex_error::VortexResult;
-    use vortex_session::VortexSession;
+    use vortex_scalar::Scalar;
 
     use crate::SequenceArray;
 
     #[test]
     fn test_sequence_eq_neq_constant() -> VortexResult<()> {
         let len = 1;
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(5i64, 1, NonNullable, len)?.to_array();
         let constant = ConstantArray::new(5i64, len).to_array();
 
         let compare_array =
             Binary.try_new_array(len, ExprOperator::NotEq, [seq.clone(), constant.clone()])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![false]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
 
         let compare_array = Binary.try_new_array(len, ExprOperator::Eq, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![true]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_gte_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
-        let constant = ConstantArray::new(5i64, 10).to_array();
+        let constant = ConstantArray::new(
+            Scalar::new(
+                DType::Primitive(PType::I64, Nullability::Nullable),
+                5i64.into(),
+            ),
+            10,
+        )
+        .to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Gte, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
-        let expected = BitBuffer::from(vec![
-            false, false, false, false, false, true, true, true, true, true,
-        ]);
-        assert_eq!(bool_result.bits(), &expected);
+        let expected = BoolArray::new(
+            bitbuffer![
+                false, false, false, false, false, true, true, true, true, true,
+            ],
+            Validity::AllValid,
+        );
+        assert_arrays_eq!(bool_result, expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_lt_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Lt, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, false, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_lte_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Lte, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // [0,1,2,3,4,5,6,7,8,9] <= 5
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_gt_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Gt, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // [0,1,2,3,4,5,6,7,8,9] > 5
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_constant_gte_sequence() -> VortexResult<()> {
         // Test when constant is on the left side
-        let session = VortexSession::empty();
         let constant = ConstantArray::new(5i64, 10).to_array();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Gte, [constant, seq])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // 5 >= [0,1,2,3,4,5,6,7,8,9]
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_eq_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Eq, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_not_eq_constant() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(5i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::NotEq, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_all_true() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(10i64, 1, NonNullable, 5)?.to_array();
         let constant = ConstantArray::new(5i64, 5).to_array();
 
         let compare_array = Binary.try_new_array(5, ExprOperator::Gt, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![true, true, true, true, true]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_all_false() -> VortexResult<()> {
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 5)?.to_array();
         let constant = ConstantArray::new(100i64, 5).to_array();
 
         let compare_array = Binary.try_new_array(5, ExprOperator::Gt, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![false, false, false, false, false]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_multiplier_2_gte() -> VortexResult<()> {
         // Sequence: [0, 2, 4, 6, 8, 10, 12, 14, 16, 18]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(0i64, 2, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(10i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Gte, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // [0, 2, 4, 6, 8, 10, 12, 14, 16, 18] >= 10
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, true, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_multiplier_3_eq() -> VortexResult<()> {
         // Sequence: [5, 8, 11, 14, 17, 20, 23, 26]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(5i64, 3, NonNullable, 8)?.to_array();
         let constant = ConstantArray::new(14i64, 8).to_array();
 
         let compare_array = Binary.try_new_array(8, ExprOperator::Eq, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // 14 is at index 3: (14 - 5) / 3 = 3
         let expected = BitBuffer::from(vec![false, false, false, true, false, false, false, false]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 
     #[test]
     fn test_sequence_negative_multiplier_lt() -> VortexResult<()> {
         // Sequence: [100, 90, 80, 70, 60, 50, 40, 30, 20, 10]
-        let session = VortexSession::empty();
         let seq = SequenceArray::typed_new(100i64, -10, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(50i64, 10).to_array();
 
         let compare_array = Binary.try_new_array(10, ExprOperator::Lt, [seq, constant])?;
 
-        let result = compare_array.execute_vector(&session)?;
-        let bool_result = result.into_bool();
+        let result = compare_array;
+        let bool_result = result.to_bool();
 
         // [100, 90, 80, 70, 60, 50, 40, 30, 20, 10] < 50
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bits(), &expected);
+        assert_eq!(bool_result.bit_buffer(), &expected);
         Ok(())
     }
 }

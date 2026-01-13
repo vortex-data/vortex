@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use humansize::DECIMAL;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -30,14 +28,12 @@ use taffy::TaffyTree;
 use taffy::TraversePartialTree;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
-use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::file::SegmentSpec;
-use vortex::layout::Layout;
-use vortex::layout::LayoutChildType;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::browse::app::AppState;
+use crate::segment_tree::SegmentTree;
+use crate::segment_tree::collect_segment_tree;
 
 /// State for the segment grid visualization.
 ///
@@ -109,13 +105,6 @@ impl SegmentGridState<'_> {
 pub struct NodeContents<'a> {
     title: FieldName,
     contents: Vec<Line<'a>>,
-}
-
-pub struct SegmentDisplay {
-    name: FieldName,
-    spec: SegmentSpec,
-    row_offset: u64,
-    row_count: u64,
 }
 
 #[expect(
@@ -403,109 +392,4 @@ fn to_display_segment_tree<'a>(
         &children,
     )?;
     Ok((tree, root, node_contents))
-}
-
-fn collect_segment_tree(root_layout: &dyn Layout, segments: &Arc<[SegmentSpec]>) -> SegmentTree {
-    let mut tree = SegmentTree {
-        segments: HashMap::new(),
-        segment_ordering: Vec::new(),
-    };
-    segments_by_name_impl(root_layout, None, None, Some(0), segments, &mut tree)
-        .vortex_expect("operation should succeed in TUI");
-
-    tree
-}
-
-struct SegmentTree {
-    segments: HashMap<FieldName, Vec<SegmentDisplay>>,
-    segment_ordering: Vec<FieldName>,
-}
-
-fn segments_by_name_impl(
-    root: &dyn Layout,
-    group_name: Option<FieldName>,
-    name: Option<FieldName>,
-    row_offset: Option<u64>,
-    segments: &Arc<[SegmentSpec]>,
-    segment_tree: &mut SegmentTree,
-) -> VortexResult<()> {
-    // Recurse into children
-    for (child, child_type) in root.children()?.into_iter().zip(root.child_types()) {
-        match child_type {
-            LayoutChildType::Transparent(sub_name) => segments_by_name_impl(
-                child.as_ref(),
-                group_name.clone(),
-                Some(
-                    name.as_ref()
-                        .map(|n| format!("{n}.{sub_name}").into())
-                        .unwrap_or_else(|| sub_name.into()),
-                ),
-                row_offset,
-                segments,
-                segment_tree,
-            )?,
-            LayoutChildType::Auxiliary(aux_name) => segments_by_name_impl(
-                child.as_ref(),
-                group_name.clone(),
-                Some(
-                    name.as_ref()
-                        .map(|n| format!("{n}.{aux_name}").into())
-                        .unwrap_or_else(|| aux_name.into()),
-                ),
-                Some(0),
-                segments,
-                segment_tree,
-            )?,
-            LayoutChildType::Chunk((idx, chunk_row_offset)) => {
-                segments_by_name_impl(
-                    child.as_ref(),
-                    group_name.clone(),
-                    Some(
-                        name.as_ref()
-                            .map(|n| format!("{n}.[{idx}]"))
-                            .unwrap_or_else(|| format!("[{idx}]"))
-                            .into(),
-                    ),
-                    // Compute absolute row offset.
-                    Some(chunk_row_offset + row_offset.unwrap_or(0)),
-                    segments,
-                    segment_tree,
-                )?
-            }
-            LayoutChildType::Field(field_name) => {
-                // Step into a new group name
-                let group_name = group_name
-                    .as_ref()
-                    .map(|n| format!("{n}.{field_name}").into())
-                    .unwrap_or_else(|| field_name);
-                segment_tree.segment_ordering.push(group_name.clone());
-
-                segments_by_name_impl(
-                    child.as_ref(),
-                    Some(group_name),
-                    None,
-                    row_offset,
-                    segments,
-                    segment_tree,
-                )?
-            }
-        }
-    }
-
-    let current_segments = segment_tree
-        .segments
-        .entry(group_name.unwrap_or_else(|| FieldName::from("root")))
-        .or_default();
-
-    for segment_id in root.segment_ids() {
-        let segment_spec = segments[*segment_id as usize].clone();
-        current_segments.push(SegmentDisplay {
-            name: name.clone().unwrap_or_else(|| "<unnamed>".into()),
-            spec: segment_spec,
-            row_count: root.row_count(),
-            row_offset: row_offset.unwrap_or(0),
-        })
-    }
-
-    Ok(())
 }

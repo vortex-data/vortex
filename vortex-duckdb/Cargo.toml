@@ -40,7 +40,6 @@ tracing = { workspace = true }
 url = { workspace = true }
 vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
 vortex-utils = { workspace = true, features = ["dashmap"] }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 jiff = { workspace = true }

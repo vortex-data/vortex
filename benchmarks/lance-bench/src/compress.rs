@@ -127,7 +127,7 @@ impl Compressor for LanceCompressor {
         Ok((size, elapsed))
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<usize> {
+    async fn decompress(&self, parquet_path: &Path) -> anyhow::Result<Duration> {
         // First compress to get the Lance dataset
         let file = File::open(parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
@@ -157,6 +157,8 @@ impl Compressor for LanceCompressor {
         Dataset::write(reader_iter, path_str, Some(write_params)).await?;
 
         // Now decompress
-        lance_decompress_read(path_str).await
+        let start = Instant::now();
+        lance_decompress_read(path_str).await?;
+        Ok(start.elapsed())
     }
 }

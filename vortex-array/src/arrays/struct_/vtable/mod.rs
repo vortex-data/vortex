@@ -9,16 +9,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
-use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
-use crate::VectorExecutor;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
@@ -141,18 +137,6 @@ impl VTable for StructVTable {
         array.fields = fields;
         array.validity = validity;
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        let fields: Box<[_]> = array
-            .fields()
-            .iter()
-            .map(|field| field.execute(ctx))
-            .try_collect()?;
-        let validity_mask = array.validity_mask();
-
-        // SAFETY: we know that all field lengths match the struct array length, and the validity
-        Ok(unsafe { StructVector::new_unchecked(Arc::new(fields), validity_mask) }.into())
     }
 
     fn reduce_parent(

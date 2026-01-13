@@ -17,9 +17,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
-use vortex_vector::vector_matches_dtype;
 
 use crate::Array;
 use crate::ArrayAdapter;
@@ -64,14 +61,18 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vector>;
-    fn execute_parent(
+    fn execute_canonical(
+        &self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Canonical>;
+    fn execute_canonical_parent(
         &self,
         array: &ArrayRef,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>>;
+    ) -> VortexResult<Option<Canonical>>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -199,18 +200,22 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
+    fn execute_canonical(
+        &self,
+        array: &ArrayRef,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Canonical> {
         let result = V::execute(downcast::<V>(array), ctx)?;
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
-                result.len() == array.len(),
+                result.as_ref().len() == array.len(),
                 "Result length mismatch for {}",
                 self.id()
             );
             vortex_ensure!(
-                vector_matches_dtype(&result, array.dtype()),
-                "Executed vector dtype mismatch for {}",
+                result.as_ref().dtype() == array.dtype(),
+                "Executed canonical dtype mismatch for {}",
                 self.id()
             );
         }
@@ -218,25 +223,27 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(result)
     }
 
-    fn execute_parent(
+    fn execute_canonical_parent(
         &self,
         array: &ArrayRef,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         let Some(result) = V::execute_parent(downcast::<V>(array), parent, child_idx, ctx)? else {
             return Ok(None);
         };
 
-        vortex_ensure!(
-            result.len() == parent.len(),
-            "Executed parent vector length mismatch"
-        );
-        vortex_ensure!(
-            vector_matches_dtype(&result, parent.dtype()),
-            "Executed parent vector dtype mismatch"
-        );
+        if cfg!(debug_assertions) {
+            vortex_ensure!(
+                result.as_ref().len() == parent.len(),
+                "Executed parent canonical length mismatch"
+            );
+            vortex_ensure!(
+                result.as_ref().dtype() == parent.dtype(),
+                "Executed parent canonical dtype mismatch"
+            );
+        }
 
         Ok(Some(result))
     }

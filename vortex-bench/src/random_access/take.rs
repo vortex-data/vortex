@@ -19,13 +19,12 @@ use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use vortex::array::Array;
 use vortex::array::ArrayRef;
+use vortex::array::Canonical;
 use vortex::array::IntoArray;
-use vortex::array::VectorExecutor;
+use vortex::array::VortexSessionExecute;
 use vortex::array::stream::ArrayStreamExt;
-use vortex::array::vectors::VectorIntoArray;
 use vortex::buffer::Buffer;
 use vortex::file::OpenOptionsSessionExt;
-use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::utils::aliases::hash_map::HashMap;
 
 use crate::Format;
@@ -144,11 +143,9 @@ async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::
         .await?;
 
     // We canonicalize / decompress for equivalence to Arrow's `RecordBatch`es.
-    Ok(if *USE_VORTEX_OPERATORS {
-        array.execute_vector(&SESSION)?.into_array(array.dtype())
-    } else {
-        array.to_canonical().into_array()
-    })
+    let mut ctx = SESSION.create_execution_ctx();
+    // TODO(joe): should we go to a vector.
+    Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
 }
 
 pub async fn take_parquet(path: &Path, indices: Vec<u64>) -> anyhow::Result<RecordBatch> {

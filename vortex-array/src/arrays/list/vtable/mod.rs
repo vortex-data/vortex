@@ -8,9 +8,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
+use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
@@ -148,7 +149,7 @@ impl VTable for ListVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

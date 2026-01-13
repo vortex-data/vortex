@@ -8,11 +8,13 @@ use std::fs::File;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use flatbuffers::root;
 use itertools::Itertools;
+use serde::Serialize;
 use vortex::buffer::Alignment;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexExpect;
@@ -38,6 +40,10 @@ pub struct InspectArgs {
 
     /// Path to the Vortex file to inspect.
     pub file: PathBuf,
+
+    /// Output as JSON
+    #[arg(long, global = true)]
+    pub json: bool,
 }
 
 /// What component of the Vortex file to inspect.
@@ -53,6 +59,90 @@ pub enum InspectMode {
     Footer,
 }
 
+/// JSON output structure for inspect command.
+#[derive(Serialize)]
+pub struct InspectOutput {
+    /// Path to the inspected file.
+    pub file_path: String,
+    /// Size of the file in bytes.
+    pub file_size: u64,
+    /// EOF marker information.
+    pub eof: EofInfoJson,
+    /// Postscript information (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postscript: Option<PostscriptInfoJson>,
+    /// Footer information (if available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub footer: Option<FooterInfoJson>,
+}
+
+/// EOF marker information for JSON output.
+#[derive(Serialize)]
+pub struct EofInfoJson {
+    /// File format version.
+    pub version: u16,
+    /// Current supported version.
+    pub current_version: u16,
+    /// Postscript size in bytes.
+    pub postscript_size: u16,
+    /// Magic bytes as string.
+    pub magic_bytes: String,
+    /// Whether magic bytes are valid.
+    pub valid_magic: bool,
+}
+
+/// Segment information for JSON output.
+#[derive(Serialize)]
+pub struct SegmentInfoJson {
+    /// Offset in file.
+    pub offset: u64,
+    /// Length in bytes.
+    pub length: u32,
+    /// Alignment requirement.
+    pub alignment: usize,
+}
+
+/// Postscript information for JSON output.
+#[derive(Serialize)]
+pub struct PostscriptInfoJson {
+    /// DType segment info.
+    pub dtype: Option<SegmentInfoJson>,
+    /// Layout segment info.
+    pub layout: SegmentInfoJson,
+    /// Statistics segment info.
+    pub statistics: Option<SegmentInfoJson>,
+    /// Footer segment info.
+    pub footer: SegmentInfoJson,
+}
+
+/// Footer information for JSON output.
+#[derive(Serialize)]
+pub struct FooterInfoJson {
+    /// Total number of segments.
+    pub total_segments: usize,
+    /// Total data size in bytes.
+    pub total_data_size: u64,
+    /// Individual segment details.
+    pub segments: Vec<FooterSegmentJson>,
+}
+
+/// Footer segment information for JSON output.
+#[derive(Serialize)]
+pub struct FooterSegmentJson {
+    /// Segment index.
+    pub index: usize,
+    /// Start offset in file.
+    pub offset: u64,
+    /// End offset in file.
+    pub end_offset: u64,
+    /// Length in bytes.
+    pub length: u32,
+    /// Alignment requirement.
+    pub alignment: usize,
+    /// Path in layout tree.
+    pub path: Option<String>,
+}
+
 /// Inspect Vortex file footer and metadata.
 ///
 /// # Errors
@@ -61,11 +151,133 @@ pub enum InspectMode {
 pub async fn exec_inspect(session: &VortexSession, args: InspectArgs) -> anyhow::Result<()> {
     let mut inspector = VortexInspector::new(session, args.file.clone())?;
 
-    println!("File: {}", args.file.display());
+    let mode = args.mode.unwrap_or(InspectMode::Footer);
+
+    if args.json {
+        exec_inspect_json(&mut inspector, &args.file, mode).await
+    } else {
+        exec_inspect_text(&mut inspector, &args.file, mode).await
+    }
+}
+
+async fn exec_inspect_json(
+    inspector: &mut VortexInspector<'_>,
+    file_path: &Path,
+    mode: InspectMode,
+) -> anyhow::Result<()> {
+    let eof = inspector.read_eof()?;
+    let eof_json = EofInfoJson {
+        version: eof.version,
+        current_version: VERSION,
+        postscript_size: eof.postscript_size,
+        magic_bytes: std::str::from_utf8(&eof.magic_bytes)
+            .unwrap_or("<invalid utf8>")
+            .to_string(),
+        valid_magic: eof.valid_magic,
+    };
+
+    let postscript_json =
+        if matches!(mode, InspectMode::Postscript | InspectMode::Footer) && eof.valid_magic {
+            inspector
+                .read_postscript(eof.postscript_size)
+                .ok()
+                .map(|ps| PostscriptInfoJson {
+                    dtype: ps.dtype.map(|s| SegmentInfoJson {
+                        offset: s.offset,
+                        length: s.length,
+                        alignment: *s.alignment,
+                    }),
+                    layout: SegmentInfoJson {
+                        offset: ps.layout.offset,
+                        length: ps.layout.length,
+                        alignment: *ps.layout.alignment,
+                    },
+                    statistics: ps.statistics.map(|s| SegmentInfoJson {
+                        offset: s.offset,
+                        length: s.length,
+                        alignment: *s.alignment,
+                    }),
+                    footer: SegmentInfoJson {
+                        offset: ps.footer.offset,
+                        length: ps.footer.length,
+                        alignment: *ps.footer.alignment,
+                    },
+                })
+        } else {
+            None
+        };
+
+    let footer_json =
+        if matches!(mode, InspectMode::Footer) && eof.valid_magic && postscript_json.is_some() {
+            inspector.read_footer().await.ok().map(|footer| {
+                let segment_map = footer.segment_map().clone();
+                let root_layout = footer.layout().clone();
+
+                let mut segment_paths: Vec<Option<Vec<Arc<str>>>> = vec![None; segment_map.len()];
+                let mut queue =
+                    VecDeque::<(Vec<Arc<str>>, LayoutRef)>::from_iter([(Vec::new(), root_layout)]);
+                while !queue.is_empty() {
+                    let (path, layout) = queue.pop_front().vortex_expect("queue is not empty");
+                    for segment in layout.segment_ids() {
+                        segment_paths[*segment as usize] = Some(path.clone());
+                    }
+                    if let Ok(children) = layout.children() {
+                        for (child_layout, child_name) in
+                            children.into_iter().zip(layout.child_names())
+                        {
+                            let child_path = path.iter().cloned().chain([child_name]).collect();
+                            queue.push_back((child_path, child_layout));
+                        }
+                    }
+                }
+
+                let segments: Vec<FooterSegmentJson> = segment_map
+                    .iter()
+                    .enumerate()
+                    .map(|(i, segment)| FooterSegmentJson {
+                        index: i,
+                        offset: segment.offset,
+                        end_offset: segment.offset + segment.length as u64,
+                        length: segment.length,
+                        alignment: *segment.alignment,
+                        path: segment_paths[i]
+                            .as_ref()
+                            .map(|p| p.iter().map(|s| s.as_ref()).collect::<Vec<_>>().join(".")),
+                    })
+                    .collect();
+
+                FooterInfoJson {
+                    total_segments: segment_map.len(),
+                    total_data_size: segment_map.iter().map(|s| s.length as u64).sum(),
+                    segments,
+                }
+            })
+        } else {
+            None
+        };
+
+    let output = InspectOutput {
+        file_path: file_path.display().to_string(),
+        file_size: inspector.file_size,
+        eof: eof_json,
+        postscript: postscript_json,
+        footer: footer_json,
+    };
+
+    let json_output = serde_json::to_string_pretty(&output)?;
+    println!("{json_output}");
+
+    Ok(())
+}
+
+async fn exec_inspect_text(
+    inspector: &mut VortexInspector<'_>,
+    file_path: &Path,
+    mode: InspectMode,
+) -> anyhow::Result<()> {
+    println!("File: {}", file_path.display());
     println!("Size: {} bytes", inspector.file_size);
     println!();
-
-    let mode = args.mode.unwrap_or(InspectMode::Footer);
 
     match mode {
         InspectMode::Eof => {
