@@ -19,7 +19,6 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 
 use crate::session::CudaSession;
 
@@ -37,7 +36,7 @@ pub struct CudaExecutionCtx {
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub(crate) fn new(
+    pub fn new(
         context: Arc<CudaContext>,
         session: Arc<CudaSession>,
         array_ctx: ExecutionCtx,
@@ -148,7 +147,7 @@ impl CudaArrayExt for ArrayRef {
             return Ok(self.to_canonical());
         }
 
-        let Some(support) = ctx.session.get_executor(&self.encoding_id()) else {
+        let Some(support) = ctx.session.executor(&self.encoding_id()) else {
             tracing::debug!(
                 encoding = %self.encoding().id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
@@ -162,90 +161,5 @@ impl CudaArrayExt for ArrayRef {
         );
 
         support.execute_canonical(self, ctx).await
-    }
-}
-
-/// CUDA executor for array execution.
-///
-/// Manages CUDA device initialization and execution of arrays on GPU.
-pub struct CudaExecutor {
-    context: Arc<CudaContext>,
-    session: Arc<CudaSession>,
-}
-
-impl Debug for CudaExecutor {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CudaExecutor")
-            .field("device_id", &0usize)
-            .finish()
-    }
-}
-
-impl CudaExecutor {
-    /// Creates a new CUDA executor for device 0.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - The CUDA session containing registered kernel implementations
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if CUDA device initialization fails.
-    pub async fn try_new(session: Arc<CudaSession>) -> VortexResult<Self> {
-        Self::try_new_with_device(session, 0).await
-    }
-
-    /// Creates a new CUDA executor for the specified device.
-    ///
-    /// # Arguments
-    ///
-    /// * `session` - The CUDA session containing registered kernels
-    /// * `device_id` - The CUDA device ID to use
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if CUDA device initialization fails.
-    pub async fn try_new_with_device(
-        session: Arc<CudaSession>,
-        device_id: usize,
-    ) -> VortexResult<Self> {
-        let context = CudaContext::new(device_id)
-            .map_err(|e| vortex_err!("Failed to initialize CUDA device {}: {}", device_id, e))?;
-
-        tracing::info!(device_id = device_id, "CUDA executor initialized");
-
-        Ok(Self { context, session })
-    }
-
-    /// Creates a new execution context for this executor.
-    pub fn create_execution_ctx(&self) -> CudaExecutionCtx {
-        let array_ctx = ExecutionCtx::new(VortexSession::empty());
-        CudaExecutionCtx::new(self.context.clone(), self.session.clone(), array_ctx)
-    }
-
-    /// Synchronizes with the GPU, waiting for all pending operations to complete.
-    ///
-    /// This function is conditionally compiled for `test` to discourage
-    /// blocking waits on the CPU in production.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if synchronization fails.
-    #[cfg(test)]
-    pub fn synchronize(&self) -> VortexResult<()> {
-        self.context
-            .default_stream()
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize CUDA device: {}", e))
-    }
-
-    /// Returns a reference to the CUDA context.
-    pub fn context(&self) -> &Arc<CudaContext> {
-        &self.context
-    }
-
-    /// Returns a reference to the CUDA session.
-    pub fn session(&self) -> &Arc<CudaSession> {
-        &self.session
     }
 }

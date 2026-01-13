@@ -38,7 +38,7 @@ impl CudaSession {
     /// # Arguments
     ///
     /// * `array_id` - The encoding ID to look up
-    pub fn get_executor(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
+    pub fn executor(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
         self.executors.get(array_id).map(|entry| *entry.value())
     }
 
