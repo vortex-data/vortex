@@ -30,14 +30,14 @@ impl Compressor for VortexCompressor {
 
     async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
         // Read the parquet file as an array stream
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
 
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
         SESSION
             .write_options()
-            .write(&mut cursor, array_stream)
+            .write(&mut cursor, uncompressed.to_array_stream())
             .await?;
         let elapsed = start.elapsed();
 
@@ -46,12 +46,12 @@ impl Compressor for VortexCompressor {
 
     async fn decompress(&self, parquet_path: &Path) -> Result<usize> {
         // First compress to get the bytes we'll decompress
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
         SESSION
             .write_options()
-            .write(&mut cursor, array_stream)
+            .write(&mut cursor, uncompressed.to_array_stream())
             .await?;
 
         // Now decompress
