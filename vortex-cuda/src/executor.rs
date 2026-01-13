@@ -199,7 +199,7 @@ impl CudaExecutor {
     ///
     /// # Arguments
     ///
-    /// * `session` - The CUDA session containing registered kernel implementations
+    /// * `session` - The CUDA session containing registered kernels
     /// * `device_id` - The CUDA device ID to use
     ///
     /// # Errors
@@ -223,7 +223,7 @@ impl CudaExecutor {
         CudaExecutionCtx::new(self.context.clone(), self.session.clone(), array_ctx)
     }
 
-    /// Synchronizes the GPU device, waiting for all pending operations.
+    /// Synchronizes with the GPU, waiting for all pending operations to complete.
     ///
     /// This function is conditionally compiled for `test` to discourage
     /// blocking waits on the CPU in production.
