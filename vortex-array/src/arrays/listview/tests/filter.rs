@@ -96,10 +96,10 @@ fn test_filter_with_gaps() {
     assert_eq!(result_list.offset_at(2), 1); // List 3: [2,3] (overlapping)
 
     // Verify the lists still read correctly.
-    let list0 = result_list.list_elements_at(0);
-    assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 7);
-    assert_eq!(list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 8);
-    assert_eq!(list0.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 9);
+    assert_arrays_eq!(
+        result_list.list_elements_at(0),
+        PrimitiveArray::from_iter([7i32, 8, 9])
+    );
 }
 
 #[ignore = "TODO(connor)[ListView]: Don't rebuild ListView after every `filter`"]
