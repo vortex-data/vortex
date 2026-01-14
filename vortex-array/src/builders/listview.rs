@@ -479,23 +479,17 @@ mod tests {
 
         // Check first list: [1, 2, 3].
         let first_list = listview.list_elements_at(0);
-        assert_eq!(first_list.len(), 3);
-        assert_nth_scalar!(first_list, 0, 1i32);
-        assert_nth_scalar!(first_list, 1, 2i32);
-        assert_nth_scalar!(first_list, 2, 3i32);
+        assert_arrays_eq!(first_list, PrimitiveArray::from_iter([1i32, 2, 3]));
 
         // Check empty list.
-        let empty_list = listview.list_elements_at(1);
-        assert_eq!(empty_list.len(), 0);
+        assert_eq!(listview.list_elements_at(1).len(), 0);
 
         // Check null list.
         assert!(!listview.validity().is_valid(2));
 
         // Check last list: [4, 5].
         let last_list = listview.list_elements_at(3);
-        assert_eq!(last_list.len(), 2);
-        assert_nth_scalar!(last_list, 0, 4i32);
-        assert_nth_scalar!(last_list, 1, 5i32);
+        assert_arrays_eq!(last_list, PrimitiveArray::from_iter([4i32, 5]));
     }
 
     #[test]
@@ -526,15 +520,16 @@ mod tests {
         assert_eq!(listview.len(), 2);
 
         // Verify first list: [1, 2].
-        let first = listview.list_elements_at(0);
-        assert_nth_scalar!(first, 0, 1i32);
-        assert_nth_scalar!(first, 1, 2i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(0),
+            PrimitiveArray::from_iter([1i32, 2])
+        );
 
         // Verify second list: [3, 4, 5].
-        let second = listview.list_elements_at(1);
-        assert_nth_scalar!(second, 0, 3i32);
-        assert_nth_scalar!(second, 1, 4i32);
-        assert_nth_scalar!(second, 2, 5i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(1),
+            PrimitiveArray::from_iter([3i32, 4, 5])
+        );
 
         // Test u64 offsets with u16 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
@@ -592,10 +587,10 @@ mod tests {
         assert!(!listview.validity().is_valid(3));
 
         // Last is the regular list: [10, 20].
-        let last_list = listview.list_elements_at(4);
-        assert_eq!(last_list.len(), 2);
-        assert_nth_scalar!(last_list, 0, 10i32);
-        assert_nth_scalar!(last_list, 1, 20i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(4),
+            PrimitiveArray::from_iter([10i32, 20])
+        );
     }
 
     #[test]
@@ -632,25 +627,25 @@ mod tests {
 
         // Check the extended data.
         // First list: [0] (initial data).
-        let first = listview.list_elements_at(0);
-        assert_eq!(first.len(), 1);
-        assert_nth_scalar!(first, 0, 0i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(0),
+            PrimitiveArray::from_iter([0i32])
+        );
 
         // Second list: [1, 2, 3] (from source).
-        let second = listview.list_elements_at(1);
-        assert_eq!(second.len(), 3);
-        assert_nth_scalar!(second, 0, 1i32);
-        assert_nth_scalar!(second, 1, 2i32);
-        assert_nth_scalar!(second, 2, 3i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(1),
+            PrimitiveArray::from_iter([1i32, 2, 3])
+        );
 
         // Third list: null (from source).
         assert!(!listview.validity().is_valid(2));
 
         // Fourth list: [4, 5] (from source).
-        let fourth = listview.list_elements_at(3);
-        assert_eq!(fourth.len(), 2);
-        assert_nth_scalar!(fourth, 0, 4i32);
-        assert_nth_scalar!(fourth, 1, 5i32);
+        assert_arrays_eq!(
+            listview.list_elements_at(3),
+            PrimitiveArray::from_iter([4i32, 5])
+        );
     }
 
     #[test]
