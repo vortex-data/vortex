@@ -24,6 +24,9 @@ impl CanonicalVTable<VarBinVTable> for VarBinVTable {
         let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
+        let array = array.clone().zero_offsets();
+        assert_eq!(array.offset_at(0), 0);
+
         let array_ref = array
             .to_array()
             .into_arrow_preferred()
