@@ -43,7 +43,11 @@ impl CudaSession {
             .context
             .new_stream()
             .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
-        CudaExecutionCtx::new(stream, Arc::new(self.clone()), array_ctx)
+        Ok(CudaExecutionCtx::new(
+            stream,
+            Arc::new(self.clone()),
+            array_ctx,
+        ))
     }
 
     /// Registers CUDA support for an array encoding.

@@ -32,16 +32,16 @@ pub struct CudaExecutionCtx {
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub fn new(
+    pub(crate) fn new(
         stream: Arc<CudaStream>,
         session: Arc<CudaSession>,
         array_ctx: vortex_array::ExecutionCtx,
-    ) -> VortexResult<Self> {
-        Ok(Self {
+    ) -> Self {
+        Self {
             session,
             array_ctx,
             stream,
-        })
+        }
     }
 
     /// Allocates a typed buffer on the GPU.
