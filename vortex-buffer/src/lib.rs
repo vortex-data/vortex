@@ -63,8 +63,6 @@ mod buffer;
 mod buffer_mut;
 mod bytes;
 mod r#const;
-#[cfg(gpu_unstable)]
-mod cuda;
 mod debug;
 mod macros;
 #[cfg(feature = "memmap2")]
