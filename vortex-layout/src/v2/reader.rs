@@ -4,7 +4,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-use async_trait::async_trait;
+use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -41,26 +41,29 @@ pub trait Reader: 'static + Send + Sync {
     }
 
     /// Creates a scan over the given row range of the reader.
-    fn scan(&self, row_range: Range<u64>) -> VortexResult<ReaderScanRef>;
+    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef>;
 }
 
-pub type ReaderScanRef = Box<dyn ReaderScan>;
+pub type ReaderStreamRef = Box<dyn ReaderStream>;
 
-/// A scan over a reader, producing output arrays given an input array to parameterize the filter
-/// and projection expressions.
-#[async_trait]
-pub trait ReaderScan {
+pub trait ReaderStream: 'static + Send + Sync {
     /// The data type of the returned data.
     fn dtype(&self) -> &DType;
 
-    /// The preferred maximum row count for the next batch.
+    /// The preferred maximum row count for the next chunk.
     ///
-    /// Returns [`None`] if there are no more batches.
-    fn next_batch_size(&mut self) -> Option<usize>;
+    /// Returns [`None`] if there are no more chunks.
+    fn next_chunk_len(&self) -> Option<usize>;
 
-    /// Returns the next batch of data given an input array.
+    /// Returns the next chunk of data given an input array.
     ///
-    /// The returned batch must have the same number of rows as the [`Mask::true_count`].
-    /// The provided mask will have at most [`next_batch_size`] rows.
-    async fn next_batch(&mut self, mask: Mask) -> VortexResult<ArrayRef>;
+    /// The returned chunk must have the same number of rows as the [`Mask::true_count`].
+    /// The provided mask will have at most [`next_chunk_len`] rows.
+    ///
+    /// The returned future has a `'static` lifetime allowing the calling to drive the stream
+    /// arbitrarily far without awaiting any data.
+    fn next_chunk(
+        &mut self,
+        mask: &Mask,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>>;
 }

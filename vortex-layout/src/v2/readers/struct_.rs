@@ -16,8 +16,8 @@ use vortex_mask::Mask;
 
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
-use crate::v2::stream::LayoutReaderStream;
-use crate::v2::stream::SendableLayoutReaderStream;
+use crate::v2::reader::ReaderStream;
+use crate::v2::reader::ReaderStreamRef;
 
 pub struct StructReader2 {
     row_count: u64,
@@ -27,23 +27,15 @@ pub struct StructReader2 {
 }
 
 impl Reader for StructReader2 {
-    fn row_count(&self) -> u64 {
-        self.row_count
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn nchildren(&self) -> usize {
-        self.fields.len()
+    fn row_count(&self) -> u64 {
+        self.row_count
     }
 
-    fn child(&self, idx: usize) -> &ReaderRef {
-        &self.fields[idx]
-    }
-
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<SendableLayoutReaderStream> {
+    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let field_streams = self
             .fields
             .iter()
@@ -59,10 +51,10 @@ impl Reader for StructReader2 {
 
 struct StructReaderStream {
     dtype: DType,
-    fields: Vec<SendableLayoutReaderStream>,
+    fields: Vec<ReaderStreamRef>,
 }
 
-impl LayoutReaderStream for StructReaderStream {
+impl ReaderStream for StructReaderStream {
     fn dtype(&self) -> &DType {
         &self.dtype
     }

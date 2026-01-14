@@ -17,8 +17,8 @@ use vortex_mask::Mask;
 
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
-use crate::v2::stream::LayoutReaderStream;
-use crate::v2::stream::SendableLayoutReaderStream;
+use crate::v2::reader::ReaderStream;
+use crate::v2::reader::ReaderStreamRef;
 
 pub struct ChunkedReader2 {
     row_count: u64,
@@ -27,23 +27,15 @@ pub struct ChunkedReader2 {
 }
 
 impl Reader for ChunkedReader2 {
-    fn row_count(&self) -> u64 {
-        self.row_count
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn nchildren(&self) -> usize {
-        self.chunks.len()
+    fn row_count(&self) -> u64 {
+        self.row_count
     }
 
-    fn child(&self, idx: usize) -> &ReaderRef {
-        &self.chunks[idx]
-    }
-
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<SendableLayoutReaderStream> {
+    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let mut remaining_start = row_range.start;
         let mut remaining_end = row_range.end;
         let mut streams = Vec::new();
@@ -84,10 +76,10 @@ impl Reader for ChunkedReader2 {
 
 struct ChunkedReaderStream {
     dtype: DType,
-    chunks: Vec<SendableLayoutReaderStream>,
+    chunks: Vec<ReaderStreamRef>,
 }
 
-impl LayoutReaderStream for ChunkedReaderStream {
+impl ReaderStream for ChunkedReaderStream {
     fn dtype(&self) -> &DType {
         &self.dtype
     }

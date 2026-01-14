@@ -4,4 +4,3 @@
 mod optimizer;
 pub mod reader;
 pub mod readers;
-pub mod stream;

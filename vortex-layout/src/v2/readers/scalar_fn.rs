@@ -16,8 +16,8 @@ use vortex_mask::Mask;
 
 use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderRef;
-use crate::v2::stream::LayoutReaderStream;
-use crate::v2::stream::SendableLayoutReaderStream;
+use crate::v2::reader::ReaderStream;
+use crate::v2::reader::ReaderStreamRef;
 
 /// A [`Reader] for applying a scalar function to another layout.
 pub struct ScalarFnReader {
@@ -28,23 +28,15 @@ pub struct ScalarFnReader {
 }
 
 impl Reader for ScalarFnReader {
-    fn row_count(&self) -> u64 {
-        self.row_count
-    }
-
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn nchildren(&self) -> usize {
-        self.children.len()
+    fn row_count(&self) -> u64 {
+        self.row_count
     }
 
-    fn child(&self, idx: usize) -> &ReaderRef {
-        &self.children[idx]
-    }
-
-    fn execute(&self, row_range: Range<u64>) -> VortexResult<SendableLayoutReaderStream> {
+    fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef> {
         let input_streams = self
             .children
             .iter()
@@ -62,10 +54,10 @@ impl Reader for ScalarFnReader {
 struct ScalarFnArrayStream {
     dtype: DType,
     scalar_fn: ScalarFn,
-    input_streams: Vec<SendableLayoutReaderStream>,
+    input_streams: Vec<ReaderStreamRef>,
 }
 
-impl LayoutReaderStream for ScalarFnArrayStream {
+impl ReaderStream for ScalarFnArrayStream {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
