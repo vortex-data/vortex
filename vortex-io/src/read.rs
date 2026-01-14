@@ -4,10 +4,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt;
-use futures::StreamExt;
 use futures::future::BoxFuture;
-use futures::future::LocalBoxFuture;
-use futures::stream::BoxStream;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -17,8 +14,6 @@ use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
-
-use crate::file::IoRequest;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -53,20 +48,20 @@ impl CoalesceConfig {
 ///
 /// ## Basic Usage
 ///
-/// For simple implementations, you only need to implement [`VortexRead::read_at`] and
-/// [`VortexRead::size`]. The default [`VortexRead::drive`] implementation will handle
+/// For simple implementations, you only need to implement [`VortexReadAt::read_at`] and
+/// [`VortexReadAt::size`]. The default [`VortexReadAt::drive`] implementation will handle
 /// concurrent request processing automatically.
 ///
 /// ## Advanced Usage
 ///
 /// For optimized I/O patterns (e.g., object stores with streaming responses, batched file I/O),
-/// override the [`VortexRead::drive`] method to provide a custom implementation.
+/// override the [`VortexReadAt::drive`] method to provide a custom implementation.
 ///
 /// ## Coalescing and Cancellation
 ///
 /// The [`crate::file::FileRead`] wrapper provides request coalescing and cancellation on top
-/// of any `VortexRead` implementation. We strongly recommend using it for best performance.
-pub trait VortexRead: Send + Sync + 'static {
+/// of any `VortexReadAt` implementation. We strongly recommend using it for best performance.
+pub trait VortexReadAt: Send + Sync + 'static {
     /// URI for debugging/logging. Returns `None` for anonymous sources.
     fn uri(&self) -> Option<&Arc<str>> {
         None
@@ -120,41 +115,28 @@ pub trait VortexRead: Send + Sync + 'static {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
+}
 
-    /// Drive a stream of I/O requests to completion.
-    ///
-    /// The default implementation calls [`VortexRead::read_at`] for each request with
-    /// concurrency controlled by [`VortexRead::concurrency`].
-    ///
-    /// Override this method to provide optimized batch I/O, such as:
-    /// - Batching requests to amortize syscall overhead
-    /// - Using streaming responses from object stores
-    /// - Custom concurrency or prioritization strategies
-    fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
-        let concurrency = self.concurrency();
-        requests
-            .map(move |req| {
-                let this = self.clone();
-                async move {
-                    let result = this.read_at(req.offset(), req.len(), req.alignment()).await;
-                    req.resolve(result);
-                }
-            })
-            .buffer_unordered(concurrency)
-            .collect::<()>()
-            .boxed()
+impl VortexReadAt for Arc<dyn VortexReadAt> {
+    fn concurrency(&self) -> usize {
+        self.as_ref().concurrency()
     }
 
-    /// Drive a stream of I/O requests on the local thread (non-Send).
-    fn drive_local(
-        self: Arc<Self>,
-        requests: BoxStream<'static, IoRequest>,
-    ) -> LocalBoxFuture<'static, ()> {
-        self.drive(requests).boxed_local()
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.as_ref().size()
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.as_ref().read_at(offset, length, alignment)
     }
 }
 
-impl<R: VortexRead> VortexRead for Arc<R> {
+impl<R: VortexReadAt> VortexReadAt for Arc<R> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.as_ref().uri()
     }
@@ -180,14 +162,14 @@ impl<R: VortexRead> VortexRead for Arc<R> {
         self.as_ref().read_at(offset, length, alignment)
     }
 
-    fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
-        // Delegate to the inner implementation's drive
-        let inner: Arc<R> = Arc::clone(&self);
-        inner.drive(requests)
-    }
+    // fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
+    //     // Delegate to the inner implementation's drive
+    //     let inner: Arc<R> = Arc::clone(&self);
+    //     inner.drive(requests)
+    // }
 }
 
-impl VortexRead for ByteBuffer {
+impl VortexReadAt for ByteBuffer {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let length = self.len() as u64;
         async move { Ok(length) }.boxed()
@@ -222,16 +204,16 @@ impl VortexRead for ByteBuffer {
     }
 }
 
-/// A wrapper that instruments a [`VortexRead`] with metrics.
+/// A wrapper that instruments a [`VortexReadAt`] with metrics.
 #[derive(Clone)]
-pub struct InstrumentedRead<T: VortexRead> {
+pub struct InstrumentedReadAt<T: VortexReadAt> {
     read: Arc<T>,
     sizes: Arc<Histogram>,
     total_size: Arc<Counter>,
     durations: Arc<Timer>,
 }
 
-impl<T: VortexRead> InstrumentedRead<T> {
+impl<T: VortexReadAt> InstrumentedReadAt<T> {
     pub fn new(read: Arc<T>, metrics: &VortexMetrics) -> Self {
         Self {
             read,
@@ -242,7 +224,7 @@ impl<T: VortexRead> InstrumentedRead<T> {
     }
 }
 
-impl<T: VortexRead> Drop for InstrumentedRead<T> {
+impl<T: VortexReadAt> Drop for InstrumentedReadAt<T> {
     #[allow(clippy::cognitive_complexity)]
     fn drop(&mut self) {
         let sizes = self.sizes.snapshot();
@@ -269,7 +251,7 @@ impl<T: VortexRead> Drop for InstrumentedRead<T> {
     }
 }
 
-impl<T: VortexRead> VortexRead for InstrumentedRead<T> {
+impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.read.uri()
     }
@@ -306,10 +288,6 @@ impl<T: VortexRead> VortexRead for InstrumentedRead<T> {
         .boxed()
     }
 }
-
-/// Backwards compatibility alias.
-#[deprecated(since = "0.30.0", note = "Use InstrumentedRead instead")]
-pub type InstrumentedReadAt<T> = InstrumentedRead<T>;
 
 #[cfg(test)]
 mod tests {

@@ -21,7 +21,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::CoalesceConfig;
-use crate::VortexRead;
+use crate::VortexReadAt;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
@@ -77,7 +77,7 @@ impl ObjectStoreSource {
     }
 }
 
-impl VortexRead for ObjectStoreSource {
+impl VortexReadAt for ObjectStoreSource {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }

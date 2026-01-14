@@ -16,7 +16,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-use crate::VortexRead;
+use crate::VortexReadAt;
 use crate::file::std_file::FileReadAdapter;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
@@ -32,10 +32,9 @@ const TEST_LEN: usize = 5;
 
 #[test]
 fn test_file_read_with_single_thread_runtime() {
-    let result = block_on(|handle| {
+    let result = block_on(|_handle| {
         async move {
-            let buffer: Arc<dyn VortexRead> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
-            let file_read = handle.open_read(buffer, Default::default());
+            let file_read: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
             // Read a slice
             let result = file_read
@@ -63,9 +62,7 @@ fn test_file_read_with_single_thread_runtime() {
 
 #[tokio::test]
 async fn test_file_read_with_tokio_runtime() {
-    let handle = TokioRuntime::current();
-    let buffer: Arc<dyn VortexRead> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
-    let file_read = handle.open_read(buffer, Default::default());
+    let file_read: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Read a slice
     let result = file_read
@@ -101,9 +98,8 @@ fn test_file_read_with_real_file_single_thread() {
             temp_file.flush().unwrap();
 
             // Open and read the file
-            let source: Arc<dyn VortexRead> =
+            let file_read: Arc<dyn VortexReadAt> =
                 Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
-            let file_read = handle.open_read(source, Default::default());
 
             // Read a slice
             let result = file_read
@@ -139,9 +135,8 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.flush().unwrap();
 
     let handle = TokioRuntime::current();
-    let source: Arc<dyn VortexRead> =
+    let file_read: Arc<dyn VortexReadAt> =
         Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
-    let file_read = handle.open_read(source, Default::default());
 
     // Read a slice
     let result = file_read
@@ -167,16 +162,14 @@ async fn test_file_read_with_real_file_tokio() {
 
 #[tokio::test]
 async fn test_concurrent_reads() {
-    let handle = TokioRuntime::current();
-    let buffer: Arc<dyn VortexRead> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
-    let file_read = handle.open_read(buffer, Default::default());
+    let read_at: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Issue multiple concurrent reads
     let futures = vec![
-        file_read.read_at(0, 5, Alignment::new(1)),
-        file_read.read_at(5, 5, Alignment::new(1)),
-        file_read.read_at(10, 5, Alignment::new(1)),
-        file_read.read_at(15, 5, Alignment::new(1)),
+        read_at.read_at(0, 5, Alignment::new(1)),
+        read_at.read_at(5, 5, Alignment::new(1)),
+        read_at.read_at(10, 5, Alignment::new(1)),
+        read_at.read_at(15, 5, Alignment::new(1)),
     ];
 
     let results = futures::future::join_all(futures).await;
@@ -223,12 +216,12 @@ async fn test_handle_spawn_cpu() {
 // Test custom VortexRead implementation
 // ============================================================================
 
-struct CountingSource {
+struct CountingReadAt {
     data: ByteBuffer,
     read_count: Arc<AtomicUsize>,
 }
 
-impl VortexRead for CountingSource {
+impl VortexReadAt for CountingReadAt {
     fn uri(&self) -> Option<&Arc<str>> {
         None
     }
@@ -268,20 +261,17 @@ impl VortexRead for CountingSource {
 
 #[tokio::test]
 async fn test_custom_vortex_read() {
-    let handle = TokioRuntime::current();
     let read_count = Arc::new(AtomicUsize::new(0));
 
-    let source: Arc<dyn VortexRead> = Arc::new(CountingSource {
+    let read_at: Arc<dyn VortexReadAt> = Arc::new(CountingReadAt {
         data: ByteBuffer::from(TEST_DATA.to_vec()),
         read_count: read_count.clone(),
     });
 
-    let file_read = handle.open_read(source, Default::default());
-
     // Perform several reads
-    file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
-    file_read.read_at(5, 5, Alignment::new(1)).await.unwrap();
-    file_read.read_at(10, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(0, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(5, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(10, 5, Alignment::new(1)).await.unwrap();
 
     // Check that our custom VortexRead was called 3 times
     assert_eq!(read_count.load(Ordering::SeqCst), 3);
@@ -293,16 +283,14 @@ async fn test_custom_vortex_read() {
 
 #[tokio::test]
 async fn test_read_out_of_bounds() {
-    let handle = TokioRuntime::current();
-    let buffer: Arc<dyn VortexRead> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
-    let file_read = handle.open_read(buffer, Default::default());
+    let reader: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Try to read beyond the buffer
-    let result = file_read.read_at(100, 10, Alignment::new(1)).await;
+    let result = reader.read_at(100, 10, Alignment::new(1)).await;
     assert!(result.is_err());
 
     // Try to read with length that exceeds buffer
-    let result = file_read.read_at(40, 20, Alignment::new(1)).await;
+    let result = reader.read_at(40, 20, Alignment::new(1)).await;
     assert!(result.is_err());
 }
 

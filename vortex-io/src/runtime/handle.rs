@@ -9,17 +9,10 @@ use std::task::Poll;
 use std::task::ready;
 
 use futures::FutureExt;
-use futures::StreamExt;
-use futures::channel::mpsc;
 use vortex_error::vortex_panic;
-use vortex_metrics::VortexMetrics;
 
-use crate::VortexRead;
-use crate::file::FileRead;
-use crate::file::IoRequestStream;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
-use crate::runtime::IoTask;
 
 /// A handle to an active Vortex runtime.
 ///
@@ -141,26 +134,6 @@ impl Handle {
             recv,
             abort_handle: Some(abort_handle),
         }
-    }
-
-    /// Open a file for I/O on this runtime using a [`VortexRead`] source.
-    ///
-    /// This wraps the source in a [`FileRead`] which provides request coalescing and cancellation.
-    pub fn open_read(&self, source: Arc<dyn VortexRead>, metrics: VortexMetrics) -> FileRead {
-        let (send, recv) = mpsc::unbounded();
-
-        let uri = source
-            .uri()
-            .cloned()
-            .unwrap_or_else(|| Arc::from("<anonymous>"));
-        let read = FileRead::new(uri, source.size(), send);
-
-        let coalesce_config = source.coalesce_config();
-        let stream = IoRequestStream::new(StreamExt::boxed(recv), coalesce_config, metrics).boxed();
-
-        self.runtime().spawn_io(IoTask::new(source, stream));
-
-        read
     }
 }
 

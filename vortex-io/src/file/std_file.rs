@@ -21,7 +21,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
-use crate::VortexRead;
+use crate::VortexReadAt;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
@@ -63,7 +63,7 @@ const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 };
 const CONCURRENCY: usize = 32;
 
-/// An adapter type wrapping a [`File`] to implement [`VortexRead`].
+/// An adapter type wrapping a [`File`] to implement [`VortexReadAt`].
 pub struct FileReadAdapter {
     uri: Arc<str>,
     file: Arc<File>,
@@ -80,7 +80,7 @@ impl FileReadAdapter {
     }
 }
 
-impl VortexRead for FileReadAdapter {
+impl VortexReadAt for FileReadAdapter {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }

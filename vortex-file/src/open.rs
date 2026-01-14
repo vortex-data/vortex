@@ -12,8 +12,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedRead;
-use vortex_io::VortexRead;
+use vortex_io::InstrumentedReadAt;
+use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
@@ -138,10 +138,8 @@ impl VortexOpenOptions {
     /// out-of-the-box performance. The underlying I/O system will continue to be optimised for
     /// different file systems and object stores so we encourage users to use this method
     /// whenever possible and file issues if they encounter problems.
-    pub async fn open(self, source: Arc<dyn VortexRead>) -> VortexResult<VortexFile> {
-        let handle = self.session.handle();
-        let metrics = self.metrics.clone();
-        self.open_read(handle.open_read(source, metrics)).await
+    pub async fn open(self, source: Arc<dyn VortexReadAt>) -> VortexResult<VortexFile> {
+        self.open_read(source).await
     }
 
     /// Open a Vortex file from a filesystem path.
@@ -163,11 +161,11 @@ impl VortexOpenOptions {
         )
     }
 
-    /// An API for opening a [`VortexFile`] using any [`VortexRead`] implementation.
+    /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
     ///
     /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
-    pub async fn open_read<R: VortexRead>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedRead::new(Arc::new(read), &self.metrics));
+    async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
+        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -184,9 +182,11 @@ impl VortexOpenOptions {
         ));
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::new(
+        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
             read,
+            self.session.handle(),
+            self.metrics.clone(),
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -203,7 +203,7 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: Arc<dyn VortexRead>) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -316,7 +316,7 @@ mod tests {
         first_read_len: Arc<AtomicUsize>,
     }
 
-    impl<R: VortexRead> VortexRead for CountingRead<R> {
+    impl<R: VortexReadAt> VortexReadAt for CountingRead<R> {
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             self.inner.size()
         }
@@ -338,7 +338,7 @@ mod tests {
         }
 
         fn concurrency(&self) -> usize {
-            16
+            self.inner.concurrency()
         }
     }
 
