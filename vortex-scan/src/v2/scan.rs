@@ -66,3 +66,5 @@ impl ScanBuilder2 {
         todo!()
     }
 }
+
+struct Scan {}
