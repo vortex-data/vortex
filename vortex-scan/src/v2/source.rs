@@ -15,14 +15,14 @@ use vortex_error::VortexResult;
 ///
 /// Providers can be registered with Vortex under a specific
 #[async_trait(?Send)]
-pub trait SourceProvider: 'static {
+pub trait DataSourceProvider: 'static {
     /// URI schemes handled by this source provider.
     ///
     /// TODO(ngates): this might not be the right way to plugin sources.
     fn schemes(&self) -> &[&str];
 
     /// Initialize a new source.
-    async fn init_source(&self, uri: String) -> VortexResult<SourceRef>;
+    async fn init_source(&self, uri: String) -> VortexResult<DataSourceRef>;
 
     /// Serialize a source split to bytes.
     async fn serialize_split(&self, split: &dyn Split) -> VortexResult<Vec<u8>>;
@@ -32,13 +32,13 @@ pub trait SourceProvider: 'static {
 }
 
 /// A reference-counted source.
-pub type SourceRef = Arc<dyn Source>;
+pub type DataSourceRef = Arc<dyn DataSource>;
 
 /// A source represents a streamable dataset that can be scanned with projection and filter
 /// expressions. Each scan produces splits that can be executed in parallel to read data.
 /// Each split can be serialized for remote execution.
 #[async_trait]
-pub trait Source: 'static + Send + Sync {
+pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
     fn dtype(&self) -> &DType;
 
@@ -46,7 +46,7 @@ pub trait Source: 'static + Send + Sync {
     fn row_count_estimate(&self) -> Estimate<u64>;
 
     /// Returns a scan over the source.
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<SourceScanRef>;
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 }
 
 #[derive(Debug, Clone, Default)]
@@ -56,10 +56,10 @@ pub struct ScanRequest {
     pub limit: Option<u64>,
 }
 
-pub type SourceScanRef = Box<dyn SourceScan>;
+pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
 #[async_trait]
-pub trait SourceScan: 'static + Send + Sync {
+pub trait DataSourceScan: 'static + Send + Sync {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
