@@ -433,22 +433,3 @@ impl<'a> FromIterator<Option<&'a str>> for VarBinViewArray {
         Self::from_iter_nullable_str(iter)
     }
 }
-
-use super::VarBinViewVTable;
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::executor::Executable;
-use crate::executor::ExecutionCtx;
-
-/// Execute the array to canonical form and unwrap as a [`VarBinViewArray`].
-///
-/// This will panic if the array's dtype is not utf8 or binary.
-impl Executable for VarBinViewArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // Fast path: if already a VarBinViewArray, just return it.
-        match array.try_into::<VarBinViewVTable>() {
-            Ok(varbinview) => Ok(varbinview),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_varbinview()),
-        }
-    }
-}

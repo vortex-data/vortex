@@ -70,6 +70,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
     {
+        // TODO(joe): have into parts.
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
         let patches_chunk_offsets = chunk_offsets.clone().execute::<PrimitiveArray>(ctx)?;
         let patches_indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;

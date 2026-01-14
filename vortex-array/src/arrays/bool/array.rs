@@ -236,24 +236,6 @@ impl IntoArray for BitBufferMut {
     }
 }
 
-use super::BoolVTable;
-use crate::Canonical;
-use crate::executor::Executable;
-use crate::executor::ExecutionCtx;
-
-/// Execute the array to canonical form and unwrap as a [`BoolArray`].
-///
-/// This will panic if the array's dtype is not bool.
-impl Executable for BoolArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // Fast path: if already a BoolArray, just return it.
-        match array.try_into::<BoolVTable>() {
-            Ok(bool_array) => Ok(bool_array),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_bool()),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::BitBuffer;
