@@ -6,24 +6,14 @@ use std::ops::Range;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::varbin_scalar;
 use crate::vtable::OperationsVTable;
-use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<VarBinViewVTable> for VarBinViewVTable {
-    fn slice(array: &VarBinViewArray, range: Range<usize>) -> ArrayRef {
-        let views = array.views().slice(range.clone());
-
-        VarBinViewArray::new(
-            views,
-            array.buffers().clone(),
-            array.dtype().clone(),
-            array.validity().slice(range),
-        )
-        .into_array()
+    fn slice(_array: &VarBinViewArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &VarBinViewArray, index: usize) -> Scalar {

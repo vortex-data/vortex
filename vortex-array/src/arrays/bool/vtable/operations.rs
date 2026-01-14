@@ -6,19 +6,13 @@ use std::ops::Range;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::vtable::OperationsVTable;
-use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
-    fn slice(array: &BoolArray, range: Range<usize>) -> ArrayRef {
-        BoolArray::from_bit_buffer(
-            array.bit_buffer().slice(range.clone()),
-            array.validity().slice(range),
-        )
-        .into_array()
+    fn slice(_array: &BoolArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &BoolArray, index: usize) -> Scalar {

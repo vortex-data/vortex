@@ -6,40 +6,13 @@ use std::ops::Range;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::vtable::OperationsVTable;
-use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
-    fn slice(array: &FixedSizeListArray, range: Range<usize>) -> ArrayRef {
-        let start = range.start;
-        let end = range.end;
-
-        debug_assert!(
-            start <= end && end <= array.len(),
-            "slice [{start}..{end}) out of bounds: then len is {}",
-            array.len()
-        );
-
-        let new_len = end - start;
-        let list_size = array.list_size() as usize;
-
-        // SAFETY:
-        // - If the `list_size` is 0, then the elements slice has length 0
-        // - The length of the sliced elements must be a multiple of the `list_size` since we
-        //   multiply both ends by `list_size`
-        // - The validity is sliced with equal length to `new_len`
-        unsafe {
-            FixedSizeListArray::new_unchecked(
-                array.elements().slice(start * list_size..end * list_size),
-                array.list_size(),
-                array.validity().slice(range),
-                new_len,
-            )
-        }
-        .into_array()
+    fn slice(_array: &FixedSizeListArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> Scalar {

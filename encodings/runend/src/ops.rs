@@ -74,6 +74,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::Cost;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -159,7 +160,7 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5);
 
-        assert!(sliced_array.is_constant())
+        assert!(sliced_array.is_constant_opts(Cost::Canonicalize))
     }
 
     #[test]

@@ -223,6 +223,7 @@ mod tests {
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ArrayVTableExt;
+    use vortex_array::vtable::OperationsVTable;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
@@ -313,7 +314,8 @@ mod tests {
         )
         .unwrap();
 
-        let valid_slice = rle_array.slice(0..3);
+        let valid_slice = rle_array.slice(0..3).to_primitive();
+        // TODO(joe): replace with compute null count
         assert!(valid_slice.all_valid());
 
         let mixed_slice = rle_array.slice(1..5);
@@ -349,7 +351,8 @@ mod tests {
         )
         .unwrap();
 
-        let invalid_slice = rle_array.slice(2..5);
+        // TODO(joe): replace with compute null count
+        let invalid_slice = rle_array.slice(2..5).to_canonical().into_primitive();
         assert!(invalid_slice.all_invalid());
 
         let mixed_slice = rle_array.slice(1..4);
@@ -463,7 +466,7 @@ mod tests {
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        let sliced = rle_array.slice(100..200);
+        let sliced = <RLEVTable as OperationsVTable<RLEVTable>>::slice(&rle_array, 100..200);
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());

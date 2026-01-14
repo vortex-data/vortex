@@ -240,10 +240,7 @@ impl Array for Arc<dyn Array> {
 
     #[inline]
     fn slice(&self, range: Range<usize>) -> ArrayRef {
-        SliceArray::new(self.clone(), range)
-            .into_array()
-            .optimize()
-            .vortex_expect("cannot fail for now")
+        self.as_ref().slice(range)
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
@@ -503,7 +500,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, range);
+        let sliced = SliceArray::new(self.0.to_array(), range)
+            .into_array()
+            .optimize()
+            .vortex_expect("cannot fail for now");
 
         assert_eq!(
             sliced.len(),

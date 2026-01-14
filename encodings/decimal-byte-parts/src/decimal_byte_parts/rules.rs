@@ -6,16 +6,48 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::SliceVTable;
 use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
-pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&DecimalBytePartsSlicePushDownRule),
+    ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule),
+]);
+
+#[derive(Debug)]
+struct DecimalBytePartsSlicePushDownRule;
+
+impl ArrayParentReduceRule<DecimalBytePartsVTable> for DecimalBytePartsSlicePushDownRule {
+    type Parent = Exact<SliceVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        // SAFETY: SliceVTable is a valid VTable with a stable ID
+        unsafe { Exact::new_unchecked(SliceVTable.id()) }
+    }
+
+    fn reduce_parent(
+        &self,
+        child: &DecimalBytePartsArray,
+        parent: &SliceArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let range = parent.slice_range().clone();
+        let new_msp = child.msp().slice(range);
+        // SAFETY: slicing the msp preserves all DecimalBytePartsArray invariants
+        let new_child =
+            unsafe { DecimalBytePartsArray::new_unchecked(new_msp, *child.decimal_dtype()) }
+                .into_array();
+        Ok(Some(new_child))
+    }
+}
 
 #[derive(Debug)]
 struct DecimalBytePartsFilterPushDownRule;

@@ -7,36 +7,13 @@ use std::sync::Arc;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::vtable::OperationsVTable;
-use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<ListViewVTable> for ListViewVTable {
-    fn slice(array: &ListViewArray, range: Range<usize>) -> ArrayRef {
-        let start = range.start;
-        let end = range.end;
-
-        // We implement slice by simply slicing the views. We leave the child `elements` array alone
-        // since slicing could potentially require calculating which elements are referenced by the
-        // new set of views.
-
-        // SAFETY: The preconditions of `slice` mean that the bounds have already been checked, and
-        // slicing the components of an existing valid array is still valid.
-        // Additionally, slicing elements of a `ListViewArray` that is already zero-copyable to a
-        // `ListArray` does not reorder or create gaps and overlaps, slicing maintains whatever
-        // `is_zero_copy_to_list` flag it already had.
-        unsafe {
-            ListViewArray::new_unchecked(
-                array.elements().clone(),
-                array.offsets().slice(start..end),
-                array.sizes().slice(start..end),
-                array.validity().slice(start..end),
-            )
-            .with_zero_copy_to_list(array.is_zero_copy_to_list())
-        }
-        .into_array()
+    fn slice(_array: &ListViewArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &ListViewArray, index: usize) -> Scalar {

@@ -15,7 +15,6 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
-use crate::IntoArray;
 use crate::Precision;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -169,8 +168,8 @@ impl CanonicalVTable<NullVTable> for NullVTable {
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, range: Range<usize>) -> ArrayRef {
-        NullArray::new(range.len()).into_array()
+    fn slice(_array: &NullArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {

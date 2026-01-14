@@ -6,14 +6,13 @@ use std::ops::Range;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::ExtensionVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
-    fn slice(array: &ExtensionArray, range: Range<usize>) -> ArrayRef {
-        ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)).into_array()
+    fn slice(_array: &ExtensionArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &ExtensionArray, index: usize) -> Scalar {

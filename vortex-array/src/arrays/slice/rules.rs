@@ -37,6 +37,7 @@ use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[
+    &SliceSliceRule,
     &SliceNullRule,
     &SliceBoolRule,
     &SlicePrimitiveRule,
@@ -48,6 +49,29 @@ pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[
     &SliceStructRule,
     &SliceExtensionRule,
 ]);
+
+/// Reduce rule for Slice(Slice(child)) -> Slice(child) with combined ranges
+#[derive(Debug)]
+struct SliceSliceRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceSliceRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(inner_slice) = array.child().as_opt::<SliceVTable>() else {
+            return Ok(None);
+        };
+
+        // Combine the ranges: outer range is relative to inner slice
+        let outer_range = array.slice_range();
+        let inner_range = inner_slice.slice_range();
+
+        let combined_start = inner_range.start + outer_range.start;
+        let combined_end = inner_range.start + outer_range.end;
+
+        Ok(Some(
+            SliceArray::new(inner_slice.child().clone(), combined_start..combined_end).into_array(),
+        ))
+    }
+}
 
 /// Reduce rule for Slice(Null) -> Null
 #[derive(Debug)]
@@ -290,5 +314,129 @@ impl ArrayReduceRule<SliceVTable> for SliceExtensionRule {
             ExtensionArray::new(ext.ext_dtype().clone(), ext.storage().slice(range)).into_array();
 
         Ok(Some(result))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use super::SliceSliceRule;
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::SliceArray;
+    use crate::arrays::SliceVTable;
+    use crate::assert_arrays_eq;
+    use crate::optimizer::rules::ArrayReduceRule;
+
+    #[test]
+    fn test_slice_slice_whole_array() -> VortexResult<()> {
+        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+
+        // Inner slice: 2..8 -> [2, 3, 4, 5, 6, 7] (length 6)
+        let inner_slice = SliceArray::new(arr.clone(), 2..8).into_array();
+
+        // Outer slice takes the whole inner slice: 0..6 -> [2, 3, 4, 5, 6, 7]
+        let outer_slice = SliceArray::new(inner_slice, 0..6);
+
+        // Apply the rule
+        let result = SliceSliceRule.reduce(&outer_slice)?;
+        assert!(result.is_some(), "SliceSliceRule should match");
+
+        let reduced = result.unwrap();
+        // Should be equivalent to Slice(2..8, original)
+        let reduced_slice = reduced.as_::<SliceVTable>();
+        assert_eq!(reduced_slice.slice_range(), &(2..8));
+
+        // Verify the values are correct
+        let expected = PrimitiveArray::from_iter([2i32, 3, 4, 5, 6, 7]).into_array();
+        assert_arrays_eq!(reduced, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_slice_smaller() -> VortexResult<()> {
+        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+
+        // Inner slice: 2..8 -> [2, 3, 4, 5, 6, 7] (length 6)
+        let inner_slice = SliceArray::new(arr.clone(), 2..8).into_array();
+
+        // Outer slice takes middle: 1..4 -> [3, 4, 5] (length 3)
+        let outer_slice = SliceArray::new(inner_slice, 1..4);
+
+        // Apply the rule
+        let result = SliceSliceRule.reduce(&outer_slice)?;
+        assert!(result.is_some(), "SliceSliceRule should match");
+
+        let reduced = result.unwrap();
+        // Should be equivalent to Slice(3..6, original)
+        // inner_start (2) + outer_start (1) = 3
+        // inner_start (2) + outer_end (4) = 6
+        let reduced_slice = reduced.as_::<SliceVTable>();
+        assert_eq!(reduced_slice.slice_range(), &(3..6));
+
+        // Verify the values are correct
+        let expected = PrimitiveArray::from_iter([3i32, 4, 5]).into_array();
+        assert_arrays_eq!(reduced, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_slice_at_start() -> VortexResult<()> {
+        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+
+        // Inner slice: 5..10 -> [5, 6, 7, 8, 9] (length 5)
+        let inner_slice = SliceArray::new(arr.clone(), 5..10).into_array();
+
+        // Outer slice takes first 2: 0..2 -> [5, 6]
+        let outer_slice = SliceArray::new(inner_slice, 0..2);
+
+        // Apply the rule
+        let result = SliceSliceRule.reduce(&outer_slice)?;
+        assert!(result.is_some(), "SliceSliceRule should match");
+
+        let reduced = result.unwrap();
+        // Should be equivalent to Slice(5..7, original)
+        let reduced_slice = reduced.as_::<SliceVTable>();
+        assert_eq!(reduced_slice.slice_range(), &(5..7));
+
+        // Verify the values are correct
+        let expected = PrimitiveArray::from_iter([5i32, 6]).into_array();
+        assert_arrays_eq!(reduced, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_slice_slice_at_end() -> VortexResult<()> {
+        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+
+        // Inner slice: 0..5 -> [0, 1, 2, 3, 4] (length 5)
+        let inner_slice = SliceArray::new(arr.clone(), 0..5).into_array();
+
+        // Outer slice takes last 2: 3..5 -> [3, 4]
+        let outer_slice = SliceArray::new(inner_slice, 3..5);
+
+        // Apply the rule
+        let result = SliceSliceRule.reduce(&outer_slice)?;
+        assert!(result.is_some(), "SliceSliceRule should match");
+
+        let reduced = result.unwrap();
+        // Should be equivalent to Slice(3..5, original)
+        let reduced_slice = reduced.as_::<SliceVTable>();
+        assert_eq!(reduced_slice.slice_range(), &(3..5));
+
+        // Verify the values are correct
+        let expected = PrimitiveArray::from_iter([3i32, 4]).into_array();
+        assert_arrays_eq!(reduced, expected);
+
+        Ok(())
     }
 }
