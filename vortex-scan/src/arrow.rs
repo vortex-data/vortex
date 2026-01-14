@@ -166,7 +166,7 @@ mod tests {
         let vortex_array = create_test_struct_array()?;
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = SCAN_SESSION.create_execution_ctx();
 
         let batch = to_record_batch(vortex_array, &data_type, &mut ctx)?;
         assert_eq!(batch.num_columns(), 2);
