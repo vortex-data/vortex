@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod chunked;
+pub mod constant;
 pub mod flat;
 pub mod scalar_fn;
 pub mod struct_;
+mod zoned;

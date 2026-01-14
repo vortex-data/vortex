@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Range;
 
 use futures::future::BoxFuture;
@@ -19,14 +20,18 @@ use crate::v2::reader::ReaderRef;
 use crate::v2::reader::ReaderStream;
 use crate::v2::reader::ReaderStreamRef;
 
-pub struct StructReader2 {
+pub struct StructReader {
     row_count: u64,
     dtype: DType,
     // TODO(ngates): we should make this lazy?
     fields: Vec<ReaderRef>,
 }
 
-impl Reader for StructReader2 {
+impl Reader for StructReader {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn dtype(&self) -> &DType {
         &self.dtype
     }

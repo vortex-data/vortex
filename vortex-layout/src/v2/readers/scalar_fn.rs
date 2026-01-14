@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Range;
+use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::expr::Expression;
 use vortex_array::expr::ScalarFn;
+use vortex_array::expr::VTable;
+use vortex_array::expr::VTableExt;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -27,7 +32,37 @@ pub struct ScalarFnReader {
     children: Vec<ReaderRef>,
 }
 
+impl ScalarFnReader {
+    pub fn try_new(
+        scalar_fn: ScalarFn,
+        children: Vec<ReaderRef>,
+        row_count: u64,
+    ) -> VortexResult<Self> {
+        let dtype = scalar_fn.return_dtype(
+            &children
+                .iter()
+                .map(|c| c.dtype().clone())
+                .collect::<Vec<DType>>(),
+        )?;
+
+        Ok(Self {
+            scalar_fn,
+            dtype,
+            row_count,
+            children,
+        })
+    }
+
+    pub fn scalar_fn(&self) -> &ScalarFn {
+        &self.scalar_fn
+    }
+}
+
 impl Reader for ScalarFnReader {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn dtype(&self) -> &DType {
         &self.dtype
     }
@@ -90,3 +125,20 @@ impl ReaderStream for ScalarFnArrayStream {
         }))
     }
 }
+
+pub trait ScalarFnReaderExt: VTable {
+    /// Creates a [`ScalarFnReader`] applying this scalar function to the given children.
+    fn new_reader(
+        &'static self,
+        options: Self::Options,
+        children: Vec<ReaderRef>,
+        row_count: u64,
+    ) -> VortexResult<ReaderRef> {
+        Ok(Arc::new(ScalarFnReader::try_new(
+            self.bind(options),
+            children.into(),
+            row_count,
+        )?))
+    }
+}
+impl<V: VTable> ScalarFnReaderExt for V {}

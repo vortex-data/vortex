@@ -72,7 +72,20 @@ pub trait VTable: 'static + Sized + Send + Sync {
         options: &Self::Options,
         expr: &Expression,
         f: &mut Formatter<'_>,
-    ) -> fmt::Result;
+    ) -> fmt::Result {
+        write!(f, "{}(", expr.id())?;
+        for (i, child) in expr.children().iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            child.fmt_sql(f)?;
+        }
+        let options = format!("{}", options);
+        if !options.is_empty() {
+            write!(f, ", options={}", options)?;
+        }
+        write!(f, ")")
+    }
 
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
@@ -141,6 +154,14 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = options;
         _ = expr;
         Ok(None)
+    }
+
+    /// Falsify the expression, returning a new expression that is true whenever the original
+    /// expression is guaranteed to be false via stats.
+    fn falsify(&self, options: &Self::Options, expr: &Expression) -> Option<Expression> {
+        _ = options;
+        _ = expr;
+        None
     }
 
     /// See [`Expression::stat_falsification`].

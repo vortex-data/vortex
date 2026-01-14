@@ -17,6 +17,7 @@ pub(crate) mod operators;
 pub(crate) mod pack;
 pub(crate) mod root;
 pub(crate) mod select;
+pub(crate) mod stats;
 
 pub use between::*;
 pub use binary::*;
@@ -34,3 +35,4 @@ pub use operators::*;
 pub use pack::*;
 pub use root::*;
 pub use select::*;
+pub use stats::*;

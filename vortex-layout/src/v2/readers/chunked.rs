@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Range;
 
 use futures::future::BoxFuture;
@@ -21,13 +22,17 @@ use crate::v2::reader::ReaderRef;
 use crate::v2::reader::ReaderStream;
 use crate::v2::reader::ReaderStreamRef;
 
-pub struct ChunkedReader2 {
+pub struct ChunkedReader {
     row_count: u64,
     dtype: DType,
     chunks: Vec<ReaderRef>,
 }
 
-impl Reader for ChunkedReader2 {
+impl Reader for ChunkedReader {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn dtype(&self) -> &DType {
         &self.dtype
     }

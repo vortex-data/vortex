@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -19,6 +20,9 @@ pub type ReaderRef = Arc<dyn Reader>;
 /// array data that can be used to provide arguments to parameterized filter and projection
 /// expressions.
 pub trait Reader: 'static + Send + Sync {
+    /// Downcast the reader to a concrete type.
+    fn as_any(&self) -> &dyn Any;
+
     /// Get the data type of the layout being read.
     fn dtype(&self) -> &DType;
 

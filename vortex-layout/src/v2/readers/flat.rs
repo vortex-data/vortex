@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::ops::Range;
 
 use futures::future::BoxFuture;
@@ -17,13 +18,17 @@ use crate::v2::reader::Reader;
 use crate::v2::reader::ReaderStream;
 use crate::v2::reader::ReaderStreamRef;
 
-pub struct FlatReader2 {
+pub struct FlatReader {
     len: usize,
     dtype: DType,
     array_fut: SharedArrayFuture,
 }
 
-impl Reader for FlatReader2 {
+impl Reader for FlatReader {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     fn dtype(&self) -> &DType {
         &self.dtype
     }

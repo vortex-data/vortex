@@ -216,7 +216,7 @@ impl Stat {
         })
     }
 
-    pub fn name(&self) -> &str {
+    pub const fn name(&self) -> &'static str {
         match self {
             Self::IsConstant => "is_constant",
             Self::IsSorted => "is_sorted",
