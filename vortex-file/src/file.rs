@@ -27,6 +27,7 @@ use vortex_layout::segments::SegmentSource;
 use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
+use vortex_scan::v2::scan::ScanBuilder2;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -101,6 +102,14 @@ impl VortexFile {
             ScanBuilder::new(self.session.clone(), self.layout_reader()?)
                 .with_metrics(self.metrics.clone()),
         )
+    }
+
+    pub fn scan2(&self) -> VortexResult<ScanBuilder2> {
+        let reader_ref = self
+            .footer
+            .layout()
+            .new_reader2(&self.segment_source, &self.session)?;
+        Ok(ScanBuilder2::new(reader_ref, self.session.clone()))
     }
 
     #[cfg(gpu_unstable)]

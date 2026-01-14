@@ -10,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -135,11 +136,13 @@ impl ReaderStream for ChunkedReaderStream {
 
             // Remove any chunks that are already exhausted
             loop {
+                if self.chunks.is_empty() {
+                    vortex_bail!("Early termination of chunked layout");
+                }
                 if self.chunks[0].next_chunk_len().is_none() {
                     self.chunks.remove(0);
-                } else {
-                    break;
                 }
+                next_len = self.chunks[0].next_chunk_len().vortex_expect("non-none");
             }
         }
 
