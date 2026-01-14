@@ -3,6 +3,7 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -30,13 +31,14 @@ use vortex::array::expr::not_eq;
 use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::dtype::FieldNames;
+use vortex::error::vortex_bail;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::metrics::VortexMetrics;
 use vortex_bench::SESSION;
+use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Benchmark Vortex scans over local files vs object stores")]
@@ -114,7 +116,7 @@ async fn main() -> Result<()> {
     let cached_files = if args.reopen {
         None
     } else {
-        Some(std::sync::Arc::new(
+        Some(Arc::new(
             open_all_targets(&targets, metrics.clone()).await?,
         ))
     };
@@ -129,8 +131,8 @@ async fn main() -> Result<()> {
 
         let start = Instant::now();
         let bytes_before = read_bytes.count();
-        let first_seen = std::sync::Arc::new(AtomicBool::new(false));
-        let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, i64)>));
+        let first_seen = Arc::new(AtomicBool::new(false));
+        let first_info = Arc::new(Mutex::new(None::<(f64, i64)>));
 
         let rows = futures::stream::iter(targets.iter().enumerate())
             .map(|(idx, target)| {
@@ -141,7 +143,6 @@ async fn main() -> Result<()> {
                 let read_bytes = read_bytes.clone();
                 let first_seen = first_seen.clone();
                 let first_info = first_info.clone();
-                let start = start;
                 async move {
                     let file = match &cached_files {
                         Some(files) => files[idx].clone(),
@@ -161,8 +162,7 @@ async fn main() -> Result<()> {
                         {
                             let latency = start.elapsed().as_secs_f64();
                             let bytes = read_bytes.count() - bytes_before;
-                            *first_info.lock().expect("first_info lock poisoned") =
-                                Some((latency, bytes));
+                            *first_info.lock() = Some((latency, bytes));
                         }
                         file_rows += array.len();
                     }
@@ -183,7 +183,6 @@ async fn main() -> Result<()> {
         total_bytes += bytes;
         let (iter_first_latency, iter_first_bytes) = first_info
             .lock()
-            .expect("first_info lock poisoned")
             .unwrap_or((elapsed, read_bytes.count() - bytes_before));
         total_first_latency += iter_first_latency;
         total_first_bytes += iter_first_bytes;
@@ -210,7 +209,7 @@ async fn main() -> Result<()> {
     println!("files={}", targets.len());
     println!("rows={}", total_rows / args.iterations);
     println!("avg_time_s={:.3}", avg_elapsed);
-    println!("avg_bytes={}", avg_bytes as i64);
+    println!("avg_bytes={:.0}", avg_bytes);
     println!("avg_mb_s={:.2}", total_mb_s);
     println!("avg_first_latency_ms={:.2}", avg_first_latency * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
@@ -235,9 +234,21 @@ fn build_scan_exprs(args: &Args) -> VortexResult<(Expression, Option<Expression>
         (Some(col_name), Some(op), Some(value)) => {
             let lhs = col(col_name.as_str());
             let rhs = match args.filter_type {
-                LiteralType::I16 => lit(value as i16),
-                LiteralType::I32 => lit(value as i32),
-                LiteralType::I64 => lit(value as i64),
+                LiteralType::I16 => {
+                    let value = match i16::try_from(value) {
+                        Ok(value) => value,
+                        Err(_) => vortex_bail!("filter_value out of range for i16: {value}"),
+                    };
+                    lit(value)
+                }
+                LiteralType::I32 => {
+                    let value = match i32::try_from(value) {
+                        Ok(value) => value,
+                        Err(_) => vortex_bail!("filter_value out of range for i32: {value}"),
+                    };
+                    lit(value)
+                }
+                LiteralType::I64 => lit(value),
             };
             Some(apply_filter_op(op.clone(), lhs, rhs))
         }
@@ -272,7 +283,7 @@ fn apply_filter_op(op: FilterOp, lhs: Expression, rhs: Expression) -> Expression
 enum ScanTarget {
     Local(PathBuf),
     ObjectStore {
-        store: std::sync::Arc<dyn ObjectStore>,
+        store: Arc<dyn ObjectStore>,
         path: ObjectStorePath,
     },
 }
@@ -370,15 +381,15 @@ async fn open_all_targets(
 
 fn object_store_from_url(
     url_str: &str,
-) -> Result<(ObjectStoreScheme, std::sync::Arc<dyn ObjectStore>, ObjectStorePath)> {
+) -> Result<(ObjectStoreScheme, Arc<dyn ObjectStore>, ObjectStorePath)> {
     let url = Url::parse(url_str)?;
     let (scheme, path) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
-    let store: std::sync::Arc<dyn ObjectStore> = match scheme {
-        ObjectStoreScheme::Local => std::sync::Arc::new(LocalFileSystem::default()),
+    let store: Arc<dyn ObjectStore> = match scheme {
+        ObjectStoreScheme::Local => Arc::new(LocalFileSystem::default()),
         ObjectStoreScheme::AmazonS3 => {
-            std::sync::Arc::new(AmazonS3Builder::from_env().with_url(url_str).build()?)
+            Arc::new(AmazonS3Builder::from_env().with_url(url_str).build()?)
         }
-        ObjectStoreScheme::Http => std::sync::Arc::new(
+        ObjectStoreScheme::Http => Arc::new(
             HttpBuilder::new()
                 .with_url(&url[..url::Position::BeforePath])
                 .build()?,

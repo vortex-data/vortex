@@ -13,6 +13,7 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
 use vortex_array::arrays::ChunkedArray;
+use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
@@ -21,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
+use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
@@ -35,6 +37,7 @@ pub struct ChunkedReader {
     lazy_children: LazyReaderChildren,
     /// Row offset for each chunk
     chunk_offsets: Vec<u64>,
+    expr_return_dtype_cache: DashMap<ExactExpr, DType>,
 }
 
 impl ChunkedReader {
@@ -69,6 +72,7 @@ impl ChunkedReader {
             name,
             lazy_children,
             chunk_offsets,
+            expr_return_dtype_cache: Default::default(),
         }
     }
 
@@ -144,6 +148,16 @@ impl ChunkedReader {
 
             (chunk_idx, chunk_range, mask_range)
         })
+    }
+
+    fn expr_return_dtype(&self, expr: &Expression) -> VortexResult<DType> {
+        if let Some(dtype) = self.expr_return_dtype_cache.get(&ExactExpr(expr.clone())) {
+            return Ok(dtype.clone());
+        }
+        let dtype = expr.return_dtype(self.dtype())?;
+        self.expr_return_dtype_cache
+            .insert(ExactExpr(expr.clone()), dtype.clone());
+        Ok(dtype)
     }
 }
 
@@ -278,7 +292,7 @@ impl LayoutReader for ChunkedReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
-        let dtype = expr.return_dtype(self.dtype())?;
+        let dtype = self.expr_return_dtype(expr)?;
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {

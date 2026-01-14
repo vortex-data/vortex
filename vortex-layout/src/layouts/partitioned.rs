@@ -49,28 +49,28 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         session: VortexSession,
     ) -> VortexResult<MaskFuture> {
         // Construct evaluations for each child.
-        let field_evals: Vec<_> = self
+        let mut field_evals = Vec::with_capacity(self.partitions.len());
+        for ((annotation, expr), dtype) in self
             .partition_annotations
             .iter()
             .zip_eq(self.partitions.iter())
             .zip_eq(self.partition_dtypes.iter())
-            .map(|((annotation, expr), dtype)| {
-                Ok::<_, VortexError>(if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
-                    // If the partition evaluates to a boolean, we can evaluate it as a mask which
-                    // can often be more efficient since nulls are turned into `false` early on,
-                    // and layouts can perform predicate pruning / indexing.
-                    PartitionEval::Mask(mask_fn(annotation, expr, mask.clone())?)
-                } else {
-                    // Otherwise, we evaluate the projection as an array, and combine the results
-                    // at the end.
-                    PartitionEval::Array(array_fn(
-                        annotation,
-                        expr,
-                        MaskFuture::new_true(mask.len()),
-                    )?)
-                })
-            })
-            .try_collect()?;
+        {
+            if matches!(dtype, DType::Bool(Nullability::NonNullable)) {
+                // If the partition evaluates to a boolean, we can evaluate it as a mask which
+                // can often be more efficient since nulls are turned into `false` early on,
+                // and layouts can perform predicate pruning / indexing.
+                field_evals.push(PartitionEval::Mask(mask_fn(annotation, expr, mask.clone())?));
+            } else {
+                // Otherwise, we evaluate the projection as an array, and combine the results
+                // at the end.
+                field_evals.push(PartitionEval::Array(array_fn(
+                    annotation,
+                    expr,
+                    MaskFuture::new_true(mask.len()),
+                )?));
+            }
+        }
 
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
@@ -111,12 +111,14 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
         array_fn: impl Fn(&P, &Expression, MaskFuture) -> VortexResult<ArrayFuture>,
     ) -> VortexResult<ArrayFuture> {
         // Construct evaluations for each child.
-        let field_evals: Vec<_> = self
+        let mut field_evals = Vec::with_capacity(self.partitions.len());
+        for (annotation, expr) in self
             .partition_annotations
             .iter()
             .zip_eq(self.partitions.iter())
-            .map(|(annotation, expr)| array_fn(annotation, expr, mask.clone()))
-            .try_collect()?;
+        {
+            field_evals.push(array_fn(annotation, expr, mask.clone())?);
+        }
 
         Ok(Box::pin(async move {
             // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
