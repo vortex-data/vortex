@@ -6,9 +6,11 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::FutureExt;
+use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use futures::stream::FuturesOrdered;
+use futures::stream::FuturesUnordered;
 use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
@@ -16,6 +18,7 @@ use vortex_array::arrays::ChunkedArray;
 use vortex_array::expr::Expression;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -281,21 +284,35 @@ impl LayoutReader for ChunkedReader {
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let expr = expr.clone();
         let layout_dtype = self.dtype().clone();
-        let mut chunk_evals = vec![];
+        let mut chunk_evals = FuturesUnordered::new();
+        let mut chunk_count = 0usize;
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
+            let pos = chunk_count;
+            chunk_count += 1;
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
                 .projection_evaluation(&chunk_range, &expr, mask.slice(mask_range))
                 .map_err(|err| {
                     err.with_context(format!("While evaluating projection on chunk {chunk_idx}"))
                 })?;
-            chunk_evals.push(chunk_eval);
+            chunk_evals.push(async move {
+                let array = chunk_eval.await?;
+                Ok::<_, VortexError>((pos, array))
+            });
         }
 
         Ok(async move {
             // Split the mask over each chunk.
-            let chunks: Vec<_> = FuturesOrdered::from_iter(chunk_evals).try_collect().await?;
+            let mut chunks: Vec<Option<ArrayRef>> = vec![None; chunk_count];
+            while let Some(result) = chunk_evals.next().await {
+                let (pos, array) = result?;
+                chunks[pos] = Some(array);
+            }
+            let chunks: Vec<_> = chunks
+                .into_iter()
+                .map(|array| array.vortex_expect("chunk missing"))
+                .collect();
 
             // If there is only one chunk, we can return it directly.
             if chunks.len() == 1 {
