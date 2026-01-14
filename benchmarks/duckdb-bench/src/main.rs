@@ -99,10 +99,22 @@ fn main() -> anyhow::Result<()> {
             for format in args.formats.iter().copied() {
                 match format {
                     Format::OnDiskVortex => {
-                        convert_parquet_to_vortex(&base_path, CompactionStrategy::Default).await?;
+                        convert_parquet_to_vortex(
+                            &base_path,
+                            CompactionStrategy::Default,
+                            None,
+                            None,
+                        )
+                        .await?;
                     }
                     Format::VortexCompact => {
-                        convert_parquet_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+                        convert_parquet_to_vortex(
+                            &base_path,
+                            CompactionStrategy::Compact,
+                            None,
+                            None,
+                        )
+                            .await?;
                     }
                     // OnDiskDuckDB tables are created during register_tables by loading from Parquet
                     _ => {}

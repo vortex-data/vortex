@@ -28,9 +28,12 @@ const ONE_MEG: u64 = 1 << 20;
 /// Vortex provides an out-of-the-box file writer that optimizes the layout of chunks on-disk,
 /// repartitioning and compressing them to strike a balance between size on-disk,
 /// bulk decoding performance, and IOPS required to perform an indexed read.
+#[derive(Clone)]
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
+    block_size_minimum_bytes: u64,
+    buffered_chunk_bytes: u64,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
 }
 
@@ -47,6 +50,8 @@ impl WriteStrategyBuilder {
         Self {
             compressor: None,
             row_block_size: 8192,
+            block_size_minimum_bytes: ONE_MEG,
+            buffered_chunk_bytes: 2 * ONE_MEG,
             field_writers: HashMap::new(),
         }
     }
@@ -63,6 +68,18 @@ impl WriteStrategyBuilder {
     /// Override the row block size used to determine the zone map sizes.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the minimum block size (bytes) used for repartition coalescing.
+    pub fn with_block_size_minimum_bytes(mut self, block_size_minimum_bytes: u64) -> Self {
+        self.block_size_minimum_bytes = block_size_minimum_bytes;
+        self
+    }
+
+    /// Override the buffered chunk size used by the buffered layout strategy.
+    pub fn with_buffered_chunk_bytes(mut self, buffered_chunk_bytes: u64) -> Self {
+        self.buffered_chunk_bytes = buffered_chunk_bytes;
         self
     }
 
@@ -83,7 +100,7 @@ impl WriteStrategyBuilder {
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
+        let buffered = BufferedStrategy::new(chunked, self.buffered_chunk_bytes);
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
@@ -95,7 +112,7 @@ impl WriteStrategyBuilder {
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
+                block_size_minimum: self.block_size_minimum_bytes,
                 block_len_multiple: self.row_block_size,
                 canonicalize: true,
             },

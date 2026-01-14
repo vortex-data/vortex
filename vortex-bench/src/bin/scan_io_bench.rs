@@ -35,6 +35,7 @@ use vortex::error::vortex_bail;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::metrics::VortexMetrics;
+use vortex::layout::collect_segment_ids;
 use vortex_bench::SESSION;
 use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -79,6 +80,9 @@ struct Args {
     /// Reopen the file for each iteration to avoid caching effects.
     #[arg(long, default_value_t = false)]
     reopen: bool,
+    /// Only read segments and drop buffers (skip decode/projection).
+    #[arg(long, default_value_t = false)]
+    io_only: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -148,6 +152,22 @@ async fn main() -> Result<()> {
                         Some(files) => files[idx].clone(),
                         None => open_vortex_file_for_target(target, metrics).await?,
                     };
+
+                    if args.io_only {
+                        read_all_segments(&file, args.concurrency).await?;
+                        if !first_seen.load(Ordering::Relaxed)
+                            && !first_seen.swap(true, Ordering::Relaxed)
+                        {
+                            let latency = start.elapsed().as_secs_f64();
+                            let bytes = read_bytes.count() - bytes_before;
+                            *first_info.lock() = Some((latency, bytes));
+                        }
+                        let file_rows = usize::try_from(file.row_count())
+                            .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
+                        drop(file);
+                        return Ok::<_, anyhow::Error>(file_rows);
+                    }
+
                     let scan = file
                         .scan()?
                         .with_projection(projection)
@@ -398,4 +418,28 @@ fn object_store_from_url(
     };
 
     Ok((scheme, store, path))
+}
+
+async fn read_all_segments(
+    file: &vortex::file::VortexFile,
+    concurrency: usize,
+) -> Result<()> {
+    let layout = file.footer().layout().clone();
+    let segment_ids = collect_segment_ids(&layout)?;
+    let segment_source = file.segment_source();
+
+    futures::stream::iter(segment_ids)
+        .map(|segment_id| {
+            let segment_source = segment_source.clone();
+            async move {
+                let buffer = segment_source.request(segment_id).await?;
+                drop(buffer);
+                Ok::<_, anyhow::Error>(())
+            }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    Ok(())
 }

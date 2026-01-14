@@ -219,6 +219,21 @@ impl CompactionStrategy {
             CompactionStrategy::Default => options,
         }
     }
+
+    pub fn apply_options_with_builder(
+        &self,
+        options: VortexWriteOptions,
+        builder: WriteStrategyBuilder,
+    ) -> VortexWriteOptions {
+        match self {
+            CompactionStrategy::Compact => options.with_strategy(
+                builder
+                    .with_compressor(CompactCompressor::default())
+                    .build(),
+            ),
+            CompactionStrategy::Default => options.with_strategy(builder.build()),
+        }
+    }
 }
 
 /// CLI argument for selecting which benchmark to run.

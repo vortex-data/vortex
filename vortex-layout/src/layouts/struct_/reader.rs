@@ -261,7 +261,10 @@ impl StructReader {
                 let is_pack_merge = partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>();
                 StructProjectionPlan {
                     is_pack_merge,
-                    kind: StructProjectionPlanKind::Multi { partitioned, readers },
+                    kind: StructProjectionPlanKind::Multi {
+                        partitioned,
+                        readers: Arc::new(readers),
+                    },
                 }
             }
         })
@@ -394,7 +397,7 @@ enum StructProjectionPlanKind {
     },
     Multi {
         partitioned: Arc<PartitionedExpr<FieldName>>,
-        readers: HashMap<FieldName, LayoutReaderRef>,
+        readers: Arc<HashMap<FieldName, LayoutReaderRef>>,
     },
 }
 
@@ -418,13 +421,15 @@ impl StructReader {
                     .map_err(|err| err.with_context("While evaluating projection partition"))?,
                 plan.is_pack_merge,
             ),
-            StructProjectionPlanKind::Multi { partitioned, readers } => (
-                partitioned
+            StructProjectionPlanKind::Multi { partitioned, readers } => {
+                let projected = partitioned
                     .clone()
                     .into_array_future(mask_fut, |name, expr, mask| {
                         let reader = readers
                             .get(name)
-                            .vortex_expect("partition reader lookup should succeed");
+                            .vortex_expect("partition reader lookup should succeed")
+                            .clone();
+                        let row_range = row_range.clone();
                         reader
                             .projection_evaluation(&row_range, expr, mask)
                             .map_err(|err| {
@@ -432,9 +437,9 @@ impl StructReader {
                                     "While evaluating projection partition {name}"
                                 ))
                             })
-                    })?,
-                plan.is_pack_merge,
-            ),
+                    })?;
+                (projected, plan.is_pack_merge)
+            }
         };
 
         Ok(Box::pin(async move {

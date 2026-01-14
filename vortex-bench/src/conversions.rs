@@ -24,6 +24,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteStrategyBuilder;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -55,6 +56,8 @@ pub fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<impl ArrayStre
 pub async fn convert_parquet_to_vortex(
     input_path: &Path,
     compaction: CompactionStrategy,
+    strategy_builder: Option<WriteStrategyBuilder>,
+    only_filename: Option<String>,
 ) -> anyhow::Result<()> {
     let (format, dir_name) = match compaction {
         CompactionStrategy::Compact => (Format::VortexCompact, Format::VortexCompact.name()),
@@ -73,12 +76,28 @@ pub async fn convert_parquet_to_vortex(
         parquet_path.to_str().unwrap()
     );
 
-    let iter = parquet_inputs
-        .iter()
-        .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"));
+    let only_filename = only_filename.as_deref();
+    let iter = parquet_inputs.iter().filter(|entry| {
+        if entry
+            .path()
+            .extension()
+            .is_none_or(|e| e != "parquet")
+        {
+            return false;
+        }
+        match only_filename {
+            None => true,
+            Some(name) => entry
+                .path()
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n == name),
+        }
+    });
 
     futures::stream::iter(iter)
         .map(|dir_entry| {
+            let strategy_builder = strategy_builder.clone();
             let filename = {
                 let mut temp = dir_entry.path();
                 temp.set_extension("");
@@ -102,7 +121,9 @@ pub async fn convert_parquet_to_vortex(
                             .open(&vtx_file)
                             .await?;
 
-                        let write_options = compaction.apply_options(SESSION.write_options());
+                        let builder = strategy_builder.clone().unwrap_or_default();
+                        let write_options = compaction
+                            .apply_options_with_builder(SESSION.write_options(), builder);
 
                         write_options.write(&mut f, array_stream).await?;
 
