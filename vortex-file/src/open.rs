@@ -147,9 +147,9 @@ impl VortexOpenOptions {
     /// Open a Vortex file from a filesystem path.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn open_path(self, path: impl AsRef<std::path::Path>) -> VortexResult<VortexFile> {
-        use vortex_io::file::std_file::FileSource;
+        use vortex_io::file::std_file::FileReadAdapter;
         let handle = self.session.handle();
-        let source = Arc::new(FileSource::open(path, handle)?);
+        let source = Arc::new(FileReadAdapter::open(path, handle)?);
         self.open(source).await
     }
 

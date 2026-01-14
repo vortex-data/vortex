@@ -63,14 +63,14 @@ const COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 };
 const CONCURRENCY: usize = 32;
 
-/// A file-backed I/O source.
-pub struct FileSource {
+/// An adapter type wrapping a [`File`] to implement [`VortexRead`].
+pub struct FileReadAdapter {
     uri: Arc<str>,
     file: Arc<File>,
     handle: Handle,
 }
 
-impl FileSource {
+impl FileReadAdapter {
     /// Open a file for reading.
     pub fn open(path: impl AsRef<Path>, handle: Handle) -> VortexResult<Self> {
         let path = path.as_ref();
@@ -80,7 +80,7 @@ impl FileSource {
     }
 }
 
-impl VortexRead for FileSource {
+impl VortexRead for FileReadAdapter {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
     }

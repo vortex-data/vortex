@@ -17,7 +17,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexRead;
-use crate::file::std_file::FileSource;
+use crate::file::std_file::FileReadAdapter;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
 
@@ -102,7 +102,7 @@ fn test_file_read_with_real_file_single_thread() {
 
             // Open and read the file
             let source: Arc<dyn VortexRead> =
-                Arc::new(FileSource::open(temp_file.path(), handle.clone()).unwrap());
+                Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
             let file_read = handle.open_read(source, Default::default());
 
             // Read a slice
@@ -140,7 +140,7 @@ async fn test_file_read_with_real_file_tokio() {
 
     let handle = TokioRuntime::current();
     let source: Arc<dyn VortexRead> =
-        Arc::new(FileSource::open(temp_file.path(), handle.clone()).unwrap());
+        Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
     let file_read = handle.open_read(source, Default::default());
 
     // Read a slice
