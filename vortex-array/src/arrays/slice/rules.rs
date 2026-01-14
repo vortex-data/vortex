@@ -1,0 +1,294 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use itertools::Itertools;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListArray;
+use crate::arrays::ListVTable;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
+use crate::arrays::slice::SliceArray;
+use crate::arrays::slice::SliceVTable;
+use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ReduceRuleSet;
+use crate::validity::Validity;
+use crate::vtable::ValidityHelper;
+
+pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[
+    &SliceNullRule,
+    &SliceBoolRule,
+    &SlicePrimitiveRule,
+    &SliceDecimalRule,
+    &SliceVarBinViewRule,
+    &SliceListRule,
+    &SliceListViewRule,
+    &SliceFixedSizeListRule,
+    &SliceStructRule,
+    &SliceExtensionRule,
+]);
+
+/// Reduce rule for Slice(Null) -> Null
+#[derive(Debug)]
+struct SliceNullRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceNullRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(_null) = array.child().as_opt::<NullVTable>() else {
+            return Ok(None);
+        };
+        Ok(Some(NullArray::new(array.slice_range().len()).into_array()))
+    }
+}
+
+/// Reduce rule for Slice(Bool) -> Bool
+#[derive(Debug)]
+struct SliceBoolRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceBoolRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(bool_arr) = array.child().as_opt::<BoolVTable>() else {
+            return Ok(None);
+        };
+        let range = array.slice_range().clone();
+        let result = BoolArray::from_bit_buffer(
+            bool_arr.bit_buffer().slice(range.clone()),
+            bool_arr.validity().slice(range),
+        )
+        .into_array();
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Primitive) -> Primitive
+#[derive(Debug)]
+struct SlicePrimitiveRule;
+
+impl ArrayReduceRule<SliceVTable> for SlicePrimitiveRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(primitive) = array.child().as_opt::<PrimitiveVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+
+        let validity = match primitive.validity() {
+            v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v.clone(),
+            Validity::Array(arr) => Validity::Array(arr.clone().slice(range.clone())),
+        };
+
+        let result = match_each_native_ptype!(primitive.ptype(), |T| {
+            PrimitiveArray::new(primitive.buffer::<T>().slice(range), validity).into_array()
+        });
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Decimal) -> Decimal
+#[derive(Debug)]
+struct SliceDecimalRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceDecimalRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(decimal) = array.child().as_opt::<DecimalVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+
+        let validity = match decimal.validity() {
+            v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v.clone(),
+            Validity::Array(arr) => {
+                Validity::Array(SliceArray::new(arr.clone(), range.clone()).into_array())
+            }
+        };
+
+        let result = match_each_decimal_value_type!(decimal.values_type(), |D| {
+            let sliced = decimal.buffer::<D>().slice(range);
+            // SAFETY: Slicing preserves all DecimalArray invariants
+            unsafe { DecimalArray::new_unchecked(sliced, decimal.decimal_dtype(), validity) }
+                .into_array()
+        });
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(VarBinView) -> VarBinView
+#[derive(Debug)]
+struct SliceVarBinViewRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceVarBinViewRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(varbinview) = array.child().as_opt::<VarBinViewVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let views = varbinview.views().slice(range.clone());
+
+        let result = VarBinViewArray::new(
+            views,
+            varbinview.buffers().clone(),
+            varbinview.dtype().clone(),
+            varbinview.validity().slice(range),
+        )
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(List) -> List
+#[derive(Debug)]
+struct SliceListRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceListRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(list) = array.child().as_opt::<ListVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+
+        // List slice keeps elements unchanged, slices offsets with +1 for the extra offset
+        let result = ListArray::new(
+            list.elements().clone(),
+            list.offsets().slice(range.start..range.end + 1),
+            list.validity().slice(range),
+        )
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(ListView) -> ListView
+#[derive(Debug)]
+struct SliceListViewRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceListViewRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(listview) = array.child().as_opt::<ListViewVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+
+        // SAFETY: Slicing the components of an existing valid array is still valid.
+        let result = unsafe {
+            ListViewArray::new_unchecked(
+                listview.elements().clone(),
+                listview.offsets().slice(range.clone()),
+                listview.sizes().slice(range.clone()),
+                listview.validity().slice(range),
+            )
+            .with_zero_copy_to_list(listview.is_zero_copy_to_list())
+        }
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(FixedSizeList) -> FixedSizeList
+#[derive(Debug)]
+struct SliceFixedSizeListRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceFixedSizeListRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(fsl) = array.child().as_opt::<FixedSizeListVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let new_len = range.len();
+        let list_size = fsl.list_size() as usize;
+
+        // SAFETY: Slicing preserves FixedSizeListArray invariants
+        let result = unsafe {
+            FixedSizeListArray::new_unchecked(
+                fsl.elements()
+                    .slice(range.start * list_size..range.end * list_size),
+                fsl.list_size(),
+                fsl.validity().slice(range),
+                new_len,
+            )
+        }
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Struct) -> Struct
+#[derive(Debug)]
+struct SliceStructRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceStructRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(struct_arr) = array.child().as_opt::<StructVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let fields = struct_arr
+            .fields()
+            .iter()
+            .map(|field| field.slice(range.clone()))
+            .collect_vec();
+
+        // SAFETY: Slicing preserves all StructArray invariants
+        let result = unsafe {
+            StructArray::new_unchecked(
+                fields,
+                struct_arr.struct_fields().clone(),
+                range.len(),
+                struct_arr.validity().slice(range),
+            )
+        }
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Extension) -> Extension
+#[derive(Debug)]
+struct SliceExtensionRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceExtensionRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(ext) = array.child().as_opt::<ExtensionVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let result =
+            ExtensionArray::new(ext.ext_dtype().clone(), ext.storage().slice(range)).into_array();
+
+        Ok(Some(result))
+    }
+}

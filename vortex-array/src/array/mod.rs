@@ -39,6 +39,7 @@ use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
@@ -239,7 +240,10 @@ impl Array for Arc<dyn Array> {
 
     #[inline]
     fn slice(&self, range: Range<usize>) -> ArrayRef {
-        self.as_ref().slice(range)
+        SliceArray::new(self.clone(), range)
+            .into_array()
+            .optimize()
+            .vortex_expect("cannot fail for now")
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
