@@ -161,7 +161,7 @@ pub(super) struct TaskContext<A> {
     /// The layout reader.
     pub(super) reader: Arc<dyn LayoutReader>,
     /// The projection expression to apply to gather the scanned rows.
-    pub(super) projection: Expression,
+    pub(super) projection: Arc<Expression>,
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

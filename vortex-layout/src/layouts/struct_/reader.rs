@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::try_join;
 use itertools::Itertools;
+use parking_lot::RwLock;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
@@ -58,6 +59,7 @@ pub struct StructReader {
 
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
+    last_partitioned_expr: RwLock<Option<(ExactExpr, Partitioned)>>,
 }
 
 impl StructReader {
@@ -112,6 +114,7 @@ impl StructReader {
             lazy_children,
             field_lookup,
             partitioned_expr_cache: Default::default(),
+            last_partitioned_expr: Default::default(),
         })
     }
 
@@ -152,8 +155,17 @@ impl StructReader {
 
     /// Utility for partitioning an expression over the fields of a struct.
     fn partition_expr(&self, expr: Expression) -> Partitioned {
-        self.partitioned_expr_cache
-            .entry(ExactExpr(expr.clone()))
+        let exact_expr = ExactExpr(expr.clone());
+        if let Some((cached_expr, cached_partitioned)) =
+            self.last_partitioned_expr.read().as_ref()
+            && cached_expr == &exact_expr
+        {
+            return cached_partitioned.clone();
+        }
+
+        let partitioned = self
+            .partitioned_expr_cache
+            .entry(exact_expr.clone())
             .or_insert_with(|| {
                 // First, we expand the root scope into the fields of the struct to ensure
                 // that partitioning works correctly.
@@ -195,7 +207,10 @@ impl StructReader {
 
                 Partitioned::Multi(Arc::new(partitioned))
             })
-            .clone()
+            .clone();
+
+        *self.last_partitioned_expr.write() = Some((exact_expr, partitioned.clone()));
+        partitioned
     }
 }
 

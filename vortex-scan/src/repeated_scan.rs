@@ -121,7 +121,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: self.layout_reader.clone(),
-            projection: self.projection.clone(),
+            projection: Arc::new(self.projection.clone()),
             mapper: self.map_fn.clone(),
         });
 

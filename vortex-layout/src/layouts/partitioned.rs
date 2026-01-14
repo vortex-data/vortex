@@ -17,7 +17,6 @@ use vortex_array::mask::MaskExecutor;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
