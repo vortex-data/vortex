@@ -34,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
+use parking_lot::RwLock;
 
 use super::DictLayout;
 use crate::LayoutReader;
@@ -54,6 +55,7 @@ pub struct DictReader {
     values_array: OnceLock<SharedArrayFuture>,
     /// Cache of expression evaluation results on the values array by expression
     values_evals: DashMap<Expression, SharedArrayFuture>,
+    last_values_eval: OnceLock<RwLock<Option<(Expression, SharedArrayFuture)>>>,
 
     values: LayoutReaderRef,
     codes: LayoutReaderRef,
@@ -84,6 +86,7 @@ impl DictReader {
             values_len,
             values_array: Default::default(),
             values_evals: Default::default(),
+            last_values_eval: Default::default(),
             values,
             codes,
         })
@@ -125,25 +128,41 @@ impl DictReader {
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
+        let last_values_eval = self
+            .last_values_eval
+            .get_or_init(|| RwLock::new(None));
+        if let Some((cached_expr, cached_eval)) = last_values_eval.read().as_ref()
+            && cached_expr == &expr
+        {
+            return cached_eval.clone();
+        }
+
         let session = self.session.clone();
-        self.values_evals
-            .entry(expr.clone())
-            .or_insert_with(|| {
-                self.values_array()
-                    .map(move |array| {
-                        if *USE_VORTEX_OPERATORS {
-                            let array = array?.apply(&expr)?;
-                            // We execute the array to avoid re-evaluating for every split.
-                            let mut ctx = ExecutionCtx::new(session);
-                            Ok(array.execute(&mut ctx)?.into_array())
-                        } else {
-                            expr.evaluate(&array?).map_err(Arc::new)
-                        }
-                    })
-                    .boxed()
-                    .shared()
+        if let Some(eval) = self.values_evals.get(&expr) {
+            let eval = eval.clone();
+            *last_values_eval.write() = Some((expr, eval.clone()));
+            return eval;
+        }
+
+        let expr_key = expr.clone();
+        let eval = self
+            .values_array()
+            .map(move |array| {
+                if *USE_VORTEX_OPERATORS {
+                    let array = array?.apply(&expr)?;
+                    // We execute the array to avoid re-evaluating for every split.
+                    let mut ctx = ExecutionCtx::new(session);
+                    Ok(array.execute(&mut ctx)?.into_array())
+                } else {
+                    expr.evaluate(&array?).map_err(Arc::new)
+                }
             })
-            .clone()
+            .boxed()
+            .shared();
+
+        self.values_evals.insert(expr_key.clone(), eval.clone());
+        *last_values_eval.write() = Some((expr_key, eval.clone()));
+        eval
     }
 }
 
