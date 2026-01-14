@@ -13,9 +13,9 @@ use futures::future::BoxFuture;
 use futures::future::ok;
 use vortex_array::ArrayRef;
 use vortex_array::MaskFuture;
-use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::ProjectionPlanRef;
 use vortex_mask::Mask;
 
 use crate::filter::FilterExpr;
@@ -134,9 +134,9 @@ pub(super) fn split_exec<A: 'static + Send>(
     };
 
     // Step 4: execute the projection, only at the mask for rows which match the filter
-    let projection_future =
-        ctx.reader
-            .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let projection_future = ctx
+        .projection_plan
+        .evaluate(&row_range, filter_mask.clone())?;
 
     let mapper = ctx.mapper.clone();
     let array_fut = async move {
@@ -160,8 +160,8 @@ pub(super) struct TaskContext<A> {
     pub(super) filter: Option<Arc<FilterExpr>>,
     /// The layout reader.
     pub(super) reader: Arc<dyn LayoutReader>,
-    /// The projection expression to apply to gather the scanned rows.
-    pub(super) projection: Arc<Expression>,
+    /// Prebuilt projection plan for this scan.
+    pub(super) projection_plan: ProjectionPlanRef,
     /// Function that maps into an A.
     pub(super) mapper: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
 }

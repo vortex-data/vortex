@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod layouts;
+mod plan;
 
 pub use children::*;
 pub use encoding::*;
@@ -9,6 +10,7 @@ pub use flatbuffers::*;
 #[cfg(gpu_unstable)]
 pub use gpu::*;
 pub use layout::*;
+pub use plan::*;
 pub use reader::*;
 pub use strategy::*;
 use vortex_array::VTableContext;

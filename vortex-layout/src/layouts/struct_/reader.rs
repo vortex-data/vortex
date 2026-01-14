@@ -217,7 +217,7 @@ impl StructReader {
         partitioned
     }
 
-    fn projection_plan(&self, expr: Expression) -> VortexResult<Arc<StructProjectionPlan>> {
+    pub(crate) fn projection_plan(&self, expr: Expression) -> VortexResult<Arc<StructProjectionPlan>> {
         let exact_expr = ExactExpr(expr.clone());
         if let Some((cached_expr, cached_plan)) = self.last_projection_plan.read().as_ref()
             && cached_expr == &exact_expr
@@ -377,20 +377,45 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
+        let plan = self.projection_plan(expr.clone())?;
+        self.projection_with_plan(plan, row_range, mask_fut)
+    }
+}
+
+pub(crate) struct StructProjectionPlan {
+    is_pack_merge: bool,
+    kind: StructProjectionPlanKind,
+}
+
+enum StructProjectionPlanKind {
+    Single {
+        reader: LayoutReaderRef,
+        expr: Expression,
+    },
+    Multi {
+        partitioned: Arc<PartitionedExpr<FieldName>>,
+        readers: HashMap<FieldName, LayoutReaderRef>,
+    },
+}
+
+impl StructReader {
+    pub(crate) fn projection_with_plan(
+        &self,
+        plan: Arc<StructProjectionPlan>,
+        row_range: &Range<u64>,
+        mask_fut: MaskFuture,
+    ) -> VortexResult<ArrayFuture> {
         let row_range = row_range.clone();
         let validity_fut = self
             .validity()?
             .map(|reader| reader.projection_evaluation(&row_range, &root(), mask_fut.clone()))
             .transpose()?;
 
-        let plan = self.projection_plan(expr.clone())?;
         let (projected, is_pack_merge) = match &plan.kind {
             StructProjectionPlanKind::Single { reader, expr } => (
                 reader
                     .projection_evaluation(&row_range, expr, mask_fut)
-                    .map_err(|err| {
-                        err.with_context("While evaluating projection partition")
-                    })?,
+                    .map_err(|err| err.with_context("While evaluating projection partition"))?,
                 plan.is_pack_merge,
             ),
             StructProjectionPlanKind::Multi { partitioned, readers } => (
@@ -443,22 +468,6 @@ impl LayoutReader for StructReader {
             }
         }))
     }
-}
-
-struct StructProjectionPlan {
-    is_pack_merge: bool,
-    kind: StructProjectionPlanKind,
-}
-
-enum StructProjectionPlanKind {
-    Single {
-        reader: LayoutReaderRef,
-        expr: Expression,
-    },
-    Multi {
-        partitioned: Arc<PartitionedExpr<FieldName>>,
-        readers: HashMap<FieldName, LayoutReaderRef>,
-    },
 }
 
 #[cfg(test)]

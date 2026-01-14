@@ -4,9 +4,11 @@
 use std::ops::BitAnd;
 use std::sync::Arc;
 
-use futures::future::try_join_all;
 use futures::try_join;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use itertools::Itertools;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -17,6 +19,8 @@ use vortex_array::mask::MaskExecutor;
 use vortex_array::validity::Validity;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -73,13 +77,29 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
-            let field_arrays = try_join_all(field_evals.into_iter().map(|eval| async move {
-                match eval {
-                    PartitionEval::Mask(eval) => Ok(eval.await?.into_array()),
-                    PartitionEval::Array(eval) => eval.await,
+            let field_arrays_fut = async move {
+                let mut futures = FuturesUnordered::new();
+                let total = field_evals.len();
+                for (idx, eval) in field_evals.into_iter().enumerate() {
+                    futures.push(async move {
+                        let array = match eval {
+                            PartitionEval::Mask(eval) => eval.await?.into_array(),
+                            PartitionEval::Array(eval) => eval.await?,
+                        };
+                        Ok::<_, VortexError>((idx, array))
+                    });
                 }
-            }));
-            let (field_arrays, mask) = try_join!(field_arrays, mask)?;
+                let mut field_arrays: Vec<Option<ArrayRef>> = vec![None; total];
+                while let Some(result) = futures.next().await {
+                    let (idx, array) = result?;
+                    field_arrays[idx] = Some(array);
+                }
+                Ok(field_arrays
+                    .into_iter()
+                    .map(|array| array.vortex_expect("partition array missing"))
+                    .collect::<Vec<_>>())
+            };
+            let (field_arrays, mask) = try_join!(field_arrays_fut, mask)?;
 
             let root_scope = StructArray::try_new(
                 self.partition_names.clone(),
@@ -121,8 +141,23 @@ impl<P: Send + Sync + 'static> PartitionedExprEval<P> for PartitionedExpr<P> {
 
         Ok(Box::pin(async move {
             // TODO(ngates): ideally we'd spawn these so the CPU can be utilized more effectively.
-            let field_arrays = try_join_all(field_evals);
-            let (field_arrays, mask) = try_join!(field_arrays, mask)?;
+            let field_arrays_fut = async move {
+                let mut futures = FuturesUnordered::new();
+                let total = field_evals.len();
+                for (idx, eval) in field_evals.into_iter().enumerate() {
+                    futures.push(async move { Ok::<_, VortexError>((idx, eval.await?)) });
+                }
+                let mut field_arrays: Vec<Option<ArrayRef>> = vec![None; total];
+                while let Some(result) = futures.next().await {
+                    let (idx, array) = result?;
+                    field_arrays[idx] = Some(array);
+                }
+                Ok(field_arrays
+                    .into_iter()
+                    .map(|array| array.vortex_expect("partition array missing"))
+                    .collect::<Vec<_>>())
+            };
+            let (field_arrays, mask) = try_join!(field_arrays_fut, mask)?;
 
             let row_count = field_arrays
                 .first()
