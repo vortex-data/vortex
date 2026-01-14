@@ -52,7 +52,7 @@ allprojects {
             options.errorprone.disableWarningsInGeneratedCode = true
             // ignore protobuf generated files
             options.errorprone.excludedPaths = ".*/build/generated/.*"
-            options.release = 11
+            options.release = 17
 
             options.generatedSourceOutputDirectory = projectDir.resolve("generated_src")
         }

@@ -12,8 +12,8 @@ plugins {
 }
 
 dependencies {
-    compileOnly("org.apache.spark:spark-catalyst_2.12")
-    compileOnly("org.apache.spark:spark-sql_2.12")
+    compileOnly("org.apache.spark:spark-catalyst_2.13")
+    compileOnly("org.apache.spark:spark-sql_2.13")
     api(project(":vortex-jni", configuration = "shadow"))
 
     compileOnly("org.immutables:value")
@@ -30,8 +30,8 @@ testing {
 
             dependencies {
                 implementation("org.junit.jupiter:junit-jupiter:5.14.1")
-                implementation("org.apache.spark:spark-core_2.12")
-                implementation("org.apache.spark:spark-sql_2.12")
+                implementation("org.apache.spark:spark-core_2.13")
+                implementation("org.apache.spark:spark-sql_2.13")
                 runtimeOnly("org.slf4j:slf4j-simple:2.0.17")
             }
         }
