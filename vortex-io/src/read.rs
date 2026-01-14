@@ -45,22 +45,6 @@ impl CoalesceConfig {
 ///
 /// This trait provides async positional reads to underlying storage and is used by the vortex-file
 /// crate to read data from files or object stores.
-///
-/// ## Basic Usage
-///
-/// For simple implementations, you only need to implement [`VortexReadAt::read_at`] and
-/// [`VortexReadAt::size`]. The default [`VortexReadAt::drive`] implementation will handle
-/// concurrent request processing automatically.
-///
-/// ## Advanced Usage
-///
-/// For optimized I/O patterns (e.g., object stores with streaming responses, batched file I/O),
-/// override the [`VortexReadAt::drive`] method to provide a custom implementation.
-///
-/// ## Coalescing and Cancellation
-///
-/// The [`crate::file::FileRead`] wrapper provides request coalescing and cancellation on top
-/// of any `VortexReadAt` implementation. We strongly recommend using it for best performance.
 pub trait VortexReadAt: Send + Sync + 'static {
     /// URI for debugging/logging. Returns `None` for anonymous sources.
     fn uri(&self) -> Option<&Arc<str>> {
@@ -68,18 +52,13 @@ pub trait VortexReadAt: Send + Sync + 'static {
     }
 
     /// Configuration for merging nearby I/O requests into fewer, larger reads.
-    ///
-    /// When set, [`crate::file::FileRead`] will combine requests that are close together
-    /// (within `distance` bytes) into single reads, up to `max_size` total bytes.
-    /// This reduces I/O overhead at the cost of reading some unrequested data.
-    /// Returns `None` to disable coalescing.
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         None
     }
 
-    /// Maximum number of concurrent I/O requests for the default [`VortexRead::drive`] implementation.
+    /// Maximum number of concurrent I/O requests for that should be pulled from this source.
     ///
-    /// This value is used to control how many [`VortexRead::read_at`] calls can
+    /// This value is used to control how many [`VortexReadAt::read_at`] calls can
     /// be in-flight simultaneously. Higher values allow more parallelism but consume
     /// more resources (memory, file descriptors, network connections).
     ///
@@ -87,9 +66,6 @@ pub trait VortexReadAt: Send + Sync + 'static {
     /// characteristics. Low-latency sources benefit less from high concurrency, while
     /// high-latency sources (like remote storage) benefit significantly from issuing
     /// many requests in parallel.
-    ///
-    /// If you override [`VortexRead::drive`], this value is not used by the default
-    /// implementation. Your custom driver can ignore it or use it as a hint.
     fn concurrency(&self) -> usize;
 
     /// Asynchronously get the number of bytes of the underlying source.
@@ -99,16 +75,6 @@ pub trait VortexReadAt: Send + Sync + 'static {
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error.
-    ///
-    /// This function returns a future with a `'static` lifetime. This allows us to define the
-    /// following semantics:
-    ///
-    /// * Creation of the future hints to the implementation that a read _may_ be required.
-    /// * Polling of the future indicates that the read _is now_ required.
-    /// * Dropping of the future indicates that the read is not required, and may be cancelled.
-    ///
-    /// Implementations may choose to ignore these semantics, but they allow optimizations such as
-    /// coalescing and cancellation. See [`crate::file::FileRead`] for an example.
     fn read_at(
         &self,
         offset: u64,
