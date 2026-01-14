@@ -47,7 +47,6 @@ use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
 use crate::VortexAccessPlan;
-use crate::VortexReaderFactory;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
@@ -55,6 +54,7 @@ use crate::convert::schema::calculate_physical_schema;
 use crate::metrics::PARTITION_LABEL;
 use crate::metrics::PATH_LABEL;
 use crate::persistent::cache::CachedVortexMetadata;
+use crate::persistent::reader::VortexReaderFactory;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -484,9 +484,9 @@ mod tests {
     use vortex::session::VortexSession;
 
     use super::*;
-    use crate::DefaultVortexReaderFactory;
     use crate::VortexAccessPlan;
     use crate::convert::exprs::DefaultExpressionConvertor;
+    use crate::persistent::reader::DefaultVortexReaderFactory;
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
 
