@@ -289,9 +289,6 @@ pub trait Compressor {
     /// Evaluates all available schemes against the provided statistics and returns
     /// the one with the highest compression ratio. Falls back to the default scheme
     /// if no scheme provides compression benefits.
-    // TODO(joe): Add tests to verify that each compression scheme is actually selected
-    // when it provides the best compression ratio (similar to sparse filter execute_parent tests).
-    // This would help catch regressions where a scheme is never chosen due to bugs.
     #[allow(clippy::cognitive_complexity)]
     fn choose_scheme(
         stats: &Self::StatsType,
