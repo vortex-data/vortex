@@ -366,7 +366,7 @@ mod tests {
         let decoded = sliced_alp.to_primitive();
 
         let expected_slice = original.slice(512..1024).to_primitive();
-        assert_eq!(expected_slice.as_slice::<f32>(), decoded.as_slice::<f32>());
+        assert_arrays_eq!(decoded, expected_slice);
     }
 
     #[test]
@@ -379,7 +379,7 @@ mod tests {
         let decoded = sliced_alp.to_primitive();
 
         let expected_slice = original.slice(512..1024).to_primitive();
-        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert_arrays_eq!(decoded, expected_slice);
     }
 
     #[test]
@@ -396,7 +396,7 @@ mod tests {
         let decoded = sliced_alp.to_primitive();
 
         let expected_slice = original.slice(512..1024).to_primitive();
-        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert_arrays_eq!(decoded, expected_slice);
         assert!(encoded.patches().is_some());
     }
 
@@ -417,7 +417,7 @@ mod tests {
         let decoded = sliced_alp.to_primitive();
 
         let expected_slice = original.slice(1023..1025).to_primitive();
-        assert_eq!(expected_slice.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert_arrays_eq!(decoded, expected_slice);
         assert!(encoded.patches().is_some());
     }
 
@@ -445,7 +445,7 @@ mod tests {
 
         assert!(encoded.patches().is_none());
         let decoded = decompress_into_array(encoded);
-        assert_eq!(array.as_slice::<f32>(), decoded.as_slice::<f32>());
+        assert_arrays_eq!(decoded, array);
     }
 
     #[test]
@@ -456,7 +456,7 @@ mod tests {
 
         assert!(encoded.patches().is_none());
         let decoded = decompress_into_array(encoded);
-        assert_eq!(array.as_slice::<f64>(), decoded.as_slice::<f64>());
+        assert_arrays_eq!(decoded, array);
     }
 
     #[test]
@@ -468,12 +468,12 @@ mod tests {
         values[3000] = f32::NEG_INFINITY;
         values[4500] = f32::INFINITY;
 
-        let array = PrimitiveArray::new(Buffer::from(values.clone()), Validity::NonNullable);
+        let array = PrimitiveArray::new(Buffer::from(values), Validity::NonNullable);
         let encoded = alp_encode(&array, None).unwrap();
 
         assert!(encoded.patches().is_some());
         let decoded = decompress_into_array(encoded);
-        assert_eq!(values.as_slice(), decoded.as_slice::<f32>());
+        assert_arrays_eq!(decoded, array);
     }
 
     #[test]

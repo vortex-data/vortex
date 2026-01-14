@@ -486,6 +486,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_array::vtable::ValidityHelper;
     use vortex_session::VortexSession;
@@ -517,12 +518,7 @@ mod tests {
         let expected = decompress_into_array(encoded);
 
         assert_eq!(result_canonical.len(), size);
-
-        let result_primitive = result_canonical.into_primitive();
-        assert_eq!(
-            result_primitive.as_slice::<f32>(),
-            expected.as_slice::<f32>()
-        );
+        assert_arrays_eq!(result_canonical.into_primitive(), expected);
     }
 
     #[rstest]
@@ -547,12 +543,7 @@ mod tests {
         let expected = decompress_into_array(encoded);
 
         assert_eq!(result_canonical.len(), size);
-
-        let result_primitive = result_canonical.into_primitive();
-        assert_eq!(
-            result_primitive.as_slice::<f64>(),
-            expected.as_slice::<f64>()
-        );
+        assert_arrays_eq!(result_canonical.into_primitive(), expected);
     }
 
     #[rstest]
@@ -583,12 +574,7 @@ mod tests {
         let expected = decompress_into_array(encoded);
 
         assert_eq!(result_canonical.len(), size);
-
-        let result_primitive = result_canonical.into_primitive();
-        assert_eq!(
-            result_primitive.as_slice::<f64>(),
-            expected.as_slice::<f64>()
-        );
+        assert_arrays_eq!(result_canonical.into_primitive(), expected);
     }
 
     #[rstest]
@@ -617,20 +603,7 @@ mod tests {
         let expected = decompress_into_array(encoded);
 
         assert_eq!(result_canonical.len(), size);
-
-        let result_primitive = result_canonical.into_primitive();
-        assert_eq!(
-            result_primitive.as_slice::<f32>(),
-            expected.as_slice::<f32>()
-        );
-
-        // Test validity masks match
-        for idx in 0..size {
-            assert_eq!(
-                result_primitive.validity().is_valid(idx),
-                expected.validity().is_valid(idx)
-            );
-        }
+        assert_arrays_eq!(result_canonical.into_primitive(), expected);
     }
 
     #[rstest]
@@ -662,20 +635,7 @@ mod tests {
         let expected = decompress_into_array(encoded);
 
         assert_eq!(result_canonical.len(), size);
-
-        let result_primitive = result_canonical.into_primitive();
-        assert_eq!(
-            result_primitive.as_slice::<f64>(),
-            expected.as_slice::<f64>()
-        );
-
-        // Test validity masks match
-        for idx in 0..size {
-            assert_eq!(
-                result_primitive.validity().is_valid(idx),
-                expected.validity().is_valid(idx)
-            );
-        }
+        assert_arrays_eq!(result_canonical.into_primitive(), expected);
     }
 
     #[rstest]

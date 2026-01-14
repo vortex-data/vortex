@@ -319,6 +319,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
@@ -455,15 +456,9 @@ mod tests {
 
         let actual = builder.finish_into_canonical().into_listview();
 
-        assert_eq!(
-            actual.elements().to_primitive().as_slice::<i32>(),
-            expected.elements().to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(actual.elements(), expected.elements());
 
-        assert_eq!(
-            actual.offsets().to_primitive().as_slice::<O>(),
-            expected.offsets().to_primitive().as_slice::<O>()
-        );
+        assert_arrays_eq!(actual.offsets(), expected.offsets());
 
         assert_eq!(actual.validity(), expected.validity())
     }

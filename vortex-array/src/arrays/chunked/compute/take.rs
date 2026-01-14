@@ -98,6 +98,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::chunked::ChunkedArray;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
@@ -137,10 +138,7 @@ mod test {
             Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array()),
         )
         .unwrap();
-        assert_eq!(result.dtype(), expect.dtype());
-        assert_eq!(result.scalar_at(0), expect.scalar_at(0));
-        assert_eq!(result.scalar_at(1), expect.scalar_at(1));
-        assert_eq!(result.scalar_at(2), expect.scalar_at(2));
+        assert_arrays_eq!(result, expect);
     }
 
     #[test]
