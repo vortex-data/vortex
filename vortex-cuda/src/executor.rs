@@ -62,6 +62,10 @@ impl CudaExecutionCtx {
 
     /// Copies data from host to device.
     pub fn to_device<T: DeviceRepr>(&self, data: &[T]) -> VortexResult<CudaSlice<T>> {
+        // TODO(0ax1): Make the memcopy to device async. Even though `memcpy_htod`
+        // uses into `memcpy_htod_async`, it implicitly calls synchronize on the
+        // stream when dropping the `SyncOnDrop` `_record_dst` event at the end
+        // of the function.
         self.stream
             .clone_htod(data)
             .map_err(|e| vortex_err!("Failed to copy to device: {}", e))
@@ -78,6 +82,10 @@ impl CudaExecutionCtx {
         let len = buffer.len();
         let mut host_buffer = BufferMut::<T>::with_capacity_aligned(len, alignment);
 
+        // TODO(0ax1): Make the memcopy to host async. Even though `memcpy_dtoh`
+        // uses into `memcpy_dtoh_async`, it implicitly calls synchronize on the
+        // stream when dropping the `SyncOnDrop` `_record_dst` event at the end
+        // of the function.
         self.stream
             .memcpy_dtoh(buffer, unsafe {
                 // SAFETY: We allocated with sufficient capacity and fill the entire buffer.

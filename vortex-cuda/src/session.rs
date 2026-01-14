@@ -36,7 +36,7 @@ impl CudaSession {
 
     /// Creates a new CUDA execution context.
     pub fn new_execution_ctx(
-        self: &Self,
+        &self,
         array_ctx: vortex_array::ExecutionCtx,
     ) -> VortexResult<CudaExecutionCtx> {
         let stream = self
