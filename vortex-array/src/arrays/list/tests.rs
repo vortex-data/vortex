@@ -17,7 +17,6 @@ use crate::IntoArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
-use crate::assert_nth_scalar;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::compute::filter;
@@ -116,11 +115,11 @@ fn test_list_filter_dense_mask() {
     // Should have 5 lists remaining.
     assert_eq!(filtered_list.len(), 5);
 
-    // Verify first remaining list (originally index 1) has correct elements.
-    let first_list = filtered_list.list_elements_at(0);
-    assert_eq!(first_list.len(), 15); // 25 - 10
-    assert_nth_scalar!(first_list, 0, 10);
-    assert_nth_scalar!(first_list, 14, 24);
+    // Verify first remaining list (originally index 1) has correct elements [10..25].
+    assert_arrays_eq!(
+        filtered_list.list_elements_at(0),
+        PrimitiveArray::from_iter(10..25)
+    );
 }
 
 #[test]
@@ -145,17 +144,17 @@ fn test_list_filter_sparse_mask() {
     // Should have 2 lists remaining.
     assert_eq!(filtered_list.len(), 2);
 
-    // Verify first list (originally index 0).
-    let first_list = filtered_list.list_elements_at(0);
-    assert_eq!(first_list.len(), 10);
-    assert_nth_scalar!(first_list, 0, 0);
-    assert_nth_scalar!(first_list, 9, 9);
+    // Verify first list (originally index 0) has elements [0..10].
+    assert_arrays_eq!(
+        filtered_list.list_elements_at(0),
+        PrimitiveArray::from_iter(0..10)
+    );
 
-    // Verify second list (originally index 5).
-    let second_list = filtered_list.list_elements_at(1);
-    assert_eq!(second_list.len(), 15); // 100 - 85
-    assert_nth_scalar!(second_list, 0, 85);
-    assert_nth_scalar!(second_list, 14, 99);
+    // Verify second list (originally index 5) has elements [85..100].
+    assert_arrays_eq!(
+        filtered_list.list_elements_at(1),
+        PrimitiveArray::from_iter(85..100)
+    );
 }
 
 #[test]
@@ -179,10 +178,11 @@ fn test_list_filter_empty_lists() {
     // First list is empty.
     assert_eq!(filtered_list.list_elements_at(0).len(), 0);
 
-    // Second list has 3 elements.
-    let second_list = filtered_list.list_elements_at(1);
-    assert_eq!(second_list.len(), 3);
-    assert_nth_scalar!(second_list, 0, 0);
+    // Second list has elements [0..3].
+    assert_arrays_eq!(
+        filtered_list.list_elements_at(1),
+        PrimitiveArray::from_iter(0..3)
+    );
 
     // Third list is empty.
     assert_eq!(filtered_list.list_elements_at(2).len(), 0);
@@ -238,11 +238,12 @@ fn test_list_filter_all_true() {
     // All lists should be preserved.
     assert_eq!(filtered_list.len(), 4);
 
-    // Verify all lists are intact.
-    for i in 0..4i32 {
-        let list_at_i = filtered_list.list_elements_at(i as usize);
-        assert_eq!(list_at_i.len(), 5);
-        assert_nth_scalar!(list_at_i, 0, i * 5);
+    // Verify all lists are intact: [0..5], [5..10], [10..15], [15..20].
+    for i in 0..4 {
+        assert_arrays_eq!(
+            filtered_list.list_elements_at(i),
+            PrimitiveArray::from_iter((i * 5) as i32..((i + 1) * 5) as i32)
+        );
     }
 }
 
@@ -284,10 +285,11 @@ fn test_list_filter_single_element() {
 
     assert_eq!(filtered_list.len(), 1);
 
-    let single_list = filtered_list.list_elements_at(0);
-    assert_eq!(single_list.len(), 10);
-    assert_nth_scalar!(single_list, 0, 20);
-    assert_nth_scalar!(single_list, 9, 29);
+    // The single remaining list has elements [20..30].
+    assert_arrays_eq!(
+        filtered_list.list_elements_at(0),
+        PrimitiveArray::from_iter(20..30)
+    );
 }
 
 #[test]
@@ -311,11 +313,12 @@ fn test_list_filter_alternating_pattern() {
 
     assert_eq!(filtered_list.len(), 6);
 
-    // Verify that we have the correct lists (0, 2, 4, 6, 8, 10).
+    // Verify we have the correct lists: [0..5], [10..15], [20..25], [30..35], [40..45], [50..55].
     for (i, expected_start) in [0, 10, 20, 30, 40, 50].iter().enumerate() {
-        let list_at_i = filtered_list.list_elements_at(i);
-        assert_eq!(list_at_i.len(), 5);
-        assert_nth_scalar!(list_at_i, 0, *expected_start);
+        assert_arrays_eq!(
+            filtered_list.list_elements_at(i),
+            PrimitiveArray::from_iter(*expected_start..*expected_start + 5)
+        );
     }
 }
 
