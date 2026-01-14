@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use num_traits::AsPrimitive;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
@@ -12,6 +13,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryView;
@@ -22,28 +24,27 @@ pub(super) fn canonicalize_fsst(
     array: &FSSTArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let (buffer, views) = fsst_decode_views(array, 0, ctx)?;
+    let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
         Canonical::VarBinView(VarBinViewArray::new_unchecked(
             views,
-            Arc::new([buffer]),
+            Arc::from(buffers),
             array.dtype().clone(),
             array.codes().validity().clone(),
         ))
     })
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "truncation is intentional for buffer index"
-)]
-pub(super) fn fsst_decode_views(
+/// Maximum number of buffer bytes that can be referenced by a single `BinaryView`
+const MAX_BUFFER_LEN: usize = i32::MAX as usize;
+
+pub(crate) fn fsst_decode_views(
     fsst_array: &FSSTArray,
-    buf_index: u32,
+    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(ByteBuffer, Buffer<BinaryView>)> {
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
@@ -76,24 +77,57 @@ pub(super) fn fsst_decode_views(
     unsafe { uncompressed_bytes.set_len(len) };
 
     // Directly create the binary views.
-    let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
-
     match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        let mut offset = 0;
-        for len in uncompressed_lens_array.as_slice::<P>() {
-            let len = *len as usize;
-            let view = BinaryView::make_view(
-                &uncompressed_bytes[offset..][..len],
-                buf_index,
-                offset as u32,
-            );
-            // SAFETY: we reserved the right capacity beforehand
-            unsafe { views.push_unchecked(view) };
-            offset += len;
-        }
-    });
+        Ok(build_views(
+            start_buf_index,
+            MAX_BUFFER_LEN,
+            uncompressed_bytes,
+            uncompressed_lens_array.as_slice::<P>(),
+        ))
+    })
+}
 
-    Ok((uncompressed_bytes.freeze(), views.freeze()))
+fn build_views<P: NativePType + AsPrimitive<usize>>(
+    start_buf_index: u32,
+    max_buffer_len: usize,
+    mut uncompressed_bytes: ByteBufferMut,
+    uncompressed_lens: &[P],
+) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
+    let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens.len());
+
+    let mut buffers = Vec::new();
+    let mut buf_index = start_buf_index;
+
+    let mut offset = 0;
+    for &len in uncompressed_lens {
+        let len = len.as_();
+        assert!(len <= max_buffer_len, "values cannot exceed max_buffer_len");
+
+        if (offset + len) > max_buffer_len {
+            // Roll the buffer every 2GiB, to avoid overflowing VarBinView offset field
+            let rest = uncompressed_bytes.split_off(offset);
+
+            buffers.push(uncompressed_bytes.freeze());
+            buf_index += 1;
+            offset = 0;
+
+            uncompressed_bytes = rest;
+        }
+        let view = BinaryView::make_view(
+            &uncompressed_bytes[offset..][..len],
+            buf_index,
+            offset.as_(),
+        );
+        // SAFETY: we reserved the right capacity beforehand
+        unsafe { views.push_unchecked(view) };
+        offset += len;
+    }
+
+    if !uncompressed_bytes.is_empty() {
+        buffers.push(uncompressed_bytes.freeze());
+    }
+
+    (buffers, views.freeze())
 }
 
 #[cfg(test)]
@@ -113,11 +147,15 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::session::ArraySession;
+    use vortex_buffer::ByteBuffer;
+    use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
+    use vortex_vector::binaryview::BinaryView;
 
+    use crate::canonical::build_views;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
@@ -195,5 +233,41 @@ mod tests {
             assert_eq!(data, res2)
         };
         Ok(())
+    }
+
+    #[test]
+    fn test_to_canonical_large() {
+        // We are testing generating views for raw data that should look like
+        //
+        //    aaaaaaaaaaaaa ("a"*13)
+        //    bbbbbbbbbbbbb ("b"*13)
+        //    ccccccccccccc ("c"*13)
+        //    ddddddddddddd ("d"*13)
+        //
+        // In real code, this would all fit in one buffer, but to unit test the splitting logic
+        // we split buffers at length 26, which should result in two buffers for the output array.
+        let raw_data =
+            ByteBufferMut::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbbcccccccccccccddddddddddddd");
+        let lens = vec![13u8; 4];
+
+        let (buffers, views) = build_views(0, 26, raw_data, &lens);
+
+        assert_eq!(
+            buffers,
+            vec![
+                ByteBuffer::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbb"),
+                ByteBuffer::copy_from("cccccccccccccddddddddddddd"),
+            ]
+        );
+
+        assert_eq!(
+            views.as_slice(),
+            &[
+                BinaryView::make_view(b"aaaaaaaaaaaaa", 0, 0),
+                BinaryView::make_view(b"bbbbbbbbbbbbb", 0, 13),
+                BinaryView::make_view(b"ccccccccccccc", 1, 0),
+                BinaryView::make_view(b"ddddddddddddd", 1, 13),
+            ]
+        )
     }
 }

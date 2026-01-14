@@ -188,9 +188,9 @@ impl VTable for FSSTVTable {
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
+        let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
+        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask());
         Ok(())
     }
 

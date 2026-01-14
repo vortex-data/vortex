@@ -150,7 +150,7 @@ impl VarBinViewBuilder {
 
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
-    /// The provided `buffer` slices contain sections of data from a `VarBinViewArray`, and the
+    /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the
     /// `views` are `BinaryView`s that have already been adjusted to reference the correct buffer
     /// indices and offsets for this builder. All views must point to valid sections within the
     /// provided buffers, and the validity length must match the view length.
@@ -166,14 +166,14 @@ impl VarBinViewBuilder {
     /// exist in this builder.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
-        buffer: &[ByteBuffer],
+        buffers: &[ByteBuffer],
         views: &Buffer<BinaryView>,
         validity_mask: Mask,
     ) {
         self.flush_in_progress();
 
-        let expected_completed_len = self.completed.len() as usize + buffer.len();
-        self.completed.extend_from_slice_unchecked(buffer);
+        let expected_completed_len = self.completed.len() as usize + buffers.len();
+        self.completed.extend_from_slice_unchecked(buffers);
         assert_eq!(
             self.completed.len() as usize,
             expected_completed_len,
