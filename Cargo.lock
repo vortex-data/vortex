@@ -10675,6 +10675,7 @@ version = "0.1.0"
 dependencies = [
  "arrow-array 57.1.0",
  "arrow-schema 57.1.0",
+ "async-trait",
  "bit-vec 0.8.0",
  "futures",
  "itertools 0.14.0",
