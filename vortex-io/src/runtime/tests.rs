@@ -238,6 +238,10 @@ impl VortexRead for CountingSource {
         async move { Ok(len) }.boxed()
     }
 
+    fn concurrency(&self) -> usize {
+        16
+    }
+
     fn read_at(
         &self,
         offset: u64,

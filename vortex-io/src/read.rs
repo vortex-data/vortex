@@ -72,15 +72,30 @@ pub trait VortexRead: Send + Sync + 'static {
         None
     }
 
-    /// Coalescing configuration. Returns `None` to disable coalescing.
+    /// Configuration for merging nearby I/O requests into fewer, larger reads.
+    ///
+    /// When set, [`crate::file::FileRead`] will combine requests that are close together
+    /// (within `distance` bytes) into single reads, up to `max_size` total bytes.
+    /// This reduces I/O overhead at the cost of reading some unrequested data.
+    /// Returns `None` to disable coalescing.
     fn coalesce_config(&self) -> Option<CoalesceConfig> {
         None
     }
 
-    /// Concurrency hint for the default driver implementation.
-    fn concurrency(&self) -> usize {
-        16
-    }
+    /// Maximum number of concurrent I/O requests for the default [`VortexRead::drive`] implementation.
+    ///
+    /// This value is used to control how many [`VortexRead::read_at`] calls can
+    /// be in-flight simultaneously. Higher values allow more parallelism but consume
+    /// more resources (memory, file descriptors, network connections).
+    ///
+    /// Implementations should choose a value appropriate for their underlying storage
+    /// characteristics. Low-latency sources benefit less from high concurrency, while
+    /// high-latency sources (like remote storage) benefit significantly from issuing
+    /// many requests in parallel.
+    ///
+    /// If you override [`VortexRead::drive`], this value is not used by the default
+    /// implementation. Your custom driver can ignore it or use it as a hint.
+    fn concurrency(&self) -> usize;
 
     /// Asynchronously get the number of bytes of the underlying source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
@@ -176,6 +191,10 @@ impl VortexRead for ByteBuffer {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let length = self.len() as u64;
         async move { Ok(length) }.boxed()
+    }
+
+    fn concurrency(&self) -> usize {
+        16
     }
 
     fn read_at(

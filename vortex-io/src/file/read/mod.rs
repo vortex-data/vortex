@@ -146,6 +146,10 @@ impl VortexRead for FileRead {
         self.size.clone().map_err(VortexError::from).boxed()
     }
 
+    fn concurrency(&self) -> usize {
+        16
+    }
+
     fn read_at(
         &self,
         offset: u64,

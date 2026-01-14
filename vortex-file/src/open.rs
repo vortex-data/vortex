@@ -336,6 +336,10 @@ mod tests {
             );
             self.inner.read_at(offset, length, alignment)
         }
+
+        fn concurrency(&self) -> usize {
+            16
+        }
     }
 
     #[tokio::test]
