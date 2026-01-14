@@ -8,7 +8,6 @@ use arrow_array::NullArray as ArrowNullArray;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::NullArray;
 
@@ -21,6 +20,6 @@ pub(super) fn to_arrow_null(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let canonical = array.execute::<Canonical>(ctx)?.into_null();
-    Ok(canonical_null_to_arrow(&canonical))
+    let null_array = array.execute::<NullArray>(ctx)?;
+    Ok(canonical_null_to_arrow(&null_array))
 }

@@ -9,10 +9,30 @@ use vortex_session::VortexSession;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListViewArray;
+use crate::arrays::ListViewVTable;
+use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
 
 /// Marker trait for types that can be executed.
+///
+/// If the `ArrayRef` cannot inhabit `Self` this will panic.
 pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
@@ -96,6 +116,114 @@ impl Executable for CanonicalOutput {
 
         tracing::debug!("Executing array {}:\n{}", array, array.display_tree());
         Ok(CanonicalOutput::Array(array.execute(ctx)?))
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`PrimitiveArray`].
+///
+/// This will panic if the array's dtype is not primitive.
+impl Executable for PrimitiveArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<PrimitiveVTable>() {
+            Ok(primitive) => Ok(primitive),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_primitive()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`BoolArray`].
+///
+/// This will panic if the array's dtype is not bool.
+impl Executable for BoolArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<BoolVTable>() {
+            Ok(bool_array) => Ok(bool_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_bool()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`NullArray`].
+///
+/// This will panic if the array's dtype is not null.
+impl Executable for NullArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<NullVTable>() {
+            Ok(null_array) => Ok(null_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_null()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`VarBinViewArray`].
+///
+/// This will panic if the array's dtype is not utf8 or binary.
+impl Executable for VarBinViewArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<VarBinViewVTable>() {
+            Ok(varbinview) => Ok(varbinview),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_varbinview()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as an [`ExtensionArray`].
+///
+/// This will panic if the array's dtype is not an extension type.
+impl Executable for ExtensionArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<ExtensionVTable>() {
+            Ok(ext_array) => Ok(ext_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_extension()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`DecimalArray`].
+///
+/// This will panic if the array's dtype is not decimal.
+impl Executable for DecimalArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<DecimalVTable>() {
+            Ok(decimal) => Ok(decimal),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_decimal()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`ListViewArray`].
+///
+/// This will panic if the array's dtype is not list.
+impl Executable for ListViewArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<ListViewVTable>() {
+            Ok(list) => Ok(list),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_listview()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`FixedSizeListArray`].
+///
+/// This will panic if the array's dtype is not fixed size list.
+impl Executable for FixedSizeListArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<FixedSizeListVTable>() {
+            Ok(fsl) => Ok(fsl),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_fixed_size_list()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`StructArray`].
+///
+/// This will panic if the array's dtype is not struct.
+impl Executable for StructArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<StructVTable>() {
+            Ok(struct_array) => Ok(struct_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_struct()),
+        }
     }
 }
 
