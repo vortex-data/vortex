@@ -1,79 +1,90 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! CUDA kernel configuration.
+//! CUDA kernel loading and management.
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
-use vortex_array::vtable::ArrayId;
+use cudarc::driver::CudaContext;
+use cudarc::driver::CudaFunction;
+use cudarc::driver::CudaModule;
+use cudarc::nvrtc::Ptx;
+use vortex_dtype::PType;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
 
-/// Configuration for a CUDA kernel.
-#[derive(Debug, Clone)]
-pub struct KernelConfig {
-    /// The name of the kernel function.
-    pub name: String,
-    /// PTX source code for the kernel
-    pub ptx: Option<String>,
-    /// Number of threads per block.
-    pub block_size: u32,
-    /// Number of blocks in the grid.
-    pub grid_size: u32,
+/// Loader for CUDA kernels with PTX caching.
+///
+/// Handles loading PTX files, compiling modules, and loading functions.
+#[derive(Debug)]
+pub struct KernelLoader {
+    /// Cache of loaded CUDA modules, keyed by module name
+    modules: DashMap<String, Arc<CudaModule>>,
 }
 
-impl KernelConfig {
-    /// Creates a new kernel configuration.
-    pub fn new(name: String, ptx: Option<String>, block_size: u32, grid_size: u32) -> Self {
+impl KernelLoader {
+    /// Creates a new kernel loader.
+    pub fn new() -> Self {
         Self {
-            name,
-            ptx,
-            block_size,
-            grid_size,
+            modules: DashMap::default(),
         }
     }
-}
 
-/// Registry for CUDA kernels, keyed by array ID.
-#[derive(Debug, Default)]
-pub struct KernelRegistry {
-    /// Kernel configurations indexed by array_id.
-    configs: DashMap<ArrayId, KernelConfig>,
-}
-
-impl KernelRegistry {
-    /// Creates a new kernel registry.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Registers a kernel for an array encoding.
+    /// Loads CUDA function by module name and ptype(s).
     ///
     /// # Arguments
     ///
-    /// * `array_id` - The encoding ID to register the kernel for
-    /// * `config` - The kernel configuration
-    pub fn register(&self, array_id: ArrayId, config: KernelConfig) {
-        self.configs.insert(array_id, config);
-    }
+    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `ptypes` - List of ptype strings for argument passed to the kernel (`kernel_i32`)
+    /// * `cuda_context` - CUDA context for loading the module
+    pub fn load_function(
+        &self,
+        module_name: &str,
+        ptypes: &[PType],
+        cuda_context: &Arc<CudaContext>,
+    ) -> VortexResult<CudaFunction> {
+        // Kernel name pattern: `<module>_<type_1>_..<type_n>`.
+        let kernel_name = if ptypes.is_empty() {
+            module_name.to_string()
+        } else {
+            format!(
+                "{}_{}",
+                module_name,
+                ptypes
+                    .iter()
+                    .map(|ptype| ptype.to_string())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            )
+        };
 
-    /// Retrieves a kernel configuration by array ID.
-    ///
-    /// Returns `None` if the kernel hasn't been registered.
-    pub fn config(&self, array_id: ArrayId) -> Option<KernelConfig> {
-        self.configs.get(&array_id).map(|entry| entry.clone())
-    }
-}
+        // Check if module is already cached
+        let module = if let Some(entry) = self.modules.get(module_name) {
+            Arc::clone(entry.value())
+        } else {
+            // Derive PTX path from module name
+            let ptx_path = format!("kernels/{}.ptx", module_name);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+            let ptx_content = std::fs::read_to_string(&ptx_path)
+                .map_err(|e| vortex_err!("Failed to read PTX file from '{}': {}", ptx_path, e))?;
 
-    #[test]
-    fn test_kernel_config_creation() {
-        let config = KernelConfig::new("test_kernel".to_string(), None, 256, 1024);
+            // Compile and load the CUDA module.
+            let module = cuda_context
+                .load_module(Ptx::from_src(&ptx_content))
+                .map_err(|e| vortex_err!("Failed to load CUDA module: {}", e))?;
 
-        assert_eq!(config.name, "test_kernel");
-        assert_eq!(config.block_size, 256);
-        assert_eq!(config.grid_size, 1024);
+            // Cache the module
+            self.modules
+                .insert(module_name.to_string(), Arc::clone(&module));
+
+            module
+        };
+
+        // Load the CUDA function from the compiled module.
+        module
+            .load_function(&kernel_name)
+            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
     }
 }

@@ -10149,11 +10149,13 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "cudarc",
+ "tokio",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
  "vortex-error",
+ "vortex-fastlanes",
  "vortex-session",
  "vortex-utils",
 ]

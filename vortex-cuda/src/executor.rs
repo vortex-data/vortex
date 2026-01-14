@@ -5,42 +5,94 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::LaunchArgs;
+
 use cudarc::driver::ValidAsZeroBits;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::VortexSessionExecute;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
+use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
-use crate::session::CudaSession;
+use crate::CudaSession;
+use crate::session::CudaSessionExt;
+
+/// Convenience macro to launch a CUDA kernel.
+///
+/// The kernel gets launched on the stream of the execution context.
+///
+/// The kernel launch config:
+/// LaunchConfig {
+///     grid_dim: (array.len() / 1024, 1, 1),
+///     block_dim: (32, 1, 1),
+///     shared_mem_bytes: 0,
+/// };
+/// 32 threads are used per block which corresponds to the thread count of a warp.
+/// Each block handles 1024 elements. Each thread handles 32 elements.
+///
+/// Note: A macro is necessary to unroll the launch builder arguments.
+#[macro_export]
+macro_rules! launch_cuda_kernel {
+    (
+        execution_ctx: $ctx:expr,
+        module: $module:expr,
+        ptypes: $ptypes:expr,
+        launch_args: [$($arg:expr),* $(,)?],
+        array_len: $len:expr
+    ) => {{
+        let cuda_function = $ctx.load_function($module, $ptypes)?;
+        let mut launch_builder = $ctx.launch_builder(&cuda_function);
+
+        // Unroll launch builder arguments.
+        $(
+            launch_builder.arg(&$arg);
+        )*
+
+        let num_chunks = u32::try_from($len.div_ceil(1024))
+            .vortex_expect("Too many elements for grid");
+
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: (num_chunks, 1, 1),
+            block_dim: (32, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        unsafe {
+            launch_builder
+                .launch(config)
+                .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))?
+        };
+    }};
+}
 
 /// CUDA execution context.
 ///
 /// Provides access to the CUDA context and stream for kernel execution.
 /// Handles memory allocation and data transfers between host and device.
 pub struct CudaExecutionCtx {
-    session: Arc<CudaSession>,
-    array_ctx: vortex_array::ExecutionCtx,
     stream: Arc<CudaStream>,
+    vortex_session: VortexSession,
+    cuda_session: CudaSession,
 }
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
-    pub(crate) fn new(
-        stream: Arc<CudaStream>,
-        session: Arc<CudaSession>,
-        array_ctx: vortex_array::ExecutionCtx,
-    ) -> Self {
+    pub(crate) fn new(stream: Arc<CudaStream>, vortex_session: VortexSession) -> Self {
+        let cuda_session = vortex_session.cuda_session().clone();
         Self {
-            session,
-            array_ctx,
             stream,
+            vortex_session,
+            cuda_session,
         }
     }
 
@@ -106,11 +158,34 @@ impl CudaExecutionCtx {
             .synchronize()
             .map_err(|e| vortex_err!("Failed to synchronize device: {}", e))
     }
+
+    /// Loads a CUDA kernel function by module name and ptype(s).
+    ///
+    /// # Arguments
+    ///
+    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `ptypes` - List of ptype strings for the kernel name
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if kernel loading fails.
+    pub fn load_function(&self, module_name: &str, ptypes: &[PType]) -> VortexResult<CudaFunction> {
+        self.cuda_session.load_function(module_name, ptypes)
+    }
+
+    /// Returns a launch builder for a CUDA kernel function.
+    ///
+    /// Arguments can be added to the kernel launch with `.arg(buffer)`.
+    ///
+    /// # Arguments
+    ///
+    /// * `func` - CUDA kernel function to launch
+    pub fn launch_builder<'a>(&'a self, func: &'a CudaFunction) -> LaunchArgs<'a> {
+        self.stream.launch_builder(func)
+    }
 }
 
-/// Support trait for CUDA-accelerated execution of arrays.
-///
-/// Implementations provide CUDA-specific execution for array encodings.
+/// Support trait for CUDA-accelerated decompression of arrays.
 #[async_trait]
 pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// Executes the array on CUDA, returning a canonical array.
@@ -118,11 +193,8 @@ pub trait CudaExecute: 'static + Send + Sync + Debug {
     /// # Errors
     ///
     /// Returns an error if execution fails on the GPU.
-    async fn execute_canonical(
-        &self,
-        array: ArrayRef,
-        ctx: &CudaExecutionCtx,
-    ) -> VortexResult<Canonical>;
+    async fn execute(&self, array: ArrayRef, ctx: &mut CudaExecutionCtx)
+    -> VortexResult<Canonical>;
 }
 
 /// Extension trait for executing arrays on CUDA.
@@ -132,27 +204,23 @@ pub trait CudaArrayExt: Array {
     ///
     /// If no CUDA support is registered for the encoding, falls back to CPU execution
     /// and logs a debug message.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if execution fails.
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical>;
 }
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-        // Short-circuit if already canonical
         if self.is_canonical() {
             return Ok(self.to_canonical());
         }
 
-        let Some(support) = ctx.session.kernel(&self.encoding_id()) else {
+        let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
             tracing::debug!(
                 encoding = %self.encoding().id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
-            return self.clone().execute(&mut ctx.array_ctx);
+            let mut array_ctx = ctx.vortex_session.create_execution_ctx();
+            return self.execute(&mut array_ctx);
         };
 
         tracing::debug!(
@@ -160,6 +228,6 @@ impl CudaArrayExt for ArrayRef {
             "Executing array on CUDA device"
         );
 
-        support.execute_canonical(self, ctx).await
+        support.execute(self, ctx).await
     }
 }
