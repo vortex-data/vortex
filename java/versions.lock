@@ -1,312 +1,386 @@
 # Run ./gradlew writeVersionsLocks to regenerate this file. Blank lines are to minimize merge conflicts.
 
-com.clearspring.analytics:stream:2.9.6 (1 constraints: 230de736)
+com.clearspring.analytics:stream:2.9.8 (2 constraints: f219c36c)
 
-com.esotericsoftware:kryo-shaded:4.0.2 (2 constraints: b8134fa6)
+com.esotericsoftware:kryo-shaded:4.0.3 (3 constraints: cc27721b)
 
-com.esotericsoftware:minlog:1.3.0 (1 constraints: 670e7c4f)
+com.esotericsoftware:minlog:1.3.0 (2 constraints: 241b55b7)
 
-com.fasterxml.jackson:jackson-bom:2.18.3 (4 constraints: 064eead9)
+com.fasterxml.jackson:jackson-bom:2.20.0 (3 constraints: e4396971)
 
-com.fasterxml.jackson.core:jackson-annotations:2.18.3 (7 constraints: 097b87f9)
+com.fasterxml.jackson.core:jackson-annotations:2.20 (8 constraints: 3385e8c6)
 
-com.fasterxml.jackson.core:jackson-core:2.18.3 (10 constraints: 959965cd)
+com.fasterxml.jackson.core:jackson-core:2.20.0 (12 constraints: d6b49f0f)
 
-com.fasterxml.jackson.core:jackson-databind:2.18.3 (12 constraints: 68b75475)
+com.fasterxml.jackson.core:jackson-databind:2.20.0 (15 constraints: 2ee57295)
 
-com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.18.3 (2 constraints: e91bacc7)
+com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.20.0 (3 constraints: cc28a571)
 
-com.fasterxml.jackson.module:jackson-module-scala_2.12:2.18.3 (3 constraints: 922c8b83)
+com.fasterxml.jackson.module:jackson-module-scala_2.13:2.20.0 (4 constraints: 6b3931d4)
 
-com.github.luben:zstd-jni:1.5.5-4 (2 constraints: 651c7045)
+com.github.luben:zstd-jni:1.5.7-6 (4 constraints: 42350924)
 
-com.google.code.findbugs:jsr305:3.0.2 (5 constraints: 0549165e)
+com.google.code.findbugs:jsr305:3.0.2 (6 constraints: c455aae6)
 
-com.google.code.gson:gson:2.10.1 (1 constraints: 590c9905)
+com.google.code.gson:gson:2.11.0 (2 constraints: 46198b34)
 
-com.google.crypto.tink:tink:1.9.0 (1 constraints: 33113dee)
+com.google.crypto.tink:tink:1.16.0 (2 constraints: 531e1afd)
 
 com.google.errorprone:error_prone_annotations:2.41.0 (1 constraints: 490a3ebf)
 
-com.google.flatbuffers:flatbuffers-java:25.2.10 (2 constraints: a51a6972)
+com.google.flatbuffers:flatbuffers-java:25.2.10 (3 constraints: c8279713)
 
 com.google.guava:failureaccess:1.0.3 (2 constraints: 1b0f8086)
 
-com.google.guava:guava:33.5.0-jre (2 constraints: 6615ddd5)
+com.google.guava:guava:33.5.0-jre (2 constraints: d116aa2e)
 
 com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (2 constraints: 692a93df)
 
 com.google.j2objc:j2objc-annotations:3.1 (1 constraints: b809f1a0)
 
-com.google.protobuf:protobuf-java:4.33.2 (2 constraints: a511ed02)
+com.google.protobuf:protobuf-java:4.33.2 (4 constraints: dc2bfd00)
+
+com.ibm.icu:icu4j:77.1 (2 constraints: 671acb77)
 
 com.jakewharton.nopen:nopen-annotations:1.0.1 (1 constraints: 0405f135)
 
-com.ning:compress-lzf:1.1.2 (1 constraints: 160dc636)
+com.ning:compress-lzf:1.1.2 (2 constraints: d419256a)
 
-com.thoughtworks.paranamer:paranamer:2.8 (2 constraints: 2820e282)
+com.thoughtworks.paranamer:paranamer:2.8.3 (3 constraints: 512d6500)
 
-com.twitter:chill-java:0.10.0 (2 constraints: f3160d96)
+com.twitter:chill-java:0.10.0 (3 constraints: df234a78)
 
-com.twitter:chill_2.12:0.10.0 (2 constraints: 5e1b77f2)
+com.twitter:chill_2.13:0.10.0 (3 constraints: 4a28a47f)
 
-com.univocity:univocity-parsers:2.9.1 (2 constraints: 9e1b78f6)
+com.univocity:univocity-parsers:2.9.1 (2 constraints: a01bb4f6)
 
-commons-codec:commons-codec:1.18.0 (4 constraints: 1939bb25)
+commons-codec:commons-codec:1.19.0 (5 constraints: 15468a82)
 
-commons-collections:commons-collections:3.2.2 (1 constraints: 190dd336)
+commons-io:commons-io:2.21.0 (4 constraints: 8b37b3ef)
 
-commons-io:commons-io:2.16.1 (1 constraints: 4c0d2344)
+commons-logging:commons-logging:1.3.0 (1 constraints: af1031b8)
 
-commons-logging:commons-logging:1.1.3 (1 constraints: b0102eb8)
+io.airlift:aircompressor:2.0.2 (3 constraints: 7e258cc5)
 
-io.airlift:aircompressor:0.27 (2 constraints: 6918ff95)
+io.dropwizard.metrics:metrics-core:4.2.37 (8 constraints: c47be587)
 
-io.dropwizard.metrics:metrics-core:4.2.19 (7 constraints: c86edc92)
+io.dropwizard.metrics:metrics-graphite:4.2.37 (2 constraints: 4c1a4a9b)
 
-io.dropwizard.metrics:metrics-graphite:4.2.19 (1 constraints: 520d2944)
+io.dropwizard.metrics:metrics-jmx:4.2.37 (2 constraints: 4c1a4a9b)
 
-io.dropwizard.metrics:metrics-jmx:4.2.19 (1 constraints: 520d2944)
+io.dropwizard.metrics:metrics-json:4.2.37 (2 constraints: 4c1a4a9b)
 
-io.dropwizard.metrics:metrics-json:4.2.19 (1 constraints: 520d2944)
+io.dropwizard.metrics:metrics-jvm:4.2.37 (2 constraints: 4c1a4a9b)
 
-io.dropwizard.metrics:metrics-jvm:4.2.19 (1 constraints: 520d2944)
+io.jsonwebtoken:jjwt-api:0.12.6 (4 constraints: 0333016c)
 
-io.netty:netty-all:4.1.96.Final (2 constraints: f2228788)
+io.jsonwebtoken:jjwt-impl:0.12.6 (2 constraints: 3e1af599)
 
-io.netty:netty-buffer:4.1.119.Final (10 constraints: 71a9aee7)
+io.jsonwebtoken:jjwt-jackson:0.12.6 (2 constraints: 3e1af599)
 
-io.netty:netty-codec:4.1.96.Final (2 constraints: a8174a7b)
+io.netty:netty-all:4.2.7.Final (3 constraints: 643135fb)
 
-io.netty:netty-codec-http:4.1.96.Final (1 constraints: 020b31cf)
+io.netty:netty-buffer:4.2.7.Final (25 constraints: 218d1e04)
 
-io.netty:netty-codec-http2:4.1.96.Final (1 constraints: 020b31cf)
+io.netty:netty-codec:4.2.7.Final (2 constraints: a9198d30)
 
-io.netty:netty-codec-socks:4.1.96.Final (1 constraints: 020b31cf)
+io.netty:netty-codec-base:4.2.7.Final (15 constraints: 25d3b40d)
 
-io.netty:netty-common:4.1.119.Final (13 constraints: f5d47c2f)
+io.netty:netty-codec-classes-quic:4.2.7.Final (4 constraints: 7a37a99a)
 
-io.netty:netty-handler:4.1.96.Final (2 constraints: d71a7f58)
+io.netty:netty-codec-compression:4.2.7.Final (5 constraints: 6340b61a)
 
-io.netty:netty-handler-proxy:4.1.96.Final (1 constraints: 020b31cf)
+io.netty:netty-codec-dns:4.2.7.Final (3 constraints: 1e2899dd)
 
-io.netty:netty-resolver:4.1.96.Final (3 constraints: 5d253e5c)
+io.netty:netty-codec-haproxy:4.2.7.Final (1 constraints: cb0afec4)
 
-io.netty:netty-transport:4.1.96.Final (8 constraints: fc840213)
+io.netty:netty-codec-http:4.2.7.Final (5 constraints: e443f0a0)
 
-io.netty:netty-transport-classes-epoll:4.1.96.Final (2 constraints: b41d9935)
+io.netty:netty-codec-http2:4.2.7.Final (2 constraints: a9198d30)
 
-io.netty:netty-transport-classes-kqueue:4.1.96.Final (2 constraints: 281e3d57)
+io.netty:netty-codec-http3:4.2.7.Final (2 constraints: a9198d30)
 
-io.netty:netty-transport-native-epoll:4.1.96.Final (4 constraints: c83d63b7)
+io.netty:netty-codec-marshalling:4.2.7.Final (3 constraints: 3825eb9d)
 
-io.netty:netty-transport-native-kqueue:4.1.96.Final (3 constraints: f32d6de6)
+io.netty:netty-codec-memcache:4.2.7.Final (1 constraints: cb0afec4)
 
-io.netty:netty-transport-native-unix-common:4.1.96.Final (6 constraints: 2664d97a)
+io.netty:netty-codec-mqtt:4.2.7.Final (1 constraints: cb0afec4)
 
-jakarta.annotation:jakarta.annotation-api:1.3.5 (2 constraints: f5217bb4)
+io.netty:netty-codec-native-quic:4.2.7.Final (3 constraints: 5827a396)
 
-jakarta.servlet:jakarta.servlet-api:4.0.3 (1 constraints: 190dd336)
+io.netty:netty-codec-protobuf:4.2.7.Final (3 constraints: 3825eb9d)
 
-jakarta.validation:jakarta.validation-api:2.0.2 (1 constraints: fd10b6c3)
+io.netty:netty-codec-redis:4.2.7.Final (1 constraints: cb0afec4)
 
-jakarta.ws.rs:jakarta.ws.rs-api:2.1.6 (5 constraints: 8c647f61)
+io.netty:netty-codec-smtp:4.2.7.Final (1 constraints: cb0afec4)
 
-javax.activation:activation:1.1.1 (1 constraints: 150dc536)
+io.netty:netty-codec-socks:4.2.7.Final (3 constraints: 87281c0b)
 
-joda-time:joda-time:2.12.5 (1 constraints: 5f0ca305)
+io.netty:netty-codec-stomp:4.2.7.Final (1 constraints: cb0afec4)
 
-net.razorvine:pickle:1.3 (1 constraints: b80cce1c)
+io.netty:netty-codec-xml:4.2.7.Final (1 constraints: cb0afec4)
 
-net.sf.py4j:py4j:0.10.9.7 (1 constraints: b10d385f)
+io.netty:netty-common:4.2.7.Final (29 constraints: dbcba09e)
 
-org.antlr:antlr4-runtime:4.9.3 (1 constraints: 300ea766)
+io.netty:netty-handler:4.2.7.Final (9 constraints: 6580689e)
+
+io.netty:netty-handler-proxy:4.2.7.Final (2 constraints: a9198d30)
+
+io.netty:netty-handler-ssl-ocsp:4.2.7.Final (1 constraints: cb0afec4)
+
+io.netty:netty-resolver:4.2.7.Final (6 constraints: ba4fcab2)
+
+io.netty:netty-resolver-dns:4.2.7.Final (3 constraints: 792d6878)
+
+io.netty:netty-resolver-dns-classes-macos:4.2.7.Final (2 constraints: 341e795c)
+
+io.netty:netty-resolver-dns-native-macos:4.2.7.Final (1 constraints: cb0afec4)
+
+io.netty:netty-tcnative-boringssl-static:2.0.74.Final (3 constraints: 5d327650)
+
+io.netty:netty-tcnative-classes:2.0.74.Final (2 constraints: e3224c8b)
+
+io.netty:netty-transport:4.2.7.Final (23 constraints: e36836ed)
+
+io.netty:netty-transport-classes-epoll:4.2.7.Final (3 constraints: 242c1cc1)
+
+io.netty:netty-transport-classes-io_uring:4.2.7.Final (3 constraints: 642d855c)
+
+io.netty:netty-transport-classes-kqueue:4.2.7.Final (3 constraints: 982cedf6)
+
+io.netty:netty-transport-native-epoll:4.2.7.Final (5 constraints: 354cf2bd)
+
+io.netty:netty-transport-native-io_uring:4.2.7.Final (2 constraints: a9198d30)
+
+io.netty:netty-transport-native-kqueue:4.2.7.Final (4 constraints: 2e3c0713)
+
+io.netty:netty-transport-native-unix-common:4.2.7.Final (11 constraints: 16bb45a8)
+
+io.netty:netty-transport-rxtx:4.2.7.Final (1 constraints: cb0afec4)
+
+io.netty:netty-transport-sctp:4.2.7.Final (1 constraints: cb0afec4)
+
+io.netty:netty-transport-udt:4.2.7.Final (1 constraints: cb0afec4)
+
+jakarta.annotation:jakarta.annotation-api:2.1.1 (5 constraints: b5468312)
+
+jakarta.inject:jakarta.inject-api:2.0.1 (8 constraints: fc7b14ed)
+
+jakarta.servlet:jakarta.servlet-api:5.0.0 (2 constraints: d6196b6a)
+
+jakarta.validation:jakarta.validation-api:3.0.2 (2 constraints: bc1d564f)
+
+jakarta.ws.rs:jakarta.ws.rs-api:3.0.0 (6 constraints: 2a71295f)
+
+javax.annotation:javax.annotation-api:1.3.2 (3 constraints: 9e2a22fe)
+
+javax.servlet:javax.servlet-api:4.0.1 (2 constraints: d619636a)
+
+net.razorvine:pickle:1.5 (2 constraints: 1c19130f)
+
+net.sf.py4j:py4j:0.10.9.9 (2 constraints: 0e1ba9fb)
+
+org.antlr:antlr4-runtime:4.13.1 (2 constraints: 4c1b26f6)
 
 org.apache.arrow:arrow-c-data:18.3.0 (1 constraints: 3e05583b)
 
-org.apache.arrow:arrow-format:18.3.0 (1 constraints: 2a0d1c22)
+org.apache.arrow:arrow-compression:18.3.0 (1 constraints: f60ce234)
 
-org.apache.arrow:arrow-memory-core:18.3.0 (5 constraints: 2b43fb54)
+org.apache.arrow:arrow-format:18.3.0 (2 constraints: 1f1aad72)
 
-org.apache.arrow:arrow-memory-netty:18.3.0 (2 constraints: 9113fa9b)
+org.apache.arrow:arrow-memory-core:18.3.0 (7 constraints: 685f2dc7)
 
-org.apache.arrow:arrow-memory-netty-buffer-patch:18.3.0 (1 constraints: 910fc585)
+org.apache.arrow:arrow-memory-netty:18.3.0 (3 constraints: 8f20bbf4)
 
-org.apache.arrow:arrow-vector:18.3.0 (2 constraints: 141bf4ce)
+org.apache.arrow:arrow-memory-netty-buffer-patch:18.3.0 (2 constraints: 861ce438)
 
-org.apache.avro:avro:1.11.4 (2 constraints: 30184de4)
+org.apache.arrow:arrow-vector:18.3.0 (4 constraints: 5a37a125)
 
-org.apache.avro:avro-ipc:1.11.4 (1 constraints: 250c7c00)
+org.apache.avro:avro:1.12.1 (3 constraints: 1b2506f8)
 
-org.apache.avro:avro-mapred:1.11.4 (1 constraints: 490d1144)
+org.apache.avro:avro-ipc:1.12.1 (2 constraints: 1119c626)
 
-org.apache.commons:commons-collections4:4.4 (1 constraints: bc0cd81c)
+org.apache.avro:avro-mapred:1.12.1 (2 constraints: 361a5399)
 
-org.apache.commons:commons-compress:1.26.2 (2 constraints: ca16c279)
+org.apache.commons:commons-collections4:4.5.0 (2 constraints: de191f6b)
 
-org.apache.commons:commons-crypto:1.1.0 (2 constraints: 3e1edfbf)
+org.apache.commons:commons-compress:1.28.0 (4 constraints: 0b33e88a)
 
-org.apache.commons:commons-lang3:3.12.0 (5 constraints: 80431b02)
+org.apache.commons:commons-crypto:1.1.0 (3 constraints: fb2a0ea2)
 
-org.apache.commons:commons-math3:3.6.1 (1 constraints: 1c0dde36)
+org.apache.commons:commons-lang3:3.19.0 (6 constraints: 0e580fc4)
 
-org.apache.commons:commons-text:1.10.0 (2 constraints: c51d12cf)
+org.apache.commons:commons-math3:3.6.1 (2 constraints: e019456b)
 
-org.apache.curator:curator-client:2.13.0 (1 constraints: 09104d9a)
+org.apache.commons:commons-text:1.14.0 (2 constraints: 381a8699)
 
-org.apache.curator:curator-framework:2.13.0 (1 constraints: 260f6375)
+org.apache.curator:curator-client:5.9.0 (2 constraints: a81c812d)
 
-org.apache.curator:curator-recipes:2.13.0 (1 constraints: 480d1944)
+org.apache.curator:curator-framework:5.9.0 (2 constraints: c51bf3e5)
 
-org.apache.datasketches:datasketches-java:3.3.0 (1 constraints: d40e8b7c)
+org.apache.curator:curator-recipes:5.9.0 (2 constraints: e819096c)
 
-org.apache.datasketches:datasketches-memory:2.1.0 (1 constraints: 921180e4)
+org.apache.datasketches:datasketches-java:6.2.0 (2 constraints: 981b10f6)
 
-org.apache.hadoop:hadoop-client-api:3.3.4 (2 constraints: d01d189c)
+org.apache.datasketches:datasketches-memory:3.0.2 (2 constraints: 521e77cb)
 
-org.apache.hadoop:hadoop-client-runtime:3.3.4 (1 constraints: 1c0dd836)
+org.apache.hadoop:hadoop-client-api:3.4.2 (4 constraints: dc360ebb)
 
-org.apache.hive:hive-storage-api:2.8.1 (1 constraints: c40cd627)
+org.apache.hadoop:hadoop-client-runtime:3.4.2 (4 constraints: 6730a1c5)
 
-org.apache.ivy:ivy:2.5.1 (1 constraints: 1a0dd636)
+org.apache.hive:hive-storage-api:2.8.1 (1 constraints: c50ce027)
 
-org.apache.logging.log4j:log4j-1.2-api:2.20.0 (1 constraints: 8410bbd5)
+org.apache.ivy:ivy:2.5.3 (2 constraints: 1e1d617b)
 
-org.apache.logging.log4j:log4j-api:2.20.0 (4 constraints: 403f24a8)
+org.apache.logging.log4j:log4j-1.2-api:2.24.3 (3 constraints: da2f6971)
 
-org.apache.logging.log4j:log4j-core:2.20.0 (2 constraints: 85217617)
+org.apache.logging.log4j:log4j-api:2.24.3 (6 constraints: ab5e8bdb)
 
-org.apache.logging.log4j:log4j-slf4j2-impl:2.20.0 (1 constraints: 8410bbd5)
+org.apache.logging.log4j:log4j-core:2.24.3 (5 constraints: 0456b92c)
 
-org.apache.orc:orc-core:1.9.7 (1 constraints: ca0cda27)
+org.apache.logging.log4j:log4j-layout-template-json:2.24.3 (3 constraints: da2f6971)
 
-org.apache.orc:orc-mapreduce:1.9.7 (1 constraints: ca0cda27)
+org.apache.logging.log4j:log4j-slf4j2-impl:2.24.3 (3 constraints: da2f6971)
 
-org.apache.orc:orc-shims:1.9.7 (1 constraints: 470af8bc)
+org.apache.orc:orc-core:2.2.1 (1 constraints: bf0cce27)
 
-org.apache.parquet:parquet-column:1.13.1 (2 constraints: a81b61f4)
+org.apache.orc:orc-format:1.1.1 (1 constraints: bd0cc627)
 
-org.apache.parquet:parquet-common:1.13.1 (3 constraints: 0b2df101)
+org.apache.orc:orc-mapreduce:2.2.1 (1 constraints: bf0cce27)
 
-org.apache.parquet:parquet-encoding:1.13.1 (1 constraints: cd0e0265)
+org.apache.orc:orc-shims:2.2.1 (2 constraints: f916de7d)
 
-org.apache.parquet:parquet-format-structures:1.13.1 (2 constraints: 811d4a44)
+org.apache.parquet:parquet-column:1.16.0 (2 constraints: ad1bcef4)
 
-org.apache.parquet:parquet-hadoop:1.13.1 (1 constraints: ef0cb234)
+org.apache.parquet:parquet-common:1.16.0 (4 constraints: 023acd6f)
 
-org.apache.parquet:parquet-jackson:1.13.1 (1 constraints: ba0ef063)
+org.apache.parquet:parquet-encoding:1.16.0 (2 constraints: c01bebf8)
 
-org.apache.spark:spark-catalyst_2.12:3.5.7 (2 constraints: d8117728)
+org.apache.parquet:parquet-format-structures:1.16.0 (3 constraints: 762ae433)
 
-org.apache.spark:spark-common-utils_2.12:3.5.7 (4 constraints: 7f3a6834)
+org.apache.parquet:parquet-hadoop:1.16.0 (1 constraints: f20cc534)
 
-org.apache.spark:spark-core_2.12:3.5.7 (3 constraints: b4206cdb)
+org.apache.parquet:parquet-jackson:1.16.0 (2 constraints: ad1bcef4)
 
-org.apache.spark:spark-kvstore_2.12:3.5.7 (1 constraints: 210de136)
+org.apache.spark:spark-catalyst_2.13:4.1.1 (2 constraints: c711ff26)
 
-org.apache.spark:spark-launcher_2.12:3.5.7 (1 constraints: 210de136)
+org.apache.spark:spark-common-utils-java_2.13:4.1.1 (3 constraints: 452edb59)
 
-org.apache.spark:spark-network-common_2.12:3.5.7 (2 constraints: bc1e50e4)
+org.apache.spark:spark-common-utils_2.13:4.1.1 (6 constraints: d052a763)
 
-org.apache.spark:spark-network-shuffle_2.12:3.5.7 (1 constraints: 210de136)
+org.apache.spark:spark-core_2.13:4.1.1 (3 constraints: 9b201cd7)
 
-org.apache.spark:spark-sketch_2.12:3.5.7 (2 constraints: a41beef6)
+org.apache.spark:spark-kvstore_2.13:4.1.1 (2 constraints: d819916a)
 
-org.apache.spark:spark-sql-api_2.12:3.5.7 (1 constraints: dd0e987c)
+org.apache.spark:spark-launcher_2.13:4.1.1 (2 constraints: d819916a)
 
-org.apache.spark:spark-sql_2.12:3.5.7 (1 constraints: 11051036)
+org.apache.spark:spark-network-common_2.13:4.1.1 (3 constraints: 6b2b82d5)
 
-org.apache.spark:spark-tags_2.12:3.5.7 (9 constraints: fd8388a2)
+org.apache.spark:spark-network-shuffle_2.13:4.1.1 (2 constraints: d819916a)
 
-org.apache.spark:spark-unsafe_2.12:3.5.7 (3 constraints: 2b2a174b)
+org.apache.spark:spark-sketch_2.13:4.1.1 (3 constraints: ba29f91e)
 
-org.apache.xbean:xbean-asm9-shaded:4.23 (2 constraints: 8019e83c)
+org.apache.spark:spark-sql-api_2.13:4.1.1 (2 constraints: 941ba8f5)
 
-org.apache.yetus:audience-annotations:0.13.0 (4 constraints: 6f3a4fcb)
+org.apache.spark:spark-sql_2.13:4.1.1 (1 constraints: 08050336)
 
-org.apache.zookeeper:zookeeper:3.6.3 (2 constraints: b01b66e1)
+org.apache.spark:spark-tags_2.13:4.1.1 (11 constraints: 3ea41436)
 
-org.apache.zookeeper:zookeeper-jute:3.6.3 (1 constraints: 8c0d3a28)
+org.apache.spark:spark-unsafe_2.13:4.1.1 (4 constraints: d2361402)
 
-org.codehaus.janino:commons-compiler:3.1.9 (2 constraints: a71aaa6f)
+org.apache.spark:spark-variant_2.13:4.1.1 (3 constraints: 8529a2f0)
 
-org.codehaus.janino:janino:3.1.9 (1 constraints: db0e8e7c)
+org.apache.ws.xmlschema:xmlschema-core:2.3.1 (2 constraints: 941ba0f5)
 
-org.fusesource.leveldbjni:leveldbjni-all:1.8 (2 constraints: f51e57d0)
+org.apache.xbean:xbean-asm9-shaded:4.28 (2 constraints: ca1c9a47)
 
-org.glassfish.hk2:hk2-api:2.6.1 (1 constraints: 6e0c620c)
+org.apache.yetus:audience-annotations:0.12.0 (3 constraints: 362a1aa7)
 
-org.glassfish.hk2:hk2-locator:2.6.1 (1 constraints: 4410e0ad)
+org.apache.zookeeper:zookeeper:3.9.4 (3 constraints: 7e28da5d)
 
-org.glassfish.hk2:hk2-utils:2.6.1 (2 constraints: 21173277)
+org.apache.zookeeper:zookeeper-jute:3.9.4 (2 constraints: 591aec42)
 
-org.glassfish.hk2:osgi-resource-locator:1.0.3 (1 constraints: ef10e7c2)
+org.bouncycastle:bcprov-jdk18on:1.80 (1 constraints: 81088d81)
 
-org.glassfish.hk2.external:aopalliance-repackaged:2.6.1 (2 constraints: 21173277)
+org.codehaus.janino:commons-compiler:3.1.9 (3 constraints: 6e2735a9)
 
-org.glassfish.hk2.external:jakarta.inject:2.6.1 (7 constraints: 6a6fc2d8)
+org.codehaus.janino:janino:3.1.9 (2 constraints: a21bc6f6)
 
-org.glassfish.jersey.containers:jersey-container-servlet:2.40 (1 constraints: ea0cbc29)
+org.fusesource.leveldbjni:leveldbjni-all:1.8 (3 constraints: 5b2beb77)
 
-org.glassfish.jersey.containers:jersey-container-servlet-core:2.40 (2 constraints: a524e893)
+org.glassfish.hk2:hk2-api:3.0.6 (2 constraints: 30191619)
 
-org.glassfish.jersey.core:jersey-client:2.40 (2 constraints: ba1d733b)
+org.glassfish.hk2:hk2-locator:3.0.6 (2 constraints: 061d752d)
 
-org.glassfish.jersey.core:jersey-common:2.40 (6 constraints: d06f6b49)
+org.glassfish.hk2:hk2-utils:3.0.6 (3 constraints: e323c035)
 
-org.glassfish.jersey.core:jersey-server:2.40 (3 constraints: 363eb427)
+org.glassfish.hk2:osgi-resource-locator:1.0.3 (2 constraints: ac1d494e)
 
-org.glassfish.jersey.inject:jersey-hk2:2.40 (1 constraints: ea0cbc29)
+org.glassfish.hk2.external:aopalliance-repackaged:3.0.6 (3 constraints: e323c035)
+
+org.glassfish.jersey.containers:jersey-container-servlet:3.0.18 (2 constraints: 441a849a)
+
+org.glassfish.jersey.containers:jersey-container-servlet-core:3.0.18 (3 constraints: 6332f4bf)
+
+org.glassfish.jersey.core:jersey-client:3.0.18 (3 constraints: 782ba076)
+
+org.glassfish.jersey.core:jersey-common:3.0.18 (7 constraints: 1e7f9e49)
+
+org.glassfish.jersey.core:jersey-server:3.0.18 (4 constraints: 584ca4a0)
+
+org.glassfish.jersey.inject:jersey-hk2:3.0.18 (2 constraints: 441a849a)
 
 org.immutables:value:2.12.0 (1 constraints: 3705353b)
 
-org.javassist:javassist:3.29.2-GA (1 constraints: 30112ef1)
+org.javassist:javassist:3.30.2-GA (3 constraints: 1f2c152b)
 
-org.jetbrains:annotations:17.0.0 (1 constraints: 6e0a64c7)
+org.jctools:jctools-core:4.0.5 (1 constraints: af08368a)
 
-org.json4s:json4s-ast_2.12:3.7.0-M11 (1 constraints: e80b1418)
+org.json4s:json4s-ast_2.13:4.0.7 (3 constraints: f5252a5a)
 
-org.json4s:json4s-core_2.12:3.7.0-M11 (1 constraints: 280dbe49)
+org.json4s:json4s-core_2.13:4.0.7 (2 constraints: 12193330)
 
-org.json4s:json4s-jackson_2.12:3.7.0-M11 (2 constraints: fd1c6aad)
+org.json4s:json4s-jackson-core_2.13:4.0.7 (2 constraints: 12193330)
 
-org.json4s:json4s-scalap_2.12:3.7.0-M11 (1 constraints: e80b1418)
+org.json4s:json4s-jackson_2.13:4.0.7 (3 constraints: 0d28f849)
+
+org.json4s:json4s-scalap_2.13:4.0.7 (2 constraints: d2172edd)
 
 org.jspecify:jspecify:1.0.0 (1 constraints: 130ae0b4)
 
-org.lz4:lz4-java:1.8.0 (1 constraints: 1b0dd936)
+org.locationtech.jts:jts-core:1.20.0 (3 constraints: 1e26b429)
 
-org.objenesis:objenesis:2.5.1 (1 constraints: 6b0e884f)
+org.lz4:lz4-java:1.8.0 (2 constraints: de19136b)
 
-org.roaringbitmap:RoaringBitmap:0.9.45 (3 constraints: 8c30036b)
+org.objenesis:objenesis:3.4 (3 constraints: b2266f52)
 
-org.roaringbitmap:shims:0.9.45 (1 constraints: 280eba49)
+org.roaringbitmap:RoaringBitmap:1.3.0 (4 constraints: 923cb58a)
 
-org.rocksdb:rocksdbjni:8.3.2 (3 constraints: 7e2c4f5c)
+org.rocksdb:rocksdbjni:9.8.4 (3 constraints: 992c4a61)
 
-org.scala-lang:scala-library:2.12.20 (13 constraints: 31c25c86)
+org.scala-lang:scala-library:2.13.17 (14 constraints: 8bcc9cd3)
 
-org.scala-lang:scala-reflect:2.12.18 (2 constraints: 0d1c0242)
+org.scala-lang:scala-reflect:2.13.17 (3 constraints: 3629d01e)
 
-org.scala-lang.modules:scala-collection-compat_2.12:2.7.0 (1 constraints: 1b0ddb36)
+org.scala-lang.modules:scala-parallel-collections_2.13:1.2.0 (3 constraints: a328f396)
 
-org.scala-lang.modules:scala-parser-combinators_2.12:2.3.0 (1 constraints: 250e8866)
+org.scala-lang.modules:scala-parser-combinators_2.13:2.4.0 (2 constraints: e61a76c4)
 
-org.scala-lang.modules:scala-xml_2.12:2.1.0 (1 constraints: 150dc936)
+org.scala-lang.modules:scala-xml_2.13:2.4.0 (2 constraints: d8198d6a)
 
-org.slf4j:jcl-over-slf4j:2.0.7 (1 constraints: 591036c5)
+org.slf4j:jcl-over-slf4j:2.0.17 (3 constraints: d72fb570)
 
-org.slf4j:jul-to-slf4j:2.0.7 (1 constraints: 591036c5)
+org.slf4j:jul-to-slf4j:2.0.17 (3 constraints: d72fb570)
 
-org.slf4j:slf4j-api:2.0.17 (27 constraints: 3a6c438f)
+org.slf4j:slf4j-api:2.0.17 (32 constraints: c8b7441c)
 
-org.threeten:threeten-extra:1.7.1 (1 constraints: 3f0aecbc)
+org.threeten:threeten-extra:1.8.0 (2 constraints: 0117967e)
 
-org.tukaani:xz:1.9 (1 constraints: 5d0a1eb6)
+org.tukaani:xz:1.10 (2 constraints: 1217e075)
 
-org.xerial.snappy:snappy-java:1.1.10.5 (5 constraints: 3a48a9ee)
+org.xerial.snappy:snappy-java:1.1.10.8 (6 constraints: 1656e028)
 
-oro:oro:2.0.8 (1 constraints: 1c0dce36)
+oro:oro:2.0.8 (2 constraints: 1e1d4d7b)
 
 
 
@@ -316,21 +390,21 @@ ch.qos.logback:logback-classic:1.5.23 (1 constraints: 3d053e3b)
 
 ch.qos.logback:logback-core:1.5.23 (1 constraints: 3c0d432a)
 
-org.junit:junit-bom:5.14.1 (7 constraints: d475ef0e)
+org.junit:junit-bom:6.0.2 (7 constraints: 6f74267c)
 
-org.junit.jupiter:junit-jupiter:5.14.1 (2 constraints: e8100bfb)
+org.junit.jupiter:junit-jupiter:6.0.2 (2 constraints: 821026dd)
 
-org.junit.jupiter:junit-jupiter-api:5.14.1 (4 constraints: 3b39b5e5)
+org.junit.jupiter:junit-jupiter-api:6.0.2 (4 constraints: 6f388b2c)
 
-org.junit.jupiter:junit-jupiter-engine:5.14.1 (2 constraints: 79175364)
+org.junit.jupiter:junit-jupiter-engine:6.0.2 (2 constraints: 1317943b)
 
-org.junit.jupiter:junit-jupiter-params:5.14.1 (3 constraints: b51c270e)
+org.junit.jupiter:junit-jupiter-params:6.0.2 (3 constraints: 1c1c12c8)
 
-org.junit.platform:junit-platform-commons:1.14.1 (3 constraints: 722ab690)
+org.junit.platform:junit-platform-commons:6.0.2 (3 constraints: e529462a)
 
-org.junit.platform:junit-platform-engine:1.14.1 (3 constraints: 8a2c3080)
+org.junit.platform:junit-platform-engine:6.0.2 (3 constraints: fd2b2315)
 
-org.junit.platform:junit-platform-launcher:1.14.1 (1 constraints: 3e09aa9e)
+org.junit.platform:junit-platform-launcher:6.0.2 (1 constraints: 0f097a95)
 
 org.opentest4j:opentest4j:1.3.0 (2 constraints: cf209249)
 

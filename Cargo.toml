@@ -15,6 +15,7 @@ members = [
     "vortex-ffi",
     "vortex-file",
     "vortex-flatbuffers",
+    "vortex-cuda",
     "vortex-io",
     "vortex-ipc",
     "vortex-jni",
@@ -31,7 +32,6 @@ members = [
     "vortex-vector",
     "benchmarks/*",
     "encodings/*",
-
     "xtask",
 ]
 exclude = ["java/testfiles", "wasm-test"]
@@ -88,14 +88,12 @@ cfg-if = "1.0.1"
 chrono = "0.4.42"
 clap = "4.5"
 crossterm = "0.29"
-cudarc = { version = "0.18.0", features = [
-    "std",
-    "driver",
+cudarc = { version = "0.18.2", features = [
+    # 12.8 matches the CUDA toolkit version pre-installed on the lambda.ai GPU base
+    # image. The version does not have to match exactly. Lower toolkit versions can
+    # be specified if a later toolkit version is installed on the system.
     "cuda-12080",
-    "dynamic-loading",
-    "f16",
-    "nvrtc",
-], default-features = false }
+] }
 dashmap = "6.1.0"
 datafusion = { version = "52", default-features = false, features = ["sql"] }
 datafusion-catalog = { version = "52" }
@@ -207,7 +205,12 @@ uuid = { version = "1.19", features = ["js"] }
 walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
+xshell = "0.2.6"
+zigzag = "0.1.0"
 zip = "6.0.0"
+zstd = { version = "0.13.3", default-features = false, features = [
+    "zdict_builder",
+] }
 
 # BEGIN crates published by this project
 vortex = { version = "0.1.0", path = "./vortex" }
@@ -248,11 +251,6 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
-xshell = "0.2.6"
-zigzag = "0.1.0"
-zstd = { version = "0.13.3", default-features = false, features = [
-    "zdict_builder",
-] }
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]

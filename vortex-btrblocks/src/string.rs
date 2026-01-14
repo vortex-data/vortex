@@ -409,7 +409,7 @@ impl Scheme for NullDominated {
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
-        // We pass None as we only run this pathway for NULL-dominated float arrays
+        // We pass None as we only run this pathway for NULL-dominated string arrays
         let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
@@ -440,6 +440,7 @@ impl Scheme for NullDominated {
 
 #[cfg(test)]
 mod tests {
+
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -480,5 +481,53 @@ mod tests {
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
         assert!(compressed.is::<SparseVTable>());
+    }
+}
+
+/// Tests to verify that each string compression scheme produces the expected encoding.
+#[cfg(test)]
+mod scheme_selection_tests {
+
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_fsst::FSSTVTable;
+
+    use crate::Compressor;
+    use crate::string::StringCompressor;
+
+    #[test]
+    fn test_constant_compressed() {
+        let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
+        let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<ConstantVTable>());
+    }
+
+    #[test]
+    fn test_dict_compressed() {
+        let distinct_values = ["apple", "banana", "cherry"];
+        let mut strings = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            strings.push(Some(distinct_values[i % 3]));
+        }
+        let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<DictVTable>());
+    }
+
+    #[test]
+    fn test_fsst_compressed() {
+        let mut strings = Vec::with_capacity(1000);
+        for i in 0..1000 {
+            strings.push(Some(format!(
+                "this_is_a_common_prefix_with_some_variation_{i}_and_a_common_suffix_pattern"
+            )));
+        }
+        let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
+        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<FSSTVTable>());
     }
 }

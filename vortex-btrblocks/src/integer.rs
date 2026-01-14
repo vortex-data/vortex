@@ -925,3 +925,119 @@ mod tests {
         Ok(())
     }
 }
+
+/// Tests to verify that each integer compression scheme produces the expected encoding.
+#[cfg(test)]
+mod scheme_selection_tests {
+    use std::iter;
+
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_fastlanes::BitPackedVTable;
+    use vortex_fastlanes::FoRVTable;
+    use vortex_fastlanes::RLEVTable;
+    use vortex_runend::RunEndVTable;
+    use vortex_sequence::SequenceVTable;
+    use vortex_sparse::SparseVTable;
+
+    use crate::Compressor;
+    use crate::integer::IntCompressor;
+
+    #[test]
+    fn test_constant_compressed() {
+        let values: Vec<i32> = iter::repeat_n(42, 100).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<ConstantVTable>());
+    }
+
+    #[test]
+    fn test_for_compressed() {
+        let values: Vec<i32> = (0..1000).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<FoRVTable>());
+    }
+
+    #[test]
+    fn test_bitpacking_compressed() {
+        let values: Vec<u32> = (0..1000).map(|i| i % 16).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<BitPackedVTable>());
+    }
+
+    #[test]
+    fn test_sparse_compressed() {
+        let mut values: Vec<i32> = Vec::new();
+        for i in 0..1000 {
+            if i % 20 == 0 {
+                values.push(2_000_000 + (i * 7) % 1000);
+            } else {
+                values.push(1_000_000);
+            }
+        }
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<SparseVTable>());
+    }
+
+    #[test]
+    fn test_dict_compressed() {
+        use rand::RngCore;
+        use rand::SeedableRng;
+        use rand::rngs::StdRng;
+
+        let mut codes = Vec::with_capacity(65_535);
+        let numbers: Vec<i32> = [0, 10, 50, 100, 1000, 3000]
+            .into_iter()
+            .map(|i| 1234 * i)
+            .collect();
+
+        let mut rng = StdRng::seed_from_u64(1u64);
+        while codes.len() < 64000 {
+            let run_length = rng.next_u32() % 5;
+            let value = numbers[rng.next_u32() as usize % numbers.len()];
+            for _ in 0..run_length {
+                codes.push(value);
+            }
+        }
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&codes), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<DictVTable>());
+    }
+
+    #[test]
+    fn test_runend_compressed() {
+        let mut values: Vec<i32> = Vec::new();
+        for i in 0..100 {
+            values.extend(iter::repeat_n(1_000_000 + i, 10));
+        }
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<RunEndVTable>());
+    }
+
+    #[test]
+    fn test_sequence_compressed() {
+        let values: Vec<i32> = (0..1000).map(|i| i * 7).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<SequenceVTable>());
+    }
+
+    #[test]
+    fn test_rle_compressed() {
+        let mut values: Vec<i32> = Vec::new();
+        for i in 0..10 {
+            values.extend(iter::repeat_n(i, 100));
+        }
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<RLEVTable>());
+    }
+}
