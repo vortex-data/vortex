@@ -390,21 +390,21 @@ ch.qos.logback:logback-classic:1.5.23 (1 constraints: 3d053e3b)
 
 ch.qos.logback:logback-core:1.5.23 (1 constraints: 3c0d432a)
 
-org.junit:junit-bom:5.14.1 (7 constraints: d475ef0e)
+org.junit:junit-bom:6.0.2 (7 constraints: 6f74267c)
 
-org.junit.jupiter:junit-jupiter:5.14.1 (2 constraints: e8100bfb)
+org.junit.jupiter:junit-jupiter:6.0.2 (2 constraints: 821026dd)
 
-org.junit.jupiter:junit-jupiter-api:5.14.1 (4 constraints: 3b39b5e5)
+org.junit.jupiter:junit-jupiter-api:6.0.2 (4 constraints: 6f388b2c)
 
-org.junit.jupiter:junit-jupiter-engine:5.14.1 (2 constraints: 79175364)
+org.junit.jupiter:junit-jupiter-engine:6.0.2 (2 constraints: 1317943b)
 
-org.junit.jupiter:junit-jupiter-params:5.14.1 (3 constraints: b51c270e)
+org.junit.jupiter:junit-jupiter-params:6.0.2 (3 constraints: 1c1c12c8)
 
-org.junit.platform:junit-platform-commons:1.14.1 (3 constraints: 722ab690)
+org.junit.platform:junit-platform-commons:6.0.2 (3 constraints: e529462a)
 
-org.junit.platform:junit-platform-engine:1.14.1 (3 constraints: 8a2c3080)
+org.junit.platform:junit-platform-engine:6.0.2 (3 constraints: fd2b2315)
 
-org.junit.platform:junit-platform-launcher:1.14.1 (1 constraints: 3e09aa9e)
+org.junit.platform:junit-platform-launcher:6.0.2 (1 constraints: 0f097a95)
 
 org.opentest4j:opentest4j:1.3.0 (2 constraints: cf209249)
 
