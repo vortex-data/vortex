@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use async_trait::async_trait;
 use vortex_array::ArrayRef;
 use vortex_dtype::DType;
@@ -21,15 +23,8 @@ pub trait Reader: 'static + Send + Sync {
     /// Returns the number of rows in the reader.
     fn row_count(&self) -> u64;
 
-    /// Creates a scan where an input stream is used to drive the output data.
-    ///
-    /// TODO(ngates): should this take a RowSelection?
-    async fn scan(
-        &self,
-        input_dtype: &DType,
-        row_offset: u64,
-        row_mask: Mask,
-    ) -> VortexResult<ReaderScanRef>;
+    /// Creates a scan over the given row range of the reader.
+    async fn scan(&self, row_range: Range<u64>) -> VortexResult<ReaderScanRef>;
 }
 
 pub type ReaderScanRef = Box<dyn ReaderScan>;
@@ -48,6 +43,7 @@ pub trait ReaderScan {
 
     /// Returns the next batch of data given an input array.
     ///
-    /// The returned batch must have the same number of rows as the input array.
-    async fn next_batch(&mut self, input: ArrayRef) -> VortexResult<ArrayRef>;
+    /// The returned batch must have the same number of rows as the [`Mask::true_count`].
+    /// The provided mask will have at most [`next_batch_size`] rows.
+    async fn next_batch(&mut self, mask: Mask) -> VortexResult<ArrayRef>;
 }
