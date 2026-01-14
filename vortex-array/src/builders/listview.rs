@@ -427,6 +427,8 @@ mod tests {
     use crate::IntoArray;
     use crate::array::Array;
     use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::vtable::ValidityHelper;
 
@@ -675,8 +677,6 @@ mod tests {
     fn test_append_array_as_list() {
         use vortex_buffer::buffer;
 
-        use crate::ToCanonical;
-
         let dtype: Arc<DType> = Arc::new(I32.into());
         let mut builder =
             ListViewBuilder::<u32, u32>::with_capacity(dtype.clone(), NonNullable, 20, 10);
@@ -710,16 +710,22 @@ mod tests {
         assert_eq!(listview.len(), 5);
 
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
-        let elements = listview.elements().to_primitive();
-        assert_eq!(elements.as_slice::<i32>(), &[1, 2, 3, 10, 11, 4, 5]);
+        assert_arrays_eq!(
+            listview.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+        );
 
         // Verify offsets array.
-        let offsets = listview.offsets().to_primitive();
-        assert_eq!(offsets.as_slice::<u32>(), &[0, 3, 5, 7, 7]);
+        assert_arrays_eq!(
+            listview.offsets(),
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7])
+        );
 
         // Verify sizes array.
-        let sizes = listview.sizes().to_primitive();
-        assert_eq!(sizes.as_slice::<u32>(), &[3, 2, 2, 0, 0]);
+        assert_arrays_eq!(
+            listview.sizes(),
+            PrimitiveArray::from_iter([3u32, 2, 2, 0, 0])
+        );
 
         // Test dtype mismatch error.
         let mut builder = ListViewBuilder::<u32, u32>::with_capacity(dtype, NonNullable, 20, 10);

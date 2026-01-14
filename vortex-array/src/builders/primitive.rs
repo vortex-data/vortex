@@ -345,6 +345,7 @@ impl<T> UninitRange<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::assert_arrays_eq;
 
     /// REGRESSION TEST: This test verifies that multiple sequential ranges have correct offsets.
     ///
@@ -381,7 +382,7 @@ mod tests {
         assert_eq!(builder.values(), &[1, 2, 3, 4, 5]);
 
         let array = builder.finish_into_primitive();
-        assert_eq!(array.as_slice::<i32>(), &[1, 2, 3, 4, 5]);
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5]));
     }
 
     /// REGRESSION TEST: This test verifies that `append_mask` was correctly moved from
@@ -457,7 +458,7 @@ mod tests {
         }
 
         let array = builder.finish_into_primitive();
-        assert_eq!(array.as_slice::<i32>(), &[1, 2, 3, 4, 5, 6]);
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1i32, 2, 3, 4, 5, 6]));
     }
 
     /// Test that `set_bit` uses relative indexing within the range.

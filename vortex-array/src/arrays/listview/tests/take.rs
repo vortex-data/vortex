@@ -15,6 +15,7 @@ use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::compute::conformance::take::test_take_conformance;
 use crate::compute::take;
 use crate::validity::Validity;
@@ -52,10 +53,9 @@ fn test_take_preserves_unreferenced_elements() {
     assert_eq!(result_list.len(), 2);
 
     // Verify the entire elements array is preserved.
-    let result_elements = result_list.elements().to_primitive();
-    assert_eq!(
-        result_elements.as_slice::<i32>(),
-        &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    assert_arrays_eq!(
+        result_list.elements(),
+        PrimitiveArray::from_iter([0i32, 1, 2, 3, 4, 5, 6, 7, 8, 9])
     );
 
     // Verify offsets are preserved.
@@ -80,10 +80,9 @@ fn test_take_with_gaps() {
     let result_list = result.to_listview();
 
     // Verify the entire elements array is preserved including gaps.
-    let result_elements = result_list.elements().to_primitive();
-    assert_eq!(
-        result_elements.as_slice::<i32>(),
-        &[1, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12]
+    assert_arrays_eq!(
+        result_list.elements(),
+        PrimitiveArray::from_iter([1i32, 2, 3, 999, 999, 999, 7, 8, 9, 999, 11, 12])
     );
 
     // Verify the lists still read correctly despite gaps.

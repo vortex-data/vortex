@@ -319,6 +319,7 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
@@ -601,12 +602,16 @@ mod tests {
         assert_eq!(list.len(), 5);
 
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
-        let elements = list.elements().to_primitive();
-        assert_eq!(elements.as_slice::<i32>(), &[1, 2, 3, 10, 11, 4, 5]);
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+        );
 
         // Verify offsets array.
-        let offsets = list.offsets().to_primitive();
-        assert_eq!(offsets.as_slice::<u32>(), &[0, 3, 5, 7, 7, 7]);
+        assert_arrays_eq!(
+            list.offsets(),
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7])
+        );
 
         // Test dtype mismatch error.
         let mut builder = ListBuilder::<u32>::with_capacity(dtype, NonNullable, 20, 10);

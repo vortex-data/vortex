@@ -266,6 +266,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
@@ -293,11 +294,15 @@ mod tests {
         assert_eq!(flattened.size_at(1), 2);
 
         // Verify the data is correct
-        let list0 = flattened.list_elements_at(0).to_primitive();
-        assert_eq!(list0.as_slice::<i32>(), &[1, 2, 3]);
+        assert_arrays_eq!(
+            flattened.list_elements_at(0),
+            PrimitiveArray::from_iter([1i32, 2, 3])
+        );
 
-        let list1 = flattened.list_elements_at(1).to_primitive();
-        assert_eq!(list1.as_slice::<i32>(), &[2, 3]);
+        assert_arrays_eq!(
+            flattened.list_elements_at(1),
+            PrimitiveArray::from_iter([2i32, 3])
+        );
     }
 
     #[test]
@@ -327,11 +332,15 @@ mod tests {
         assert!(flattened.validity().is_valid(2));
 
         // Verify valid lists contain correct data
-        let list0 = flattened.list_elements_at(0).to_primitive();
-        assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
+        assert_arrays_eq!(
+            flattened.list_elements_at(0),
+            PrimitiveArray::from_iter([1i32, 2])
+        );
 
-        let list2 = flattened.list_elements_at(2).to_primitive();
-        assert_eq!(list2.as_slice::<i32>(), &[3]);
+        assert_arrays_eq!(
+            flattened.list_elements_at(2),
+            PrimitiveArray::from_iter([3i32])
+        );
     }
 
     #[test]
@@ -362,11 +371,15 @@ mod tests {
         assert_eq!(trimmed.size_at(1), 2);
 
         // Verify the data is correct.
-        let list0 = trimmed.list_elements_at(0).to_primitive();
-        assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
+        assert_arrays_eq!(
+            trimmed.list_elements_at(0),
+            PrimitiveArray::from_iter([1i32, 2])
+        );
 
-        let list1 = trimmed.list_elements_at(1).to_primitive();
-        assert_eq!(list1.as_slice::<i32>(), &[3, 4]);
+        assert_arrays_eq!(
+            trimmed.list_elements_at(1),
+            PrimitiveArray::from_iter([3i32, 4])
+        );
 
         // Note that element at index 2 (97) is preserved as a gap.
         let all_elements = trimmed.elements().to_primitive();
@@ -415,10 +428,14 @@ mod tests {
         assert!(!exact.is_valid(3));
 
         // Verify data is preserved
-        let list0 = exact.list_elements_at(0).to_primitive();
-        assert_eq!(list0.as_slice::<i32>(), &[1, 2]);
+        assert_arrays_eq!(
+            exact.list_elements_at(0),
+            PrimitiveArray::from_iter([1i32, 2])
+        );
 
-        let list1 = exact.list_elements_at(1).to_primitive();
-        assert_eq!(list1.as_slice::<i32>(), &[3, 4]);
+        assert_arrays_eq!(
+            exact.list_elements_at(1),
+            PrimitiveArray::from_iter([3i32, 4])
+        );
     }
 }
