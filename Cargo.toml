@@ -35,6 +35,46 @@ members = [
     "xtask",
 ]
 exclude = ["java/testfiles", "wasm-test"]
+# lance-bench is excluded from default-members so it's not built by default.
+# Build explicitly with: cargo build -p lance-bench
+default-members = [
+    "vortex-bench",
+    "fuzz",
+    "vortex",
+    "vortex-array",
+    "vortex-btrblocks",
+    "vortex-buffer",
+    "vortex-compute",
+    "vortex-cxx",
+    "vortex-datafusion",
+    "vortex-dtype",
+    "vortex-duckdb",
+    "vortex-error",
+    "vortex-ffi",
+    "vortex-file",
+    "vortex-flatbuffers",
+    "vortex-cuda",
+    "vortex-io",
+    "vortex-ipc",
+    "vortex-jni",
+    "vortex-layout",
+    "vortex-mask",
+    "vortex-metrics",
+    "vortex-proto",
+    "vortex-python",
+    "vortex-scan",
+    "vortex-scalar",
+    "vortex-session",
+    "vortex-tui",
+    "vortex-utils",
+    "vortex-vector",
+    "benchmarks/compress-bench",
+    "benchmarks/datafusion-bench",
+    "benchmarks/duckdb-bench",
+    "benchmarks/random-access-bench",
+    "encodings/*",
+    "xtask",
+]
 resolver = "2"
 
 [workspace.package]

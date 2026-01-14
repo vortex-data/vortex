@@ -67,7 +67,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug
 
       - name: Setup Polar Signals
         uses: polarsignals/gh-actions-ps-profiling@v0.6.0
@@ -83,7 +83,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,vortex -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
@@ -107,16 +107,14 @@ jobs:
             "id": "clickbench-nvme",
             "subcommand": "clickbench",
             "name": "Clickbench on NVME",
-            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "build_lance": true
+            "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb"
           },
           {
             "id": "tpch-nvme",
             "subcommand": "tpch",
             "name": "TPC-H SF=1 on NVME",
-            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "scale_factor": "1.0",
-            "build_lance": true
+            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "scale_factor": "1.0"
           },
           {
             "id": "tpch-s3",
@@ -131,9 +129,8 @@ jobs:
             "id": "tpch-nvme-10",
             "subcommand": "tpch",
             "name": "TPC-H SF=10 on NVME",
-            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,datafusion:lance,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
-            "scale_factor": "10.0",
-            "build_lance": true
+            "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+            "scale_factor": "10.0"
           },
           {
             "id": "tpch-s3-10",
