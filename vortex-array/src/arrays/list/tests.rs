@@ -16,6 +16,8 @@ use super::*;
 use crate::IntoArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
+use crate::assert_nth_scalar;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
 use crate::compute::filter;
@@ -117,8 +119,8 @@ fn test_list_filter_dense_mask() {
     // Verify first remaining list (originally index 1) has correct elements.
     let first_list = filtered_list.list_elements_at(0);
     assert_eq!(first_list.len(), 15); // 25 - 10
-    assert_eq!(first_list.scalar_at(0), 10.into());
-    assert_eq!(first_list.scalar_at(14), 24.into());
+    assert_nth_scalar!(first_list, 0, 10);
+    assert_nth_scalar!(first_list, 14, 24);
 }
 
 #[test]
@@ -146,14 +148,14 @@ fn test_list_filter_sparse_mask() {
     // Verify first list (originally index 0).
     let first_list = filtered_list.list_elements_at(0);
     assert_eq!(first_list.len(), 10);
-    assert_eq!(first_list.scalar_at(0), 0.into());
-    assert_eq!(first_list.scalar_at(9), 9.into());
+    assert_nth_scalar!(first_list, 0, 0);
+    assert_nth_scalar!(first_list, 9, 9);
 
     // Verify second list (originally index 5).
     let second_list = filtered_list.list_elements_at(1);
     assert_eq!(second_list.len(), 15); // 100 - 85
-    assert_eq!(second_list.scalar_at(0), 85.into());
-    assert_eq!(second_list.scalar_at(14), 99.into());
+    assert_nth_scalar!(second_list, 0, 85);
+    assert_nth_scalar!(second_list, 14, 99);
 }
 
 #[test]
@@ -180,7 +182,7 @@ fn test_list_filter_empty_lists() {
     // Second list has 3 elements.
     let second_list = filtered_list.list_elements_at(1);
     assert_eq!(second_list.len(), 3);
-    assert_eq!(second_list.scalar_at(0), 0.into());
+    assert_nth_scalar!(second_list, 0, 0);
 
     // Third list is empty.
     assert_eq!(filtered_list.list_elements_at(2).len(), 0);
@@ -240,7 +242,7 @@ fn test_list_filter_all_true() {
     for i in 0..4i32 {
         let list_at_i = filtered_list.list_elements_at(i as usize);
         assert_eq!(list_at_i.len(), 5);
-        assert_eq!(list_at_i.scalar_at(0), (i * 5).into());
+        assert_nth_scalar!(list_at_i, 0, i * 5);
     }
 }
 
@@ -284,8 +286,8 @@ fn test_list_filter_single_element() {
 
     let single_list = filtered_list.list_elements_at(0);
     assert_eq!(single_list.len(), 10);
-    assert_eq!(single_list.scalar_at(0), 20.into());
-    assert_eq!(single_list.scalar_at(9), 29.into());
+    assert_nth_scalar!(single_list, 0, 20);
+    assert_nth_scalar!(single_list, 9, 29);
 }
 
 #[test]
@@ -313,7 +315,7 @@ fn test_list_filter_alternating_pattern() {
     for (i, expected_start) in [0, 10, 20, 30, 40, 50].iter().enumerate() {
         let list_at_i = filtered_list.list_elements_at(i);
         assert_eq!(list_at_i.len(), 5);
-        assert_eq!(list_at_i.scalar_at(0), (*expected_start).into());
+        assert_nth_scalar!(list_at_i, 0, *expected_start);
     }
 }
 
@@ -574,14 +576,11 @@ fn test_list_of_lists() {
 
     // Check first inner list [1, 2].
     let first_inner = first_outer_list.list_elements_at(0);
-    assert_eq!(first_inner.len(), 2);
-    assert_eq!(first_inner.scalar_at(0), 1.into());
-    assert_eq!(first_inner.scalar_at(1), 2.into());
+    assert_arrays_eq!(first_inner, PrimitiveArray::from_iter([1, 2]));
 
     // Check second inner list [3].
     let second_inner = first_outer_list.list_elements_at(1);
-    assert_eq!(second_inner.len(), 1);
-    assert_eq!(second_inner.scalar_at(0), 3.into());
+    assert_arrays_eq!(second_inner, PrimitiveArray::from_iter([3]));
 
     // Check the second list of lists [[4, 5, 6]].
     let second_outer = list_of_lists.list_elements_at(1);
@@ -589,10 +588,7 @@ fn test_list_of_lists() {
     assert_eq!(second_outer_list.len(), 1);
 
     let inner = second_outer_list.list_elements_at(0);
-    assert_eq!(inner.len(), 3);
-    assert_eq!(inner.scalar_at(0), 4.into());
-    assert_eq!(inner.scalar_at(1), 5.into());
-    assert_eq!(inner.scalar_at(2), 6.into());
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([4, 5, 6]));
 
     // Check the third list of lists (empty).
     let third_outer = list_of_lists.list_elements_at(2);
@@ -605,8 +601,7 @@ fn test_list_of_lists() {
     assert_eq!(fourth_outer_list.len(), 1);
 
     let inner = fourth_outer_list.list_elements_at(0);
-    assert_eq!(inner.len(), 1);
-    assert_eq!(inner.scalar_at(0), 7.into());
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]));
 
     // Test scalar conversion.
     let scalar = list_of_lists.scalar_at(0);
@@ -762,8 +757,7 @@ fn test_list_of_lists_both_nullable() {
     let third_list = third_outer.as_::<ListVTable>();
     assert_eq!(third_list.len(), 1);
     let inner = third_list.list_elements_at(0);
-    assert_eq!(inner.len(), 1);
-    assert_eq!(inner.scalar_at(0), 3.into());
+    assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]));
 
     // Fourth outer list should have a null inner list.
     let fourth_outer = list_of_lists.list_elements_at(3);
