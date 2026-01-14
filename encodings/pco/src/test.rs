@@ -9,6 +9,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrow::compute::to_arrow_preferred;
 use vortex_array::assert_arrays_eq;
+use vortex_array::assert_nth_scalar;
 use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
@@ -24,12 +25,6 @@ use vortex_mask::Mask;
 
 use crate::PcoArray;
 use crate::PcoVTable;
-
-macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
-    };
-}
 
 #[test]
 fn test_compress_decompress() {

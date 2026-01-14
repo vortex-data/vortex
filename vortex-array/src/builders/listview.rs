@@ -429,6 +429,7 @@ mod tests {
     use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::assert_nth_scalar;
     use crate::builders::ArrayBuilder;
     use crate::vtable::ValidityHelper;
 
@@ -479,9 +480,9 @@ mod tests {
         // Check first list: [1, 2, 3].
         let first_list = listview.list_elements_at(0);
         assert_eq!(first_list.len(), 3);
-        assert_eq!(first_list.scalar_at(0), 1i32.into());
-        assert_eq!(first_list.scalar_at(1), 2i32.into());
-        assert_eq!(first_list.scalar_at(2), 3i32.into());
+        assert_nth_scalar!(first_list, 0, 1i32);
+        assert_nth_scalar!(first_list, 1, 2i32);
+        assert_nth_scalar!(first_list, 2, 3i32);
 
         // Check empty list.
         let empty_list = listview.list_elements_at(1);
@@ -493,8 +494,8 @@ mod tests {
         // Check last list: [4, 5].
         let last_list = listview.list_elements_at(3);
         assert_eq!(last_list.len(), 2);
-        assert_eq!(last_list.scalar_at(0), 4i32.into());
-        assert_eq!(last_list.scalar_at(1), 5i32.into());
+        assert_nth_scalar!(last_list, 0, 4i32);
+        assert_nth_scalar!(last_list, 1, 5i32);
     }
 
     #[test]
@@ -526,14 +527,14 @@ mod tests {
 
         // Verify first list: [1, 2].
         let first = listview.list_elements_at(0);
-        assert_eq!(first.scalar_at(0), 1i32.into());
-        assert_eq!(first.scalar_at(1), 2i32.into());
+        assert_nth_scalar!(first, 0, 1i32);
+        assert_nth_scalar!(first, 1, 2i32);
 
         // Verify second list: [3, 4, 5].
         let second = listview.list_elements_at(1);
-        assert_eq!(second.scalar_at(0), 3i32.into());
-        assert_eq!(second.scalar_at(1), 4i32.into());
-        assert_eq!(second.scalar_at(2), 5i32.into());
+        assert_nth_scalar!(second, 0, 3i32);
+        assert_nth_scalar!(second, 1, 4i32);
+        assert_nth_scalar!(second, 2, 5i32);
 
         // Test u64 offsets with u16 sizes.
         let dtype2: Arc<DType> = Arc::new(I32.into());
@@ -555,7 +556,7 @@ mod tests {
         for i in 0..5i32 {
             let list = listview2.list_elements_at(i as usize);
             assert_eq!(list.len(), 1);
-            assert_eq!(list.scalar_at(0), (i * 10).into());
+            assert_nth_scalar!(list, 0, i * 10);
         }
     }
 
@@ -593,8 +594,8 @@ mod tests {
         // Last is the regular list: [10, 20].
         let last_list = listview.list_elements_at(4);
         assert_eq!(last_list.len(), 2);
-        assert_eq!(last_list.scalar_at(0), 10i32.into());
-        assert_eq!(last_list.scalar_at(1), 20i32.into());
+        assert_nth_scalar!(last_list, 0, 10i32);
+        assert_nth_scalar!(last_list, 1, 20i32);
     }
 
     #[test]
@@ -633,14 +634,14 @@ mod tests {
         // First list: [0] (initial data).
         let first = listview.list_elements_at(0);
         assert_eq!(first.len(), 1);
-        assert_eq!(first.scalar_at(0), 0i32.into());
+        assert_nth_scalar!(first, 0, 0i32);
 
         // Second list: [1, 2, 3] (from source).
         let second = listview.list_elements_at(1);
         assert_eq!(second.len(), 3);
-        assert_eq!(second.scalar_at(0), 1i32.into());
-        assert_eq!(second.scalar_at(1), 2i32.into());
-        assert_eq!(second.scalar_at(2), 3i32.into());
+        assert_nth_scalar!(second, 0, 1i32);
+        assert_nth_scalar!(second, 1, 2i32);
+        assert_nth_scalar!(second, 2, 3i32);
 
         // Third list: null (from source).
         assert!(!listview.validity().is_valid(2));
@@ -648,8 +649,8 @@ mod tests {
         // Fourth list: [4, 5] (from source).
         let fourth = listview.list_elements_at(3);
         assert_eq!(fourth.len(), 2);
-        assert_eq!(fourth.scalar_at(0), 4i32.into());
-        assert_eq!(fourth.scalar_at(1), 5i32.into());
+        assert_nth_scalar!(fourth, 0, 4i32);
+        assert_nth_scalar!(fourth, 1, 5i32);
     }
 
     #[test]
