@@ -58,7 +58,6 @@ register_kernel!(CastKernelAdapter(BitPackedVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -86,9 +85,8 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
         assert_arrays_eq!(
-            decoded.as_ref(),
+            casted.as_ref(),
             PrimitiveArray::from_iter([10u32, 20, 30, 40, 50, 60])
         );
     }

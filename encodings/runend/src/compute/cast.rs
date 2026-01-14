@@ -133,12 +133,7 @@ mod tests {
         let sliced = runend.slice(3..8);
 
         // Verify the slice is correct before casting
-        let sliced_decoded = sliced.to_primitive();
-        assert_eq!(sliced_decoded.len(), 5);
-        assert_arrays_eq!(
-            sliced_decoded,
-            PrimitiveArray::from_iter([200, 200, 300, 300, 300])
-        );
+        assert_arrays_eq!(sliced, PrimitiveArray::from_iter([200, 200, 300, 300, 300]));
 
         // Cast the sliced array
         let casted = cast(
@@ -148,10 +143,8 @@ mod tests {
         .unwrap();
 
         // Verify the cast preserved the offset
-        let casted_decoded = casted.to_primitive();
-        assert_eq!(casted_decoded.len(), 5);
         assert_arrays_eq!(
-            casted_decoded,
+            casted,
             PrimitiveArray::from_iter([200i64, 200, 300, 300, 300])
         );
     }

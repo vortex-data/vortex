@@ -67,8 +67,7 @@ mod test {
         let compressed = FoRArray::encode(array.clone()).unwrap();
         assert_eq!(i32::try_from(compressed.reference_scalar()).unwrap(), 1);
 
-        let decompressed = compressed.to_primitive();
-        assert_arrays_eq!(decompressed, array);
+        assert_arrays_eq!(compressed, array);
     }
 
     #[test]
@@ -107,8 +106,7 @@ mod test {
         // Create a range offset by a million.
         let array = PrimitiveArray::from_iter((0u32..100_000).step_by(1024).map(|v| v + 1_000_000));
         let compressed = FoRArray::encode(array.clone()).unwrap();
-        let decompressed = compressed.to_primitive();
-        assert_arrays_eq!(decompressed, array);
+        assert_arrays_eq!(compressed, array);
     }
 
     #[test]
@@ -118,8 +116,7 @@ mod test {
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedArray::encode(array.as_ref(), 3).unwrap();
         let compressed = FoRArray::try_new(bp.into_array(), 10u32.into()).unwrap();
-        let decompressed = compressed.to_primitive();
-        assert_arrays_eq!(decompressed, expect);
+        assert_arrays_eq!(compressed, expect);
     }
 
     #[test]

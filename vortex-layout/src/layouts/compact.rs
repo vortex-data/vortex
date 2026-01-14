@@ -206,7 +206,6 @@ impl Default for CompactCompressor {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
@@ -236,7 +235,7 @@ mod tests {
 
         let n_rows = columns[0].len();
         let struct_array = StructArray::try_new(
-            field_names.clone().into(),
+            field_names.into(),
             columns.clone(),
             n_rows,
             Validity::NonNullable,
@@ -246,18 +245,6 @@ mod tests {
         // Compress the struct array
         let compressed = compressor.compress(struct_array.as_ref()).unwrap();
 
-        // Verify we can decompress back to original
-        let decompressed = compressed.to_canonical().into_array();
-        assert_eq!(decompressed.len(), n_rows);
-        let decompressed_struct = decompressed.to_struct();
-
-        // Verify each field can be accessed and has correct data
-        for (i, name) in decompressed_struct.names().iter().enumerate() {
-            assert_eq!(name, field_names[i]);
-            let decompressed_array = decompressed_struct.field_by_name(name).unwrap().clone();
-            assert_eq!(decompressed_array.len(), n_rows);
-
-            assert_arrays_eq!(decompressed_array.as_ref(), columns[i].as_ref());
-        }
+        assert_arrays_eq!(struct_array, compressed)
     }
 }

@@ -335,6 +335,8 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::ListViewRebuildMode;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::expr::stats::Stat;
     use crate::expr::stats::StatsProvider;
@@ -411,17 +413,17 @@ mod tests {
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
         let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
-        assert_eq!(
-            list_array.elements().to_primitive().as_slice::<u64>(),
-            [1u64, 2, 1, 2]
+        assert_arrays_eq!(
+            list_array.elements().to_primitive(),
+            PrimitiveArray::from_iter([1u64, 2, 1, 2])
         );
-        assert_eq!(
-            list_array.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 2]
+        assert_arrays_eq!(
+            list_array.offsets().to_primitive(),
+            PrimitiveArray::from_iter([0u64, 2])
         );
-        assert_eq!(
-            list_array.sizes().to_primitive().as_slice::<u64>(),
-            [2u64, 2]
+        assert_arrays_eq!(
+            list_array.sizes().to_primitive(),
+            PrimitiveArray::from_iter([2u64, 2])
         );
     }
 
@@ -435,13 +437,13 @@ mod tests {
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
         assert!(canonical_const.elements().to_primitive().is_empty());
-        assert_eq!(
-            canonical_const.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 0]
+        assert_arrays_eq!(
+            canonical_const.offsets().to_primitive(),
+            PrimitiveArray::from_iter([0u64, 0])
         );
-        assert_eq!(
-            canonical_const.sizes().to_primitive().as_slice::<u64>(),
-            [0u64, 0]
+        assert_arrays_eq!(
+            canonical_const.sizes().to_primitive(),
+            PrimitiveArray::from_iter([0u64, 0])
         );
     }
 
@@ -454,13 +456,13 @@ mod tests {
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
         assert!(canonical_const.elements().to_primitive().is_empty());
-        assert_eq!(
-            canonical_const.offsets().to_primitive().as_slice::<u64>(),
-            [0u64, 0]
+        assert_arrays_eq!(
+            canonical_const.offsets().to_primitive(),
+            PrimitiveArray::from_iter([0u64, 0])
         );
-        assert_eq!(
-            canonical_const.sizes().to_primitive().as_slice::<u64>(),
-            [0u64, 0]
+        assert_arrays_eq!(
+            canonical_const.sizes().to_primitive(),
+            PrimitiveArray::from_iter([0u64, 0])
         );
     }
 
@@ -513,7 +515,7 @@ mod tests {
         for i in 0..4 {
             let list = canonical.fixed_size_list_elements_at(i);
             let list_primitive = list.to_primitive();
-            assert_eq!(list_primitive.as_slice::<i32>(), [10, 20, 30]);
+            assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
     }
 
@@ -538,7 +540,10 @@ mod tests {
 
         // Check elements.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.as_slice::<f64>(), [1.5, 2.5, 1.5, 2.5, 1.5, 2.5]);
+        assert_arrays_eq!(
+            elements,
+            PrimitiveArray::from_iter([1.5f64, 2.5, 1.5, 2.5, 1.5, 2.5])
+        );
     }
 
     #[test]
@@ -622,7 +627,7 @@ mod tests {
         assert_eq!(canonical.list_size(), 1);
 
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.as_slice::<i16>(), [42]);
+        assert_arrays_eq!(elements, PrimitiveArray::from_iter([42i16]));
     }
 
     #[test]
@@ -647,9 +652,12 @@ mod tests {
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.as_slice::<i32>()[0], 100);
-        assert_eq!(elements.as_slice::<i32>()[1], 0); // null becomes 0
-        assert_eq!(elements.as_slice::<i32>()[2], 200);
+        assert_eq!(elements.scalar_at(0), Scalar::from(100i32));
+        assert_eq!(
+            elements.scalar_at(1),
+            Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
+        );
+        assert_eq!(elements.scalar_at(2), Scalar::from(200i32));
 
         // Check element validity.
         let element_validity = elements.validity();
@@ -690,11 +698,11 @@ mod tests {
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
-            assert_eq!(elements.as_slice::<u8>()[base], 1);
-            assert_eq!(elements.as_slice::<u8>()[base + 1], 2);
-            assert_eq!(elements.as_slice::<u8>()[base + 2], 3);
-            assert_eq!(elements.as_slice::<u8>()[base + 3], 4);
-            assert_eq!(elements.as_slice::<u8>()[base + 4], 5);
+            assert_eq!(elements.scalar_at(base), Scalar::from(1u8));
+            assert_eq!(elements.scalar_at(base + 1), Scalar::from(2u8));
+            assert_eq!(elements.scalar_at(base + 2), Scalar::from(3u8));
+            assert_eq!(elements.scalar_at(base + 3), Scalar::from(4u8));
+            assert_eq!(elements.scalar_at(base + 4), Scalar::from(5u8));
         }
     }
 }

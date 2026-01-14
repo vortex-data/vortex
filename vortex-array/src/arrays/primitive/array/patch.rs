@@ -130,12 +130,16 @@ mod tests {
 
     use super::*;
     use crate::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::validity::Validity;
 
     #[test]
     fn patch_sliced() {
         let input = PrimitiveArray::new(buffer![2u32; 10], Validity::AllValid);
         let sliced = input.slice(2..8);
-        assert_eq!(sliced.to_primitive().as_slice::<u32>(), &[2u32; 6]);
+        assert_arrays_eq!(
+            sliced.to_primitive(),
+            PrimitiveArray::new(buffer![2u32; 6], Validity::AllValid)
+        );
     }
 }

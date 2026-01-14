@@ -39,7 +39,6 @@ register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 mod test {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
@@ -62,9 +61,7 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true]))
-            .unwrap()
-            .to_primitive();
+        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true])).unwrap();
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter([a, outlier]));
     }
 

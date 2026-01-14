@@ -10295,6 +10295,7 @@ dependencies = [
  "tracing",
  "url",
  "vortex",
+ "vortex-array",
  "vortex-runend",
  "vortex-sequence",
  "vortex-utils",

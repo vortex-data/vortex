@@ -34,7 +34,7 @@ fn test_zstd_compress_decompress() {
     assert!(compressed.dictionary.is_none());
 
     // check full decompression works
-    let decompressed = compressed.decompress().to_primitive();
+    let decompressed = compressed.decompress();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
@@ -42,15 +42,10 @@ fn test_zstd_compress_decompress() {
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    let primitive = slice.to_primitive();
-    assert_arrays_eq!(
-        primitive,
-        PrimitiveArray::from_iter([100, 101, 102, 103, 104])
-    );
+    assert_arrays_eq!(slice, PrimitiveArray::from_iter([100, 101, 102, 103, 104]));
 
     let slice = compressed.slice(200..200);
-    let primitive = slice.to_primitive();
-    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(Vec::<i32>::new()));
+    assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
 }
 
 #[test]
@@ -63,8 +58,7 @@ fn test_zstd_empty() {
 
     let compressed = ZstdArray::from_primitive(&array, 3, 100).unwrap();
 
-    let primitive = compressed.to_primitive();
-    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
+    assert_arrays_eq!(compressed, PrimitiveArray::from_iter(data));
 }
 
 #[test]

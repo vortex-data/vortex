@@ -115,6 +115,7 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::TemporalArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ValidityHelper;
     use vortex_buffer::buffer;
@@ -156,10 +157,7 @@ mod test {
             .temporal_values()
             .to_primitive();
 
-        assert_eq!(
-            primitive_values.as_slice::<i64>(),
-            milliseconds.as_slice::<i64>()
-        );
+        assert_arrays_eq!(primitive_values, milliseconds);
         assert_eq!(primitive_values.validity(), &validity);
     }
 }

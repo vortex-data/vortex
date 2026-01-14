@@ -218,6 +218,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
@@ -431,7 +432,6 @@ mod tests {
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array.to_primitive();
-        let original_values = original_data.as_slice::<u32>();
 
         let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
         let serialized = rle_array
@@ -455,9 +455,8 @@ mod tests {
             .unwrap();
 
         let decoded_data = decoded.to_primitive();
-        let decoded_values = decoded_data.as_slice::<u32>();
 
-        assert_eq!(original_values, decoded_values);
+        assert_arrays_eq!(original_data, decoded_data);
     }
 
     #[test]
@@ -484,9 +483,6 @@ mod tests {
         let original_data = sliced.to_primitive();
         let decoded_data = decoded.to_primitive();
 
-        let original_values = original_data.as_slice::<u32>();
-        let decoded_values = decoded_data.as_slice::<u32>();
-
-        assert_eq!(original_values, decoded_values);
+        assert_arrays_eq!(original_data, decoded_data);
     }
 }
