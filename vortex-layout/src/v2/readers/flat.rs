@@ -13,8 +13,8 @@ use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
 use crate::layouts::SharedArrayFuture;
-use crate::v2::reader::LayoutReader2;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::Reader;
+use crate::v2::reader::ReaderRef;
 use crate::v2::stream::LayoutReaderStream;
 use crate::v2::stream::SendableLayoutReaderStream;
 
@@ -24,7 +24,7 @@ pub struct FlatReader2 {
     array_fut: SharedArrayFuture,
 }
 
-impl LayoutReader2 for FlatReader2 {
+impl Reader for FlatReader2 {
     fn row_count(&self) -> u64 {
         self.len as u64
     }
@@ -37,7 +37,7 @@ impl LayoutReader2 for FlatReader2 {
         0
     }
 
-    fn child(&self, _idx: usize) -> &LayoutReader2Ref {
+    fn child(&self, _idx: usize) -> &ReaderRef {
         unreachable!()
     }
 

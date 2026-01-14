@@ -26,7 +26,7 @@ use crate::display::display_tree_with_segment_sizes;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::SegmentSourceRef;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::ReaderRef;
 
 pub type LayoutId = ArcRef<str>;
 
@@ -83,7 +83,7 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
         &self,
         segment_source: &SegmentSourceRef,
         session: &VortexSession,
-    ) -> VortexResult<LayoutReader2Ref>;
+    ) -> VortexResult<ReaderRef>;
 }
 
 pub trait IntoLayout {
@@ -344,7 +344,7 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         &self,
         segment_source: &SegmentSourceRef,
         session: &VortexSession,
-    ) -> VortexResult<LayoutReader2Ref> {
+    ) -> VortexResult<ReaderRef> {
         V::new_reader2(&self.0, segment_source, session)
     }
 }

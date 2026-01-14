@@ -14,20 +14,20 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::v2::reader::LayoutReader2;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::Reader;
+use crate::v2::reader::ReaderRef;
 use crate::v2::stream::LayoutReaderStream;
 use crate::v2::stream::SendableLayoutReaderStream;
 
-/// A [`LayoutReader2] for applying a scalar function to another layout.
+/// A [`Reader] for applying a scalar function to another layout.
 pub struct ScalarFnReader {
     scalar_fn: ScalarFn,
     dtype: DType,
     row_count: u64,
-    children: Vec<LayoutReader2Ref>,
+    children: Vec<ReaderRef>,
 }
 
-impl LayoutReader2 for ScalarFnReader {
+impl Reader for ScalarFnReader {
     fn row_count(&self) -> u64 {
         self.row_count
     }
@@ -40,7 +40,7 @@ impl LayoutReader2 for ScalarFnReader {
         self.children.len()
     }
 
-    fn child(&self, idx: usize) -> &LayoutReader2Ref {
+    fn child(&self, idx: usize) -> &ReaderRef {
         &self.children[idx]
     }
 

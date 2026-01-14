@@ -3,11 +3,11 @@
 
 use vortex_error::VortexResult;
 
-use crate::v2::reader::LayoutReader2;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::Reader;
+use crate::v2::reader::ReaderRef;
 
-impl dyn LayoutReader2 + '_ {
-    pub fn optimize(&self) -> VortexResult<LayoutReader2Ref> {
+impl dyn Reader + '_ {
+    pub fn optimize(&self) -> VortexResult<ReaderRef> {
         todo!()
     }
 }

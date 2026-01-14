@@ -26,6 +26,5 @@ pub mod gpu;
 mod repeated_scan;
 #[cfg(test)]
 mod test;
-pub mod v2;
 
 pub use repeated_scan::RepeatedScan;

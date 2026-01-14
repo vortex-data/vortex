@@ -14,8 +14,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
-use crate::v2::reader::LayoutReader2;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::Reader;
+use crate::v2::reader::ReaderRef;
 use crate::v2::stream::LayoutReaderStream;
 use crate::v2::stream::SendableLayoutReaderStream;
 
@@ -23,10 +23,10 @@ pub struct StructReader2 {
     row_count: u64,
     dtype: DType,
     // TODO(ngates): we should make this lazy?
-    fields: Vec<LayoutReader2Ref>,
+    fields: Vec<ReaderRef>,
 }
 
-impl LayoutReader2 for StructReader2 {
+impl Reader for StructReader2 {
     fn row_count(&self) -> u64 {
         self.row_count
     }
@@ -39,7 +39,7 @@ impl LayoutReader2 for StructReader2 {
         self.fields.len()
     }
 
-    fn child(&self, idx: usize) -> &LayoutReader2Ref {
+    fn child(&self, idx: usize) -> &ReaderRef {
         &self.fields[idx]
     }
 

@@ -25,7 +25,7 @@ use crate::children::LayoutChildren;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::segments::SegmentSourceRef;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::ReaderRef;
 
 pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Layout: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Layout> + IntoLayout;
@@ -72,7 +72,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         layout: &Self::Layout,
         segment_source: &SegmentSourceRef,
         session: &VortexSession,
-    ) -> VortexResult<LayoutReader2Ref> {
+    ) -> VortexResult<ReaderRef> {
         let _ = (layout, segment_source, session);
         vortex_bail!("new_reader2 not implemented for this layout")
     }

@@ -15,18 +15,18 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
-use crate::v2::reader::LayoutReader2;
-use crate::v2::reader::LayoutReader2Ref;
+use crate::v2::reader::Reader;
+use crate::v2::reader::ReaderRef;
 use crate::v2::stream::LayoutReaderStream;
 use crate::v2::stream::SendableLayoutReaderStream;
 
 pub struct ChunkedReader2 {
     row_count: u64,
     dtype: DType,
-    chunks: Vec<LayoutReader2Ref>,
+    chunks: Vec<ReaderRef>,
 }
 
-impl LayoutReader2 for ChunkedReader2 {
+impl Reader for ChunkedReader2 {
     fn row_count(&self) -> u64 {
         self.row_count
     }
@@ -39,7 +39,7 @@ impl LayoutReader2 for ChunkedReader2 {
         self.chunks.len()
     }
 
-    fn child(&self, idx: usize) -> &LayoutReader2Ref {
+    fn child(&self, idx: usize) -> &ReaderRef {
         &self.chunks[idx]
     }
 

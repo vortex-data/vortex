@@ -9,7 +9,7 @@ use vortex_mask::Mask;
 
 pub type SendableLayoutReaderStream = Box<dyn LayoutReaderStream + 'static + Send + Sync>;
 
-/// A stream of data produced by a [`LayoutReader2`](crate::v2::reader::LayoutReader2).
+/// A stream of data produced by a [`Reader`](crate::v2::reader::Reader).
 ///
 /// Layout readers are driven by requesting chunks of data using a given selection masks.
 pub trait LayoutReaderStream {
