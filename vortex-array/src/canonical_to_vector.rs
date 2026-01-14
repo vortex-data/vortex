@@ -29,6 +29,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Executable;
 use crate::ExecutionCtx;
+use crate::arrays::PrimitiveArray;
 
 impl Executable for Vector {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -119,8 +120,8 @@ impl Canonical {
 
                 let validity = validity.to_array(offsets.len()).execute::<Mask>(ctx)?;
                 let elements_vector = elements.execute::<Vector>(ctx)?;
-                let offsets = offsets.execute::<Canonical>(ctx)?.into_primitive();
-                let sizes = sizes.execute::<Canonical>(ctx)?.into_primitive();
+                let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+                let sizes = sizes.execute::<PrimitiveArray>(ctx)?;
                 let offsets_ptype = offsets.ptype();
                 let sizes_ptype = sizes.ptype();
 

@@ -13,7 +13,6 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 use crate::arrow::null_buffer::to_null_buffer;
@@ -44,6 +43,6 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     // flexible since there's no prescribed nullability in Arrow types.
     let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
 
-    let varbinview = array.execute::<Canonical>(ctx)?.into_varbinview();
+    let varbinview = array.execute::<VarBinViewArray>(ctx)?;
     Ok(canonical_varbinview_to_arrow::<T>(&varbinview))
 }

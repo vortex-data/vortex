@@ -199,3 +199,19 @@ impl ValidityVTable<NullVTable> for NullVTable {
         Mask::AllFalse(array.len)
     }
 }
+
+use crate::executor::Executable;
+use crate::executor::ExecutionCtx;
+
+/// Execute the array to canonical form and unwrap as a [`NullArray`].
+///
+/// This will panic if the array's dtype is not null.
+impl Executable for NullArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        // Fast path: if already a NullArray, just return it.
+        match array.try_into::<NullVTable>() {
+            Ok(null_array) => Ok(null_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_null()),
+        }
+    }
+}

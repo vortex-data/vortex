@@ -124,3 +124,23 @@ impl ExtensionArray {
         self.ext_dtype().id()
     }
 }
+
+use vortex_error::VortexResult;
+
+use super::ExtensionVTable;
+use crate::Canonical;
+use crate::executor::Executable;
+use crate::executor::ExecutionCtx;
+
+/// Execute the array to canonical form and unwrap as an [`ExtensionArray`].
+///
+/// This will panic if the array's dtype is not an extension type.
+impl Executable for ExtensionArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        // Fast path: if already an ExtensionArray, just return it.
+        match array.try_into::<ExtensionVTable>() {
+            Ok(ext_array) => Ok(ext_array),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_extension()),
+        }
+    }
+}

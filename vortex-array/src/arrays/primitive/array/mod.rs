@@ -240,3 +240,22 @@ impl PrimitiveArray {
         Ok(PrimitiveArray::new(buffer.freeze(), validity.clone()))
     }
 }
+
+use super::PrimitiveVTable;
+use crate::ArrayRef;
+use crate::Canonical;
+use crate::executor::Executable;
+use crate::executor::ExecutionCtx;
+
+/// Execute the array to canonical form and unwrap as a [`PrimitiveArray`].
+///
+/// This will panic if the array's dtype is not primitive.
+impl Executable for PrimitiveArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        // Fast path: if already a PrimitiveArray, just return it.
+        match array.try_into::<PrimitiveVTable>() {
+            Ok(primitive) => Ok(primitive),
+            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_primitive()),
+        }
+    }
+}

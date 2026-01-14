@@ -8,7 +8,6 @@ use arrow_array::BooleanArray as ArrowBooleanArray;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::BoolArray;
 use crate::arrow::null_buffer::to_null_buffer;
@@ -25,6 +24,6 @@ pub(super) fn to_arrow_bool(
     array: ArrayRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let bool_array = array.execute::<Canonical>(ctx)?.into_bool();
+    let bool_array = array.execute::<BoolArray>(ctx)?;
     Ok(canonical_bool_to_arrow(&bool_array))
 }

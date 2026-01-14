@@ -12,7 +12,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrow::null_buffer::to_null_buffer;
@@ -38,6 +37,6 @@ where
 {
     // We use nullable here so we can essentially ignore nullability during the cast.
     let array = array.cast(DType::Primitive(T::Native::PTYPE, Nullability::Nullable))?;
-    let primitive = array.execute::<Canonical>(ctx)?.into_primitive();
+    let primitive = array.execute::<PrimitiveArray>(ctx)?;
     Ok(canonical_primitive_to_arrow::<T>(primitive))
 }
