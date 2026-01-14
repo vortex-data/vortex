@@ -639,6 +639,12 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+      - name: Run memory benchmarks
+        uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "memory"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
