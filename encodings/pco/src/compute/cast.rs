@@ -55,7 +55,6 @@ register_kernel!(CastKernelAdapter(PcoVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -86,9 +85,8 @@ mod tests {
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0])
         );
     }
@@ -131,8 +129,7 @@ mod tests {
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
         // Verify the values are correct
-        let decoded = casted.to_primitive();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
     }
 
     #[test]
@@ -156,9 +153,7 @@ mod tests {
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
         );
-        let decoded = casted.to_primitive();
-        let expected = PrimitiveArray::from_iter([20u32, 30, 40, 50]);
-        assert_arrays_eq!(decoded, expected);
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
     }
 
     #[rstest]

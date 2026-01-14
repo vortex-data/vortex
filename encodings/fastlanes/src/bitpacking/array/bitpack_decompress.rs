@@ -224,8 +224,7 @@ mod tests {
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_primitive();
-        assert_arrays_eq!(decompressed, values);
+        assert_arrays_eq!(compressed, values);
 
         values
             .as_slice::<u16>()

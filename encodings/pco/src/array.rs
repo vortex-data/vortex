@@ -569,7 +569,6 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -585,9 +584,8 @@ mod tests {
             Validity::from_iter([false, true, true, true, true, false]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        let decoded = pco.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            pco,
             PrimitiveArray::from_option_iter([
                 None,
                 Some(20u32),
@@ -604,6 +602,5 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
         assert_arrays_eq!(sliced, expected);
-        assert_arrays_eq!(sliced.to_canonical().into_array(), expected);
     }
 }

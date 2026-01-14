@@ -447,7 +447,6 @@ impl EncodeVTable<SequenceVTable> for SequenceVTable {
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_dtype::Nullability;
@@ -462,7 +461,7 @@ mod tests {
 
         let canon = PrimitiveArray::from_iter((0..4).map(|i| 2i64 + i * 3));
 
-        assert_arrays_eq!(arr.to_primitive(), canon);
+        assert_arrays_eq!(arr, canon);
     }
 
     #[test]
@@ -473,7 +472,7 @@ mod tests {
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
-        assert_arrays_eq!(arr.to_primitive(), canon);
+        assert_arrays_eq!(arr, canon);
     }
 
     #[test]

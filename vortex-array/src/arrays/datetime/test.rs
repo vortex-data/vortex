@@ -19,9 +19,11 @@ macro_rules! test_temporal_roundtrip {
     ($prim:ty, $constructor:expr, $unit:expr) => {{
         let array = buffer![100 as $prim].into_array();
         let temporal: TemporalArray = $constructor(array, $unit);
-        let prims = temporal.temporal_values().to_primitive();
 
-        assert_arrays_eq!(prims, PrimitiveArray::from_iter([100 as $prim]));
+        assert_arrays_eq!(
+            temporal.temporal_values(),
+            PrimitiveArray::from_iter([100 as $prim])
+        );
         assert_eq!(temporal.temporal_metadata().time_unit(), $unit);
     }};
 }
@@ -147,8 +149,10 @@ fn test_timestamp() {
             let temporal_array =
                 TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
-            let values = temporal_array.temporal_values().to_primitive();
-            assert_arrays_eq!(values, PrimitiveArray::from_iter([100i64]));
+            assert_arrays_eq!(
+                temporal_array.temporal_values(),
+                PrimitiveArray::from_iter([100i64])
+            );
             assert_eq!(
                 temporal_array.temporal_metadata(),
                 &TemporalMetadata::Timestamp(unit, tz)

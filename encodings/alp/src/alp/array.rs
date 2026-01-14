@@ -483,6 +483,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
@@ -517,8 +518,7 @@ mod tests {
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_canonical.len(), size);
-        assert_arrays_eq!(result_canonical.into_primitive(), expected);
+        assert_arrays_eq!(result_canonical.into_array(), expected);
     }
 
     #[rstest]
@@ -542,8 +542,7 @@ mod tests {
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_canonical.len(), size);
-        assert_arrays_eq!(result_canonical.into_primitive(), expected);
+        assert_arrays_eq!(result_canonical.into_array(), expected);
     }
 
     #[rstest]
@@ -573,8 +572,7 @@ mod tests {
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_canonical.len(), size);
-        assert_arrays_eq!(result_canonical.into_primitive(), expected);
+        assert_arrays_eq!(result_canonical.into_array(), expected);
     }
 
     #[rstest]
@@ -602,8 +600,7 @@ mod tests {
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_canonical.len(), size);
-        assert_arrays_eq!(result_canonical.into_primitive(), expected);
+        assert_arrays_eq!(result_canonical.into_array(), expected);
     }
 
     #[rstest]
@@ -634,8 +631,7 @@ mod tests {
         // Compare against the traditional array-based decompress path
         let expected = decompress_into_array(encoded);
 
-        assert_eq!(result_canonical.len(), size);
-        assert_arrays_eq!(result_canonical.into_primitive(), expected);
+        assert_arrays_eq!(result_canonical.into_array(), expected);
     }
 
     #[rstest]

@@ -48,15 +48,10 @@ fn test_compress_decompress() {
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
-    let primitive = slice.to_primitive();
-    assert_arrays_eq!(
-        primitive,
-        PrimitiveArray::from_iter([100, 101, 102, 103, 104])
-    );
+    assert_arrays_eq!(slice, PrimitiveArray::from_iter([100, 101, 102, 103, 104]));
 
     let slice = compressed.slice(200..200);
-    let primitive = slice.to_primitive();
-    assert_arrays_eq!(primitive, PrimitiveArray::from_iter(Vec::<i32>::new()));
+    assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
 }
 
 #[test]

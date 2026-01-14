@@ -477,14 +477,14 @@ mod test {
         chunked.clone().append_to_builder(&mut primitive_builder);
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into);
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
         primitive_builder.extend_from_array(&chunked);
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into);
     }
 
     #[test]

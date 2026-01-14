@@ -75,7 +75,6 @@ mod tests {
     use vortex_array::Array;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
@@ -118,13 +117,12 @@ mod tests {
             .unwrap();
 
         let indices = buffer![0, 2].into_array();
-        let actual = take(&zigzag, &indices).unwrap().to_primitive();
+        let actual = take(&zigzag, &indices).unwrap();
         let expected = ZigZagVTable
             .as_vtable()
             .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
-            .unwrap()
-            .to_primitive();
+            .unwrap();
         assert_arrays_eq!(actual, expected);
     }
 
@@ -136,13 +134,12 @@ mod tests {
             .unwrap()
             .unwrap();
         let filter_mask = BitBuffer::from(vec![true, false, true]).into();
-        let actual = filter(&zigzag, &filter_mask).unwrap().to_primitive();
+        let actual = filter(&zigzag, &filter_mask).unwrap();
         let expected = ZigZagVTable
             .as_vtable()
             .encode(&buffer![-189, 1].into_array().to_canonical(), None)
             .unwrap()
-            .unwrap()
-            .to_primitive();
+            .unwrap();
         assert_arrays_eq!(actual, expected);
     }
 

@@ -224,8 +224,7 @@ mod tests {
     fn roundtrips_close_fractional() {
         let original = PrimitiveArray::from_iter([195.26274f32, 195.27837, -48.815685]);
         let alp_arr = alp_encode(&original, None).unwrap();
-        let decompressed = alp_arr.to_primitive();
-        assert_arrays_eq!(decompressed, original);
+        assert_arrays_eq!(alp_arr, original);
     }
 
     #[test]
@@ -363,10 +362,9 @@ mod tests {
         let encoded = alp_encode(&original, None).unwrap();
 
         let sliced_alp = encoded.slice(512..1024);
-        let decoded = sliced_alp.to_primitive();
 
-        let expected_slice = original.slice(512..1024).to_primitive();
-        assert_arrays_eq!(decoded, expected_slice);
+        let expected_slice = original.slice(512..1024);
+        assert_arrays_eq!(sliced_alp, expected_slice);
     }
 
     #[test]
@@ -376,10 +374,9 @@ mod tests {
         let encoded = alp_encode(&original, None).unwrap();
 
         let sliced_alp = encoded.slice(512..1024);
-        let decoded = sliced_alp.to_primitive();
 
-        let expected_slice = original.slice(512..1024).to_primitive();
-        assert_arrays_eq!(decoded, expected_slice);
+        let expected_slice = original.slice(512..1024);
+        assert_arrays_eq!(sliced_alp, expected_slice);
     }
 
     #[test]
@@ -393,10 +390,9 @@ mod tests {
         let encoded = alp_encode(&original, None).unwrap();
 
         let sliced_alp = encoded.slice(512..1024);
-        let decoded = sliced_alp.to_primitive();
 
-        let expected_slice = original.slice(512..1024).to_primitive();
-        assert_arrays_eq!(decoded, expected_slice);
+        let expected_slice = original.slice(512..1024);
+        assert_arrays_eq!(sliced_alp, expected_slice);
         assert!(encoded.patches().is_some());
     }
 
@@ -414,10 +410,9 @@ mod tests {
         let encoded = alp_encode(&original, None).unwrap();
 
         let sliced_alp = encoded.slice(1023..1025);
-        let decoded = sliced_alp.to_primitive();
 
-        let expected_slice = original.slice(1023..1025).to_primitive();
-        assert_arrays_eq!(decoded, expected_slice);
+        let expected_slice = original.slice(1023..1025);
+        assert_arrays_eq!(sliced_alp, expected_slice);
         assert!(encoded.patches().is_some());
     }
 

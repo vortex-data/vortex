@@ -32,7 +32,6 @@ register_kernel!(CastKernelAdapter(ZigZagVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::Array;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -67,8 +66,7 @@ mod tests {
             "Cast should preserve ZigZag encoding"
         );
 
-        let decoded = casted.to_primitive();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([-100i64, -1, 0, 1, 100]));
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([-100i64, -1, 0, 1, 100]));
     }
 
     #[test]
@@ -88,9 +86,8 @@ mod tests {
             "Should remain ZigZag encoded"
         );
 
-        let decoded = casted.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([100i16, -50, 0, 25, -100])
         );
 
@@ -109,9 +106,8 @@ mod tests {
             "Should remain ZigZag encoded"
         );
 
-        let decoded64 = casted64.to_primitive();
         assert_arrays_eq!(
-            decoded64,
+            casted64,
             PrimitiveArray::from_iter([1000i64, -500, 0, 250, -1000])
         );
     }

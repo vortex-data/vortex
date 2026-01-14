@@ -36,7 +36,6 @@ register_kernel!(CastKernelAdapter(FoRVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -68,9 +67,8 @@ mod tests {
         );
 
         // Verify the values after decoding
-        let decoded = casted.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            casted,
             PrimitiveArray::from_iter([100i64, 110, 120, 130, 140])
         );
     }

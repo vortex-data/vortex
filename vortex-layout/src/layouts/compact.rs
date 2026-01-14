@@ -206,7 +206,6 @@ impl Default for CompactCompressor {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
@@ -236,7 +235,7 @@ mod tests {
 
         let n_rows = columns[0].len();
         let struct_array = StructArray::try_new(
-            field_names.clone().into(),
+            field_names.into(),
             columns.clone(),
             n_rows,
             Validity::NonNullable,

@@ -53,10 +53,7 @@ fn test_project() {
     );
 
     let prims = &struct_b.fields[1];
-    assert_arrays_eq!(
-        prims.to_primitive(),
-        PrimitiveArray::from_iter([0i64, 1, 2, 3, 4])
-    );
+    assert_arrays_eq!(prims, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 }
 
 #[test]
@@ -77,10 +74,7 @@ fn test_remove_column() {
         removed.dtype(),
         &DType::Primitive(PType::I64, Nullability::NonNullable)
     );
-    assert_arrays_eq!(
-        removed.to_primitive(),
-        PrimitiveArray::from_iter([0i64, 1, 2, 3, 4])
-    );
+    assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 
     assert_eq!(struct_a.names(), &["ys"]);
     assert_eq!(struct_a.fields.len(), 1);
@@ -90,7 +84,7 @@ fn test_remove_column() {
         &DType::Primitive(PType::U64, Nullability::NonNullable)
     );
     assert_arrays_eq!(
-        struct_a.fields[0].to_primitive(),
+        struct_a.fields[0],
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
     );
 
@@ -121,23 +115,20 @@ fn test_duplicate_field_names() {
     // field_by_name should return the first field with the matching name
     let first_value_field = struct_array.field_by_name("value").unwrap();
     assert_arrays_eq!(
-        first_value_field.to_primitive(),
+        first_value_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // This is field1, not field3
     );
 
     // Verify field_by_name_opt also returns the first match
     let opt_field = struct_array.field_by_name_opt("value").unwrap();
     assert_arrays_eq!(
-        opt_field.to_primitive(),
+        opt_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // First "value" field
     );
 
     // Verify the third field (second "value") can be accessed by index
     let third_field = &struct_array.fields()[2];
-    assert_arrays_eq!(
-        third_field.to_primitive(),
-        PrimitiveArray::from_iter([100i32, 200, 300])
-    );
+    assert_arrays_eq!(third_field, PrimitiveArray::from_iter([100i32, 200, 300]));
 }
 
 #[test]
