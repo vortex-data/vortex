@@ -11,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::AllOr;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::stats::ArrayStats;

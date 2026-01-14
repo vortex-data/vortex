@@ -30,31 +30,32 @@ impl Compressor for VortexCompressor {
 
     async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
         // Read the parquet file as an array stream
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
 
         let mut buf = Vec::new();
         let start = Instant::now();
         let mut cursor = Cursor::new(&mut buf);
         SESSION
             .write_options()
-            .write(&mut cursor, array_stream)
+            .write(&mut cursor, uncompressed.to_array_stream())
             .await?;
         let elapsed = start.elapsed();
 
         Ok((buf.len() as u64, elapsed))
     }
 
-    async fn decompress(&self, parquet_path: &Path) -> Result<usize> {
+    async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
         // First compress to get the bytes we'll decompress
-        let array_stream = parquet_to_vortex(parquet_path.to_path_buf())?;
+        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
         SESSION
             .write_options()
-            .write(&mut cursor, array_stream)
+            .write(&mut cursor, uncompressed.to_array_stream())
             .await?;
 
         // Now decompress
+        let start = Instant::now();
         let data = Bytes::from(buf);
         let scan = SESSION.open_options().open_buffer(data)?.scan()?;
         let schema = Arc::new(scan.dtype()?.to_arrow_schema()?);
@@ -62,10 +63,9 @@ impl Compressor for VortexCompressor {
         let stream = scan.into_record_batch_stream(schema)?;
         pin_mut!(stream);
 
-        let mut nbytes = 0;
         while let Some(batch) = stream.next().await {
-            nbytes += batch?.get_array_memory_size()
+            let _batch = batch?;
         }
-        Ok(nbytes)
+        Ok(start.elapsed())
     }
 }

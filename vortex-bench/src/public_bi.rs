@@ -360,7 +360,9 @@ impl PBIData {
         let to_vortex_futures = self.tables.iter().map(|table| {
             let parquet = self.get_file_path(&table.name, FileType::Parquet);
             let vortex = self.get_file_path(&table.name, FileType::Vortex);
+
             async move {
+                let data = parquet_to_vortex(parquet).await?;
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
                         SESSION
@@ -369,7 +371,7 @@ impl PBIData {
                                 &mut File::create(output_path)
                                     .await
                                     .map_err(|e| anyhow::anyhow!("Failed to create file: {}", e))?,
-                                parquet_to_vortex(parquet)?,
+                                data.to_array_stream(),
                             )
                             .await
                             .map_err(|e| anyhow::anyhow!("Failed to write vortex file: {}", e))?;

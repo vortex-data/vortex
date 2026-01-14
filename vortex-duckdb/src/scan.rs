@@ -24,15 +24,13 @@ use itertools::Itertools;
 use num_traits::AsPrimitive;
 use url::Url;
 use vortex::VortexSessionDefault;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
-use vortex::array::ToCanonical;
-use vortex::array::VectorExecutor;
+use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ScalarFnVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructVTable;
 use vortex::array::optimizer::ArrayOptimizer;
-use vortex::array::vectors::VectorIntoArray;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -49,7 +47,6 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
-use vortex::layout::layouts::USE_VORTEX_OPERATORS;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -112,7 +109,7 @@ impl Debug for VortexBindData {
 pub struct VortexGlobalData {
     iterator: ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>,
     batch_id: AtomicU64,
-    session: VortexSession,
+    ctx: ExecutionCtx,
 }
 
 pub struct VortexLocalData {
@@ -329,33 +326,28 @@ impl TableFunction for VortexTableFunction {
 
                 let (array_result, conversion_cache) = result?;
 
-                let array_result = if *USE_VORTEX_OPERATORS {
-                    let array_result = array_result.optimize_recursive()?;
-                    if let Some(array) = array_result.as_opt::<StructVTable>() {
-                        array.clone()
-                    } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
-                        && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
-                    {
-                        StructArray::new(
-                            pack_options.names.clone(),
-                            array.children(),
-                            array.len(),
-                            pack_options.nullability.into(),
-                        )
-                    } else {
-                        array_result
-                            .execute_vector(&global_state.session)?
-                            .into_struct()
-                            .into_array(array_result.dtype())
-                    }
+                let array_result = array_result.optimize_recursive()?;
+                let array_result = if let Some(array) = array_result.as_opt::<StructVTable>() {
+                    array.clone()
+                } else if let Some(array) = array_result.as_opt::<ScalarFnVTable>()
+                    && let Some(pack_options) = array.scalar_fn().as_opt::<Pack>()
+                {
+                    StructArray::new(
+                        pack_options.names.clone(),
+                        array.children(),
+                        array.len(),
+                        pack_options.nullability.into(),
+                    )
                 } else {
-                    array_result.to_struct()
+                    array_result
+                        .execute::<Canonical>(&mut global_state.ctx)?
+                        .into_struct()
                 };
 
                 local_state.exporter = Some(ArrayExporter::try_new(
                     &array_result,
                     &conversion_cache,
-                    &global_state.session,
+                    &mut global_state.ctx,
                 )?);
                 // Relaxed since there is no intra-instruction ordering required.
                 local_state.batch_id = Some(global_state.batch_id.fetch_add(1, Ordering::Relaxed));
@@ -460,7 +452,7 @@ impl TableFunction for VortexTableFunction {
             }),
             batch_id: AtomicU64::new(0),
             // TODO(joe): fetch this from somewhere??.
-            session: VortexSession::default(),
+            ctx: ExecutionCtx::new(VortexSession::default()),
         })
     }
 

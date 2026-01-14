@@ -9,16 +9,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::ScalarOps;
-use vortex_vector::Vector;
-use vortex_vector::VectorMutOps;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -98,10 +94,6 @@ impl VTable for ConstantVTable {
             children.len()
         );
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        Ok(array.scalar.to_vector_scalar().repeat(array.len).freeze())
     }
 
     fn reduce_parent(

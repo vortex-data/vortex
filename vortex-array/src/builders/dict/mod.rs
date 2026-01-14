@@ -3,6 +3,7 @@
 
 use bytes::bytes_dict_builder;
 use primitive::primitive_dict_builder;
+use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -37,6 +38,9 @@ pub trait DictEncoder: Send {
 
     /// Clear the encoder state to make it ready for a new round of decoding.
     fn reset(&mut self) -> ArrayRef;
+
+    /// Returns the PType of the codes this encoder produces.
+    fn codes_ptype(&self) -> PType;
 }
 
 pub fn dict_encoder(array: &dyn Array, constraints: &DictConstraints) -> Box<dyn DictEncoder> {

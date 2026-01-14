@@ -224,3 +224,6 @@ compile_commands.json
 # cargo sweep output
 sweep.timestamp
 
+# Pending cargo-insta snapshots
+*.pending-snap
+

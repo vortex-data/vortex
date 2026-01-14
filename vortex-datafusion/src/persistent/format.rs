@@ -17,16 +17,17 @@ use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
 use datafusion_common::config::ConfigField;
 use datafusion_common::config_namespace;
+use datafusion_common::internal_datafusion_err;
 use datafusion_common::not_impl_err;
 use datafusion_common::parsers::CompressionTypeVariant;
 use datafusion_common::stats::Precision;
 use datafusion_common_runtime::SpawnedTask;
+use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_compression_type::FileCompressionType;
 use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_format::FileFormatFactory;
 use datafusion_datasource::file_scan_config::FileScanConfig;
-use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
@@ -373,6 +374,7 @@ impl FileFormat for VortexFormat {
                                 is_constant.as_exact().map(|_| Precision::Exact(1))
                             })
                             .unwrap_or(Precision::Absent),
+                        byte_size: Precision::Absent,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -396,14 +398,12 @@ impl FileFormat for VortexFormat {
         _state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        let source = VortexSource::new(self.session.clone(), self.file_cache.clone());
-        let source = Arc::new(source);
+        // We make sure the scan's source is the right type, but we don't have anything else to do here.
+        if !file_scan_config.file_source().as_any().is::<VortexSource>() {
+            return Err(internal_datafusion_err!("Expected VortexSource"));
+        }
 
-        Ok(DataSourceExec::from_data_source(
-            FileScanConfigBuilder::from(file_scan_config)
-                .with_source(source)
-                .build(),
-        ))
+        Ok(DataSourceExec::from_data_source(file_scan_config))
     }
 
     async fn create_writer_physical_plan(
@@ -423,8 +423,9 @@ impl FileFormat for VortexFormat {
         Ok(Arc::new(DataSinkExec::new(input, sink, order_requirements)) as _)
     }
 
-    fn file_source(&self) -> Arc<dyn FileSource> {
+    fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
         Arc::new(VortexSource::new(
+            table_schema,
             self.session.clone(),
             self.file_cache.clone(),
         ))

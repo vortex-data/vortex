@@ -16,17 +16,17 @@ use vortex_vector::primitive::PVector;
 use vortex_vector::primitive::PrimitiveVector;
 
 use crate::Array;
+use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::VectorExecutor;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::list::compute::element_mask_from_offsets;
 use crate::kernel::ExecuteParentKernel;
-use crate::mask::MaskExecutor;
 use crate::matchers::Exact;
 use crate::validity::Validity;
+use crate::vectors::VectorIntoArray;
 use crate::vtable::ValidityHelper;
 
 #[derive(Debug)]
@@ -39,13 +39,14 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         Exact::from(&FilterVTable)
     }
 
+    // TODO(joe): should this use Vector?
     fn execute_parent(
         &self,
         array: &ListArray,
         parent: &FilterArray,
         _child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Vector>> {
+    ) -> VortexResult<Option<Canonical>> {
         let selection = match parent.filter_mask() {
             Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
             Mask::Values(v) => v,
@@ -54,7 +55,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         // TODO(ngates): for ultra-sparse masks, we don't need to optimize the entire offsets.
         let offsets = array
             .offsets()
-            .execute_vector(ctx.session())?
+            .clone()
+            .execute::<Vector>(ctx)?
             .into_primitive();
 
         let new_validity = match array.validity() {
@@ -66,11 +68,11 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                     0,
                 );
                 vec.append_nulls(selection.true_count());
-                return Ok(Some(vec.freeze().into()));
+                return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()));
             }
             Validity::Array(a) => a
                 .filter(parent.filter_mask().clone())?
-                .execute_mask(ctx.session())?,
+                .execute::<Mask>(ctx)?,
         };
 
         let (new_offsets, new_sizes) = match_each_integer_ptype!(offsets.ptype(), |O| {
@@ -109,7 +111,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         let new_elements = array
             .sliced_elements()
             .filter(element_mask)?
-            .execute_vector(ctx.session())?;
+            .execute::<Vector>(ctx)?;
 
         Ok(Some(
             unsafe {
@@ -120,7 +122,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                     new_validity,
                 )
             }
-            .into(),
+            .into_array(array.dtype())
+            .to_canonical(),
         ))
     }
 }

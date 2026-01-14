@@ -7,29 +7,38 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
-use vortex_vector::Datum;
+use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::executor::VectorExecutor;
+use crate::Executable;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantVTable;
+use crate::executor::CanonicalOutput;
 
-/// Executor for exporting a Vortex [`Mask`] from an [`ArrayRef`].
-pub trait MaskExecutor {
-    /// Execute the array to produce a mask.
-    fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask>;
-}
-
-impl MaskExecutor for ArrayRef {
-    fn execute_mask(&self, session: &VortexSession) -> VortexResult<Mask> {
-        if !matches!(self.dtype(), DType::Bool(_)) {
-            vortex_bail!("Mask array must have boolean dtype, not {}", self.dtype());
+impl Executable for Mask {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        if !matches!(array.dtype(), DType::Bool(_)) {
+            vortex_bail!("Mask array must have boolean dtype, not {}", array.dtype());
         }
 
-        Ok(match self.execute_datum(session)? {
-            Datum::Scalar(s) => Mask::new(self.len(), s.as_bool().value().unwrap_or(false)),
-            Datum::Vector(v) => {
-                let (bits, mask) = v.into_bool().into_parts();
+        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+            let mask_value = constant.scalar().as_bool().value().unwrap_or(false);
+            return Ok(Mask::new(array.len(), mask_value));
+        }
+
+        let array_len = array.len();
+        Ok(match array.execute(ctx)? {
+            CanonicalOutput::Constant(c) => {
+                Mask::new(array_len, c.scalar().as_bool().value().unwrap_or(false))
+            }
+            CanonicalOutput::Array(a) => {
+                let (bits, mask) = a
+                    .into_array()
+                    .execute::<Vector>(ctx)?
+                    .into_bool()
+                    .into_parts();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to
                 //  pass non-nullable boolean arrays.

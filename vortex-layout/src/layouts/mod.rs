@@ -3,8 +3,6 @@
 
 //! A collection of built-in layouts for Vortex
 
-use std::sync::LazyLock;
-
 use futures::future::BoxFuture;
 use futures::future::Shared;
 use vortex_array::ArrayRef;
@@ -27,9 +25,3 @@ pub mod table;
 pub mod zoned;
 
 pub type SharedArrayFuture = Shared<BoxFuture<'static, SharedVortexResult<ArrayRef>>>;
-
-pub static USE_VORTEX_OPERATORS: LazyLock<bool> = LazyLock::new(|| {
-    std::env::var("VORTEX_OPERATORS")
-        .map(|v| v == "1" || v.to_lowercase() == "true")
-        .unwrap_or(false)
-});

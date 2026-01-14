@@ -2,27 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::c_char;
-use std::sync::Arc;
 
 use itertools::Itertools;
-use vortex::array::ArrayRef;
-use vortex::array::VectorExecutor;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::vtable::ValidityHelper;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
-use vortex::dtype::DType;
-use vortex::dtype::Nullability::NonNullable;
 use vortex::error::VortexResult;
-use vortex::error::vortex_panic;
 use vortex::mask::Mask;
-use vortex::session::VortexSession;
-use vortex::vector::Vector as VxVector;
 use vortex::vector::binaryview::BinaryView;
-use vortex::vector::binaryview::BinaryViewType;
-use vortex::vector::binaryview::BinaryViewVector;
 use vortex::vector::binaryview::Inlined;
 
-use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
@@ -35,8 +25,8 @@ struct VarBinViewExporter {
     validity: Mask,
 }
 
-pub(crate) fn new_exporter(array: &VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
+pub(crate) fn new_exporter(array: VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity = array.validity().to_mask(array.len());
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(
             array.len(),
@@ -72,75 +62,6 @@ impl ColumnExporter for VarBinViewExporter {
 
         // Update the validity mask.
         unsafe { vector.set_validity(&self.validity, offset, len) };
-
-        // We register our buffers zero-copy with DuckDB and re-use them in each vector.
-        for buffer in &self.vector_buffers {
-            vector.add_string_vector_buffer(buffer);
-        }
-
-        Ok(())
-    }
-}
-
-struct VarBinViewVectorExporter {
-    views: Buffer<BinaryView>,
-    buffers: Arc<Box<[ByteBuffer]>>,
-    vector_buffers: Vec<VectorBuffer>,
-    mask: Mask,
-}
-
-pub(crate) fn new_vector_exporter(
-    array: ArrayRef,
-    session: &VortexSession,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    match array.execute_vector(session)? {
-        VxVector::String(vector) => new_vector_exporter_impl(vector),
-        VxVector::Binary(vector) => new_vector_exporter_impl(vector),
-        _ => vortex_panic!("cannot handle non-string/binary in exporter"),
-    }
-}
-
-pub(crate) fn new_vector_exporter_impl<T: BinaryViewType>(
-    vector: BinaryViewVector<T>,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    let (views, buffers, mask) = vector.into_parts();
-    let logical_type = if T::matches_dtype(&DType::Utf8(NonNullable)) {
-        LogicalType::varchar()
-    } else if T::matches_dtype(&DType::Binary(NonNullable)) {
-        LogicalType::blob()
-    } else {
-        vortex_panic!("unknown BinaryViewType")
-    };
-
-    if mask.all_false() {
-        return Ok(all_invalid::new_exporter(mask.len(), &logical_type));
-    }
-
-    let vector_buffers = buffers.iter().cloned().map(VectorBuffer::new).collect_vec();
-
-    Ok(Box::new(VarBinViewVectorExporter {
-        views,
-        buffers,
-        vector_buffers,
-        mask,
-    }))
-}
-
-impl ColumnExporter for VarBinViewVectorExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        // Copy the views into place.
-        for (mut_view, view) in unsafe { vector.as_slice_mut::<PtrBinaryView>(len) }
-            .iter_mut()
-            .zip(to_ptr_binary_view(
-                self.views[offset..offset + len].iter(),
-                &self.buffers,
-            ))
-        {
-            *mut_view = view;
-        }
-
-        // Update the validity mask.
-        unsafe { vector.set_validity(&self.mask, offset, len) };
 
         // We register our buffers zero-copy with DuckDB and re-use them in each vector.
         for buffer in &self.vector_buffers {

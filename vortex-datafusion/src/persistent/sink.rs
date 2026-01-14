@@ -3,13 +3,12 @@
 
 use std::any::Any;
 use std::sync::Arc;
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering;
 
 use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
+use datafusion_common::exec_datafusion_err;
 use datafusion_common_runtime::JoinSet;
 use datafusion_common_runtime::SpawnedTask;
 use datafusion_datasource::file_sink_config::FileSink;
@@ -33,6 +32,7 @@ use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::file::WriteSummary;
 use vortex::io::ObjectStoreWriter;
 use vortex::io::VortexWrite;
 use vortex::session::VortexSession;
@@ -108,16 +108,12 @@ impl FileSink for VortexSink {
         mut file_stream_rx: DemuxedStreamReceiver,
         object_store: Arc<dyn ObjectStore>,
     ) -> DFResult<u64> {
-        // This is a hack
-        let row_counter = Arc::new(AtomicU64::new(0));
-
-        let mut file_write_tasks: JoinSet<DFResult<Path>> = JoinSet::new();
+        let mut file_write_tasks: JoinSet<DFResult<(Path, WriteSummary)>> = JoinSet::new();
 
         // TODO(adamg):
         // 1. We can probably be better at signaling how much memory we're consuming (potentially when reading too), see ParquetSink::spawn_writer_tasks_and_join.
         while let Some((path, rx)) = file_stream_rx.recv().await {
             let session = self.session.clone();
-            let row_counter = row_counter.clone();
             let object_store = object_store.clone();
             let writer_schema = get_writer_schema(&self.config);
             let dtype = DType::from_arrow(writer_schema);
@@ -125,41 +121,39 @@ impl FileSink for VortexSink {
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
             // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
-                let stream = ReceiverStream::new(rx).map(move |rb| {
-                    row_counter.fetch_add(rb.num_rows() as u64, Ordering::Relaxed);
-                    VortexResult::Ok(ArrayRef::from_arrow(rb, false))
-                });
+                let stream = ReceiverStream::new(rx)
+                    .map(move |rb| VortexResult::Ok(ArrayRef::from_arrow(rb, false)));
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 
-                let mut sink = ObjectStoreWriter::new(object_store.clone(), &path)
+                let mut object_writer = ObjectStoreWriter::new(object_store, &path)
                     .await
-                    .map_err(|e| {
-                        DataFusionError::Execution(format!(
-                            "Failed to create ObjectStoreWriter: {e}"
-                        ))
-                    })?;
+                    .map_err(|e| exec_datafusion_err!("Failed to create ObjectStoreWriter: {e}"))?;
 
-                session
+                let summary = session
                     .write_options()
-                    .write(&mut sink, stream_adapter)
+                    .write(&mut object_writer, stream_adapter)
                     .await
-                    .map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to write Vortex file: {e}"))
-                    })?;
+                    .map_err(|e| exec_datafusion_err!("Failed to write Vortex file: {e}"))?;
 
-                sink.shutdown().await.map_err(|e| {
-                    DataFusionError::Execution(format!("Failed to shutdown Vortex writer: {e}"))
-                })?;
+                object_writer
+                    .shutdown()
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to shutdown Vortex writer: {e}"))?;
 
-                Ok(path)
+                Ok((path, summary))
             });
         }
 
+        let mut row_count = 0;
+
         while let Some(result) = file_write_tasks.join_next().await {
             match result {
-                Ok(path) => {
-                    let path = path?;
+                Ok(r) => {
+                    let (path, summary) = r?;
+
+                    row_count += summary.row_count();
+
                     tracing::info!(path = %path, "Successfully written file");
                 }
                 Err(e) => {
@@ -177,7 +171,7 @@ impl FileSink for VortexSink {
             .await
             .map_err(|e| DataFusionError::ExecutionJoin(Box::new(e)))??;
 
-        Ok(row_counter.load(Ordering::SeqCst))
+        Ok(row_count)
     }
 }
 

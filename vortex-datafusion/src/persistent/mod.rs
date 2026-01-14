@@ -66,7 +66,6 @@ mod tests {
     use vortex::array::arrays::VarBinArray;
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
-    use vortex::error::vortex_err;
     use vortex::file::WriteOptionsSessionExt;
     use vortex::session::VortexSession;
 
@@ -75,10 +74,8 @@ mod tests {
     use crate::persistent::register_vortex_format_factory;
 
     #[rstest]
-    #[case(Some(1))]
-    #[case(None)]
     #[tokio::test]
-    async fn query_file(#[case] limit: Option<usize>) -> anyhow::Result<()> {
+    async fn test_query_file(#[values(Some(1), None)] limit: Option<usize>) -> anyhow::Result<()> {
         let session = VortexSession::default();
         let temp_dir = tempdir()?;
         let strings = ChunkedArray::from_iter([
@@ -100,28 +97,26 @@ mod tests {
             Validity::NonNullable,
         )?;
 
-        let filepath = temp_dir.path().join("data.vortex");
-
         let mut f = OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&filepath)
+            .create_new(true)
+            .open(temp_dir.path().join("data.vortex"))
             .await?;
 
-        session
+        let summary = session
             .write_options()
             .write(&mut f, st.to_array_stream())
             .await?;
 
+        assert_eq!(summary.row_count(), 8);
+
+        // For reasons I don't understand, this is suddenly important on windows
+        drop(f);
+
         let ctx = SessionContext::default();
         let format = Arc::new(VortexFormat::new(session));
-        let table_url = ListingTableUrl::parse(
-            temp_dir
-                .path()
-                .to_str()
-                .ok_or_else(|| vortex_err!("Path is not valid UTF-8"))?,
-        )?;
+
+        let table_url = ListingTableUrl::parse(temp_dir.path().to_str().unwrap())?;
         assert!(table_url.is_collection());
 
         let config = ListingTableConfig::new(table_url)

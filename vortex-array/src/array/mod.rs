@@ -626,6 +626,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn to_canonical(&self) -> Canonical {
         let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0);
+
         assert_eq!(
             self.len(),
             canonical.as_ref().len(),

@@ -13,15 +13,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
-use crate::VectorExecutor;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
-use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -95,10 +92,6 @@ impl VTable for ExtensionVTable {
             .next()
             .vortex_expect("children length already validated");
         Ok(())
-    }
-
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
-        array.storage().execute(ctx)
     }
 
     fn reduce_parent(
