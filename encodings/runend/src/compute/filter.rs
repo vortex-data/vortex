@@ -144,6 +144,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_mask::Mask;
 
     use super::filter_run_end;
@@ -169,13 +170,13 @@ mod tests {
         .unwrap();
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
-        assert_eq!(
-            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
-            [2, 4]
+        assert_arrays_eq!(
+            filtered_run_end.ends().to_primitive(),
+            PrimitiveArray::from_iter([2u8, 4])
         );
-        assert_eq!(
-            filtered_run_end.values().to_primitive().as_slice::<i32>(),
-            [1, 5]
+        assert_arrays_eq!(
+            filtered_run_end.values().to_primitive(),
+            PrimitiveArray::from_iter([1i32, 5])
         );
     }
 
@@ -189,13 +190,13 @@ mod tests {
         .unwrap();
         let filtered_run_end = filtered.as_::<RunEndVTable>();
 
-        assert_eq!(
-            filtered_run_end.ends().to_primitive().as_slice::<u8>(),
-            [1, 2, 3]
+        assert_arrays_eq!(
+            filtered_run_end.ends().to_primitive(),
+            PrimitiveArray::from_iter([1u8, 2, 3])
         );
-        assert_eq!(
-            filtered_run_end.values().to_primitive().as_slice::<i32>(),
-            [1, 4, 2]
+        assert_arrays_eq!(
+            filtered_run_end.values().to_primitive(),
+            PrimitiveArray::from_iter([1i32, 4, 2])
         );
     }
 }

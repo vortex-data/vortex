@@ -87,9 +87,10 @@ mod tests {
         );
 
         let decoded = casted.to_primitive();
-        let f64_values = decoded.as_slice::<f64>();
-        assert_eq!(f64_values.len(), 5);
-        assert!((f64_values[0] - 1.0).abs() < f64::EPSILON);
+        assert_arrays_eq!(
+            decoded,
+            PrimitiveArray::from_iter([1.0f64, 2.0, 3.0, 4.0, 5.0])
+        );
     }
 
     #[test]
@@ -131,8 +132,7 @@ mod tests {
         );
         // Verify the values are correct
         let decoded = casted.to_primitive();
-        let u32_values = decoded.as_slice::<u32>();
-        assert_eq!(u32_values, &[20, 30, 40, 50]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
     }
 
     #[test]

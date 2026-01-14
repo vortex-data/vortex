@@ -44,6 +44,7 @@ vortex-utils = { workspace = true, features = ["dashmap"] }
 [dev-dependencies]
 jiff = { workspace = true }
 rstest = { workspace = true }
+vortex-array = { workspace = true, features = ["test-harness"] }
 vortex-runend = { workspace = true }
 vortex-sequence = { workspace = true }
 
