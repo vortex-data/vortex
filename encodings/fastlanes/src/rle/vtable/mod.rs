@@ -3,6 +3,8 @@
 
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -20,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::RLEArray;
+use crate::rle::kernel::PARENT_KERNELS;
 
 mod array;
 mod canonical;
@@ -142,6 +145,15 @@ impl VTable for RLEVTable {
             metadata.offset as usize,
             len,
         )
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
