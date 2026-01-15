@@ -407,3 +407,113 @@ fn cmp_hybrid_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
 
     bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
 }
+
+// =============================================================================
+// Runs implementation benchmarks (PDEP-style chunk processing)
+// =============================================================================
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_runs_sparse_base_10_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_runs_sparse_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_runs_dense_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_runs_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+// =============================================================================
+// Correlated/Run-based data benchmarks
+// =============================================================================
+
+/// Create a mask with runs of consecutive trues (correlated data pattern)
+fn create_runs_mask(len: usize, run_len: usize, gap_len: usize) -> Mask {
+    Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| {
+        let cycle = run_len + gap_len;
+        (i % cycle) < run_len
+    })))
+}
+
+/// Base with long runs (64+ consecutive trues) - tests the all-ones fast path
+#[divan::bench(args = BASE_SIZES)]
+fn runs_long_runs_base(bencher: Bencher, base_size: usize) {
+    // Runs of 64 trues, gaps of 64 falses
+    let base = create_runs_mask(base_size, 64, 64);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+/// Compare: runs vs indices for long-runs base
+#[divan::bench(args = BASE_SIZES)]
+fn runs_long_runs_base_indices(bencher: Bencher, base_size: usize) {
+    let base = create_runs_mask(base_size, 64, 64);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// Compare: runs vs hybrid for long-runs base
+#[divan::bench(args = BASE_SIZES)]
+fn runs_long_runs_base_hybrid(bencher: Bencher, base_size: usize) {
+    let base = create_runs_mask(base_size, 64, 64);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
+
+/// All-true base (every chunk is u64::MAX) - maximum benefit for runs approach
+#[divan::bench(args = BASE_SIZES)]
+fn runs_all_true_base(bencher: Bencher, base_size: usize) {
+    let base = Mask::new_true(base_size);
+    let rank = create_dense_mask(base_size, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_runs(&rank));
+}
+
+/// Compare: runs vs indices for all-true base
+#[divan::bench(args = BASE_SIZES)]
+fn runs_all_true_base_indices(bencher: Bencher, base_size: usize) {
+    let base = Mask::new_true(base_size);
+    let rank = create_dense_mask(base_size, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// Compare: runs vs hybrid for all-true base
+#[divan::bench(args = BASE_SIZES)]
+fn runs_all_true_base_hybrid(bencher: Bencher, base_size: usize) {
+    let base = Mask::new_true(base_size);
+    let rank = create_dense_mask(base_size, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
