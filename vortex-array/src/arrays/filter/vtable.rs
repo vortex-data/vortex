@@ -206,8 +206,8 @@ impl CanonicalVTable<FilterVTable> for FilterVTable {
 }
 
 impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
-        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
+    fn slice(_array: &FilterArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("using reduce/execute rules")
     }
 
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {

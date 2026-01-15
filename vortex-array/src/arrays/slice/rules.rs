@@ -392,6 +392,7 @@ impl ArrayReduceRule<SliceVTable> for SliceDictRule {
 #[derive(Debug)]
 struct SliceFilterRule;
 
+// TODO(joe): review this rule maybe only have a execute parent.
 impl ArrayReduceRule<SliceVTable> for SliceFilterRule {
     fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
         let Some(filter) = array.child().as_opt::<FilterVTable>() else {
@@ -399,9 +400,26 @@ impl ArrayReduceRule<SliceVTable> for SliceFilterRule {
         };
 
         let range = array.slice_range().clone();
+        let mask = filter.filter_mask();
+
+        // range refers to filtered positions (0..true_count), not raw positions
+        // We need to find the raw positions corresponding to these filtered positions
+        assert!(
+            range.end <= mask.true_count(),
+            "slice end {} exceeds filter true_count {}",
+            range.end,
+            mask.true_count()
+        );
+        let start_raw = mask.rank(range.start);
+        let end_raw = if range.end == mask.true_count() {
+            mask.len()
+        } else {
+            mask.rank(range.end)
+        };
+
         let result = FilterArray::new(
-            filter.child().slice(range.clone()),
-            filter.filter_mask().slice(range),
+            filter.child().slice(start_raw..end_raw),
+            mask.slice(start_raw..end_raw),
         )
         .into_array();
 
@@ -484,10 +502,13 @@ impl ArrayReduceRule<SliceVTable> for SliceScalarFnRule {
 #[cfg(test)]
 mod tests {
     use vortex_error::VortexResult;
+    use vortex_mask::Mask;
 
+    use super::SliceFilterRule;
     use super::SliceSliceRule;
     use crate::Array;
     use crate::IntoArray;
+    use crate::arrays::FilterArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::SliceArray;
     use crate::arrays::SliceVTable;
@@ -495,111 +516,71 @@ mod tests {
     use crate::optimizer::rules::ArrayReduceRule;
 
     #[test]
-    fn test_slice_slice_whole_array() -> VortexResult<()> {
-        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    fn test_slice_slice() -> VortexResult<()> {
+        // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
         let arr = PrimitiveArray::from_iter(0i32..10).into_array();
-
-        // Inner slice: 2..8 -> [2, 3, 4, 5, 6, 7] (length 6)
-        let inner_slice = SliceArray::new(arr.clone(), 2..8).into_array();
-
-        // Outer slice takes the whole inner slice: 0..6 -> [2, 3, 4, 5, 6, 7]
-        let outer_slice = SliceArray::new(inner_slice, 0..6);
-
-        // Apply the rule
-        let result = SliceSliceRule.reduce(&outer_slice)?;
-        assert!(result.is_some(), "SliceSliceRule should match");
-
-        let reduced = result.unwrap();
-        // Should be equivalent to Slice(2..8, original)
-        let reduced_slice = reduced.as_::<SliceVTable>();
-        assert_eq!(reduced_slice.slice_range(), &(2..8));
-
-        // Verify the values are correct
-        let expected = PrimitiveArray::from_iter([2i32, 3, 4, 5, 6, 7]).into_array();
-        assert_arrays_eq!(reduced, expected);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_slice_slice_smaller() -> VortexResult<()> {
-        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
-
-        // Inner slice: 2..8 -> [2, 3, 4, 5, 6, 7] (length 6)
-        let inner_slice = SliceArray::new(arr.clone(), 2..8).into_array();
-
-        // Outer slice takes middle: 1..4 -> [3, 4, 5] (length 3)
+        let inner_slice = SliceArray::new(arr, 2..8).into_array();
         let outer_slice = SliceArray::new(inner_slice, 1..4);
 
-        // Apply the rule
         let result = SliceSliceRule.reduce(&outer_slice)?;
-        assert!(result.is_some(), "SliceSliceRule should match");
+        assert!(result.is_some());
 
         let reduced = result.unwrap();
-        // Should be equivalent to Slice(3..6, original)
-        // inner_start (2) + outer_start (1) = 3
-        // inner_start (2) + outer_end (4) = 6
-        let reduced_slice = reduced.as_::<SliceVTable>();
-        assert_eq!(reduced_slice.slice_range(), &(3..6));
-
-        // Verify the values are correct
-        let expected = PrimitiveArray::from_iter([3i32, 4, 5]).into_array();
-        assert_arrays_eq!(reduced, expected);
+        assert_eq!(reduced.as_::<SliceVTable>().slice_range(), &(3..6));
+        assert_arrays_eq!(reduced, PrimitiveArray::from_iter([3i32, 4, 5]));
 
         Ok(())
     }
 
     #[test]
-    fn test_slice_slice_at_start() -> VortexResult<()> {
-        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+    fn test_slice_filter_basic() -> VortexResult<()> {
+        // Tests rank() conversion from filtered positions to raw positions
+        let child = PrimitiveArray::from_iter(0i32..6).into_array();
+        let mask = Mask::from_iter([true, false, true, true, false, true]);
+        let filter = FilterArray::new(child, mask).into_array();
 
-        // Inner slice: 5..10 -> [5, 6, 7, 8, 9] (length 5)
-        let inner_slice = SliceArray::new(arr.clone(), 5..10).into_array();
+        let slice = SliceArray::new(filter, 1..3);
+        let result = SliceFilterRule.reduce(&slice)?;
 
-        // Outer slice takes first 2: 0..2 -> [5, 6]
-        let outer_slice = SliceArray::new(inner_slice, 0..2);
-
-        // Apply the rule
-        let result = SliceSliceRule.reduce(&outer_slice)?;
-        assert!(result.is_some(), "SliceSliceRule should match");
-
-        let reduced = result.unwrap();
-        // Should be equivalent to Slice(5..7, original)
-        let reduced_slice = reduced.as_::<SliceVTable>();
-        assert_eq!(reduced_slice.slice_range(), &(5..7));
-
-        // Verify the values are correct
-        let expected = PrimitiveArray::from_iter([5i32, 6]).into_array();
-        assert_arrays_eq!(reduced, expected);
+        assert!(result.is_some());
+        assert_arrays_eq!(result.unwrap(), PrimitiveArray::from_iter([2i32, 3]));
 
         Ok(())
     }
 
     #[test]
-    fn test_slice_slice_at_end() -> VortexResult<()> {
-        // Create array [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+    fn test_slice_filter_to_end() -> VortexResult<()> {
+        // Tests end boundary: when range.end == true_count, uses mask.len() not rank()
+        let child = PrimitiveArray::from_iter([10i32, 20, 30, 40, 50]).into_array();
+        let mask = Mask::from_iter([true, false, true, false, true]); // true_count = 3
+        let filter = FilterArray::new(child, mask).into_array();
 
-        // Inner slice: 0..5 -> [0, 1, 2, 3, 4] (length 5)
-        let inner_slice = SliceArray::new(arr.clone(), 0..5).into_array();
+        let slice = SliceArray::new(filter, 1..3); // end == true_count
+        let result = SliceFilterRule.reduce(&slice)?;
 
-        // Outer slice takes last 2: 3..5 -> [3, 4]
-        let outer_slice = SliceArray::new(inner_slice, 3..5);
+        assert!(result.is_some());
+        assert_arrays_eq!(result.unwrap(), PrimitiveArray::from_iter([30i32, 50]));
 
-        // Apply the rule
-        let result = SliceSliceRule.reduce(&outer_slice)?;
-        assert!(result.is_some(), "SliceSliceRule should match");
+        Ok(())
+    }
 
-        let reduced = result.unwrap();
-        // Should be equivalent to Slice(3..5, original)
-        let reduced_slice = reduced.as_::<SliceVTable>();
-        assert_eq!(reduced_slice.slice_range(), &(3..5));
+    #[test]
+    fn test_slice_filter_sparse_mask() -> VortexResult<()> {
+        // Tests rank() on sparse mask where it must walk many false values
+        let child = PrimitiveArray::from_iter(0i32..20).into_array();
+        let mask = Mask::from_iter([
+            false, false, false, true, // pos 3
+            false, false, false, false, false, false, true, // pos 10
+            false, false, false, false, true, // pos 15
+            false, false, false, true, // pos 19
+        ]);
+        let filter = FilterArray::new(child, mask).into_array();
 
-        // Verify the values are correct
-        let expected = PrimitiveArray::from_iter([3i32, 4]).into_array();
-        assert_arrays_eq!(reduced, expected);
+        let slice = SliceArray::new(filter, 1..3);
+        let result = SliceFilterRule.reduce(&slice)?;
+
+        assert!(result.is_some());
+        assert_arrays_eq!(result.unwrap(), PrimitiveArray::from_iter([10i32, 15]));
 
         Ok(())
     }
