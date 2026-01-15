@@ -193,3 +193,57 @@ fn realistic_medium_selectivity_filter(bencher: Bencher, base_size: usize) {
 
     bencher.bench(|| base.intersect_by_rank(&rank));
 }
+
+// =============================================================================
+// High density rank mask (90%+) - potential optimization target
+// =============================================================================
+
+/// 90% rank selectivity - current implementation iterates 90% of indices
+#[divan::bench(args = BASE_SIZES)]
+fn high_density_rank_90_percent(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// 95% rank selectivity - only 5% false values
+#[divan::bench(args = BASE_SIZES)]
+fn high_density_rank_95_percent(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.95);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// 99% rank selectivity - only 1% false values
+#[divan::bench(args = BASE_SIZES)]
+fn high_density_rank_99_percent(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// Compare: 10% rank (current sweet spot) vs high density
+#[divan::bench(args = BASE_SIZES)]
+fn comparison_rank_10_percent(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// Dense base (50%) with very high density rank (95%)
+#[divan::bench(args = BASE_SIZES)]
+fn high_density_dense_base_95_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.95);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
