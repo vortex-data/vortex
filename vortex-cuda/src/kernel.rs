@@ -3,7 +3,10 @@
 
 //! CUDA kernel loading and management.
 
+use std::env;
 use std::fmt::Debug;
+use std::path::Path;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
@@ -64,15 +67,11 @@ impl KernelLoader {
         let module = if let Some(entry) = self.modules.get(module_name) {
             Arc::clone(entry.value())
         } else {
-            // Derive PTX path from module name
-            let ptx_path = format!("kernels/{}.ptx", module_name);
-
-            let ptx_content = std::fs::read_to_string(&ptx_path)
-                .map_err(|e| vortex_err!("Failed to read PTX file from '{}': {}", ptx_path, e))?;
+            let ptx_path = Self::ptx_path_for_module(module_name)?;
 
             // Compile and load the CUDA module.
             let module = cuda_context
-                .load_module(Ptx::from_src(&ptx_content))
+                .load_module(Ptx::from_file(&ptx_path))
                 .map_err(|e| vortex_err!("Failed to load CUDA module: {}", e))?;
 
             // Cache the module
@@ -86,5 +85,24 @@ impl KernelLoader {
         module
             .load_function(&kernel_name)
             .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
+    }
+
+    /// Returns the PTX file path for a given module name.
+    ///
+    /// Constructs the path based on the crate's manifest directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `module_name` - Name of the module
+    ///
+    /// # Returns
+    ///
+    /// The full path to the PTX file
+    fn ptx_path_for_module(module_name: &str) -> VortexResult<PathBuf> {
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR")
+            .map_err(|e| vortex_err!("Failed to get manifest dir: {}", e))?;
+        Ok(Path::new(&manifest_dir)
+            .join("kernels")
+            .join(format!("{}.ptx", module_name)))
     }
 }
