@@ -19,6 +19,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
+use vortex_vector::ScalarOps;
 use vortex_vector::VectorMut;
 use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
@@ -169,31 +170,32 @@ impl Scalar {
 
     /// Convert a `vortex-vector` [`vortex_vector::Scalar`] into a `vortex-scalar` [`Scalar`].
     pub fn from_vector_scalar(scalar: vortex_vector::Scalar, dtype: &DType) -> VortexResult<Self> {
+        if !scalar.is_valid() {
+            vortex_ensure!(
+                dtype.is_nullable(),
+                "Cannot create null scalar for non-nullable dtype"
+            );
+            return Ok(Scalar::null(dtype.clone()));
+        }
+
         Ok(match dtype {
-            DType::Null => Scalar::null(DType::Null),
-            DType::Bool(n) => match scalar.as_bool().value() {
-                None => {
-                    vortex_ensure!(
-                        n.is_nullable(),
-                        "Cannot create null scalar for non-nullable dtype"
-                    );
-                    Scalar::null(dtype.clone())
-                }
-                Some(b) => Scalar::bool(b, *n),
-            },
+            DType::Null => unreachable!("null dtype should have been handled by the null check"),
+            DType::Bool(n) => Scalar::bool(
+                scalar
+                    .as_bool()
+                    .value()
+                    .vortex_expect("value must be valid after null check"),
+                *n,
+            ),
             DType::Primitive(ptype, n) => {
                 match_each_native_ptype!(ptype, |T| {
                     let pscalar = scalar.into_primitive().downcast::<T>();
-                    match pscalar.value() {
-                        None => {
-                            vortex_ensure!(
-                                n.is_nullable(),
-                                "Cannot create null scalar for non-nullable dtype"
-                            );
-                            Scalar::null(dtype.clone())
-                        }
-                        Some(v) => Scalar::primitive(v, *n),
-                    }
+                    Scalar::primitive(
+                        pscalar
+                            .value()
+                            .vortex_expect("value must be valid after null check"),
+                        *n,
+                    )
                 })
             }
             DType::Decimal(dec_type, n) => {
@@ -202,39 +204,34 @@ impl Scalar {
                     DecimalType::smallest_decimal_value_type(dec_type),
                     |D| {
                         let dscalar = <D as NativeDecimalType>::downcast(dec_scalar);
-                        match dscalar.value() {
-                            None => {
-                                vortex_ensure!(
-                                    n.is_nullable(),
-                                    "Cannot create null scalar for non-nullable dtype"
-                                );
-                                Scalar::null(dtype.clone())
-                            }
-                            Some(v) => Scalar::decimal(DecimalValue::from(v), *dec_type, *n),
-                        }
+                        Scalar::decimal(
+                            DecimalValue::from(
+                                dscalar
+                                    .value()
+                                    .vortex_expect("value must be valid after null check"),
+                            ),
+                            *dec_type,
+                            *n,
+                        )
                     }
                 )
             }
-            DType::Utf8(n) => match scalar.as_string().value() {
-                None => {
-                    vortex_ensure!(
-                        n.is_nullable(),
-                        "Cannot create null scalar for non-nullable dtype"
-                    );
-                    Scalar::null(dtype.clone())
-                }
-                Some(s) => Scalar::utf8(s.clone(), *n),
-            },
-            DType::Binary(n) => match scalar.as_binary().value() {
-                None => {
-                    vortex_ensure!(
-                        n.is_nullable(),
-                        "Cannot create null scalar for non-nullable dtype"
-                    );
-                    Scalar::null(dtype.clone())
-                }
-                Some(b) => Scalar::binary(b.clone(), *n),
-            },
+            DType::Utf8(n) => Scalar::utf8(
+                scalar
+                    .as_string()
+                    .value()
+                    .vortex_expect("value must be valid after null check")
+                    .clone(),
+                *n,
+            ),
+            DType::Binary(n) => Scalar::binary(
+                scalar
+                    .as_binary()
+                    .value()
+                    .vortex_expect("value must be valid after null check")
+                    .clone(),
+                *n,
+            ),
             DType::List(elem_dtype, n) => {
                 let elements = scalar.as_list().value().elements();
                 Scalar::list(
@@ -247,9 +244,9 @@ impl Scalar {
                 )
             }
             DType::FixedSizeList(elem_dtype, size, n) => {
-                let scalar = scalar.into_fixed_size_list();
-                let elements = scalar.value().elements();
-                vortex_ensure!(scalar.value().list_size() == *size);
+                let fsl_scalar = scalar.into_fixed_size_list();
+                let elements = fsl_scalar.value().elements();
+                vortex_ensure!(fsl_scalar.value().list_size() == *size);
 
                 Scalar::fixed_size_list(
                     DType::FixedSizeList(elem_dtype.clone(), *size, *n),
@@ -276,5 +273,44 @@ impl Scalar {
                 Scalar::from_vector_scalar(scalar, ext_dtype.storage_dtype())?,
             ),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
+    use vortex_mask::Mask;
+    use vortex_vector::VectorMut;
+    use vortex_vector::VectorMutOps;
+    use vortex_vector::struct_::StructScalar;
+    use vortex_vector::struct_::StructVector;
+
+    use crate::Scalar;
+
+    #[test]
+    fn test_from_vector_scalar_null_struct() {
+        let dtype = DType::Struct(
+            StructFields::new(
+                ["a"].into(),
+                vec![DType::Primitive(PType::I32, Nullability::Nullable)],
+            ),
+            Nullability::Nullable,
+        );
+
+        let mut field_vec =
+            VectorMut::with_capacity(&DType::Primitive(PType::I32, Nullability::Nullable), 1);
+        field_vec.append_zeros(1);
+        let struct_vec = StructVector::new(
+            Arc::new(vec![field_vec.freeze()].into_boxed_slice()),
+            Mask::new_false(1),
+        );
+        let vector_scalar = StructScalar::new(struct_vec);
+        let result = Scalar::from_vector_scalar(vector_scalar.into(), &dtype).unwrap();
+        assert!(result.is_null());
     }
 }
