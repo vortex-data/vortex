@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools;
+use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
@@ -135,13 +136,13 @@ impl ArrayReduceRule<SliceVTable> for SlicePrimitiveRule {
 
         let range = array.slice_range().clone();
 
-        let validity = match primitive.validity() {
-            v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v.clone(),
-            Validity::Array(arr) => Validity::Array(arr.clone().slice(range.clone())),
-        };
-
         let result = match_each_native_ptype!(primitive.ptype(), |T| {
-            PrimitiveArray::new(primitive.buffer::<T>().slice(range), validity).into_array()
+            PrimitiveArray::from_buffer_handle(
+                primitive.buffer_handle().slice_typed::<T>(range.clone()),
+                T::PTYPE,
+                primitive.validity().slice(range),
+            )
+            .into_array()
         });
 
         Ok(Some(result))

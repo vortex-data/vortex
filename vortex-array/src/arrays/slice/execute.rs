@@ -9,9 +9,6 @@ use itertools::Itertools;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 
-use crate::Array;
-use crate::Canonical;
-use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::ExtensionArray;
@@ -21,9 +18,9 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
-use crate::arrays::slice::SliceArray;
-use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
+use crate::Array;
+use crate::Canonical;
 
 /// Slice a canonical array by a range, returning a new canonical array.
 pub fn slice_canonical(canonical: Canonical, range: Range<usize>) -> Canonical {
@@ -52,16 +49,12 @@ fn slice_bool(array: &BoolArray, range: Range<usize>) -> BoolArray {
 }
 
 fn slice_primitive(array: &PrimitiveArray, range: Range<usize>) -> PrimitiveArray {
-    // Lazy validity: wrap in SliceArray instead of eagerly slicing
-    let validity = match array.validity() {
-        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v.clone(),
-        Validity::Array(arr) => {
-            Validity::Array(SliceArray::new(arr.clone(), range.clone()).into_array())
-        }
-    };
-
     match_each_native_ptype!(array.ptype(), |T| {
-        PrimitiveArray::new(array.buffer::<T>().slice(range), validity)
+        PrimitiveArray::from_buffer_handle(
+            array.buffer_handle().slice_typed::<T>(range.clone()),
+            array.ptype(),
+            array.validity().slice(range),
+        )
     })
 }
 
