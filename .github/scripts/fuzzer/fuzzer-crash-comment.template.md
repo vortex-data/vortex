@@ -17,8 +17,16 @@ A similar crash was detected matching this issue.
 | **Target** | `{{FUZZ_TARGET}}` |
 | **Crash Type** | `{{CRASH_TYPE}}` |
 | **Crash File** | `{{CRASH_FILE}}` |
+
+<details>
+<summary>Deduplication Hashes</summary>
+
+| Hash Type | Value |
+|-----------|-------|
 | **Seed Hash** | `{{SEED_HASH}}` |
 | **Stack Hash** | `{{STACK_HASH}}` |
+
+</details>
 
 ### Location
 

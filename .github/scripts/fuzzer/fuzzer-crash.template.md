@@ -7,9 +7,19 @@
 | **Target** | `{{FUZZ_TARGET}}` |
 | **Crash Type** | `{{CRASH_TYPE}}` |
 | **Crash File** | `{{CRASH_FILE}}` |
+
+<details>
+<summary>Deduplication Hashes</summary>
+
+These hashes are used for automatic duplicate detection:
+
+| Hash Type | Value |
+|-----------|-------|
 | **Seed Hash** | `{{SEED_HASH}}` |
 | **Stack Hash** | `{{STACK_HASH}}` |
 | **Message Hash** | `{{MESSAGE_HASH}}` |
+
+</details>
 
 ### Location
 
