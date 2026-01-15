@@ -98,6 +98,7 @@ impl Default for CudaSession {
     ///
     /// Panics if CUDA device 0 cannot be initialized.
     fn default() -> Self {
+        #[expect(clippy::expect_used)]
         let context = CudaContext::new(0).expect("Failed to initialize CUDA device 0");
         Self::new(context)
     }
