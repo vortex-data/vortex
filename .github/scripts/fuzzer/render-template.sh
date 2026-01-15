@@ -4,6 +4,7 @@
 #
 # All {{VAR_NAME}} patterns are replaced with $VAR_NAME from environment
 # If a variable is not set, it's replaced with "(not set)"
+# Handles multiline values properly
 
 set -euo pipefail
 
@@ -15,20 +16,25 @@ if [[ -z "$TEMPLATE_FILE" || ! -f "$TEMPLATE_FILE" ]]; then
     exit 1
 fi
 
-# Read template
-content=$(cat "$TEMPLATE_FILE")
+# Use awk for more robust multiline handling
+awk '
+{
+    line = $0
+    # Find all {{VAR}} patterns in the line
+    while (match(line, /\{\{[A-Z_][A-Z0-9_]*\}\}/)) {
+        # Extract the variable name (without braces)
+        var_with_braces = substr(line, RSTART, RLENGTH)
+        var_name = substr(var_with_braces, 3, length(var_with_braces) - 4)
 
-# Find all {{VAR}} patterns and substitute them
-while [[ "$content" =~ \{\{([A-Z_][A-Z0-9_]*)\}\} ]]; do
-    var_name="${BASH_REMATCH[1]}"
-    var_value="${!var_name:-(not set)}"
+        # Get value from environment
+        var_value = ENVIRON[var_name]
+        if (var_value == "") {
+            var_value = "(not set)"
+        }
 
-    # Escape special characters in value for sed
-    escaped_value=$(printf '%s\n' "$var_value" | sed -e 's/[&\\/]/\\&/g; s/$/\\/' -e '$s/\\$//')
-
-    # Replace the placeholder
-    content=$(echo "$content" | sed "s|{{${var_name}}}|${escaped_value}|g")
-done
-
-# Write output
-echo "$content" > "$OUTPUT_FILE"
+        # Replace the placeholder
+        line = substr(line, 1, RSTART - 1) var_value substr(line, RSTART + RLENGTH)
+    }
+    print line
+}
+' "$TEMPLATE_FILE" > "$OUTPUT_FILE"

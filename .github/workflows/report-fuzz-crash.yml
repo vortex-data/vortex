@@ -104,13 +104,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.gh_token }}
 
-      - name: Run deduplication checks
-        id: dedup
+      - name: Run scripted deduplication checks
+        id: dedup_scripted
         run: |
           result=$(.github/scripts/fuzzer/check-duplicate.sh crash_info.json fuzzer_issues.json)
           echo "$result" > dedup_result.json
 
-          echo "Dedup result:"
+          echo "Scripted dedup result:"
           cat dedup_result.json
 
           is_duplicate=$(echo "$result" | jq -r '.duplicate')
@@ -123,15 +123,89 @@ jobs:
             echo "match_reason=$(echo "$result" | jq -r '.reason')" >> $GITHUB_OUTPUT
           fi
 
-      - name: Get Claude analysis
-        id: claude
+      - name: Claude deduplication check
+        id: dedup_claude
+        if: steps.dedup_scripted.outputs.is_duplicate != 'true'
+        continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
           github_token: ${{ secrets.gh_token }}
           show_full_output: true
           prompt: |
-            Analyze this fuzzer crash and provide a brief root cause analysis.
+            Check if this fuzzer crash is a duplicate of any existing issue.
+
+            ## New Crash Information
+
+            - **Target**: ${{ inputs.fuzz_target }}
+            - **Panic Location**: ${{ steps.extract.outputs.panic_location }}
+            - **Error Variant**: ${{ steps.extract.outputs.error_variant }}
+            - **Panic Message**: ${{ steps.extract.outputs.panic_message }}
+            - **Seed Hash**: ${{ steps.extract.outputs.seed_hash }}
+
+            ## Instructions
+
+            1. Read `fuzzer_issues.json` which contains all open fuzzer issues
+            2. Read the crash log at `logs/fuzz_output.log` for full context
+            3. Compare this crash to existing issues looking for:
+               - Same component/module affected
+               - Similar error patterns (ignore specific numbers)
+               - Related stack traces
+               - Same root cause manifesting differently
+
+            4. Write your decision to `claude_dedup.json` in this exact format:
+               - If duplicate: `{"duplicate": true, "issue_number": N, "reason": "explanation"}`
+               - If new: `{"duplicate": false, "reason": "explanation"}`
+
+            Be liberal - if there's ANY chance this is related to an existing issue, mark it as duplicate.
+          claude_args: |
+            --model claude-sonnet-4-5-20250929
+            --max-turns 15
+            --allowedTools "Read,Write,Glob,Grep"
+
+      - name: Process Claude dedup result
+        id: dedup
+        run: |
+          # Check if scripted checks found a duplicate
+          if [[ "${{ steps.dedup_scripted.outputs.is_duplicate }}" == "true" ]]; then
+            echo "is_duplicate=true" >> $GITHUB_OUTPUT
+            echo "issue_number=${{ steps.dedup_scripted.outputs.issue_number }}" >> $GITHUB_OUTPUT
+            echo "match_check=${{ steps.dedup_scripted.outputs.match_check }}" >> $GITHUB_OUTPUT
+            echo "match_confidence=${{ steps.dedup_scripted.outputs.match_confidence }}" >> $GITHUB_OUTPUT
+            echo "match_reason=${{ steps.dedup_scripted.outputs.match_reason }}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check Claude's result
+          if [[ -f claude_dedup.json ]]; then
+            echo "Claude dedup result:"
+            cat claude_dedup.json
+
+            is_dup=$(jq -r '.duplicate' claude_dedup.json)
+            if [[ "$is_dup" == "true" ]]; then
+              echo "is_duplicate=true" >> $GITHUB_OUTPUT
+              echo "issue_number=$(jq -r '.issue_number' claude_dedup.json)" >> $GITHUB_OUTPUT
+              echo "match_check=claude" >> $GITHUB_OUTPUT
+              echo "match_confidence=medium" >> $GITHUB_OUTPUT
+              echo "match_reason=$(jq -r '.reason' claude_dedup.json)" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+          fi
+
+          # No duplicate found
+          echo "is_duplicate=false" >> $GITHUB_OUTPUT
+
+      - name: Get Claude analysis
+        id: claude
+        if: steps.dedup.outputs.match_check != 'seed_hash'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.claude_code_oauth_token }}
+          github_token: ${{ secrets.gh_token }}
+          show_full_output: true
+          prompt: |
+            Analyze this fuzzer crash and write a brief root cause analysis to `claude_analysis.txt`.
 
             ## Crash Information
 
@@ -144,17 +218,23 @@ jobs:
 
             1. Read the crash log at `logs/fuzz_output.log`
             2. Read the source code at the panic location to understand context
-            3. Output ONLY a brief analysis (3-5 sentences) explaining:
+            3. Write a brief analysis (3-5 sentences) to `claude_analysis.txt` explaining:
                - What went wrong
                - The likely root cause
                - Which component is affected
 
-            Do NOT create issues or run any gh commands. Just provide the analysis text.
-            Output your analysis as plain text, no markdown formatting needed.
+            Do NOT create issues or run any gh commands.
+            Write ONLY the analysis text to claude_analysis.txt, no markdown formatting.
           claude_args: |
             --model claude-sonnet-4-5-20250929
             --max-turns 10
-            --allowedTools "Read,Glob,Grep"
+            --allowedTools "Read,Write,Glob,Grep"
+
+      - name: Ensure analysis file exists
+        run: |
+          if [[ ! -f claude_analysis.txt ]]; then
+            echo "Analysis not available (Claude step skipped or failed)" > claude_analysis.txt
+          fi
 
       - name: Prepare template variables
         id: template_vars
@@ -190,7 +270,7 @@ jobs:
           # Load multiline values
           export STACK_TRACE=$(cat stack_trace.txt)
           export DEBUG_OUTPUT=$(cat debug_output.txt)
-          export CLAUDE_ANALYSIS="${{ steps.claude.outputs.response }}"
+          export CLAUDE_ANALYSIS=$(cat claude_analysis.txt)
 
           # Handle duplicate case
           if [[ "${{ steps.dedup.outputs.is_duplicate }}" == "true" ]]; then
