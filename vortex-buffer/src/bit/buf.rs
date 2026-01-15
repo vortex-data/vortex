@@ -23,6 +23,23 @@ use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
 
+/// Find the position of the nth set bit within a u64 word (0-indexed).
+///
+/// This is the "select" operation within a single word.
+#[inline]
+fn select_in_word(mut word: u64, mut n: usize) -> usize {
+    // Clear the lowest set bits one at a time until we've cleared n of them.
+    // The next set bit is the one we want.
+    loop {
+        let tz = word.trailing_zeros() as usize;
+        if n == 0 {
+            return tz;
+        }
+        word &= word - 1; // Clear the lowest set bit
+        n -= 1;
+    }
+}
+
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -296,6 +313,54 @@ impl BitBuffer {
     /// Get the number of unset bits in the buffer.
     pub fn false_count(&self) -> usize {
         self.len - self.true_count()
+    }
+
+    /// Returns the index of the nth set bit (0-indexed).
+    ///
+    /// This is also known as the "select" operation in succinct data structures.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n >= true_count()`.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use vortex_buffer::BitBuffer;
+    ///
+    /// let buf = BitBuffer::from_iter([false, true, false, true, true]);
+    /// assert_eq!(buf.select(0), 1); // 1st set bit is at index 1
+    /// assert_eq!(buf.select(1), 3); // 2nd set bit is at index 3
+    /// assert_eq!(buf.select(2), 4); // 3rd set bit is at index 4
+    /// ```
+    pub fn select(&self, n: usize) -> usize {
+        let mut remaining = n;
+        let chunks = self.chunks();
+
+        // Process full u64 chunks
+        for (chunk_idx, chunk) in chunks.iter().enumerate() {
+            let popcount = chunk.count_ones() as usize;
+            if remaining < popcount {
+                // The nth bit is in this chunk
+                return chunk_idx * 64 + select_in_word(chunk, remaining);
+            }
+            remaining -= popcount;
+        }
+
+        // Check the remainder bits
+        let remainder = chunks.remainder_bits();
+        if remainder != 0 {
+            let popcount = remainder.count_ones() as usize;
+            if remaining < popcount {
+                let chunk_idx = self.len / 64;
+                return chunk_idx * 64 + select_in_word(remainder, remaining);
+            }
+        }
+
+        panic!(
+            "select({n}) out of bounds: buffer has only {} set bits",
+            self.true_count()
+        );
     }
 
     /// Iterator over bits in the buffer
@@ -704,6 +769,52 @@ mod tests {
         for i in 0..len {
             assert_eq!(buf.value(i), mapped.value(i), "Mismatch at index {}", i);
         }
+    }
+
+    #[rstest]
+    #[case(5)]
+    #[case(8)]
+    #[case(64)]
+    #[case(65)]
+    #[case(100)]
+    fn test_select_basic(#[case] len: usize) {
+        // Create a buffer with alternating bits
+        let buf = BitBuffer::collect_bool(len, |i| i % 2 == 0);
+
+        // Verify select returns correct indices
+        let true_count = buf.true_count();
+        for n in 0..true_count {
+            let selected_idx = buf.select(n);
+            // The nth set bit should be at position n * 2 (every other bit is set)
+            assert_eq!(selected_idx, n * 2, "select({n}) should be {}", n * 2);
+        }
+    }
+
+    #[test]
+    fn test_select_sparse() {
+        // Create a buffer with only a few bits set
+        let buf = BitBuffer::collect_bool(1000, |i| i == 10 || i == 500 || i == 999);
+
+        assert_eq!(buf.select(0), 10);
+        assert_eq!(buf.select(1), 500);
+        assert_eq!(buf.select(2), 999);
+    }
+
+    #[test]
+    fn test_select_dense() {
+        // Create a buffer with all bits set
+        let buf = BitBuffer::new_set(100);
+
+        for n in 0..100 {
+            assert_eq!(buf.select(n), n);
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn test_select_out_of_bounds() {
+        let buf = BitBuffer::collect_bool(100, |i| i % 10 == 0); // 10 set bits
+        buf.select(10); // Should panic - only 10 bits (indices 0-9)
     }
 
     #[rstest]

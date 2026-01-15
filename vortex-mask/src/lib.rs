@@ -434,7 +434,15 @@ impl Mask {
         match &self {
             Self::AllTrue(_) => n,
             Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
-            Self::Values(values) => values.indices()[n],
+            Self::Values(values) => {
+                // If indices are already cached, use them for O(1) lookup
+                if let Some(indices) = values.indices.get() {
+                    return indices[n];
+                }
+                // Otherwise, compute directly from the bit buffer using select.
+                // This avoids materializing the entire indices vector.
+                values.buffer.select(n)
+            }
         }
     }
 

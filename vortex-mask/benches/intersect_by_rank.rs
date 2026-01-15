@@ -11,6 +11,74 @@ fn main() {
     divan::main();
 }
 
+// =============================================================================
+// Benchmark: Mask::rank (select) operation - uncached vs cached
+// =============================================================================
+
+const RANK_SIZES: &[usize] = &[1_000, 10_000, 100_000, 1_000_000];
+
+/// Benchmark rank() when indices are NOT cached (uses select algorithm).
+/// Creates a fresh mask each iteration to ensure no caching.
+#[divan::bench(args = RANK_SIZES)]
+fn rank_uncached(bencher: Bencher, len: usize) {
+    bencher
+        .with_inputs(|| {
+            // Create fresh mask from BitBuffer - indices won't be cached
+            let mask = Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| i % 10 == 0)));
+            let true_count = mask.true_count();
+            // Pick a rank near the middle
+            let target_rank = true_count / 2;
+            (mask, target_rank)
+        })
+        .bench_refs(|(mask, target_rank)| mask.rank(*target_rank));
+}
+
+/// Benchmark rank() when indices ARE cached.
+/// Pre-calls indices() to populate the cache.
+#[divan::bench(args = RANK_SIZES)]
+fn rank_cached(bencher: Bencher, len: usize) {
+    let mask = Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| i % 10 == 0)));
+    // Pre-cache the indices
+    let _ = mask.indices();
+    let true_count = mask.true_count();
+    let target_rank = true_count / 2;
+
+    bencher
+        .with_inputs(|| (&mask, target_rank))
+        .bench_refs(|(mask, target_rank)| mask.rank(*target_rank));
+}
+
+/// Benchmark multiple sequential rank() calls on uncached mask.
+/// This shows the benefit of avoiding full indices materialization.
+#[divan::bench(args = RANK_SIZES)]
+fn rank_uncached_multiple(bencher: Bencher, len: usize) {
+    bencher
+        .with_inputs(|| {
+            let mask = Mask::from_buffer(BitBuffer::from_iter((0..len).map(|i| i % 10 == 0)));
+            let true_count = mask.true_count();
+            // Query 10 different ranks
+            let ranks: Vec<usize> = (0..10).map(|i| i * true_count / 10).collect();
+            (mask, ranks)
+        })
+        .bench_refs(|(mask, ranks)| {
+            for &r in ranks.iter() {
+                divan::black_box(mask.rank(r));
+            }
+        });
+}
+
+/// Benchmark BitBuffer::select directly (the underlying operation).
+#[divan::bench(args = RANK_SIZES)]
+fn bitbuffer_select(bencher: Bencher, len: usize) {
+    let buf = BitBuffer::from_iter((0..len).map(|i| i % 10 == 0));
+    let true_count = buf.true_count();
+    let target = true_count / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select(*target));
+}
+
 /// Generate a mask with approximately `density` fraction of true values.
 fn make_mask_with_density(len: usize, density: f64) -> Mask {
     Mask::from_buffer(BitBuffer::from_iter(
