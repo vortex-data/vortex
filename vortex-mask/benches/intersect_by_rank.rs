@@ -367,3 +367,43 @@ fn cmp_u64_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
 
     bencher.bench(|| base.intersect_by_rank_u64(&rank));
 }
+
+// =============================================================================
+// Hybrid implementation benchmarks (indices lookup + u64 output)
+// =============================================================================
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_hybrid_sparse_base_10_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_hybrid_sparse_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_hybrid_dense_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_hybrid_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank_hybrid(&rank));
+}
