@@ -39,6 +39,7 @@ use parking_lot::Mutex;
 use vortex_bench::SESSION;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Benchmark Vortex scans over local files vs object stores")]
@@ -109,6 +110,10 @@ enum LiteralType {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env())
+        .init();
+
     let args = Args::parse();
 
     let (projection, filter) = build_scan_exprs(&args)?;
