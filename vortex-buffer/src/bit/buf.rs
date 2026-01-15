@@ -8,6 +8,8 @@ use std::ops::Bound;
 use std::ops::Not;
 use std::ops::RangeBounds;
 
+use vortex_error::vortex_panic;
+
 use crate::Alignment;
 use crate::BitBufferMut;
 use crate::Buffer;
@@ -22,7 +24,6 @@ use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
-use vortex_error::vortex_panic;
 
 /// Find the position of the nth set bit within a u64 word (0-indexed).
 ///
@@ -423,6 +424,15 @@ impl BitBuffer {
 
         // Process full u64 chunks
         for (chunk_idx, chunk) in chunks.iter().enumerate() {
+            // Fast path for all-ones words (common in runs of 1s)
+            if chunk == u64::MAX {
+                if remaining < 64 {
+                    return chunk_idx * 64 + remaining;
+                }
+                remaining -= 64;
+                continue;
+            }
+
             let popcount = chunk.count_ones() as usize;
             if remaining < popcount {
                 // The nth bit is in this chunk
@@ -443,6 +453,32 @@ impl BitBuffer {
 
         vortex_panic!(
             "select({n}) out of bounds: buffer has only {} set bits",
+            self.true_count()
+        );
+    }
+
+    /// Returns the index of the nth set bit using the set_slices iterator.
+    ///
+    /// This is an alternative implementation optimized for data with long runs
+    /// of consecutive 1s or 0s (correlated data). It skips entire runs at a time.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n >= true_count()`.
+    pub fn select_via_slices(&self, n: usize) -> usize {
+        let mut remaining = n;
+
+        // set_slices returns (start, end) pairs representing [start, end) ranges
+        for (start, end) in self.set_slices() {
+            let slice_len = end - start;
+            if remaining < slice_len {
+                return start + remaining;
+            }
+            remaining -= slice_len;
+        }
+
+        vortex_panic!(
+            "select_via_slices({n}) out of bounds: buffer has only {} set bits",
             self.true_count()
         );
     }
@@ -899,6 +935,30 @@ mod tests {
     fn test_select_out_of_bounds() {
         let buf = BitBuffer::collect_bool(100, |i| i % 10 == 0); // 10 set bits
         buf.select(10); // Should panic - only 10 bits (indices 0-9)
+    }
+
+    #[rstest]
+    #[case(100)]
+    #[case(1000)]
+    #[case(10000)]
+    fn test_select_via_slices_matches_select(#[case] len: usize) {
+        // Test with runs of 1s and 0s (correlated data)
+        let buf = BitBuffer::collect_bool(len, |i| (i / 64) % 2 == 0);
+
+        let true_count = buf.true_count();
+        for n in 0..true_count {
+            let expected = buf.select(n);
+            let actual = buf.select_via_slices(n);
+            assert_eq!(actual, expected, "select_via_slices({n}) mismatch");
+        }
+    }
+
+    #[test]
+    fn test_select_via_slices_all_ones() {
+        let buf = BitBuffer::new_set(1000);
+        for n in 0..1000 {
+            assert_eq!(buf.select_via_slices(n), n);
+        }
     }
 
     #[rstest]

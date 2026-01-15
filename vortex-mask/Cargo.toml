@@ -28,12 +28,7 @@ vortex-buffer = { workspace = true, features = ["arrow"] }
 vortex-error = { workspace = true }
 
 [dev-dependencies]
-divan = { workspace = true }
 rstest = { workspace = true }
-
-[[bench]]
-name = "intersect_by_rank"
-harness = false
 
 [lints]
 workspace = true

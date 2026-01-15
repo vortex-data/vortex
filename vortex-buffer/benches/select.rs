@@ -220,3 +220,112 @@ fn bitbuffer_select_dense(bencher: Bencher, len: usize) {
         .with_inputs(|| (&buf, target))
         .bench_refs(|(buf, target)| buf.select(*target));
 }
+
+// =============================================================================
+// Correlated data benchmarks: comparing select vs select_via_slices
+// =============================================================================
+
+/// Create a buffer with runs of 1s and 0s.
+/// run_len controls the average length of each run.
+fn make_run_buffer(len: usize, run_len: usize) -> BitBuffer {
+    BitBuffer::from_iter((0..len).map(|i| (i / run_len) % 2 == 0))
+}
+
+/// Create a buffer with all 1s (best case for all-ones optimization).
+fn make_all_ones_buffer(len: usize) -> BitBuffer {
+    BitBuffer::from_iter((0..len).map(|_| true))
+}
+
+// Different run lengths to test
+const RUN_LENGTHS: &[usize] = &[8, 64, 256, 1024];
+
+/// Benchmark select with runs of 1s and 0s - chunk-based approach.
+#[divan::bench(args = RUN_LENGTHS)]
+fn select_runs_chunks(bencher: Bencher, run_len: usize) {
+    let len = 1_000_000;
+    let buf = make_run_buffer(len, run_len);
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select(*target));
+}
+
+/// Benchmark select with runs of 1s and 0s - slices-based approach.
+#[divan::bench(args = RUN_LENGTHS)]
+fn select_runs_slices(bencher: Bencher, run_len: usize) {
+    let len = 1_000_000;
+    let buf = make_run_buffer(len, run_len);
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select_via_slices(*target));
+}
+
+/// Benchmark select on all-ones buffer - chunk-based (benefits from all-ones optimization).
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_all_ones_chunks(bencher: Bencher, len: usize) {
+    let buf = make_all_ones_buffer(len);
+    let target = len / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select(*target));
+}
+
+/// Benchmark select on all-ones buffer - slices-based.
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_all_ones_slices(bencher: Bencher, len: usize) {
+    let buf = make_all_ones_buffer(len);
+    let target = len / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select_via_slices(*target));
+}
+
+/// Benchmark with long runs of 1s (1024 bits each), select in middle of a run.
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_long_runs_middle_chunks(bencher: Bencher, len: usize) {
+    let buf = make_run_buffer(len, 1024);
+    // Target a position in the middle of a 1-run
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select(*target));
+}
+
+/// Benchmark with long runs of 1s (1024 bits each), select in middle of a run - slices.
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_long_runs_middle_slices(bencher: Bencher, len: usize) {
+    let buf = make_run_buffer(len, 1024);
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select_via_slices(*target));
+}
+
+/// Benchmark with short runs (8 bits) - many transitions, worst case for slices.
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_short_runs_chunks(bencher: Bencher, len: usize) {
+    let buf = make_run_buffer(len, 8);
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select(*target));
+}
+
+/// Benchmark with short runs (8 bits) - many transitions - slices.
+#[divan::bench(args = BUFFER_SIZES)]
+fn select_short_runs_slices(bencher: Bencher, len: usize) {
+    let buf = make_run_buffer(len, 8);
+    let target = buf.true_count() / 2;
+
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(buf, target)| buf.select_via_slices(*target));
+}
