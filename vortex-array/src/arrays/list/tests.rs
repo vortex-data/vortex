@@ -240,9 +240,10 @@ fn test_list_filter_all_true() {
 
     // Verify all lists are intact: [0..5], [5..10], [10..15], [15..20].
     for i in 0..4 {
+        let ii32 = i32::try_from(i).vortex_expect("must fit");
         assert_arrays_eq!(
             filtered_list.list_elements_at(i),
-            PrimitiveArray::from_iter((i * 5) as i32..((i + 1) * 5) as i32)
+            PrimitiveArray::from_iter((ii32 * 5)..(ii32 + 1) * 5)
         );
     }
 }
