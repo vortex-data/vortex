@@ -3,6 +3,7 @@
 
 use core::fmt;
 use std::any::Any;
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::LazyLock;
@@ -331,20 +332,19 @@ pub(crate) fn compare_nested_arrow_arrays(
     rhs: &dyn arrow_array::Array,
     operator: Operator,
 ) -> VortexResult<BooleanArray> {
-    let cmp = make_comparator(lhs, rhs, SortOptions::default())?;
+    let compare_arrays_at = make_comparator(lhs, rhs, SortOptions::default())?;
+
+    let cmp_fn = match operator {
+        Operator::Eq => Ordering::is_eq,
+        Operator::NotEq => Ordering::is_ne,
+        Operator::Gt => Ordering::is_gt,
+        Operator::Gte => Ordering::is_ge,
+        Operator::Lt => Ordering::is_lt,
+        Operator::Lte => Ordering::is_le,
+    };
 
     let values = (0..lhs.len())
-        .map(|i| {
-            let cmp_result = cmp(i, i);
-            match operator {
-                Operator::Eq => cmp_result.is_eq(),
-                Operator::NotEq => cmp_result.is_ne(),
-                Operator::Gt => cmp_result.is_gt(),
-                Operator::Gte => cmp_result.is_ge(),
-                Operator::Lt => cmp_result.is_lt(),
-                Operator::Lte => cmp_result.is_le(),
-            }
-        })
+        .map(|i| cmp_fn(compare_arrays_at(i, i)))
         .collect();
     let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
 
