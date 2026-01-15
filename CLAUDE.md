@@ -49,6 +49,16 @@
   either (a) required, or (b) would be exceptionally verbose otherwise. An example where function-scoped imports is good
   is when writing an exhaustive match statement with a branch that matches many cases.
 
+## Testing
+
+* Use `assert_arrays_eq!` macro from `vortex-array` to compare arrays in tests. It checks dtype, length, and
+  element-by-element equality using `scalar_at`, providing detailed error messages showing mismatched indices and
+  array values.
+  ```rust
+  use vortex_array::assert_arrays_eq;
+  assert_arrays_eq!(expected_array, actual_array);
+  ```
+
 ## Other
 
 * When summarizing your work, please produce summaries in valid Markdown that can be easily copied/pasted to Github.
