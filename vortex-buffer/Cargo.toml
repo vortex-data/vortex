@@ -48,3 +48,7 @@ harness = false
 [[bench]]
 name = "vortex_bitbuffer"
 harness = false
+
+[[bench]]
+name = "select"
+harness = false

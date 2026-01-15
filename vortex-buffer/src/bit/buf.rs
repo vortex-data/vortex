@@ -22,14 +22,39 @@ use crate::bit::get_bit_unchecked;
 use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
+use vortex_error::vortex_panic;
 
 /// Find the position of the nth set bit within a u64 word (0-indexed).
 ///
 /// This is the "select" operation within a single word.
+/// Uses BMI2 pdep instruction when available (single instruction),
+/// otherwise falls back to a hybrid approach.
 #[inline]
-fn select_in_word(mut word: u64, mut n: usize) -> usize {
-    // Clear the lowest set bits one at a time until we've cleared n of them.
-    // The next set bit is the one we want.
+fn select_in_word(word: u64, n: usize) -> usize {
+    #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+    {
+        // BMI2 pdep: O(1) - single instruction!
+        // Deposits a 1-bit at position n into the set-bit positions of word,
+        // then trailing_zeros finds where it landed.
+        use std::arch::x86_64::_pdep_u64;
+        unsafe { _pdep_u64(1u64 << n, word).trailing_zeros() as usize }
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
+    {
+        // Hybrid approach: loop is faster for small n, binary search for larger n.
+        // Crossover point is around n=3-4 based on benchmarks.
+        if n <= 3 {
+            select_in_word_loop(word, n)
+        } else {
+            select_in_word_binary_search(word, n)
+        }
+    }
+}
+
+/// Loop-based select: O(n) - fastest for small n (0-3).
+#[inline]
+fn select_in_word_loop(mut word: u64, mut n: usize) -> usize {
     loop {
         let tz = word.trailing_zeros() as usize;
         if n == 0 {
@@ -39,6 +64,65 @@ fn select_in_word(mut word: u64, mut n: usize) -> usize {
         n -= 1;
     }
 }
+
+/// Binary search select: O(log 64) = max 3 comparisons + table lookup.
+/// Better for larger n values (4+).
+#[allow(clippy::cast_possible_truncation)]
+#[inline]
+fn select_in_word_binary_search(word: u64, mut n: usize) -> usize {
+    let mut word = word;
+    let mut pos = 0usize;
+
+    // Check lower 32 bits
+    let lower_count = (word as u32).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 32;
+        pos += 32;
+    }
+
+    // Check lower 16 bits of remaining
+    let lower_count = ((word as u32) as u16).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 16;
+        pos += 16;
+    }
+
+    // Check lower 8 bits of remaining
+    let lower_count = (word as u8).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 8;
+        pos += 8;
+    }
+
+    // Final 8 bits - use lookup table
+    pos + SELECT_IN_BYTE_TABLE[(word as u8) as usize][n] as usize
+}
+
+/// Lookup table for select within a byte.
+/// SELECT_IN_BYTE_TABLE[byte][n] = position of nth set bit in byte (0-indexed).
+/// Invalid entries (n >= popcount) are set to 8 (will cause incorrect results if used).
+#[allow(clippy::cast_possible_truncation)]
+static SELECT_IN_BYTE_TABLE: [[u8; 8]; 256] = {
+    let mut table = [[8u8; 8]; 256];
+    let mut byte = 0usize;
+    while byte < 256 {
+        let mut bit_pos = 0usize;
+        let mut rank = 0usize;
+        while bit_pos < 8 {
+            if (byte >> bit_pos) & 1 == 1 {
+                // SAFETY: bit_pos is always < 8, so fits in u8
+                table[byte][rank] = bit_pos as u8;
+                rank += 1;
+            }
+            bit_pos += 1;
+        }
+        byte += 1;
+    }
+    table
+};
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -357,7 +441,7 @@ impl BitBuffer {
             }
         }
 
-        panic!(
+        vortex_panic!(
             "select({n}) out of bounds: buffer has only {} set bits",
             self.true_count()
         );
