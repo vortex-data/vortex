@@ -384,11 +384,13 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
+    use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
     use datafusion::arrow::datatypes::Schema;
+    use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
     use datafusion::common::record_batch;
@@ -1101,6 +1103,59 @@ mod tests {
         +--------+
         ");
 
+        Ok(())
+    }
+
+    /// When a Struct contains Dictionary fields, writing to vortex and reading back
+    /// should preserve the Dictionary type. Currently fails because is_dtype_incompatible()
+    /// doesn't recursively check Struct fields, so the cast is pushed to vortex where
+    /// DType::from_arrow() loses the Dictionary encoding.
+    /// Recursive dtype compability feels like a stop-gap though, we should push
+    /// down the dict physical type so that if the vortex file is dict encoded
+    /// we can avoid a cast altogether.
+    #[tokio::test]
+    async fn test_struct_with_dictionary_roundtrip() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+
+        let struct_fields = Fields::from(vec![
+            Field::new_dictionary("a", DataType::UInt32, DataType::Utf8, true),
+            Field::new_dictionary("b", DataType::UInt32, DataType::Utf8, true),
+        ]);
+        let struct_array = StructArray::new(
+            struct_fields.clone(),
+            vec![
+                Arc::new(DictionaryArray::<UInt32Type>::from_iter(["x", "y", "x"])),
+                Arc::new(DictionaryArray::<UInt32Type>::from_iter(["p", "p", "q"])),
+            ],
+            None,
+        );
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "labels",
+            DataType::Struct(struct_fields.clone()),
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(struct_array)])?;
+
+        let file_path = "/test.vortex";
+        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+
+        let opener = make_test_opener(
+            object_store.clone(),
+            schema.clone(),
+            ProjectionExprs::from_indices(&[0], &schema),
+        );
+        let data: Vec<_> = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?
+            .try_collect()
+            .await?;
+
+        assert_eq!(
+            data[0].schema().field(0).data_type(),
+            &DataType::Struct(struct_fields),
+            "Struct(Dictionary) type should be preserved"
+        );
         Ok(())
     }
 }
