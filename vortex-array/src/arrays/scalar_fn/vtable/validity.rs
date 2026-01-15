@@ -15,7 +15,6 @@ use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::CanonicalOutput;
-use crate::expr::ExecutionArgs;
 use crate::expr::Expression;
 use crate::expr::lit;
 use crate::validity::Validity;
