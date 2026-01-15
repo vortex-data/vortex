@@ -148,6 +148,15 @@ impl VTable for Pack {
         Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        Ok(Mask::new_true(scope.len()))
+    }
+
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
         // If any datum is a vector, we must convert them all to vectors.
         if args.datums.iter().any(|d| matches!(d, Datum::Vector(_))) {

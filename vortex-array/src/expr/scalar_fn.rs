@@ -12,6 +12,7 @@ use std::ops::Deref;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
@@ -119,6 +120,11 @@ impl ScalarFn {
     ///  into an ExprArray.
     pub fn evaluate(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         self.vtable.as_dyn().evaluate(expr, scope)
+    }
+
+    /// Evaluate just the validity of the expression.
+    pub fn evaluate_validity(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<Mask> {
+        self.vtable.as_dyn().evaluate_validity(expr, scope)
     }
 
     /// Execute the expression given the input arguments.

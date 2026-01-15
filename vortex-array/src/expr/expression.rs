@@ -13,7 +13,9 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_mask::Mask;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
@@ -110,6 +112,14 @@ impl Expression {
             return Ok(scope.clone());
         }
         self.scalar_fn.evaluate(self, scope)
+    }
+
+    /// Evaluates just the validity of the expression in the given scope, returning a mask.
+    pub fn evaluate_validity(&self, scope: &ArrayRef) -> VortexResult<Mask> {
+        if self.is::<Root>() {
+            return Ok(scope.validity()?.to_mask(scope.len()));
+        }
+        self.scalar_fn.evaluate_validity(self, scope)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

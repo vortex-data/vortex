@@ -14,6 +14,7 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_vector::Datum;
 
@@ -182,6 +183,15 @@ impl VTable for Merge {
             StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
                 .into_array(),
         )
+    }
+
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        Ok(Mask::new_true(scope.len()))
     }
 
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {

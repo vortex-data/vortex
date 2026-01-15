@@ -147,12 +147,14 @@ pub trait Array:
 
     /// Returns whether all items in the array are valid.
     ///
-    /// This is usually cheaper than computing a precise `valid_count`.
+    /// This is usually cheaper than computing a precise `valid_count`, but may return false
+    /// negatives.
     fn all_valid(&self) -> bool;
 
     /// Returns whether the array is all invalid.
     ///
-    /// This is usually cheaper than computing a precise `invalid_count`.
+    /// This is usually cheaper than computing a precise `invalid_count`, but may return false
+    /// negatives.
     fn all_invalid(&self) -> bool;
 
     /// Returns the number of valid elements in the array.
@@ -563,7 +565,18 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         if index >= self.len() {
             vortex_panic!(OutOfBounds: index, 0, self.len());
         }
-        <V::ValidityVTable as ValidityVTable<V>>::is_valid(&self.0, index)
+        match self
+            .validity()
+            .vortex_expect("Failed to get validity for is_valid")
+        {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(a) => a
+                .scalar_at(index)
+                .as_bool()
+                .value()
+                .vortex_expect("validity must be non-nullable"),
+        }
     }
 
     fn is_invalid(&self, index: usize) -> bool {
@@ -571,11 +584,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn all_valid(&self) -> bool {
-        <V::ValidityVTable as ValidityVTable<V>>::all_valid(&self.0)
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
+        }
     }
 
     fn all_invalid(&self) -> bool {
-        <V::ValidityVTable as ValidityVTable<V>>::all_invalid(&self.0)
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => false,
+            Validity::AllInvalid => true,
+            Validity::Array(a) => !a.statistics().compute_max::<bool>().unwrap_or(true),
+        }
     }
 
     fn valid_count(&self) -> usize {
@@ -585,7 +606,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return self.len() - invalid_count;
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0);
+        let count = self.validity_mask().true_count();
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
@@ -601,7 +622,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return invalid_count;
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0);
+        let count = self.validity_mask().false_count();
         assert!(count <= self.len(), "Invalid count exceeds array length");
 
         self.statistics()
@@ -612,16 +633,29 @@ impl<V: VTable> Array for ArrayAdapter<V> {
 
     fn validity(&self) -> VortexResult<Validity> {
         if self.dtype().is_nullable() {
-            <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)
+            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)?;
+            if let Validity::Array(array) = &validity {
+                vortex_ensure!(array.len() == self.len(), "Validity array length mismatch");
+                vortex_ensure!(
+                    matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
+                    "Validity array for must be non-nullable boolean: {}",
+                    self.to_array().display_tree(),
+                );
+            }
+            Ok(validity)
         } else {
             Ok(Validity::NonNullable)
         }
     }
 
     fn validity_mask(&self) -> Mask {
-        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0);
-        assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
-        mask
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => Mask::new_true(self.len()),
+            Validity::AllInvalid => Mask::new_false(self.len()),
+            Validity::Array(a) => a
+                .try_to_mask_fill_null_false()
+                .vortex_expect("Failed to get validity mask"),
+        }
     }
 
     fn to_canonical(&self) -> Canonical {

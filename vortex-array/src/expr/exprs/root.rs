@@ -8,8 +8,10 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -72,6 +74,15 @@ impl VTable for Root {
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(scope.clone())
+    }
+
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        Ok(scope.validity_mask())
     }
 
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {

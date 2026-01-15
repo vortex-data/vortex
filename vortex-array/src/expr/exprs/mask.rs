@@ -100,6 +100,21 @@ impl VTable for Mask {
         crate::compute::mask(&child, &inverted_mask)
     }
 
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<vortex_mask::Mask> {
+        let child_validity = expr.child(0).evaluate_validity(scope)?;
+        let mask_validity = expr
+            .child(1)
+            .evaluate(scope)?
+            .try_to_mask_fill_null_false()?;
+
+        Ok(&child_validity & &mask_validity)
+    }
+
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
         let [input, mask]: [Datum; _] = args
             .datums

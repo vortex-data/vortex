@@ -91,6 +91,15 @@ impl VTable for IsNull {
         }
     }
 
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        Ok(Mask::new_true(scope.len()))
+    }
+
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let child = args.datums.pop().vortex_expect("Missing input child");
         Ok(match child {

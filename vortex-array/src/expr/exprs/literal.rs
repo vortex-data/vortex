@@ -8,6 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::match_each_float_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 use vortex_vector::Datum;
@@ -81,6 +82,19 @@ impl VTable for Literal {
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
+    }
+
+    fn evaluate_validity(
+        &self,
+        scalar: &Scalar,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        if scalar.is_valid() {
+            Ok(Mask::new_true(scope.len()))
+        } else {
+            Ok(Mask::new_false(scope.len()))
+        }
     }
 
     fn execute(&self, scalar: &Scalar, _args: ExecutionArgs) -> VortexResult<Datum> {

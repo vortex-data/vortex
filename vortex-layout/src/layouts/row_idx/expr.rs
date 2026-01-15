@@ -3,6 +3,7 @@
 
 use std::fmt::Formatter;
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::expr::Arity;
 use vortex_array::expr::ChildName;
@@ -17,6 +18,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 
 pub struct RowIdx;
@@ -58,6 +60,15 @@ impl VTable for RowIdx {
         vortex_bail!(
             "RowIdxExpr should not be evaluated directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
+    }
+
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        _expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        Ok(Mask::new_true(scope.len()))
     }
 
     fn execute(&self, _options: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {

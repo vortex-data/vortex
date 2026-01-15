@@ -10,6 +10,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
@@ -111,6 +112,19 @@ impl VTable for Like {
         let child = expr.child(0).evaluate(scope)?;
         let pattern = expr.child(1).evaluate(scope)?;
         like_compute(&child, &pattern, *options)
+    }
+
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        let child_mask = expr.child(0).evaluate_validity(scope)?;
+        let pattern_mask = expr.child(1).evaluate_validity(scope)?;
+
+        // The validity mask is only false where either input is null.
+        Ok(&child_mask & &pattern_mask)
     }
 
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {

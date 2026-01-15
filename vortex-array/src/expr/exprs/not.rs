@@ -8,6 +8,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
@@ -80,6 +81,15 @@ impl VTable for Not {
     ) -> VortexResult<ArrayRef> {
         let child_result = expr.child(0).evaluate(scope)?;
         invert(&child_result)
+    }
+
+    fn evaluate_validity(
+        &self,
+        _options: &Self::Options,
+        expr: &Expression,
+        scope: &ArrayRef,
+    ) -> VortexResult<Mask> {
+        expr.child(0).evaluate_validity(scope)
     }
 
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
