@@ -1,0 +1,193 @@
+"""Extract crash information from fuzzer output logs."""
+
+import hashlib
+import json
+import re
+from dataclasses import dataclass, asdict
+from pathlib import Path
+
+
+@dataclass
+class CrashInfo:
+    """Extracted crash information."""
+
+    panic_location: str
+    panic_message: str
+    error_variant: str
+    stack_frames: list[str]
+    stack_trace_hash: str
+    normalized_message: str
+    message_hash: str
+    crash_type: str
+    seed_hash: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    def to_json(self) -> str:
+        return json.dumps(self.to_dict(), indent=2)
+
+
+def extract_panic_location(log_content: str) -> str:
+    """Extract panic location (file:line) from log."""
+    # Look for "panicked at file:line" pattern
+    match = re.search(r"panicked at ([^,]+), ([^:]+:\d+)", log_content)
+    if match:
+        return match.group(2)
+
+    # Look for "panicked at file:line:" pattern (newer Rust format)
+    match = re.search(r"panicked at ([^:]+\.rs:\d+)", log_content)
+    if match:
+        return match.group(1)
+
+    # Extract from vortex path in log
+    match = re.search(r"(vortex[^/]+/src/[^:]+:\d+)", log_content)
+    if match:
+        return match.group(1)
+
+    return "unknown"
+
+
+def extract_panic_message(log_content: str) -> str:
+    """Extract panic/error message from log."""
+    # Look for Rust panic format: "panicked at path/file.rs:line:col:\nmessage"
+    # This pattern handles file paths with slashes and multiple colons
+    match = re.search(
+        r"panicked at [^\n]+\.rs:\d+(?::\d+)?:\s*\n(.+?)(?:\n\n|\nstack|\n\w+\s*\{)",
+        log_content,
+        re.DOTALL,
+    )
+    if match:
+        return match.group(1).strip()
+
+    # Look for "panicked at 'message'" format (older Rust)
+    match = re.search(r"panicked at '([^']+)'", log_content)
+    if match:
+        return match.group(1)
+
+    # Look for ERROR: message
+    match = re.search(r"ERROR: (.+)", log_content)
+    if match:
+        return match.group(1)
+
+    # Look for assertion message
+    match = re.search(r"assertion `?failed`?: (.+)", log_content)
+    if match:
+        return match.group(1)
+
+    return "unknown"
+
+
+def extract_error_variant(log_content: str) -> str:
+    """Extract VortexFuzzError variant or panic type."""
+    # Look for VortexFuzzError enum variants
+    variants = [
+        "ScalarMismatch",
+        "SearchSortedError",
+        "MinMaxMismatch",
+        "ArrayNotEqual",
+        "DTypeMismatch",
+        "LengthMismatch",
+        "VortexError",
+    ]
+    for variant in variants:
+        if variant in log_content:
+            return variant
+
+    # Detect common panic types from message
+    if "index out of bounds" in log_content:
+        return "IndexOutOfBounds"
+    if re.search(r"assertion.*failed", log_content):
+        return "AssertionFailed"
+    if "unwrap" in log_content and "None" in log_content:
+        return "UnwrapNone"
+    if "overflow" in log_content:
+        return "Overflow"
+    if "out of memory" in log_content.lower() or "OOM" in log_content:
+        return "OutOfMemory"
+    if "timeout" in log_content.lower():
+        return "Timeout"
+    if "SEGV" in log_content or "segfault" in log_content.lower():
+        return "Segfault"
+
+    return "unknown"
+
+
+def extract_stack_frames(log_content: str) -> list[str]:
+    """Extract stack trace frames (function names only)."""
+    frames = []
+
+    # Try format: "#N 0x... in function_name"
+    for match in re.finditer(r"#\d+\s+0x[a-f0-9]+\s+in\s+([^\s(]+)", log_content):
+        func = match.group(1)
+        if func.startswith(("vortex", "std", "core", "alloc")):
+            frames.append(func)
+
+    # Try format: "N: 0x... - function_name"
+    if not frames:
+        for match in re.finditer(r"\d+:\s+0x[a-f0-9]+\s+-\s+([^\s]+)", log_content):
+            func = match.group(1)
+            if func.startswith(("vortex", "std", "core", "alloc")):
+                frames.append(func)
+
+    return frames[:10] if frames else ["unknown"]
+
+
+def get_crash_type(crash_filename: str) -> str:
+    """Determine crash type from filename."""
+    name = Path(crash_filename).name if crash_filename else ""
+    if name.startswith("crash-"):
+        return "crash"
+    if name.startswith("leak-"):
+        return "leak"
+    if name.startswith("timeout-"):
+        return "timeout"
+    if name.startswith("oom-"):
+        return "oom"
+    return "unknown"
+
+
+def compute_hash(content: str | bytes) -> str:
+    """Compute SHA256 hash."""
+    if isinstance(content, str):
+        content = content.encode()
+    return hashlib.sha256(content).hexdigest()
+
+
+def normalize_message(message: str) -> str:
+    """Normalize message by replacing numbers with N."""
+    return re.sub(r"\d+", "N", message)
+
+
+def extract_crash_info(log_path: str | Path, crash_path: str | Path | None = None) -> CrashInfo:
+    """Extract crash information from log file and optional crash seed."""
+    log_content = Path(log_path).read_text()
+
+    panic_location = extract_panic_location(log_content)
+    panic_message = extract_panic_message(log_content)
+    error_variant = extract_error_variant(log_content)
+    stack_frames = extract_stack_frames(log_content)
+
+    # Compute hashes
+    stack_trace_hash = compute_hash("\n".join(stack_frames[:5]))
+    normalized_message = normalize_message(panic_message)
+    message_hash = compute_hash(normalized_message)
+
+    # Compute seed hash if crash file provided
+    seed_hash = "unknown"
+    if crash_path and Path(crash_path).exists():
+        seed_hash = compute_hash(Path(crash_path).read_bytes())
+
+    crash_type = get_crash_type(str(crash_path) if crash_path else "")
+
+    return CrashInfo(
+        panic_location=panic_location,
+        panic_message=panic_message,
+        error_variant=error_variant,
+        stack_frames=stack_frames,
+        stack_trace_hash=stack_trace_hash,
+        normalized_message=normalized_message,
+        message_hash=message_hash,
+        crash_type=crash_type,
+        seed_hash=seed_hash,
+    )

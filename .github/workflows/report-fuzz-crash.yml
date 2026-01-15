@@ -40,6 +40,8 @@ jobs:
     timeout-minutes: 20
     outputs:
       issue_number: ${{ steps.create_issue.outputs.issue_number }}
+    env:
+      PYTHONPATH: .github/scripts/fuzzer
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -56,23 +58,17 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: ./crash_artifacts
 
-      - name: Make scripts executable
-        run: chmod +x .github/scripts/fuzzer/*.sh
-
       - name: Extract crash information
         id: extract
         run: |
           # Find the crash file
           CRASH_PATH="./crash_artifacts/${{ inputs.fuzz_target }}/${{ inputs.crash_file }}"
           if [[ ! -f "$CRASH_PATH" ]]; then
-            # Try without target subdirectory
             CRASH_PATH=$(find ./crash_artifacts -name "${{ inputs.crash_file }}" -type f | head -1)
           fi
 
-          .github/scripts/fuzzer/extract-crash-info.sh \
-            ./logs/fuzz_output.log \
-            "$CRASH_PATH" \
-            crash_info.json
+          # Run Python extraction
+          python3 -m python extract ./logs/fuzz_output.log "$CRASH_PATH" -o crash_info.json
 
           # Export values for later steps
           echo "seed_hash=$(jq -r '.seed_hash' crash_info.json)" >> $GITHUB_OUTPUT
@@ -83,7 +79,7 @@ jobs:
           echo "error_variant=$(jq -r '.error_variant' crash_info.json)" >> $GITHUB_OUTPUT
           echo "crash_type=$(jq -r '.crash_type' crash_info.json)" >> $GITHUB_OUTPUT
 
-          # Store stack trace for template (handle multiline)
+          # Store stack trace for template
           jq -r '.stack_frames | join("\n")' crash_info.json > stack_trace.txt
 
           # Extract debug output from log
@@ -107,20 +103,19 @@ jobs:
       - name: Run scripted deduplication checks
         id: dedup_scripted
         run: |
-          result=$(.github/scripts/fuzzer/check-duplicate.sh crash_info.json fuzzer_issues.json)
-          echo "$result" > dedup_result.json
+          python3 -m python check-duplicate crash_info.json fuzzer_issues.json > dedup_result.json
 
           echo "Scripted dedup result:"
           cat dedup_result.json
 
-          is_duplicate=$(echo "$result" | jq -r '.duplicate')
+          is_duplicate=$(jq -r '.duplicate' dedup_result.json)
           echo "is_duplicate=$is_duplicate" >> $GITHUB_OUTPUT
 
           if [[ "$is_duplicate" == "true" ]]; then
-            echo "issue_number=$(echo "$result" | jq -r '.issue_number')" >> $GITHUB_OUTPUT
-            echo "match_check=$(echo "$result" | jq -r '.check')" >> $GITHUB_OUTPUT
-            echo "match_confidence=$(echo "$result" | jq -r '.confidence')" >> $GITHUB_OUTPUT
-            echo "match_reason=$(echo "$result" | jq -r '.reason')" >> $GITHUB_OUTPUT
+            echo "issue_number=$(jq -r '.issue_number' dedup_result.json)" >> $GITHUB_OUTPUT
+            echo "match_check=$(jq -r '.check' dedup_result.json)" >> $GITHUB_OUTPUT
+            echo "match_confidence=$(jq -r '.confidence' dedup_result.json)" >> $GITHUB_OUTPUT
+            echo "match_reason=$(jq -r '.reason' dedup_result.json)" >> $GITHUB_OUTPUT
           fi
 
       - name: Claude deduplication check
@@ -236,41 +231,25 @@ jobs:
             echo "Analysis not available (Claude step skipped or failed)" > claude_analysis.txt
           fi
 
-      - name: Prepare template variables
-        id: template_vars
-        run: |
-          # Export all variables needed for template rendering
-          {
-            echo "FUZZ_TARGET=${{ inputs.fuzz_target }}"
-            echo "CRASH_FILE=${{ inputs.crash_file }}"
-            echo "CRASH_TYPE=${{ steps.extract.outputs.crash_type }}"
-            echo "SEED_HASH=${{ steps.extract.outputs.seed_hash }}"
-            echo "STACK_HASH=${{ steps.extract.outputs.stack_hash }}"
-            echo "MESSAGE_HASH=${{ steps.extract.outputs.message_hash }}"
-            echo "PANIC_LOCATION=${{ steps.extract.outputs.panic_location }}"
-            echo "ERROR_VARIANT=${{ steps.extract.outputs.error_variant }}"
-            echo "BRANCH=${{ inputs.branch }}"
-            echo "COMMIT=${{ inputs.commit }}"
-            echo "ARTIFACT_URL=${{ inputs.artifact_url }}"
-          } >> template_vars.env
-
-          # Handle multiline values separately
-          echo "PANIC_MESSAGE<<EOF" >> template_vars.env
-          echo "${{ steps.extract.outputs.panic_message }}" >> template_vars.env
-          echo "EOF" >> template_vars.env
-
       - name: Create or update issue
         id: create_issue
         run: |
-          # Load template variables
-          set -a
-          source template_vars.env
-          set +a
-
-          # Load multiline values
-          export STACK_TRACE=$(cat stack_trace.txt)
-          export DEBUG_OUTPUT=$(cat debug_output.txt)
-          export CLAUDE_ANALYSIS=$(cat claude_analysis.txt)
+          # Set environment variables for template rendering
+          export FUZZ_TARGET="${{ inputs.fuzz_target }}"
+          export CRASH_FILE="${{ inputs.crash_file }}"
+          export CRASH_TYPE="${{ steps.extract.outputs.crash_type }}"
+          export SEED_HASH="${{ steps.extract.outputs.seed_hash }}"
+          export STACK_HASH="${{ steps.extract.outputs.stack_hash }}"
+          export MESSAGE_HASH="${{ steps.extract.outputs.message_hash }}"
+          export PANIC_LOCATION="${{ steps.extract.outputs.panic_location }}"
+          export ERROR_VARIANT="${{ steps.extract.outputs.error_variant }}"
+          export PANIC_MESSAGE="${{ steps.extract.outputs.panic_message }}"
+          export BRANCH="${{ inputs.branch }}"
+          export COMMIT="${{ inputs.commit }}"
+          export ARTIFACT_URL="${{ inputs.artifact_url }}"
+          export STACK_TRACE="$(cat stack_trace.txt)"
+          export DEBUG_OUTPUT="$(cat debug_output.txt)"
+          export CLAUDE_ANALYSIS="$(cat claude_analysis.txt)"
 
           # Handle duplicate case
           if [[ "${{ steps.dedup.outputs.is_duplicate }}" == "true" ]]; then
@@ -279,9 +258,9 @@ jobs:
             export MATCH_REASON="${{ steps.dedup.outputs.match_reason }}"
 
             # Render comment template
-            .github/scripts/fuzzer/render-template.sh \
+            python3 -m python render \
               .github/scripts/fuzzer/fuzzer-crash-comment.template.md \
-              comment_body.md
+              -o comment_body.md
 
             # Post comment to existing issue
             gh issue comment ${{ steps.dedup.outputs.issue_number }} \
@@ -293,9 +272,9 @@ jobs:
             echo "Posted comment to existing issue #${{ steps.dedup.outputs.issue_number }}"
           else
             # Render new issue template
-            .github/scripts/fuzzer/render-template.sh \
+            python3 -m python render \
               .github/scripts/fuzzer/fuzzer-crash.template.md \
-              issue_body.md
+              -o issue_body.md
 
             # Create new issue
             issue_url=$(gh issue create \
