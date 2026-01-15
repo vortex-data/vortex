@@ -7,48 +7,16 @@ use vortex_array::arrays::AnyScalarFn;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
-use vortex_array::arrays::SliceArray;
-use vortex_array::arrays::SliceVTable;
-use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::vtable::OperationsVTable;
-use vortex_array::vtable::VTable;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&RunEndSliceRule),
-    ParentRuleSet::lift(&RunEndScalarFnRule),
-]);
-
-/// A rule to push slice operations through run-end encoding.
-#[derive(Debug)]
-struct RunEndSliceRule;
-
-impl ArrayParentReduceRule<RunEndVTable> for RunEndSliceRule {
-    type Parent = Exact<SliceVTable>;
-
-    fn parent(&self) -> Exact<SliceVTable> {
-        // SAFETY: SliceVTable is a valid VTable with a stable ID
-        unsafe { Exact::new_unchecked(SliceVTable.id()) }
-    }
-
-    fn reduce_parent(
-        &self,
-        run_end: &RunEndArray,
-        parent: &SliceArray,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(RunEndVTable::slice(
-            run_end,
-            parent.slice_range().clone(),
-        )))
-    }
-}
+pub(super) const RULES: ParentRuleSet<RunEndVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&RunEndScalarFnRule)]);
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///

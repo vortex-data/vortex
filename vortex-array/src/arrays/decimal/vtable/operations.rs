@@ -1,22 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn slice(_array: &DecimalArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("replaced with SliceArray")
-    }
-
     fn scalar_at(array: &DecimalArray, index: usize) -> Scalar {
         match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(

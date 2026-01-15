@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -11,6 +13,7 @@ use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -23,6 +26,7 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -129,6 +133,18 @@ impl VTable for VarBinVTable {
             ),
         }
         Ok(())
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(unsafe {
+            VarBinArray::new_unchecked(
+                array.offsets().slice(range.start..range.end + 1),
+                array.bytes().clone(),
+                array.dtype().clone(),
+                array.validity().slice(range),
+            )
+            .into_array()
+        }))
     }
 }
 

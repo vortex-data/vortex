@@ -154,10 +154,6 @@ impl CanonicalVTable<SliceVTable> for SliceVTable {
 }
 
 impl OperationsVTable<SliceVTable> for SliceVTable {
-    fn slice(_array: &SliceArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("replaced with SliceArray")
-    }
-
     fn scalar_at(array: &SliceArray, index: usize) -> Scalar {
         array.child.scalar_at(array.range.start + index)
     }

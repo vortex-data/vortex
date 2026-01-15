@@ -8,6 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
+use std::ops::Range;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -73,6 +74,8 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>>;
+
+    fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Adapter struct used to lift the [`VTable`] trait into an object-safe [`DynVTable`]
@@ -247,6 +250,33 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
 
         Ok(Some(result))
     }
+
+    fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        vortex_ensure!(
+            range.end <= array.len(),
+            "slice range {}..{} out of bounds for array of length {}",
+            range.start,
+            range.end,
+            array.len()
+        );
+
+        let Some(sliced) = V::slice(downcast::<V>(array), range.clone())? else {
+            return Ok(None);
+        };
+        vortex_ensure!(
+            sliced.len() == range.len(),
+            "Sliced array length mismatch: expected {}, got {}",
+            range.len(),
+            sliced.len()
+        );
+        vortex_ensure!(
+            sliced.dtype() == array.dtype(),
+            "Sliced array dtype mismatch: expected {}, got {}",
+            array.dtype(),
+            sliced.dtype()
+        );
+        Ok(Some(sliced))
+    }
 }
 
 fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
@@ -310,6 +340,11 @@ impl ArrayVTable {
         like: Option<&dyn Array>,
     ) -> VortexResult<Option<ArrayRef>> {
         self.as_dyn().encode(input, like)
+    }
+
+    /// Slice the array using the VTable's slice implementation.
+    pub fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        self.as_dyn().slice(array, range)
     }
 }
 

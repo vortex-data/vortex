@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
-    fn slice(_array: &BoolArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("replaced with SliceArray")
-    }
-
     fn scalar_at(array: &BoolArray, index: usize) -> Scalar {
         Scalar::bool(array.bit_buffer().value(index), array.dtype().nullability())
     }

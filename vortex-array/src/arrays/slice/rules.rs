@@ -51,6 +51,8 @@ use crate::vtable::ValidityHelper;
 
 pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[
     &SliceSliceRule,
+    // Try the generic VTable::slice first for compressed encodings
+    &SliceVTableRule,
     &SliceNullRule,
     &SliceBoolRule,
     &SlicePrimitiveRule,
@@ -89,6 +91,21 @@ impl ArrayReduceRule<SliceVTable> for SliceSliceRule {
         Ok(Some(
             SliceArray::new(inner_slice.child().clone(), combined_start..combined_end).into_array(),
         ))
+    }
+}
+
+/// Generic reduce rule that calls VTable::slice on the child.
+/// This allows compressed encodings to implement their own slice logic.
+#[derive(Debug)]
+struct SliceVTableRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceVTableRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        // Try the child's VTable::slice implementation
+        array
+            .child()
+            .encoding()
+            .slice(array.child(), array.slice_range().clone())
     }
 }
 

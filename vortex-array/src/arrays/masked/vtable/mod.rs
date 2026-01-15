@@ -6,6 +6,8 @@ mod canonical;
 mod operations;
 mod validity;
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -25,6 +27,7 @@ use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
+use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -64,6 +67,21 @@ impl VTable for MaskedVTable {
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.masked")
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let child = array.child.slice(range.clone());
+        let validity = array.validity.slice(range);
+
+        Ok(Some(
+            MaskedArray {
+                child,
+                validity,
+                dtype: array.dtype.clone(),
+                stats: ArrayStats::default(),
+            }
+            .into_array(),
+        ))
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {

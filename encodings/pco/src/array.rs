@@ -190,6 +190,10 @@ impl VTable for PcoVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(array._slice(range.start, range.end).into_array()))
+    }
 }
 
 pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
@@ -538,10 +542,6 @@ impl CanonicalVTable<PcoVTable> for PcoVTable {
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn slice(array: &PcoArray, range: Range<usize>) -> ArrayRef {
-        array._slice(range.start, range.end).into_array()
-    }
-
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }

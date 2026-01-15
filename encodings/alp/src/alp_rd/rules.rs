@@ -7,7 +7,7 @@ use vortex_array::arrays::SliceVTable;
 use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
 use crate::ALPRDArray;
@@ -33,9 +33,6 @@ impl ArrayParentReduceRule<ALPRDVTable> for ALPRDSliceRule {
         parent: &SliceArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(ALPRDVTable::slice(
-            alprd,
-            parent.slice_range().clone(),
-        )))
+        ALPRDVTable::slice(alprd, parent.slice_range().clone())
     }
 }

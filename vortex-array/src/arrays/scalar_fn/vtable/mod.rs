@@ -13,6 +13,7 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -182,6 +183,26 @@ impl VTable for ScalarFnVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let children: Vec<_> = array
+            .children()
+            .iter()
+            .map(|c| c.slice(range.clone()))
+            .collect();
+
+        Ok(Some(
+            ScalarFnArray {
+                vtable: array.vtable.clone(),
+                scalar_fn: array.scalar_fn.clone(),
+                dtype: array.dtype.clone(),
+                len: range.len(),
+                children,
+                stats: Default::default(),
+            }
+            .into_array(),
+        ))
     }
 }
 

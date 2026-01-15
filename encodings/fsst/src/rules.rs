@@ -10,9 +10,9 @@ use vortex_array::arrays::VarBinVTable;
 use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -49,7 +49,8 @@ impl ArrayParentReduceRule<FSSTVTable> for FSSTSliceRule {
 
         // Slice the codes VarBinArray directly (not through SliceArray wrapper), since
         // FSSTArray requires the result to be a VarBin.
-        let sliced_codes = VarBinVTable::slice(fsst.codes(), range.clone())
+        let sliced_codes = VarBinVTable::slice(fsst.codes(), range.clone())?
+            .ok_or_else(|| vortex_err!("VarBinVTable::slice returned None"))?
             .as_::<VarBinVTable>()
             .clone();
 

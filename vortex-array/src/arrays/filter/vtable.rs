@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::ops::Range;
 
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
@@ -206,10 +205,6 @@ impl CanonicalVTable<FilterVTable> for FilterVTable {
 }
 
 impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn slice(_array: &FilterArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("using reduce/execute rules")
-    }
-
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)

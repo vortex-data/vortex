@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::VarBinVTable;
 use vortex_array::arrays::varbin_scalar;
 use vortex_array::vtable::OperationsVTable;
 use vortex_buffer::ByteBuffer;
@@ -17,24 +11,6 @@ use crate::FSSTArray;
 use crate::FSSTVTable;
 
 impl OperationsVTable<FSSTVTable> for FSSTVTable {
-    fn slice(array: &FSSTArray, range: Range<usize>) -> ArrayRef {
-        // SAFETY: slicing the `codes` leaves the symbol table intact
-        unsafe {
-            FSSTArray::new_unchecked(
-                array.dtype().clone(),
-                array.symbols().clone(),
-                array.symbol_lengths().clone(),
-                array
-                    .codes()
-                    .slice(range.clone())
-                    .as_::<VarBinVTable>()
-                    .clone(),
-                array.uncompressed_lengths().slice(range),
-            )
-            .into_array()
-        }
-    }
-
     fn scalar_at(array: &FSSTArray, index: usize) -> Scalar {
         let compressed = array.codes().scalar_at(index);
         let binary_datum = compressed.as_binary().value().vortex_expect("non-null");

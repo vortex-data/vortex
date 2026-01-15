@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -168,10 +167,6 @@ impl CanonicalVTable<NullVTable> for NullVTable {
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("replaced with SliceArray")
-    }
-
     fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {
         Scalar::null(DType::Null)
     }

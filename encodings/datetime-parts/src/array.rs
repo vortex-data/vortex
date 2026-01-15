@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -12,6 +13,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -168,6 +170,19 @@ impl VTable for DateTimePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing all components preserves values
+        Ok(Some(unsafe {
+            DateTimePartsArray::new_unchecked(
+                array.dtype().clone(),
+                array.days().slice(range.clone()),
+                array.seconds().slice(range.clone()),
+                array.subseconds().slice(range),
+            )
+            .into_array()
+        }))
     }
 }
 

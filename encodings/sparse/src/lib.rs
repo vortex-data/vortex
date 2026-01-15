@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
@@ -172,6 +173,28 @@ impl VTable for SparseVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &SparseArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let new_patches = array.patches().slice(range.clone());
+
+        let Some(new_patches) = new_patches else {
+            return Ok(Some(
+                ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array(),
+            ));
+        };
+
+        // If the number of values in the sparse array matches the array length, then all
+        // values are in fact patches, since patches are sorted this is the correct values.
+        if new_patches.array_len() == new_patches.values().len() {
+            return Ok(Some(new_patches.into_values()));
+        }
+
+        // SAFETY:
+        Ok(Some(
+            unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()) }
+                .into_array(),
+        ))
     }
 }
 

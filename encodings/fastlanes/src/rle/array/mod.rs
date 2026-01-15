@@ -223,7 +223,6 @@ mod tests {
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ArrayVTableExt;
-    use vortex_array::vtable::OperationsVTable;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
@@ -466,7 +465,7 @@ mod tests {
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        let sliced = <RLEVTable as OperationsVTable<RLEVTable>>::slice(&rle_array, 100..200);
+        let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());

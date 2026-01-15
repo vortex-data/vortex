@@ -138,6 +138,14 @@ impl VTable for DecimalBytePartsVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing encoded MSP does not change the encoded values
+        Ok(Some(unsafe {
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+                .into_array()
+        }))
+    }
 }
 
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
@@ -248,14 +256,6 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
-                .into_array()
-        }
-    }
-
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index);

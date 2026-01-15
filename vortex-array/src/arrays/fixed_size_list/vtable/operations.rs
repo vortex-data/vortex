@@ -1,20 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
-    fn slice(_array: &FixedSizeListArray, _range: Range<usize>) -> ArrayRef {
-        unreachable!("replaced with SliceArray")
-    }
-
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> Scalar {
         // By the preconditions we know that the list scalar is not null.
         let list = array.fixed_size_list_elements_at(index);

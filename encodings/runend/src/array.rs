@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayEq;
@@ -16,6 +17,7 @@ use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::search_sorted::SearchSorted;
@@ -81,6 +83,30 @@ impl VTable for RunEndVTable {
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
         RunEndVTable.as_vtable()
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let new_length = range.len();
+
+        let slice_begin = array.find_physical_index(range.start);
+        let slice_end = crate::ops::find_slice_end_index(array.ends(), range.end + array.offset());
+
+        // If the sliced range contains only a single run, opt to return a ConstantArray.
+        if slice_begin + 1 == slice_end {
+            let value = array.values().scalar_at(slice_begin);
+            return Ok(Some(ConstantArray::new(value, new_length).into_array()));
+        }
+
+        // SAFETY: we maintain the ends invariant in our slice implementation
+        Ok(Some(unsafe {
+            RunEndArray::new_unchecked(
+                array.ends().slice(slice_begin..slice_end),
+                array.values().slice(slice_begin..slice_end),
+                range.start + array.offset(),
+                new_length,
+            )
+            .into_array()
+        }))
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {

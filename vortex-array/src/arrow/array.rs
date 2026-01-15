@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::BitBuffer;
@@ -158,16 +157,6 @@ impl CanonicalVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, range: Range<usize>) -> ArrayRef {
-        let inner = array.inner.slice(range.start, range.len());
-        let new_array = ArrowArray {
-            inner,
-            dtype: array.dtype.clone(),
-            stats_set: Default::default(),
-        };
-        new_array.into_array()
-    }
-
     fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
         vortex_panic!("Not supported")
     }
