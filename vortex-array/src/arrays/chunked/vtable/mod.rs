@@ -98,7 +98,7 @@ impl VTable for ChunkedVTable {
             )?
             .to_primitive();
 
-        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
+        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
         let chunks = chunk_offsets_buf
@@ -139,7 +139,7 @@ impl VTable for ChunkedVTable {
 
         let nchunks = children.len() - 1;
         let chunk_offsets_array = children[0].to_primitive();
-        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
+        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         vortex_ensure!(
             chunk_offsets_buf.len() == nchunks + 1,

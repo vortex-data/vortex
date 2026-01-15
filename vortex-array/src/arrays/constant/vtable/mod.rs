@@ -81,7 +81,7 @@ impl VTable for ConstantVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_bytes()?;
+        let buffer = buffers[0].clone().try_to_host()?;
         let sv = ScalarValue::from_protobytes(&buffer)?;
         let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))

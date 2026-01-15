@@ -155,7 +155,7 @@ where
     let head_idx = validity
         .first()
         .vortex_expect("All null masks have been handled before");
-    let buff = array.buffer::<T>();
+    let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 
     let first_valid_buff = buff.slice(head_idx..array.len());

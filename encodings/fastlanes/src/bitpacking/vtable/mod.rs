@@ -176,7 +176,7 @@ impl VTable for BitPackedVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let packed = buffers[0].clone().try_to_bytes()?;
+        let packed = buffers[0].clone().try_to_host()?;
 
         let load_validity = |child_idx: usize| {
             if children.len() == child_idx {

@@ -16,7 +16,7 @@ use crate::vtable::BaseArrayVTable;
 
 impl BaseArrayVTable<PrimitiveVTable> for PrimitiveVTable {
     fn len(array: &PrimitiveArray) -> usize {
-        array.byte_buffer().len() / array.ptype().byte_width()
+        array.buffer_handle().len() / array.ptype().byte_width()
     }
 
     fn dtype(array: &PrimitiveArray) -> &DType {

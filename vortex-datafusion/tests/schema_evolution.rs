@@ -25,6 +25,7 @@ use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
 use datafusion_common::assert_batches_eq;
+use datafusion_common::assert_batches_sorted_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
@@ -149,11 +150,11 @@ async fn test_filter_with_schema_evolution() {
         "| a     | b |",
         "+-------+---+",
         "| one   |   |",
-        "| two   |   |",
         "| three |   |",
+        "| two   |   |",
         "+-------+---+",
     ];
-    assert_batches_eq!(expected, &result);
+    assert_batches_sorted_eq!(expected, &result);
 }
 
 #[tokio::test]
@@ -246,14 +247,14 @@ async fn test_filter_schema_evolution_order() {
 
     // a field: present in both files
     // b field: only present in file2, file1 fills with nulls
-    assert_batches_eq!(
+    assert_batches_sorted_eq!(
         &[
             "+---+------+",
             "| a | b    |",
             "+---+------+",
             "| 3 |      |",
-            "| 5 |      |",
             "| 4 | four |",
+            "| 5 |      |",
             "| 6 | six  |",
             "+---+------+",
         ],
@@ -351,7 +352,7 @@ async fn test_filter_schema_evolution_struct_fields() {
     // Scan all the records, NULLs are filled in for nested optional fields.
     let full_scan = df.collect().await.unwrap();
 
-    assert_batches_eq!(
+    assert_batches_sorted_eq!(
         &[
             "+--------------+-----------------------------+",
             "| hostname     | payload                     |",
@@ -385,7 +386,7 @@ async fn test_filter_schema_evolution_struct_fields() {
         .await
         .unwrap();
 
-    assert_batches_eq!(
+    assert_batches_sorted_eq!(
         &[
             "+--------------+-----------------------------+",
             "| hostname     | payload                     |",

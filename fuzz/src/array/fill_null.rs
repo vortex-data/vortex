@@ -90,12 +90,9 @@ fn fill_primitive_array(
             .vortex_expect("fill value conversion should succeed in fuzz test");
 
         match array.validity() {
-            Validity::NonNullable | Validity::AllValid => PrimitiveArray::from_byte_buffer(
-                array.byte_buffer().clone(),
-                array.ptype(),
-                result_nullability.into(),
-            )
-            .into_array(),
+            Validity::NonNullable | Validity::AllValid => {
+                PrimitiveArray::new(array.to_buffer::<T>(), result_nullability.into()).into_array()
+            }
             Validity::AllInvalid => {
                 ConstantArray::new(fill_value.clone(), array.len()).into_array()
             }

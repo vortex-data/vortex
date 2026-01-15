@@ -58,6 +58,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::assert_nth_scalar;
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
@@ -81,8 +82,8 @@ mod test {
         )
         .unwrap();
         let sliced = arr.slice(1024..2048).as_::<BitPackedVTable>().clone();
-        assert_eq!(sliced.scalar_at(0), (1024u32 % 64).into());
-        assert_eq!(sliced.scalar_at(1023), (2047u32 % 64).into());
+        assert_nth_scalar!(sliced, 0, 1024u32 % 64);
+        assert_nth_scalar!(sliced, 1023, 2047u32 % 64);
         assert_eq!(sliced.offset(), 0);
         assert_eq!(sliced.len(), 1024);
     }
@@ -96,8 +97,8 @@ mod test {
         .unwrap()
         .into_array();
         let sliced = arr.slice(512..1434).as_::<BitPackedVTable>().clone();
-        assert_eq!(sliced.scalar_at(0), (512u32 % 64).into());
-        assert_eq!(sliced.scalar_at(921), (1433u32 % 64).into());
+        assert_nth_scalar!(sliced, 0, 512u32 % 64);
+        assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
     }
@@ -111,11 +112,8 @@ mod test {
         .unwrap();
 
         let compressed = packed.slice(768..9999);
-        assert_eq!(compressed.scalar_at(0), ((768 % 63) as u8).into());
-        assert_eq!(
-            compressed.scalar_at(compressed.len() - 1),
-            ((9998 % 63) as u8).into()
-        );
+        assert_nth_scalar!(compressed, 0, (768 % 63) as u8);
+        assert_nth_scalar!(compressed, compressed.len() - 1, (9998 % 63) as u8);
     }
 
     #[test]
@@ -127,11 +125,8 @@ mod test {
         .unwrap();
 
         let compressed = packed.slice(7168..9216);
-        assert_eq!(compressed.scalar_at(0), ((7168 % 63) as u8).into());
-        assert_eq!(
-            compressed.scalar_at(compressed.len() - 1),
-            ((9215 % 63) as u8).into()
-        );
+        assert_nth_scalar!(compressed, 0, (7168 % 63) as u8);
+        assert_nth_scalar!(compressed, compressed.len() - 1, (9215 % 63) as u8);
     }
 
     #[test]
@@ -143,13 +138,13 @@ mod test {
         .unwrap()
         .into_array();
         let sliced = arr.slice(512..1434).as_::<BitPackedVTable>().clone();
-        assert_eq!(sliced.scalar_at(0), (512u32 % 64).into());
-        assert_eq!(sliced.scalar_at(921), (1433u32 % 64).into());
+        assert_nth_scalar!(sliced, 0, 512u32 % 64);
+        assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
         let doubly_sliced = sliced.slice(127..911).as_::<BitPackedVTable>().clone();
-        assert_eq!(doubly_sliced.scalar_at(0), ((512u32 + 127) % 64).into());
-        assert_eq!(doubly_sliced.scalar_at(783), ((512u32 + 910) % 64).into());
+        assert_nth_scalar!(doubly_sliced, 0, (512u32 + 127) % 64);
+        assert_nth_scalar!(doubly_sliced, 783, (512u32 + 910) % 64);
         assert_eq!(doubly_sliced.offset(), 639);
         assert_eq!(doubly_sliced.len(), 784);
     }

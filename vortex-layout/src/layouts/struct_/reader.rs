@@ -387,6 +387,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_nth_scalar;
     use vortex_array::expr::Expression;
     use vortex_array::expr::col;
     use vortex_array::expr::eq;
@@ -702,8 +703,8 @@ mod tests {
 
         // ...and the result is masked with the validity of the parent StructArray
         assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
-        assert_eq!(result.scalar_at(1), 2.into());
-        assert_eq!(result.scalar_at(2), 3.into());
+        assert_nth_scalar!(result, 1, 2);
+        assert_nth_scalar!(result, 2, 3);
     }
 
     #[rstest]

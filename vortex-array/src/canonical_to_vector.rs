@@ -54,8 +54,8 @@ impl Canonical {
                 let ptype = a.ptype();
                 let validity = a.validity_mask();
                 match_each_native_ptype!(ptype, |T| {
-                    let buffer = a.as_slice::<T>();
-                    Vector::Primitive(PVector::<T>::new(buffer.to_vec().into(), validity).into())
+                    let buffer = a.to_buffer::<T>();
+                    Vector::Primitive(PVector::<T>::new(buffer, validity).into())
                 })
             }
             Canonical::Decimal(a) => {
@@ -127,14 +127,10 @@ impl Canonical {
 
                 match_each_native_ptype!(offsets_ptype, |O| {
                     match_each_native_ptype!(sizes_ptype, |S| {
-                        let offsets_vec = PVector::<O>::new(
-                            offsets.as_slice::<O>().to_vec().into(),
-                            offsets.validity_mask(),
-                        );
-                        let sizes_vec = PVector::<S>::new(
-                            sizes.as_slice::<S>().to_vec().into(),
-                            sizes.validity_mask(),
-                        );
+                        let offsets_vec =
+                            PVector::<O>::new(offsets.to_buffer::<O>(), offsets.validity_mask());
+                        let sizes_vec =
+                            PVector::<S>::new(sizes.to_buffer::<S>(), sizes.validity_mask());
                         Vector::List(unsafe {
                             ListViewVector::new_unchecked(
                                 Arc::new(elements_vector),

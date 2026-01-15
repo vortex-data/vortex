@@ -142,16 +142,16 @@ impl VTable for ZstdVTable {
                 None,
                 buffers
                     .iter()
-                    .map(|b| b.clone().try_to_bytes())
+                    .map(|b| b.clone().try_to_host())
                     .collect::<VortexResult<Vec<_>>>()?,
             )
         } else {
             // with dictionary
             (
-                Some(buffers[0].clone().try_to_bytes()?),
+                Some(buffers[0].clone().try_to_host()?),
                 buffers[1..]
                     .iter()
-                    .map(|b| b.clone().try_to_bytes())
+                    .map(|b| b.clone().try_to_host())
                     .collect::<VortexResult<Vec<_>>>()?,
             )
         };
@@ -366,7 +366,7 @@ impl ZstdArray {
             n_values
         };
 
-        let value_bytes = values.byte_buffer();
+        let value_bytes = values.buffer_handle().try_to_host()?;
         // Align frames to buffer alignment. This is necessary for overaligned buffers.
         let alignment = *value_bytes.alignment();
         let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
@@ -379,7 +379,7 @@ impl ZstdArray {
             frames,
             frame_metas,
         } = Self::compress_values(
-            value_bytes,
+            &value_bytes,
             &frame_byte_starts,
             level,
             values_per_frame,

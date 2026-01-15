@@ -15,8 +15,10 @@ use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
+use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_physical_plan::ExecutionPlan;
 use futures::StreamExt;
+use parking_lot::Mutex;
 use tokio::fs::File;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -32,6 +34,7 @@ use vortex_bench::display::DisplayFormat;
 use vortex_bench::runner::SqlBenchmarkRunner;
 use vortex_bench::runner::filter_queries;
 use vortex_bench::setup_logging_and_tracing;
+use vortex_datafusion::metrics::VortexMetricsFinder;
 
 /// Common arguments shared across benchmarks
 #[derive(Parser)]
@@ -139,6 +142,13 @@ async fn main() -> anyhow::Result<()> {
         args.hide_progress_bar,
     )?;
 
+    // Collect execution plans for metrics if show_metrics is enabled
+    // Structure: (query_idx, format, execution_plan)
+    #[allow(clippy::type_complexity)]
+    let collected_plans: Arc<Mutex<Vec<(usize, Format, Arc<dyn ExecutionPlan>)>>> =
+        Arc::new(Mutex::new(Vec::new()));
+    let show_metrics = args.show_metrics;
+
     runner
         .run_all_async(
             &filtered_queries,
@@ -149,20 +159,41 @@ async fn main() -> anyhow::Result<()> {
                     let session = datafusion_bench::get_session_context();
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
                     register_benchmark_tables(&session, benchmark, format).await?;
-                    Ok(session)
+                    Ok((session, format))
                 }
             },
-            |session, query| {
+            |query_idx, (session, format), query| {
+                let plans = Arc::clone(&collected_plans);
+
                 Box::pin(async move {
                     let timer = Instant::now();
                     let (batches, plan) = execute_query(session, query).await?;
                     let time = timer.elapsed();
                     let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+
+                    // Store plan for metrics (only store once per query/format combination)
+                    if show_metrics {
+                        let mut plans_mut = plans.lock();
+                        // Only store if we don't already have this query/format combo
+                        if !plans_mut
+                            .iter()
+                            .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                        {
+                            plans_mut.push((query_idx, *format, plan.clone()));
+                        }
+                    }
+
                     anyhow::Ok((row_count, Some(time), plan))
                 })
             },
         )
         .await?;
+
+    // Print metrics if requested
+    if show_metrics {
+        let plans = collected_plans.lock();
+        print_metrics(plans.as_ref());
+    }
 
     let benchmark_id = format!("datafusion-{}", benchmark.dataset_name());
     let writer = create_output_writer(&args.display_format, args.output_path, &benchmark_id)?;
@@ -273,4 +304,22 @@ pub async fn execute_query(
     let result = df.collect().await?;
 
     Ok((result, physical_plan))
+}
+
+/// Print Vortex metrics from execution plans.
+fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
+    for (query_idx, format, plan) in plans {
+        let metric_sets = VortexMetricsFinder::find_all(plan.as_ref());
+        if metric_sets.is_empty() {
+            continue;
+        }
+
+        eprintln!("metrics for query={query_idx}, {format}:");
+        for (scan_idx, metrics_set) in metric_sets.iter().enumerate() {
+            eprintln!("  scan[{scan_idx}]:");
+            for metric in metrics_set.clone().aggregate().sorted_for_display().iter() {
+                eprintln!("    {metric}");
+            }
+        }
+    }
 }

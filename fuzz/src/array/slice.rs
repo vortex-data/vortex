@@ -41,10 +41,11 @@ pub fn slice_canonical_array(
         DType::Primitive(p, _) => {
             let primitive_array = array.to_primitive();
             match_each_native_ptype!(p, |P| {
-                Ok(
-                    PrimitiveArray::new(primitive_array.buffer::<P>().slice(start..stop), validity)
-                        .into_array(),
+                Ok(PrimitiveArray::new(
+                    primitive_array.to_buffer::<P>().slice(start..stop),
+                    validity,
                 )
+                .into_array())
             })
         }
         DType::Utf8(_) | DType::Binary(_) => {

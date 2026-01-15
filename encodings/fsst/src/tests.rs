@@ -7,6 +7,7 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
+use vortex_array::assert_nth_scalar;
 use vortex_array::compute::filter;
 use vortex_array::compute::take;
 use vortex_buffer::buffer;
@@ -17,12 +18,6 @@ use vortex_mask::Mask;
 use crate::FSSTVTable;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
-
-macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
-    };
-}
 
 /// this function is VERY slow on miri, so we only want to run it once
 pub(crate) fn build_fsst_array() -> ArrayRef {

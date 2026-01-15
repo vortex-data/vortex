@@ -35,14 +35,15 @@ impl CastKernel for PrimitiveVTable {
 
         // If the bit width is the same, we can short-circuit and simply update the validity
         if array.ptype() == new_ptype {
-            return Ok(Some(
-                PrimitiveArray::from_byte_buffer(
-                    array.byte_buffer().clone(),
+            // SAFETY: validity and data buffer still have same length
+            return Ok(Some(unsafe {
+                PrimitiveArray::new_unchecked_from_handle(
+                    array.buffer_handle().clone(),
                     array.ptype(),
                     new_validity,
                 )
-                .into_array(),
-            ));
+                .into_array()
+            }));
         }
 
         let mask = array.validity_mask();

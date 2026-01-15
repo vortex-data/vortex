@@ -55,7 +55,7 @@ where
         .cast(DType::Primitive(T::Offset::PTYPE, Nullability::NonNullable))?
         .execute::<Canonical>(ctx)?
         .into_primitive()
-        .buffer::<T::Offset>()
+        .to_buffer::<T::Offset>()
         .into_arrow_offset_buffer();
 
     let data = array.bytes().clone().into_arrow_buffer();

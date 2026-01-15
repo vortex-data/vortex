@@ -238,7 +238,7 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
             // The decimal dtype matches the array's dtype, and validity is preserved.
             Canonical::Decimal(unsafe {
                 DecimalArray::new_unchecked(
-                    prim.buffer::<P>(),
+                    prim.to_buffer::<P>(),
                     *array.decimal_dtype(),
                     prim.validity().clone(),
                 )

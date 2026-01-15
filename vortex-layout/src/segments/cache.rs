@@ -130,11 +130,11 @@ impl SegmentSource for SegmentCacheSourceAdapter {
         async move {
             if let Ok(Some(segment)) = cache.get(id).await {
                 tracing::debug!("Resolved segment {} from cache", id);
-                return Ok(BufferHandle::Host(segment));
+                return Ok(BufferHandle::new_host(segment));
             }
             let result = delegate.await?;
             // Cache only CPU buffers; device buffers are not cached.
-            if let BufferHandle::Host(ref buffer) = result
+            if let Some(buffer) = result.as_host_opt()
                 && let Err(e) = cache.put(id, buffer.clone()).await
             {
                 tracing::warn!("Failed to store segment {} in cache: {}", id, e);

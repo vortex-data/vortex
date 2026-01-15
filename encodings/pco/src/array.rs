@@ -141,11 +141,11 @@ impl VTable for PcoVTable {
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
         let chunk_metas = buffers[..metadata.0.chunks.len()]
             .iter()
-            .map(|b| b.clone().try_to_bytes())
+            .map(|b| b.clone().try_to_host())
             .collect::<VortexResult<Vec<_>>>()?;
         let pages = buffers[metadata.0.chunks.len()..]
             .iter()
-            .map(|b| b.clone().try_to_bytes())
+            .map(|b| b.clone().try_to_host())
             .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
@@ -293,7 +293,7 @@ impl PcoArray {
                 number_type,
                 NumberType<T> => {
                     let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
-                    let values = values.buffer::<T>();
+                    let values = values.to_buffer::<T>();
                     let chunk = &values.as_slice()[chunk_start..chunk_end];
                     fc
                         .chunk_compressor(chunk, &chunk_config)

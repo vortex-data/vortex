@@ -64,7 +64,10 @@ fn test_take_all(array: &dyn Array) {
     // Verify elements match
     match (&array.to_canonical(), &result.to_canonical()) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
-            assert_eq!(orig_prim.byte_buffer(), result_prim.byte_buffer());
+            assert_eq!(
+                orig_prim.buffer_handle().to_host(),
+                result_prim.buffer_handle().to_host()
+            );
         }
         _ => {
             // For non-primitive types, check scalar values
