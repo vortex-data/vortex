@@ -441,7 +441,8 @@ impl Mask {
                 }
                 // Otherwise, compute directly from the bit buffer using select.
                 // This avoids materializing the entire indices vector.
-                values.buffer.select(n)
+                // Use select_with_true_count since we have it cached.
+                values.buffer.select_with_true_count(n, values.true_count)
             }
         }
     }

@@ -25,82 +25,9 @@ use crate::bit::ops::bitwise_binary_op;
 use crate::bit::ops::bitwise_unary_op;
 use crate::buffer;
 
-/// Find the position of the nth set bit within a u64 word (0-indexed).
-///
-/// This is the "select" operation within a single word.
-/// Uses BMI2 pdep instruction when available (single instruction),
-/// otherwise falls back to a hybrid approach.
-#[inline]
-fn select_in_word(word: u64, n: usize) -> usize {
-    #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-    {
-        // BMI2 pdep: O(1) - single instruction!
-        // Deposits a 1-bit at position n into the set-bit positions of word,
-        // then trailing_zeros finds where it landed.
-        use std::arch::x86_64::_pdep_u64;
-        unsafe { _pdep_u64(1u64 << n, word).trailing_zeros() as usize }
-    }
-
-    #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
-    {
-        // Hybrid approach: loop is faster for small n, binary search for larger n.
-        // Crossover point is around n=3-4 based on benchmarks.
-        if n <= 3 {
-            select_in_word_loop(word, n)
-        } else {
-            select_in_word_binary_search(word, n)
-        }
-    }
-}
-
-/// Loop-based select: O(n) - fastest for small n (0-3).
-#[inline]
-fn select_in_word_loop(mut word: u64, mut n: usize) -> usize {
-    loop {
-        let tz = word.trailing_zeros() as usize;
-        if n == 0 {
-            return tz;
-        }
-        word &= word - 1; // Clear the lowest set bit
-        n -= 1;
-    }
-}
-
-/// Binary search select: O(log 64) = max 3 comparisons + table lookup.
-/// Better for larger n values (4+).
-#[allow(clippy::cast_possible_truncation)]
-#[inline]
-fn select_in_word_binary_search(word: u64, mut n: usize) -> usize {
-    let mut word = word;
-    let mut pos = 0usize;
-
-    // Check lower 32 bits
-    let lower_count = (word as u32).count_ones() as usize;
-    if n >= lower_count {
-        n -= lower_count;
-        word >>= 32;
-        pos += 32;
-    }
-
-    // Check lower 16 bits of remaining
-    let lower_count = ((word as u32) as u16).count_ones() as usize;
-    if n >= lower_count {
-        n -= lower_count;
-        word >>= 16;
-        pos += 16;
-    }
-
-    // Check lower 8 bits of remaining
-    let lower_count = (word as u8).count_ones() as usize;
-    if n >= lower_count {
-        n -= lower_count;
-        word >>= 8;
-        pos += 8;
-    }
-
-    // Final 8 bits - use lookup table
-    pos + SELECT_IN_BYTE_TABLE[(word as u8) as usize][n] as usize
-}
+// =============================================================================
+// Select-in-word helpers
+// =============================================================================
 
 /// Lookup table for select within a byte.
 /// SELECT_IN_BYTE_TABLE[byte][n] = position of nth set bit in byte (0-indexed).
@@ -124,6 +51,216 @@ static SELECT_IN_BYTE_TABLE: [[u8; 8]; 256] = {
     }
     table
 };
+
+/// Find the position of the nth set bit within a u64 word (0-indexed).
+///
+/// This is the "select" operation within a single word.
+/// Uses BMI2 pdep instruction when available (single instruction),
+/// otherwise falls back to a hybrid approach.
+#[inline]
+fn select_in_word(word: u64, n: usize) -> usize {
+    #[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
+    {
+        // BMI2 pdep: O(1) - single instruction!
+        // Deposits a 1-bit at position n into the set-bit positions of word,
+        // then trailing_zeros finds where it landed.
+        use std::arch::x86_64::_pdep_u64;
+        unsafe { _pdep_u64(1u64 << n, word).trailing_zeros() as usize }
+    }
+
+    #[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
+    {
+        // Hybrid approach: loop is faster for small n, binary search for larger n.
+        // Crossover point is around n=3 based on benchmarks.
+        if n <= 2 {
+            select_in_word_loop(word, n)
+        } else {
+            select_in_word_binary_search(word, n)
+        }
+    }
+}
+
+/// Loop-based select: O(n) - fastest for small n (0-2).
+#[inline]
+fn select_in_word_loop(mut word: u64, mut n: usize) -> usize {
+    loop {
+        let tz = word.trailing_zeros() as usize;
+        if n == 0 {
+            return tz;
+        }
+        word &= word - 1; // Clear the lowest set bit
+        n -= 1;
+    }
+}
+
+/// Binary search select: O(log 64) = max 3 comparisons + table lookup.
+/// Better for larger n values (3+).
+#[allow(clippy::cast_possible_truncation)]
+#[inline]
+fn select_in_word_binary_search(word: u64, mut n: usize) -> usize {
+    let mut word = word;
+    let mut pos = 0usize;
+
+    // Check lower 32 bits
+    let lower_count = (word as u32).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 32;
+        pos += 32;
+    }
+
+    // Check lower 16 bits of remaining
+    let lower_count = (word as u16).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 16;
+        pos += 16;
+    }
+
+    // Check lower 8 bits of remaining
+    let lower_count = (word as u8).count_ones() as usize;
+    if n >= lower_count {
+        n -= lower_count;
+        word >>= 8;
+        pos += 8;
+    }
+
+    // Final 8 bits - use lookup table
+    pos + SELECT_IN_BYTE_TABLE[(word as u8) as usize][n] as usize
+}
+
+/// Find the position of the nth set bit from the end of a word (0-indexed from end).
+///
+/// For example, if word has set bits at positions [0, 2, 4, 62], then:
+/// - select_in_word_reverse(word, 0) = 62 (last set bit)
+/// - select_in_word_reverse(word, 1) = 4 (second-to-last)
+/// - select_in_word_reverse(word, 2) = 2
+/// - select_in_word_reverse(word, 3) = 0 (first set bit)
+#[inline]
+fn select_in_word_reverse(word: u64, n: usize) -> usize {
+    // Reverse the word so the last bit becomes the first
+    // Then find the nth bit from the start in the reversed word
+    // Convert back: position in reversed = 63 - position in original
+    63 - select_in_word(word.reverse_bits(), n)
+}
+
+// =============================================================================
+// Block8 processing macros for optimized select
+// =============================================================================
+
+/// Process 8 chunks in forward direction, returning if target found.
+macro_rules! block8_forward {
+    ($remaining:ident, $c:expr, $base:expr) => {{
+        let [c0, c1, c2, c3, c4, c5, c6, c7] = $c;
+
+        // 8 independent popcounts - CPU can execute in parallel
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if $remaining < block_pop {
+            // Narrow down within block
+            if $remaining < pop0 {
+                return $base + select_in_word(c0, $remaining);
+            }
+            $remaining -= pop0;
+            if $remaining < pop1 {
+                return $base + 64 + select_in_word(c1, $remaining);
+            }
+            $remaining -= pop1;
+            if $remaining < pop2 {
+                return $base + 128 + select_in_word(c2, $remaining);
+            }
+            $remaining -= pop2;
+            if $remaining < pop3 {
+                return $base + 192 + select_in_word(c3, $remaining);
+            }
+            $remaining -= pop3;
+            if $remaining < pop4 {
+                return $base + 256 + select_in_word(c4, $remaining);
+            }
+            $remaining -= pop4;
+            if $remaining < pop5 {
+                return $base + 320 + select_in_word(c5, $remaining);
+            }
+            $remaining -= pop5;
+            if $remaining < pop6 {
+                return $base + 384 + select_in_word(c6, $remaining);
+            }
+            $remaining -= pop6;
+            return $base + 448 + select_in_word(c7, $remaining);
+        }
+        $remaining -= block_pop;
+    }};
+}
+
+/// Process 8 chunks in reverse direction, returning if target found.
+macro_rules! block8_reverse {
+    ($remaining:ident, $c:expr, $base:expr) => {{
+        let [c0, c1, c2, c3, c4, c5, c6, c7] = $c;
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if $remaining < block_pop {
+            if $remaining < pop0 {
+                return $base + 448 + select_in_word_reverse(c0, $remaining);
+            }
+            $remaining -= pop0;
+            if $remaining < pop1 {
+                return $base + 384 + select_in_word_reverse(c1, $remaining);
+            }
+            $remaining -= pop1;
+            if $remaining < pop2 {
+                return $base + 320 + select_in_word_reverse(c2, $remaining);
+            }
+            $remaining -= pop2;
+            if $remaining < pop3 {
+                return $base + 256 + select_in_word_reverse(c3, $remaining);
+            }
+            $remaining -= pop3;
+            if $remaining < pop4 {
+                return $base + 192 + select_in_word_reverse(c4, $remaining);
+            }
+            $remaining -= pop4;
+            if $remaining < pop5 {
+                return $base + 128 + select_in_word_reverse(c5, $remaining);
+            }
+            $remaining -= pop5;
+            if $remaining < pop6 {
+                return $base + 64 + select_in_word_reverse(c6, $remaining);
+            }
+            $remaining -= pop6;
+            return $base + select_in_word_reverse(c7, $remaining);
+        }
+        $remaining -= block_pop;
+    }};
+}
+
+/// Load remainder bits into a u64 (for the partial chunk at the end).
+#[inline]
+fn load_remainder(bytes: &[u8], num_chunks: usize, rem_bits: usize) -> u64 {
+    let start = num_chunks * 8;
+    let mut buf8 = [0u8; 8];
+    let avail = (bytes.len() - start).min(8);
+    buf8[..avail].copy_from_slice(&bytes[start..start + avail]);
+    u64::from_le_bytes(buf8) & ((1u64 << rem_bits) - 1)
+}
 
 /// An immutable bitset stored as a packed byte buffer.
 #[derive(Debug, Clone, Eq)]
@@ -403,6 +540,8 @@ impl BitBuffer {
     /// Returns the index of the nth set bit (0-indexed).
     ///
     /// This is also known as the "select" operation in succinct data structures.
+    /// Uses bidirectional search (from start or end) based on target position,
+    /// providing up to 60x speedup for high percentiles.
     ///
     /// # Panics
     ///
@@ -418,43 +557,257 @@ impl BitBuffer {
     /// assert_eq!(buf.select(1), 3); // 2nd set bit is at index 3
     /// assert_eq!(buf.select(2), 4); // 3rd set bit is at index 4
     /// ```
+    #[inline]
     pub fn select(&self, n: usize) -> usize {
+        let true_count = self.true_count();
+        self.select_with_true_count(n, true_count)
+    }
+
+    /// Returns the index of the nth set bit (0-indexed), using a pre-computed true_count.
+    ///
+    /// This is more efficient when the true_count is already known (e.g., cached in Mask).
+    /// Uses bidirectional search (from start or end) based on target position,
+    /// providing up to 60x speedup for high percentiles.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n >= true_count` or if `true_count` doesn't match the actual count.
+    #[allow(clippy::collapsible_if)]
+    #[inline]
+    pub fn select_with_true_count(&self, n: usize, true_count: usize) -> usize {
+        if n >= true_count {
+            vortex_panic!("select({n}) out of bounds: buffer has only {true_count} set bits");
+        }
+
+        // Bidirectional: search from start or end based on target position
+        if n < true_count / 2 {
+            self.select_forward(n)
+        } else {
+            self.select_reverse(true_count - 1 - n)
+        }
+    }
+
+    /// Forward select using block8 processing for instruction-level parallelism.
+    // TODO(perf): The unaligned path is ~2x slower than aligned due to UnalignedBitChunk
+    // abstraction overhead. Could optimize by using direct pointer access similar to aligned case.
+    #[allow(clippy::collapsible_if, clippy::many_single_char_names)]
+    fn select_forward(&self, n: usize) -> usize {
         let mut remaining = n;
-        let chunks = self.chunks();
 
-        // Process full u64 chunks
-        for (chunk_idx, chunk) in chunks.iter().enumerate() {
-            // Fast path for all-ones words (common in runs of 1s)
-            if chunk == u64::MAX {
-                if remaining < 64 {
-                    return chunk_idx * 64 + remaining;
+        if self.offset == 0 {
+            // Aligned: direct pointer access
+            let bytes = self.buffer.as_slice();
+            let len = self.len;
+            let ptr = bytes.as_ptr() as *const u64;
+            let num_chunks = len / 64;
+            let mut i = 0;
+
+            // Process 8 chunks at a time for ILP
+            while i + 8 <= num_chunks {
+                let chunks = [
+                    unsafe { ptr.add(i).read_unaligned() },
+                    unsafe { ptr.add(i + 1).read_unaligned() },
+                    unsafe { ptr.add(i + 2).read_unaligned() },
+                    unsafe { ptr.add(i + 3).read_unaligned() },
+                    unsafe { ptr.add(i + 4).read_unaligned() },
+                    unsafe { ptr.add(i + 5).read_unaligned() },
+                    unsafe { ptr.add(i + 6).read_unaligned() },
+                    unsafe { ptr.add(i + 7).read_unaligned() },
+                ];
+                block8_forward!(remaining, chunks, i * 64);
+                i += 8;
+            }
+
+            // Handle remaining chunks one at a time
+            while i < num_chunks {
+                let chunk = unsafe { ptr.add(i).read_unaligned() };
+                let pop = chunk.count_ones() as usize;
+                if remaining < pop {
+                    return i * 64 + select_in_word(chunk, remaining);
                 }
-                remaining -= 64;
-                continue;
+                remaining -= pop;
+                i += 1;
             }
 
-            let popcount = chunk.count_ones() as usize;
-            if remaining < popcount {
-                // The nth bit is in this chunk
-                return chunk_idx * 64 + select_in_word(chunk, remaining);
+            // Handle remainder bits
+            let rem_bits = len % 64;
+            if rem_bits > 0 {
+                let rem = load_remainder(bytes, num_chunks, rem_bits);
+                if remaining < rem.count_ones() as usize {
+                    return num_chunks * 64 + select_in_word(rem, remaining);
+                }
             }
-            remaining -= popcount;
+        } else {
+            // Unaligned: use UnalignedBitChunk for aligned middle section
+            let unaligned = self.unaligned_chunks();
+            let lead_padding = unaligned.lead_padding();
+            let mut bit_idx = 0usize;
+
+            // Handle prefix
+            if let Some(prefix) = unaligned.prefix() {
+                let pop = prefix.count_ones() as usize;
+                if remaining < pop {
+                    return select_in_word(prefix, remaining) - lead_padding;
+                }
+                remaining -= pop;
+                bit_idx = 64 - lead_padding;
+            }
+
+            // Process aligned middle chunks with block8
+            let chunks = unaligned.chunks();
+            let num_chunks = chunks.len();
+            let mut i = 0;
+
+            while i + 8 <= num_chunks {
+                let c = [
+                    chunks[i],
+                    chunks[i + 1],
+                    chunks[i + 2],
+                    chunks[i + 3],
+                    chunks[i + 4],
+                    chunks[i + 5],
+                    chunks[i + 6],
+                    chunks[i + 7],
+                ];
+                block8_forward!(remaining, c, bit_idx);
+                bit_idx += 512;
+                i += 8;
+            }
+
+            while i < num_chunks {
+                let chunk = chunks[i];
+                let pop = chunk.count_ones() as usize;
+                if remaining < pop {
+                    return bit_idx + select_in_word(chunk, remaining);
+                }
+                remaining -= pop;
+                bit_idx += 64;
+                i += 1;
+            }
+
+            // Handle suffix
+            if let Some(suffix) = unaligned.suffix() {
+                if remaining < suffix.count_ones() as usize {
+                    return bit_idx + select_in_word(suffix, remaining);
+                }
+            }
         }
 
-        // Check the remainder bits
-        let remainder = chunks.remainder_bits();
-        if remainder != 0 {
-            let popcount = remainder.count_ones() as usize;
-            if remaining < popcount {
-                let chunk_idx = self.len / 64;
-                return chunk_idx * 64 + select_in_word(remainder, remaining);
+        // Should be unreachable if bounds check was done
+        vortex_panic!("select_forward: n out of bounds");
+    }
+
+    /// Reverse select using block8 processing (search from end).
+    // TODO(perf): Same as select_forward - unaligned path could use direct pointer access.
+    #[allow(clippy::collapsible_if, clippy::many_single_char_names)]
+    fn select_reverse(&self, n_from_end: usize) -> usize {
+        let mut remaining = n_from_end;
+
+        if self.offset == 0 {
+            // Aligned: direct pointer access
+            let bytes = self.buffer.as_slice();
+            let len = self.len;
+            let ptr = bytes.as_ptr() as *const u64;
+            let num_chunks = len / 64;
+            let rem_bits = len % 64;
+
+            // Handle remainder bits first (they're at the end)
+            if rem_bits > 0 {
+                let rem = load_remainder(bytes, num_chunks, rem_bits);
+                let pop = rem.count_ones() as usize;
+                if remaining < pop {
+                    return num_chunks * 64 + select_in_word_reverse(rem, remaining);
+                }
+                remaining -= pop;
+            }
+
+            // Process chunks in reverse, 8 at a time
+            let mut i = num_chunks;
+            while i >= 8 {
+                let chunks = [
+                    unsafe { ptr.add(i - 1).read_unaligned() },
+                    unsafe { ptr.add(i - 2).read_unaligned() },
+                    unsafe { ptr.add(i - 3).read_unaligned() },
+                    unsafe { ptr.add(i - 4).read_unaligned() },
+                    unsafe { ptr.add(i - 5).read_unaligned() },
+                    unsafe { ptr.add(i - 6).read_unaligned() },
+                    unsafe { ptr.add(i - 7).read_unaligned() },
+                    unsafe { ptr.add(i - 8).read_unaligned() },
+                ];
+                block8_reverse!(remaining, chunks, (i - 8) * 64);
+                i -= 8;
+            }
+
+            // Handle remaining chunks
+            while i > 0 {
+                i -= 1;
+                let chunk = unsafe { ptr.add(i).read_unaligned() };
+                let pop = chunk.count_ones() as usize;
+                if remaining < pop {
+                    return i * 64 + select_in_word_reverse(chunk, remaining);
+                }
+                remaining -= pop;
+            }
+        } else {
+            // Unaligned: use UnalignedBitChunk
+            let unaligned = self.unaligned_chunks();
+            let lead_padding = unaligned.lead_padding();
+            let chunks = unaligned.chunks();
+            let num_chunks = chunks.len();
+
+            let prefix_bits = if unaligned.prefix().is_some() {
+                64 - lead_padding
+            } else {
+                0
+            };
+            let suffix_start = prefix_bits + num_chunks * 64;
+
+            // Handle suffix first
+            if let Some(suffix) = unaligned.suffix() {
+                let pop = suffix.count_ones() as usize;
+                if remaining < pop {
+                    return suffix_start + select_in_word_reverse(suffix, remaining);
+                }
+                remaining -= pop;
+            }
+
+            // Process middle chunks in reverse with block8
+            let mut i = num_chunks;
+            while i >= 8 {
+                let c = [
+                    chunks[i - 1],
+                    chunks[i - 2],
+                    chunks[i - 3],
+                    chunks[i - 4],
+                    chunks[i - 5],
+                    chunks[i - 6],
+                    chunks[i - 7],
+                    chunks[i - 8],
+                ];
+                block8_reverse!(remaining, c, prefix_bits + (i - 8) * 64);
+                i -= 8;
+            }
+
+            while i > 0 {
+                i -= 1;
+                let chunk = chunks[i];
+                let pop = chunk.count_ones() as usize;
+                if remaining < pop {
+                    return prefix_bits + i * 64 + select_in_word_reverse(chunk, remaining);
+                }
+                remaining -= pop;
+            }
+
+            // Handle prefix last
+            if let Some(prefix) = unaligned.prefix() {
+                if remaining < prefix.count_ones() as usize {
+                    return select_in_word_reverse(prefix, remaining) - lead_padding;
+                }
             }
         }
 
-        vortex_panic!(
-            "select({n}) out of bounds: buffer has only {} set bits",
-            self.true_count()
-        );
+        // Should be unreachable if bounds check was done
+        vortex_panic!("select_reverse: n out of bounds");
     }
 
     /// Returns the index of the nth set bit using the set_slices iterator.
@@ -990,6 +1343,326 @@ mod tests {
         for i in 0..len {
             let expected = (i % 2 == 0) && (i % 4 == 0);
             assert_eq!(mapped.value(i), expected, "Mismatch at index {}", i);
+        }
+    }
+
+    #[rstest]
+    #[case(100)]
+    #[case(1000)]
+    #[case(10000)]
+    fn test_select_with_true_count(#[case] len: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 10 == 0);
+        let true_count = buf.true_count();
+
+        for n in 0..true_count {
+            let expected = buf.select(n);
+            let actual = buf.select_with_true_count(n, true_count);
+            assert_eq!(actual, expected, "select_with_true_count({n}) mismatch");
+        }
+    }
+
+    #[rstest]
+    #[case(1, 1000)] // offset of 1
+    #[case(3, 1000)] // offset of 3
+    #[case(7, 1000)] // offset of 7
+    #[case(13, 1000)] // offset spanning multiple bytes
+    #[case(63, 1000)] // offset close to chunk boundary
+    fn test_select_unaligned(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        let buf = BitBuffer::collect_bool(total_bits, |i| i % 10 == 0);
+        let sliced = buf.slice(offset..offset + len);
+
+        // Verify the sliced buffer has correct offset
+        assert!(sliced.offset() != 0 || offset % 8 == 0);
+
+        let true_count = sliced.true_count();
+        for n in 0..true_count {
+            let selected_idx = sliced.select(n);
+            // Verify the selected index is actually a set bit
+            assert!(
+                sliced.value(selected_idx),
+                "select({n}) = {} but bit is not set",
+                selected_idx
+            );
+
+            // Count the number of set bits before selected_idx
+            let count_before: usize = (0..selected_idx).filter(|&i| sliced.value(i)).count();
+            assert_eq!(
+                count_before, n,
+                "select({n}) = {} has wrong rank",
+                selected_idx
+            );
+        }
+    }
+
+    #[rstest]
+    #[case(100_000, 2)] // Low percentile - forward search
+    #[case(100_000, 50)] // Middle - either direction
+    #[case(100_000, 98)] // High percentile - reverse search
+    fn test_select_bidirectional(#[case] len: usize, #[case] pct: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % 10 == 0);
+        let true_count = buf.true_count();
+        let target = true_count * pct / 100;
+
+        // Compute expected value using set_indices iterator
+        let expected_idx = buf.set_indices().nth(target).unwrap();
+        let actual = buf.select(target);
+        assert_eq!(actual, expected_idx, "select at {}% mismatch", pct);
+    }
+
+    #[rstest]
+    #[case(1, 100_000)] // 1-bit offset
+    #[case(7, 100_000)] // 7-bit offset (almost full byte)
+    #[case(33, 100_000)] // Multi-byte offset
+    fn test_select_unaligned_bidirectional(#[case] offset: usize, #[case] len: usize) {
+        let total_bits = offset + len;
+        let buf = BitBuffer::collect_bool(total_bits, |i| i % 10 == 0);
+        let sliced = buf.slice(offset..offset + len);
+
+        let true_count = sliced.true_count();
+
+        // Test low percentile (forward)
+        let target_low = true_count * 2 / 100;
+        let expected_low = sliced.set_indices().nth(target_low).unwrap();
+        assert_eq!(sliced.select(target_low), expected_low);
+
+        // Test high percentile (reverse)
+        let target_high = true_count * 98 / 100;
+        let expected_high = sliced.set_indices().nth(target_high).unwrap();
+        assert_eq!(sliced.select(target_high), expected_high);
+    }
+
+    #[test]
+    fn test_select_large_buffer_block8() {
+        // Test a buffer large enough to exercise block8 processing (>512 chunks = >32768 bits)
+        let len = 100_000;
+        let buf = BitBuffer::collect_bool(len, |i| i % 7 == 0);
+        let true_count = buf.true_count();
+
+        // Test various positions across the buffer
+        for pct in [0, 10, 25, 50, 75, 90, 100] {
+            let target = if pct == 100 {
+                true_count - 1
+            } else {
+                true_count * pct / 100
+            };
+            let expected = buf.set_indices().nth(target).unwrap();
+            let actual = buf.select(target);
+            assert_eq!(actual, expected, "select at {}% mismatch", pct);
+        }
+    }
+
+    // Additional comprehensive tests for select_in_word_reverse
+    #[test]
+    fn test_select_in_word_reverse_basic() {
+        // Word with bits at 0, 2, 4, 6 (4 set bits)
+        let word: u64 = 0b01010101;
+        // From end: 0=6, 1=4, 2=2, 3=0
+        assert_eq!(super::select_in_word_reverse(word, 0), 6);
+        assert_eq!(super::select_in_word_reverse(word, 1), 4);
+        assert_eq!(super::select_in_word_reverse(word, 2), 2);
+        assert_eq!(super::select_in_word_reverse(word, 3), 0);
+    }
+
+    #[test]
+    fn test_select_in_word_reverse_single_bit() {
+        // Single bit at position 32
+        let word: u64 = 1u64 << 32;
+        assert_eq!(super::select_in_word_reverse(word, 0), 32);
+    }
+
+    #[test]
+    fn test_select_in_word_reverse_all_ones() {
+        let word: u64 = u64::MAX;
+        // Last bit is at 63, first is at 0
+        assert_eq!(super::select_in_word_reverse(word, 0), 63);
+        assert_eq!(super::select_in_word_reverse(word, 63), 0);
+        assert_eq!(super::select_in_word_reverse(word, 31), 32);
+    }
+
+    #[test]
+    fn test_select_in_word_reverse_high_bits() {
+        // Bits set at 60, 61, 62, 63
+        let word: u64 = 0xF000_0000_0000_0000;
+        assert_eq!(super::select_in_word_reverse(word, 0), 63);
+        assert_eq!(super::select_in_word_reverse(word, 1), 62);
+        assert_eq!(super::select_in_word_reverse(word, 2), 61);
+        assert_eq!(super::select_in_word_reverse(word, 3), 60);
+    }
+
+    #[rstest]
+    #[case(1)] // Single set bit
+    #[case(10)] // Sparse
+    #[case(32)] // Half
+    #[case(63)] // Almost all
+    #[case(64)] // All
+    fn test_select_consistency_forward_reverse(#[case] density_percent: usize) {
+        let len = 10000;
+        let buf = BitBuffer::collect_bool(len, |i| i % (100 / density_percent.max(1)) == 0);
+        let true_count = buf.true_count();
+
+        if true_count == 0 {
+            return;
+        }
+
+        // Test that forward and reverse select produce consistent results
+        for n in 0..true_count.min(100) {
+            let forward_result = buf.select(n);
+            let reverse_n = true_count - 1 - n;
+            let reverse_result = buf.select(reverse_n);
+
+            // Both should be valid set bits
+            assert!(buf.value(forward_result), "forward select({n}) invalid");
+            assert!(
+                buf.value(reverse_result),
+                "reverse select({reverse_n}) invalid"
+            );
+        }
+    }
+
+    #[rstest]
+    #[case(511)] // Just under 8 chunks
+    #[case(512)] // Exactly 8 chunks
+    #[case(513)] // Just over 8 chunks
+    #[case(1023)] // Just under 16 chunks
+    #[case(1024)] // Exactly 16 chunks
+    fn test_select_block8_boundary(#[case] num_chunks: usize) {
+        let len = num_chunks * 64;
+        let buf = BitBuffer::collect_bool(len, |i| i % 5 == 0);
+        let true_count = buf.true_count();
+
+        // Test all positions to catch boundary errors
+        for n in 0..true_count {
+            let result = buf.select(n);
+            assert!(buf.value(result), "select({n}) = {} not a set bit", result);
+            let rank: usize = (0..result).filter(|&i| buf.value(i)).count();
+            assert_eq!(rank, n, "select({n}) = {} has wrong rank {}", result, rank);
+        }
+    }
+
+    #[rstest]
+    #[case(0)] // No offset
+    #[case(1)] // 1-bit offset
+    #[case(7)] // 7-bit offset (max within byte)
+    #[case(8)] // Byte-aligned offset
+    #[case(63)] // Almost chunk-aligned
+    #[case(64)] // Chunk-aligned
+    #[case(65)] // Just past chunk boundary
+    fn test_select_various_offsets_comprehensive(#[case] offset: usize) {
+        let total = offset + 1000;
+        let buf = BitBuffer::collect_bool(total, |i| i % 3 == 0);
+        let sliced = buf.slice(offset..total);
+
+        let true_count = sliced.true_count();
+        for n in 0..true_count {
+            let result = sliced.select(n);
+            assert!(
+                sliced.value(result),
+                "offset={}, select({n}) = {} not set",
+                offset,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_first_and_last() {
+        let len = 10000;
+        let buf = BitBuffer::collect_bool(len, |i| i % 100 == 0);
+        let true_count = buf.true_count();
+
+        // First set bit
+        assert_eq!(buf.select(0), 0);
+
+        // Last set bit
+        let last_idx = buf.select(true_count - 1);
+        assert_eq!(last_idx, 9900);
+    }
+
+    #[test]
+    fn test_select_single_bit_buffer() {
+        // Buffer with exactly one bit set
+        let buf = BitBuffer::collect_bool(1000, |i| i == 500);
+        assert_eq!(buf.true_count(), 1);
+        assert_eq!(buf.select(0), 500);
+    }
+
+    #[test]
+    fn test_select_two_bits_far_apart() {
+        // Two bits set far apart
+        let buf = BitBuffer::collect_bool(10000, |i| i == 0 || i == 9999);
+        assert_eq!(buf.true_count(), 2);
+        assert_eq!(buf.select(0), 0);
+        assert_eq!(buf.select(1), 9999);
+    }
+
+    #[test]
+    fn test_select_run_patterns() {
+        // Runs of 64 ones followed by 64 zeros
+        let buf = BitBuffer::collect_bool(1024, |i| (i / 64) % 2 == 0);
+        let true_count = buf.true_count();
+
+        // Verify all selects are correct
+        let expected: Vec<usize> = buf.set_indices().collect();
+        for (n, &expected_idx) in expected.iter().enumerate() {
+            assert_eq!(buf.select(n), expected_idx, "select({n}) mismatch");
+        }
+        assert_eq!(expected.len(), true_count);
+    }
+
+    #[test]
+    fn test_select_with_true_count_matches_select() {
+        let buf = BitBuffer::collect_bool(5000, |i| i % 11 == 0);
+        let true_count = buf.true_count();
+
+        for n in 0..true_count {
+            let via_select = buf.select(n);
+            let via_with_count = buf.select_with_true_count(n, true_count);
+            assert_eq!(via_select, via_with_count, "mismatch at n={n}");
+        }
+    }
+
+    #[rstest]
+    #[case(100, 10)]
+    #[case(1000, 100)]
+    #[case(10000, 1000)]
+    fn test_select_exhaustive_small_buffers(#[case] len: usize, #[case] density: usize) {
+        let buf = BitBuffer::collect_bool(len, |i| i % density == 0);
+        let expected: Vec<usize> = buf.set_indices().collect();
+
+        // Exhaustively test all positions
+        for (n, &expected_idx) in expected.iter().enumerate() {
+            let actual = buf.select(n);
+            assert_eq!(
+                actual, expected_idx,
+                "len={}, density={}, select({n}) expected {} got {}",
+                len, density, expected_idx, actual
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_remainder_bits() {
+        // Buffer that doesn't align to 64-bit boundary
+        for len in [65, 100, 127, 128, 129, 255, 256, 257] {
+            let buf = BitBuffer::collect_bool(len, |i| i % 4 == 0);
+            let expected: Vec<usize> = buf.set_indices().collect();
+
+            for (n, &expected_idx) in expected.iter().enumerate() {
+                let actual = buf.select(n);
+                assert_eq!(actual, expected_idx, "len={}, select({n}) mismatch", len);
+            }
+        }
+    }
+
+    #[test]
+    fn test_select_alternating_bytes() {
+        // Pattern that alternates by byte to catch byte-level bugs
+        let buf = BitBuffer::collect_bool(1024, |i| (i / 8) % 2 == 0);
+        let expected: Vec<usize> = buf.set_indices().collect();
+
+        for (n, &expected_idx) in expected.iter().enumerate() {
+            assert_eq!(buf.select(n), expected_idx, "select({n}) mismatch");
         }
     }
 }
