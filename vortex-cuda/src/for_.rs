@@ -100,11 +100,11 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::has_nvcc;
@@ -116,11 +116,7 @@ mod tests {
             return;
         }
 
-        let vortex_session = vortex_session::VortexSession::empty()
-            .with::<ArraySession>()
-            .with::<CudaSession>();
-
-        let mut cuda_ctx = CudaSession::new_ctx(vortex_session)
+        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         let for_array = FoRArray::try_new(
