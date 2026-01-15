@@ -10058,6 +10058,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-scan",
 ]
 
 [[package]]

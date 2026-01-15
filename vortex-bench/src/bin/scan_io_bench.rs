@@ -18,6 +18,7 @@ use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
 use url::Url;
 use vortex::array::Array;
+use vortex::array::MaskFuture;
 use vortex::array::expr::Expression;
 use vortex::array::expr::col;
 use vortex::array::expr::eq;
@@ -34,12 +35,15 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::layout::collect_segment_ids;
+use vortex::layout::LayoutReader;
+use vortex::mask::Mask;
 use vortex::metrics::VortexMetrics;
 use parking_lot::Mutex;
 use vortex_bench::SESSION;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use tracing_subscriber::EnvFilter;
+use vortex_scan::ScanBuilder;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Benchmark Vortex scans over local files vs object stores")]
@@ -80,9 +84,25 @@ struct Args {
     /// Reopen the file for each iteration to avoid caching effects.
     #[arg(long, default_value_t = false)]
     reopen: bool,
+    /// Which scan path to use.
+    #[arg(long, value_enum, default_value_t = ScanMode::Full)]
+    mode: ScanMode,
     /// Only read segments and drop buffers (skip decode/projection).
     #[arg(long, default_value_t = false)]
     io_only: bool,
+    /// Only prune whole segments (no intra-segment pruning on CPU).
+    #[arg(long, default_value_t = false)]
+    prune_segments: bool,
+}
+
+#[derive(ValueEnum, Clone, Debug)]
+enum ScanMode {
+    /// Read segments only (no decode).
+    Io,
+    /// Decode arrays without filter evaluation.
+    Decode,
+    /// Decode arrays with full filter/projection evaluation.
+    Full,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -115,6 +135,7 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
+    let mode = if args.io_only { ScanMode::Io } else { args.mode.clone() };
 
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics = VortexMetrics::new_with_tags([("bench", "scan-io")]);
@@ -151,13 +172,21 @@ async fn main() -> Result<()> {
                 let read_bytes = read_bytes.clone();
                 let first_seen = first_seen.clone();
                 let first_info = first_info.clone();
+                let mode = mode.clone();
                 async move {
                     let file = match &cached_files {
                         Some(files) => files[idx].clone(),
-                        None => open_vortex_file_for_target(target, metrics).await?,
+                        None => open_vortex_file_for_target(target, metrics.clone()).await?,
                     };
 
-                    if args.io_only {
+                    if args.prune_segments
+                        && let Some(filter) = filter.as_ref()
+                        && file.can_prune(filter)?
+                    {
+                        return Ok::<_, anyhow::Error>(0);
+                    }
+
+                    if matches!(mode, ScanMode::Io) {
                         read_all_segments(&file, args.concurrency).await?;
                         if !first_seen.load(Ordering::Relaxed)
                             && !first_seen.swap(true, Ordering::Relaxed)
@@ -172,10 +201,34 @@ async fn main() -> Result<()> {
                         return Ok::<_, anyhow::Error>(file_rows);
                     }
 
-                    let scan = file
-                        .scan()?
-                        .with_projection(projection)
-                        .with_some_filter(filter)
+                    let (scan_projection, scan_filter, bypass_filter) = match mode {
+                        ScanMode::Decode => {
+                            let scan_filter = if args.prune_segments {
+                                filter.clone()
+                            } else {
+                                None
+                            };
+                            (root(), scan_filter, true)
+                        }
+                        ScanMode::Full => (projection.clone(), filter.clone(), false),
+                        ScanMode::Io => unreachable!("io-only handled above"),
+                    };
+
+                    let layout_reader = file.layout_reader()?;
+                    let layout_reader = if args.prune_segments || bypass_filter {
+                        std::sync::Arc::new(BenchLayoutReader::new(
+                            layout_reader,
+                            args.prune_segments,
+                            bypass_filter,
+                        )) as std::sync::Arc<dyn LayoutReader>
+                    } else {
+                        layout_reader
+                    };
+
+                    let scan = ScanBuilder::new(SESSION.clone(), layout_reader)
+                        .with_metrics(metrics.clone())
+                        .with_projection(scan_projection)
+                        .with_some_filter(scan_filter)
                         .with_concurrency(args.concurrency);
 
                     let mut stream = scan.into_stream()?;
@@ -454,4 +507,93 @@ async fn read_all_segments(
         .await?;
 
     Ok(())
+}
+
+#[derive(Clone)]
+struct BenchLayoutReader {
+    inner: std::sync::Arc<dyn LayoutReader>,
+    segment_pruning: bool,
+    bypass_filter: bool,
+}
+
+impl BenchLayoutReader {
+    fn new(
+        inner: std::sync::Arc<dyn LayoutReader>,
+        segment_pruning: bool,
+        bypass_filter: bool,
+    ) -> Self {
+        Self {
+            inner,
+            segment_pruning,
+            bypass_filter,
+        }
+    }
+}
+
+impl LayoutReader for BenchLayoutReader {
+    fn name(&self) -> &std::sync::Arc<str> {
+        self.inner.name()
+    }
+
+    fn dtype(&self) -> &vortex::dtype::DType {
+        self.inner.dtype()
+    }
+
+    fn row_count(&self) -> u64 {
+        self.inner.row_count()
+    }
+
+    fn register_splits(
+        &self,
+        field_mask: &[vortex::dtype::FieldMask],
+        row_range: &std::ops::Range<u64>,
+        splits: &mut std::collections::BTreeSet<u64>,
+    ) -> VortexResult<()> {
+        self.inner.register_splits(field_mask, row_range, splits)
+    }
+
+    fn pruning_evaluation(
+        &self,
+        row_range: &std::ops::Range<u64>,
+        expr: &Expression,
+        mask: Mask,
+    ) -> VortexResult<MaskFuture> {
+        if !self.segment_pruning {
+            return self.inner.pruning_evaluation(row_range, expr, mask);
+        }
+
+        let len = mask.len();
+        let fut = self.inner.pruning_evaluation(row_range, expr, mask)?;
+        Ok(MaskFuture::new(len, async move {
+            let mask = fut.await?;
+            if mask.all_false() {
+                Ok(mask)
+            } else {
+                Ok(Mask::new_true(len))
+            }
+        }))
+    }
+
+    fn filter_evaluation(
+        &self,
+        row_range: &std::ops::Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
+    ) -> VortexResult<MaskFuture> {
+        if self.bypass_filter {
+            Ok(mask)
+        } else {
+            self.inner.filter_evaluation(row_range, expr, mask)
+        }
+    }
+
+    fn projection_evaluation(
+        &self,
+        row_range: &std::ops::Range<u64>,
+        expr: &Expression,
+        mask: MaskFuture,
+    ) -> VortexResult<futures::future::BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>>
+    {
+        self.inner.projection_evaluation(row_range, expr, mask)
+    }
 }

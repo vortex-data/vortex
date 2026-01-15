@@ -65,3 +65,4 @@ vortex = { workspace = true, features = [
     "zstd",
     "unstable_encodings",
 ] }
+vortex-scan = { workspace = true }
