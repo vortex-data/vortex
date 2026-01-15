@@ -117,7 +117,7 @@ impl ChunkedArray {
 
     #[inline]
     pub fn chunk_offsets(&self) -> Buffer<u64> {
-        self.chunk_offsets.buffer()
+        self.chunk_offsets.to_buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> (usize, usize) {

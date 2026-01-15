@@ -15,9 +15,10 @@ use crate::vtable::ValidityHelper;
 
 impl OperationsVTable<PrimitiveVTable> for PrimitiveVTable {
     fn slice(array: &PrimitiveArray, range: Range<usize>) -> ArrayRef {
-        match_each_native_ptype!(array.ptype(), |T| {
-            PrimitiveArray::new(
-                array.buffer::<T>().slice(range.clone()),
+        match_each_native_ptype!(array.ptype(), |P| {
+            PrimitiveArray::from_buffer_handle(
+                array.buffer.slice_typed::<P>(range.clone()),
+                array.ptype(),
                 array.validity().slice(range),
             )
             .into_array()

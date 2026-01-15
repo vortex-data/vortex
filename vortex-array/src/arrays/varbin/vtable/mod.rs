@@ -103,7 +103,7 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone().try_to_bytes()?;
+        let bytes = buffers[0].clone().try_to_host()?;
 
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }

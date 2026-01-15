@@ -97,7 +97,7 @@ impl VTable for ByteBoolVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_bytes()?;
+        let buffer = buffers[0].clone().try_to_host()?;
 
         Ok(ByteBoolArray::new(buffer, validity))
     }

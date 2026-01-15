@@ -333,7 +333,10 @@ mod test {
         assert_eq!(recovered_array.len(), array.len());
         let recovered_primitive = recovered_array.to_primitive();
         assert_eq!(recovered_primitive.validity(), array.validity());
-        assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
+        assert_eq!(
+            recovered_primitive.to_buffer::<u64>(),
+            array.to_buffer::<u64>()
+        );
 
         std::fs::remove_file(&path)?;
 

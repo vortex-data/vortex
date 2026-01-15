@@ -22,7 +22,7 @@ struct PrimitiveExporter<T: NativePType> {
 
 pub fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
     match_each_native_ptype!(array.ptype(), |T| {
-        let buffer = array.buffer::<T>();
+        let buffer = array.to_buffer::<T>();
         let prim = Box::new(PrimitiveExporter {
             len: buffer.len(),
             start: buffer.as_ptr(),
