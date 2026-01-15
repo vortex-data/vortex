@@ -6,6 +6,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
+use std::task::ready;
 
 use futures::Stream;
 use futures::StreamExt;
@@ -31,6 +32,9 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::BlockingRuntime;
+use vortex_io::runtime::Handle;
+use vortex_io::runtime::Task;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
@@ -308,8 +312,18 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
 enum LazyScanState<A: 'static + Send> {
     Builder(Option<Box<ScanBuilder<A>>>),
+    Preparing(PreparingScan<A>),
     Stream(BoxStream<'static, VortexResult<A>>),
     Error(Option<vortex_error::VortexError>),
+}
+
+type PreparedScanTasks<A> = Vec<BoxFuture<'static, VortexResult<Option<A>>>>;
+
+struct PreparingScan<A: 'static + Send> {
+    ordered: bool,
+    concurrency: usize,
+    handle: Handle,
+    task: Task<VortexResult<PreparedScanTasks<A>>>,
 }
 
 struct LazyScanStream<A: 'static + Send> {
@@ -334,11 +348,40 @@ impl<A: 'static + Send> Stream for LazyScanStream<A> {
             match &mut self.state {
                 LazyScanState::Builder(builder) => {
                     let builder = builder.take().vortex_expect("polled after completion");
-                    match builder
-                        .prepare()
-                        .and_then(|scan| scan.execute_stream(None).map(|s| s.boxed()))
-                    {
-                        Ok(stream) => self.state = LazyScanState::Stream(stream),
+                    let ordered = builder.ordered;
+                    let num_workers = std::thread::available_parallelism()
+                        .map(|n| n.get())
+                        .unwrap_or(1);
+                    let concurrency = builder.concurrency * num_workers;
+                    let handle = builder.session.handle();
+                    let task = handle.spawn_blocking(move || {
+                        builder.prepare().and_then(|scan| scan.execute(None))
+                    });
+                    self.state = LazyScanState::Preparing(PreparingScan {
+                        ordered,
+                        concurrency,
+                        handle,
+                        task,
+                    });
+                }
+                LazyScanState::Preparing(preparing) => {
+                    match ready!(Pin::new(&mut preparing.task).poll(cx)) {
+                        Ok(tasks) => {
+                            let ordered = preparing.ordered;
+                            let concurrency = preparing.concurrency;
+                            let handle = preparing.handle.clone();
+                            let stream =
+                                futures::stream::iter(tasks).map(move |task| handle.spawn(task));
+                            let stream = if ordered {
+                                stream.buffered(concurrency).boxed()
+                            } else {
+                                stream.buffer_unordered(concurrency).boxed()
+                            };
+                            let stream = stream
+                                .filter_map(|chunk| async move { chunk.transpose() })
+                                .boxed();
+                            self.state = LazyScanState::Stream(stream);
+                        }
                         Err(err) => self.state = LazyScanState::Error(Some(err)),
                     }
                 }
@@ -392,20 +435,30 @@ fn to_field_mask(field: FieldName) -> FieldMask {
 mod test {
     use std::collections::BTreeSet;
     use std::ops::Range;
+    use std::pin::Pin;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
+    use std::task::Context;
+    use std::task::Poll;
+    use std::time::Duration;
 
+    use futures::Stream;
+    use futures::task::noop_waker_ref;
+    use parking_lot::Mutex;
+    use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::expr::Expression;
     use vortex_dtype::DType;
     use vortex_dtype::FieldMask;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
     use vortex_io::runtime::single::SingleThreadRuntime;
-    use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::ArrayFuture;
     use vortex_layout::LayoutReader;
     use vortex_mask::Mask;
@@ -490,11 +543,228 @@ mod test {
         let calls = Arc::new(AtomicUsize::new(0));
         let reader = Arc::new(CountingLayoutReader::new(calls.clone()));
 
-        let runtime = SingleThreadRuntime::default();
-        let session = crate::test::SESSION.clone().with_handle(runtime.handle());
+        let session = crate::test::SCAN_SESSION.clone();
 
         let _stream = ScanBuilder::new(session, reader).into_stream().unwrap();
 
         assert_eq!(calls.load(Ordering::Relaxed), 0);
+    }
+
+    #[derive(Debug)]
+    struct SplittingLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        register_splits_calls: Arc<AtomicUsize>,
+    }
+
+    impl SplittingLayoutReader {
+        fn new(register_splits_calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                name: Arc::from("splitting"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 4,
+                register_splits_calls,
+            }
+        }
+    }
+
+    impl LayoutReader for SplittingLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
+            for split in (row_range.start + 1)..=row_range.end {
+                splits.insert(split);
+            }
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            Ok(MaskFuture::ready(mask))
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            Ok(mask)
+        }
+
+        fn projection_evaluation(
+            &self,
+            row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            let start = usize::try_from(row_range.start)
+                .map_err(|_| vortex_err!("row_range.start must fit in usize"))?;
+            let end = usize::try_from(row_range.end)
+                .map_err(|_| vortex_err!("row_range.end must fit in usize"))?;
+
+            let values: VortexResult<Vec<i32>> = (start..end)
+                .map(|v| i32::try_from(v).map_err(|_| vortex_err!("split value must fit in i32")))
+                .collect();
+
+            let array = PrimitiveArray::from_iter(values?).into_array();
+            Ok(Box::pin(async move { Ok(array) }))
+        }
+    }
+
+    #[test]
+    fn into_stream_executes_after_prepare() -> VortexResult<()> {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(SplittingLayoutReader::new(calls.clone()));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+
+        let stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+        let mut iter = runtime.block_on_stream(stream);
+
+        let mut values = Vec::new();
+        for chunk in &mut iter {
+            values.push(chunk?.to_primitive().buffer::<i32>()[0]);
+        }
+
+        assert_eq!(calls.load(Ordering::Relaxed), 1);
+        assert_eq!(values, vec![0, 1, 2, 3]);
+
+        Ok(())
+    }
+
+    #[derive(Debug)]
+    struct BlockingSplitsLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+        register_splits_calls: Arc<AtomicUsize>,
+        gate: Arc<Mutex<()>>,
+    }
+
+    impl BlockingSplitsLayoutReader {
+        fn new(gate: Arc<Mutex<()>>, register_splits_calls: Arc<AtomicUsize>) -> Self {
+            Self {
+                name: Arc::from("blocking-splits"),
+                dtype: DType::Primitive(PType::I32, Nullability::NonNullable),
+                row_count: 1,
+                register_splits_calls,
+                gate,
+            }
+        }
+    }
+
+    impl LayoutReader for BlockingSplitsLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            self.register_splits_calls.fetch_add(1, Ordering::Relaxed);
+            let _guard = self.gate.lock();
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            Ok(Box::pin(async move {
+                unreachable!("scan should not be polled in this test")
+            }))
+        }
+    }
+
+    #[test]
+    fn into_stream_first_poll_does_not_block() {
+        let gate = Arc::new(Mutex::new(()));
+        let guard = gate.lock();
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let reader = Arc::new(BlockingSplitsLayoutReader::new(gate.clone(), calls.clone()));
+
+        let runtime = SingleThreadRuntime::default();
+        let session = crate::test::session_with_handle(runtime.handle());
+
+        let mut stream = ScanBuilder::new(session, reader).into_stream().unwrap();
+
+        let (send, recv) = std::sync::mpsc::channel::<bool>();
+        let join = std::thread::spawn(move || {
+            let waker = noop_waker_ref();
+            let mut cx = Context::from_waker(waker);
+            let poll = Pin::new(&mut stream).poll_next(&mut cx);
+            let _ = send.send(matches!(poll, Poll::Pending));
+        });
+
+        let polled_pending = recv.recv_timeout(Duration::from_secs(1)).ok();
+
+        // Always release the gate and join the thread so failures don't hang the test process.
+        drop(guard);
+        drop(join.join());
+
+        let polled_pending = polled_pending.expect("poll_next blocked; expected quick return");
+        assert!(
+            polled_pending,
+            "expected Poll::Pending while prepare is blocked"
+        );
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+
+        drop(runtime);
     }
 }
