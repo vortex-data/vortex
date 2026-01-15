@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
+use vortex_buffer::BufferMut;
 
 use crate::AllOr;
 use crate::Mask;
@@ -84,6 +86,74 @@ impl Mask {
                 }
 
                 Self::from_buffer(result.freeze())
+            }
+        }
+    }
+
+    /// BitBuffer implementation processing u64 chunks at a time.
+    ///
+    /// This builds output u64s directly instead of setting individual bits,
+    /// which is faster for dense masks.
+    pub fn intersect_by_rank_u64(&self, mask: &Mask) -> Mask {
+        assert_eq!(self.true_count(), mask.len());
+
+        match (self.bit_buffer(), mask.bit_buffer()) {
+            (AllOr::All, _) => mask.clone(),
+            (_, AllOr::All) => self.clone(),
+            (AllOr::None, _) | (_, AllOr::None) => Self::new_false(self.len()),
+
+            (AllOr::Some(self_buffer), AllOr::Some(mask_buffer)) => {
+                let len = self.len();
+                let mut buffer: BufferMut<u64> = BufferMut::with_capacity(len.div_ceil(64));
+                let mut rank = 0usize;
+
+                let self_chunks = self_buffer.chunks();
+
+                // Process full 64-bit chunks
+                for self_chunk in self_chunks.iter() {
+                    let mut result_chunk = 0u64;
+
+                    // Process each bit in the chunk
+                    for bit_idx in 0..64 {
+                        let self_bit = (self_chunk >> bit_idx) & 1 == 1;
+                        if self_bit {
+                            // SAFETY: rank < mask.len() because self.true_count() == mask.len()
+                            if unsafe { mask_buffer.value_unchecked(rank) } {
+                                result_chunk |= 1u64 << bit_idx;
+                            }
+                            rank += 1;
+                        }
+                    }
+
+                    // SAFETY: we allocated enough capacity
+                    unsafe { buffer.push_unchecked(result_chunk) };
+                }
+
+                // Handle remainder bits
+                let remainder = len % 64;
+                if remainder != 0 {
+                    let self_chunk = self_chunks.remainder_bits();
+                    let mut result_chunk = 0u64;
+
+                    for bit_idx in 0..remainder {
+                        let self_bit = (self_chunk >> bit_idx) & 1 == 1;
+                        if self_bit {
+                            // SAFETY: rank < mask.len()
+                            if unsafe { mask_buffer.value_unchecked(rank) } {
+                                result_chunk |= 1u64 << bit_idx;
+                            }
+                            rank += 1;
+                        }
+                    }
+
+                    // SAFETY: we allocated enough capacity
+                    unsafe { buffer.push_unchecked(result_chunk) };
+                }
+
+                // Truncate to correct byte length
+                buffer.truncate(len.div_ceil(8));
+
+                Self::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
             }
         }
     }
@@ -310,5 +380,63 @@ mod test {
             base.intersect_by_rank_bitbuffer(&rank),
             base.intersect_by_rank(&rank)
         );
+    }
+
+    // Tests for u64-based implementation
+
+    #[rstest]
+    #[case::sparse_base_sparse_rank(0.1, 0.1)]
+    #[case::sparse_base_dense_rank(0.1, 0.9)]
+    #[case::dense_base_sparse_rank(0.5, 0.1)]
+    #[case::dense_base_dense_rank(0.5, 0.9)]
+    #[case::very_sparse(0.01, 0.5)]
+    #[case::very_dense_rank(0.1, 0.99)]
+    fn test_u64_impl_matches_indices_impl(
+        #[case] base_density: f64,
+        #[case] rank_density: f64,
+    ) -> VortexResult<()> {
+        let base_len = 1000;
+        let step = (1.0 / base_density).ceil() as usize;
+        let base_indices: Vec<usize> = (0..base_len).step_by(step).collect();
+        let base = Mask::from_indices(base_len, base_indices);
+
+        let rank_len = base.true_count();
+        let rank = Mask::from_buffer(BitBuffer::from_iter((0..rank_len).map(|i| {
+            let threshold = (rank_density * 1000.0) as usize;
+            (i * 7 + 13) % 1000 < threshold
+        })));
+
+        let result_indices = base.intersect_by_rank(&rank);
+        let result_u64 = base.intersect_by_rank_u64(&rank);
+
+        assert_eq!(result_indices, result_u64);
+        Ok(())
+    }
+
+    #[test]
+    fn test_u64_impl_example() {
+        let m1 = Mask::from_iter([true, false, false, true, true, true, false, true]);
+        let m2 = Mask::from_iter([false, false, true, false, true]);
+        let result = m1.intersect_by_rank_u64(&m2);
+        let expected = Mask::from_iter([false, false, false, false, true, false, false, true]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_u64_impl_large() {
+        // Test with more than 64 bits to ensure chunk handling is correct
+        let base_len = 200;
+        let base = Mask::from_buffer(BitBuffer::from_iter(
+            (0..base_len).map(|i| i % 3 == 0), // every 3rd bit
+        ));
+        let rank_len = base.true_count();
+        let rank = Mask::from_buffer(BitBuffer::from_iter(
+            (0..rank_len).map(|i| i % 2 == 0), // every other
+        ));
+
+        let result_indices = base.intersect_by_rank(&rank);
+        let result_u64 = base.intersect_by_rank_u64(&rank);
+
+        assert_eq!(result_indices, result_u64);
     }
 }

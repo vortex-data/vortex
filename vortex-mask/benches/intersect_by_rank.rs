@@ -327,3 +327,43 @@ fn cmp_bitbuf_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
 
     bencher.bench(|| base.intersect_by_rank_bitbuffer(&rank));
 }
+
+// =============================================================================
+// u64-based implementation benchmarks
+// =============================================================================
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_u64_sparse_base_10_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank_u64(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_u64_sparse_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_u64(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_u64_dense_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_u64(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_u64_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank_u64(&rank));
+}
