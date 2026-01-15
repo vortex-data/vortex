@@ -36,6 +36,8 @@ fn extract_bits_from_chunks(chunks: &[u64], remainder: u64, start: usize) -> u64
 }
 
 /// Portable implementation of PDEP (parallel bit deposit).
+///
+/// This is the fallback when hardware BMI2 is not available.
 #[inline]
 fn pdep_portable(mut source: u64, mut mask: u64) -> u64 {
     let mut result = 0u64;
@@ -50,16 +52,29 @@ fn pdep_portable(mut source: u64, mut mask: u64) -> u64 {
     result
 }
 
-/// PDEP that uses hardware BMI2 on x86_64 when available, falls back to portable.
+/// Hardware PDEP using BMI2 instruction.
 #[inline]
-#[cfg(all(target_arch = "x86_64", target_feature = "bmi2"))]
-fn pdep(source: u64, mask: u64) -> u64 {
-    // SAFETY: We've verified BMI2 is available via target_feature
-    unsafe { core::arch::x86_64::_pdep_u64(source, mask) }
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "bmi2")]
+unsafe fn pdep_bmi2(source: u64, mask: u64) -> u64 {
+    core::arch::x86_64::_pdep_u64(source, mask)
 }
 
+/// PDEP with runtime BMI2 detection on x86_64, falls back to portable.
 #[inline]
-#[cfg(not(all(target_arch = "x86_64", target_feature = "bmi2")))]
+#[cfg(target_arch = "x86_64")]
+fn pdep(source: u64, mask: u64) -> u64 {
+    if std::arch::is_x86_feature_detected!("bmi2") {
+        // SAFETY: We just verified BMI2 is available
+        unsafe { pdep_bmi2(source, mask) }
+    } else {
+        pdep_portable(source, mask)
+    }
+}
+
+/// PDEP fallback for non-x86_64 platforms.
+#[inline]
+#[cfg(not(target_arch = "x86_64"))]
 fn pdep(source: u64, mask: u64) -> u64 {
     pdep_portable(source, mask)
 }
