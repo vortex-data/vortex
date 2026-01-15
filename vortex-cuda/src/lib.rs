@@ -8,9 +8,10 @@ mod for_;
 mod kernel;
 mod session;
 
+use std::process::Command;
+
 use for_::ForExecutor;
 use session::CudaSession;
-use std::process::Command;
 
 /// Check if the NVIDIA CUDA Compiler is available.
 pub fn has_nvcc() -> bool {

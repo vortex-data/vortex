@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-
 use cudarc::driver::PushKernelArg;
 use vortex_array::Array;
 use vortex_array::ArrayRef;

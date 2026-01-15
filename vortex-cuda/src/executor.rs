@@ -10,7 +10,6 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
-
 use cudarc::driver::ValidAsZeroBits;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
