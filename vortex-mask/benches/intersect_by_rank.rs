@@ -113,3 +113,43 @@ fn sparse_portable(bencher: Bencher, (size, selectivity, _name): (usize, f64, &s
     let (base, rank) = create_sparse_fixture(size, selectivity);
     bencher.bench(|| base.intersect_by_rank_portable(&rank));
 }
+
+// Four-case density matrix: (self_density, mask_density)
+const DENSITY_MATRIX_ARGS: &[(f64, f64, &str)] = &[
+    (0.05, 0.05, "self_sparse_mask_sparse"),
+    (0.05, 0.50, "self_sparse_mask_dense"),
+    (0.50, 0.05, "self_dense_mask_sparse"),
+    (0.50, 0.50, "self_dense_mask_dense"),
+];
+
+fn create_density_matrix_fixture(
+    size: usize,
+    self_density: f64,
+    mask_density: f64,
+) -> (Mask, Mask) {
+    let base = create_random_mask(size, self_density);
+    let rank_len = base.true_count();
+    let rank = create_random_mask(rank_len, mask_density);
+    (base, rank)
+}
+
+/// Optimized with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_optimized(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+/// Simple with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_simple(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_simple(&rank));
+}
+
+/// Portable with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_portable(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_portable(&rank));
+}

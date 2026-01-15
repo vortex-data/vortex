@@ -200,16 +200,24 @@ impl Mask {
     pub fn intersect_by_rank(&self, mask: &Mask) -> Mask {
         assert_eq!(self.true_count(), mask.len());
 
-        // Adaptive dispatch: use simple for very sparse masks
-        // Crossover point is approximately 5% based on benchmarks:
-        // - Simple is O(true_count)
-        // - Chunk-based is O(num_chunks) = O(len/64)
-        let density = if self.is_empty() {
+        // Adaptive dispatch: use simple (indices-based) when either mask is sparse.
+        // - Simple is O(mask.true_count) for iteration
+        // - Chunk-based is O(self.len/64) iterations
+        //
+        // Use simple when:
+        // 1. Self is sparse (few true positions to look up)
+        // 2. Mask is sparse (few indices to iterate)
+        let self_density = if self.is_empty() {
             0.0
         } else {
             self.true_count() as f64 / self.len() as f64
         };
-        if density <= 0.05 {
+        let mask_density = if mask.is_empty() {
+            0.0
+        } else {
+            mask.true_count() as f64 / mask.len() as f64
+        };
+        if self_density <= 0.05 || mask_density <= 0.05 {
             return self.intersect_by_rank_simple(mask);
         }
 
