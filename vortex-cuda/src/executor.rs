@@ -58,21 +58,35 @@ macro_rules! launch_cuda_kernel {
             launch_builder.arg(&$arg);
         )*
 
-        let num_chunks = u32::try_from($len.div_ceil(2048))
-            .vortex_expect("Too many elements for grid");
-
-        let config = cudarc::driver::LaunchConfig {
-            grid_dim: (num_chunks, 1, 1),
-            block_dim: (64, 1, 1),
-            shared_mem_bytes: 0,
-        };
-
-        unsafe {
-            launch_builder
-                .launch(config)
-                .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))?
-        };
+        $crate::executor::launch_cuda_kernel_impl(&mut launch_builder, $len)?
     }};
+}
+
+/// Launches a CUDA kernel with the passed launch builder.
+///
+/// # Arguments
+///
+/// * `launch_builder` - Configured launch builder
+/// * `array_len` - Length of the array to process
+pub fn launch_cuda_kernel_impl(
+    launch_builder: &mut LaunchArgs,
+    array_len: usize,
+) -> VortexResult<()> {
+    let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
+
+    let config = cudarc::driver::LaunchConfig {
+        grid_dim: (num_chunks, 1, 1),
+        block_dim: (64, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
+    unsafe {
+        launch_builder
+            .launch(config)
+            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))?
+    };
+
+    Ok(())
 }
 
 /// CUDA execution context.
