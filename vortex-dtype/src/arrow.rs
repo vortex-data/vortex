@@ -182,7 +182,7 @@ impl DType {
         let mut builder = SchemaBuilder::with_capacity(struct_dtype.names().len());
         for (field_name, field_dtype) in struct_dtype.names().iter().zip(struct_dtype.fields()) {
             builder.push(FieldRef::from(Field::new(
-                field_name.to_string(),
+                field_name.as_ref(),
                 field_dtype.to_arrow_dtype()?,
                 field_dtype.is_nullable(),
             )));
@@ -246,7 +246,7 @@ impl DType {
                 for (field_name, field_dt) in struct_dtype.names().iter().zip(struct_dtype.fields())
                 {
                     fields.push(FieldRef::from(Field::new(
-                        field_name.to_string(),
+                        field_name.as_ref(),
                         field_dt.to_arrow_dtype()?,
                         field_dt.is_nullable(),
                     )));
@@ -408,5 +408,47 @@ mod test {
     fn test_schema_conversion_panics(the_struct: StructFields) {
         let schema_null = DType::Struct(the_struct, Nullability::Nullable);
         schema_null.to_arrow_schema().unwrap();
+    }
+
+    #[test]
+    fn test_unicode_field_names_roundtrip() {
+        // Regression test for https://github.com/vortex-data/vortex/issues/5979.
+
+        // Unicode characters in field names should survive an Arrow roundtrip without
+        // double-escaping.
+        let unicode_field_name = "\u{5}=A";
+        let original_dtype = DType::struct_(
+            [(
+                unicode_field_name,
+                DType::Primitive(PType::I8, Nullability::Nullable),
+            )],
+            Nullability::NonNullable,
+        );
+
+        let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
+        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+
+        assert_eq!(original_dtype, roundtripped_dtype);
+    }
+
+    #[test]
+    fn test_unicode_field_names_nested_roundtrip() {
+        // Regression test for https://github.com/vortex-data/vortex/issues/5979.
+
+        // Nested structs with unicode field names should also survive an Arrow roundtrip.
+        let inner_struct = DType::struct_(
+            [(
+                "\u{6}=inner",
+                DType::Primitive(PType::I32, Nullability::Nullable),
+            )],
+            Nullability::Nullable,
+        );
+        let original_dtype =
+            DType::struct_([("\u{7}=outer", inner_struct)], Nullability::NonNullable);
+
+        let arrow_dtype = original_dtype.to_arrow_dtype().unwrap();
+        let roundtripped_dtype = DType::from_arrow((&arrow_dtype, Nullability::NonNullable));
+
+        assert_eq!(original_dtype, roundtripped_dtype);
     }
 }
