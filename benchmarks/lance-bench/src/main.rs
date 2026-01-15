@@ -105,7 +105,7 @@ async fn main() -> anyhow::Result<()> {
                 register_lance_tables(&session, &*benchmark).await?;
                 Ok(session)
             },
-            |session, query| {
+            |_query_idx, session, query| {
                 Box::pin(async move {
                     let timer = Instant::now();
                     let (batches, plan) = execute_query(session, query).await?;
