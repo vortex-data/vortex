@@ -5,7 +5,6 @@ pub use array::*;
 
 mod array;
 mod compute;
-mod rules;
 
 #[cfg(test)]
 mod test;

@@ -17,7 +17,6 @@ mod compress;
 mod compute;
 mod kernel;
 mod ops;
-mod rules;
 #[cfg(feature = "test-harness")]
 pub mod test_utils;
 #[cfg(test)]

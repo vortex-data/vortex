@@ -316,11 +316,11 @@ impl VTable for SequenceVTable {
     }
 
     fn reduce_parent(
-        array: &SequenceArray,
-        parent: &ArrayRef,
-        child_idx: usize,
+        _array: &SequenceArray,
+        _parent: &ArrayRef,
+        _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
+        Ok(None)
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

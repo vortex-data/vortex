@@ -4,7 +4,6 @@
 use itertools::Itertools;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::AnyScalarFn;
@@ -13,18 +12,13 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
-use crate::arrays::SliceArray;
-use crate::arrays::SliceVTable;
-use crate::matchers::Exact;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
-use crate::vtable::VTable;
 
 pub(super) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
-    ParentRuleSet::lift(&ChunkedSlicePushDownRule),
 ]);
 
 /// Push down any unary scalar function through chunked arrays.
@@ -122,25 +116,5 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRul
         Ok(Some(
             unsafe { ChunkedArray::new_unchecked(new_chunks, parent.dtype().clone()) }.into_array(),
         ))
-    }
-}
-
-/// Push down slice operations through chunked arrays.
-#[derive(Debug)]
-struct ChunkedSlicePushDownRule;
-impl ArrayParentReduceRule<ChunkedVTable> for ChunkedSlicePushDownRule {
-    type Parent = Exact<SliceVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::from(&SliceVTable)
-    }
-
-    fn reduce_parent(
-        &self,
-        array: &ChunkedArray,
-        parent: &SliceArray,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        ChunkedVTable::slice(array, parent.slice_range().clone())
     }
 }

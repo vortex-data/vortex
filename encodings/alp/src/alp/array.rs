@@ -194,14 +194,6 @@ impl VTable for ALPVTable {
         )?))
     }
 
-    fn reduce_parent(
-        array: &ALPArray,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        super::rules::RULES.evaluate(array, parent, child_idx)
-    }
-
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ALPArray::new(

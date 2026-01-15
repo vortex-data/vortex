@@ -183,14 +183,6 @@ impl VTable for PcoVTable {
         Ok(())
     }
 
-    fn reduce_parent(
-        array: &PcoArray,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::rules::RULES.evaluate(array, parent, child_idx)
-    }
-
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(array._slice(range.start, range.end).into_array()))
     }

@@ -22,6 +22,7 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::VortexSessionExecute;
@@ -126,6 +127,17 @@ impl VTable for SliceVTable {
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let inner_range = array.slice_range();
+
+        let combined_start = inner_range.start + range.start;
+        let combined_end = inner_range.start + range.end;
+
+        Ok(Some(
+            SliceArray::new(array.child().clone(), combined_start..combined_end).into_array(),
+        ))
+    }
 }
 
 impl BaseArrayVTable<SliceVTable> for SliceVTable {
@@ -204,5 +216,28 @@ pub struct SliceMetadata(pub(super) Range<usize>);
 impl Debug for SliceMetadata {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}..{}", self.0.start, self.0.end)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_error::VortexResult;
+
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::SliceArray;
+    use crate::assert_arrays_eq;
+
+    #[test]
+    fn test_slice_slice() -> VortexResult<()> {
+        // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
+        let arr = PrimitiveArray::from_iter(0i32..10).into_array();
+        let inner_slice = SliceArray::new(arr, 2..8).into_array();
+        let slice = inner_slice.slice(1..4);
+
+        assert_arrays_eq!(slice, PrimitiveArray::from_iter([3i32, 4, 5]));
+
+        Ok(())
     }
 }

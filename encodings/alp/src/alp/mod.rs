@@ -18,7 +18,6 @@ mod compress;
 mod compute;
 mod decompress;
 mod ops;
-mod rules;
 
 #[cfg(test)]
 mod tests {

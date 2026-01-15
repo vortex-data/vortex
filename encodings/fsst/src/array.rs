@@ -53,7 +53,6 @@ use vortex_error::vortex_err;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
-use crate::rules::RULES;
 
 vtable!(FSST);
 
@@ -191,14 +190,6 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

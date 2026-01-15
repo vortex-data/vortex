@@ -43,7 +43,6 @@ use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
-use crate::rules::RULES;
 use crate::zigzag_decode;
 use crate::zigzag_encode;
 
@@ -109,14 +108,6 @@ impl VTable for ZigZagVTable {
         );
         array.encoded = children.into_iter().next().vortex_expect("checked");
         Ok(())
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

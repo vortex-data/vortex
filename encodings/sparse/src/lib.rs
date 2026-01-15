@@ -61,7 +61,6 @@ use vortex_scalar::ScalarValue;
 mod canonical;
 mod compute;
 mod ops;
-mod rules;
 
 vtable!(Sparse);
 
@@ -165,14 +164,6 @@ impl VTable for SparseVTable {
         );
 
         Ok(())
-    }
-
-    fn reduce_parent(
-        array: &SparseArray,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn slice(array: &SparseArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

@@ -5,7 +5,6 @@ mod array;
 mod compress;
 mod compute;
 mod kernel;
-mod rules;
 
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
