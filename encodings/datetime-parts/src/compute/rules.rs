@@ -10,6 +10,8 @@ use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::SliceArray;
+use vortex_array::arrays::SliceVTable;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
@@ -17,6 +19,8 @@ use vortex_array::matchers::Exact;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::vtable::OperationsVTable;
+use vortex_array::vtable::VTable;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::VortexExpect;
@@ -27,9 +31,35 @@ use crate::DateTimePartsVTable;
 use crate::timestamp;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&DTPSlicePushDownRule),
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
 ]);
+
+/// Push slice operations through DateTimeParts encoding.
+#[derive(Debug)]
+struct DTPSlicePushDownRule;
+
+impl ArrayParentReduceRule<DateTimePartsVTable> for DTPSlicePushDownRule {
+    type Parent = Exact<SliceVTable>;
+
+    fn parent(&self) -> Exact<SliceVTable> {
+        // SAFETY: SliceVTable is a valid VTable with a stable ID
+        unsafe { Exact::new_unchecked(SliceVTable.id()) }
+    }
+
+    fn reduce_parent(
+        &self,
+        dtp: &DateTimePartsArray,
+        parent: &SliceArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(DateTimePartsVTable::slice(
+            dtp,
+            parent.slice_range().clone(),
+        )))
+    }
+}
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
 /// but its less clear if that is beneficial.

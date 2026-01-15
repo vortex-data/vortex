@@ -181,6 +181,14 @@ impl VTable for ZstdVTable {
 
         Ok(())
     }
+
+    fn reduce_parent(
+        array: &ZstdArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
 }
 
 #[derive(Debug)]

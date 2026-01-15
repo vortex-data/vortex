@@ -12,6 +12,7 @@ use vortex_fastlanes::bitpack_compress::bitpack_encode_unchecked;
 mod array;
 mod compute;
 mod ops;
+mod rules;
 
 use std::ops::Shl;
 use std::ops::Shr;

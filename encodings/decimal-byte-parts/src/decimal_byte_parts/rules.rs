@@ -11,7 +11,6 @@ use vortex_array::arrays::SliceVTable;
 use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
-use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
@@ -29,8 +28,7 @@ impl ArrayParentReduceRule<DecimalBytePartsVTable> for DecimalBytePartsSlicePush
     type Parent = Exact<SliceVTable>;
 
     fn parent(&self) -> Self::Parent {
-        // SAFETY: SliceVTable is a valid VTable with a stable ID
-        unsafe { Exact::new_unchecked(SliceVTable.id()) }
+        Exact::from(&SliceVTable)
     }
 
     fn reduce_parent(

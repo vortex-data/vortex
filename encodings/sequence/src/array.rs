@@ -314,6 +314,14 @@ impl VTable for SequenceVTable {
         }
         .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
+
+    fn reduce_parent(
+        array: &SequenceArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
 }
 
 fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(

@@ -26,6 +26,7 @@ use crate::DeltaArray;
 mod array;
 mod canonical;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -119,6 +120,14 @@ impl VTable for DeltaVTable {
     }
 
     // TODO(joe): impl execute without canonical
+
+    fn reduce_parent(
+        array: &DeltaArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
+    }
 }
 
 #[derive(Debug)]

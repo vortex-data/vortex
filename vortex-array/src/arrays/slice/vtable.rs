@@ -22,7 +22,6 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::VortexSessionExecute;
@@ -155,11 +154,8 @@ impl CanonicalVTable<SliceVTable> for SliceVTable {
 }
 
 impl OperationsVTable<SliceVTable> for SliceVTable {
-    fn slice(array: &SliceArray, range: Range<usize>) -> ArrayRef {
-        // Combine the ranges: the new range is relative to our current range
-        let new_start = array.range.start + range.start;
-        let new_end = array.range.start + range.end;
-        SliceArray::new(array.child.clone(), new_start..new_end).into_array()
+    fn slice(_array: &SliceArray, _range: Range<usize>) -> ArrayRef {
+        unreachable!("replaced with SliceArray")
     }
 
     fn scalar_at(array: &SliceArray, index: usize) -> Scalar {

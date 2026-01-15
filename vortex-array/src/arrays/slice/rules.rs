@@ -11,22 +11,34 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
+use crate::arrays::DictArray;
+use crate::arrays::DictVTable;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::arrays::MaskedArray;
+use crate::arrays::MaskedVTable;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
+use crate::arrays::VarBinArray;
+use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::slice::SliceArray;
@@ -42,7 +54,13 @@ pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[
     &SliceBoolRule,
     &SlicePrimitiveRule,
     &SliceDecimalRule,
+    &SliceConstantRule,
+    &SliceDictRule,
+    &SliceFilterRule,
+    &SliceMaskedRule,
+    &SliceVarBinRule,
     &SliceVarBinViewRule,
+    &SliceScalarFnRule,
     &SliceListRule,
     &SliceListViewRule,
     &SliceFixedSizeListRule,
@@ -312,6 +330,151 @@ impl ArrayReduceRule<SliceVTable> for SliceExtensionRule {
         let range = array.slice_range().clone();
         let result =
             ExtensionArray::new(ext.ext_dtype().clone(), ext.storage().slice(range)).into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Constant) -> Constant
+#[derive(Debug)]
+struct SliceConstantRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceConstantRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(constant) = array.child().as_opt::<ConstantVTable>() else {
+            return Ok(None);
+        };
+
+        let result =
+            ConstantArray::new(constant.scalar().clone(), array.slice_range().len()).into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Dict) -> Dict (or Constant if codes become constant)
+#[derive(Debug)]
+struct SliceDictRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceDictRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(dict) = array.child().as_opt::<DictVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let sliced_codes = dict.codes().slice(range);
+
+        // If sliced codes become constant, resolve to the actual value
+        if sliced_codes.is::<ConstantVTable>() {
+            let code = sliced_codes.scalar_at(0).as_primitive().as_::<usize>();
+            return Ok(Some(if let Some(code) = code {
+                ConstantArray::new(dict.values().scalar_at(code), sliced_codes.len()).into_array()
+            } else {
+                ConstantArray::new(
+                    vortex_scalar::Scalar::null(array.dtype().clone()),
+                    sliced_codes.len(),
+                )
+                .into_array()
+            }));
+        }
+
+        // SAFETY: slicing the codes preserves invariants
+        let result =
+            unsafe { DictArray::new_unchecked(sliced_codes, dict.values().clone()).into_array() };
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Filter) -> Filter
+#[derive(Debug)]
+struct SliceFilterRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceFilterRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(filter) = array.child().as_opt::<FilterVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let result = FilterArray::new(
+            filter.child().slice(range.clone()),
+            filter.filter_mask().slice(range),
+        )
+        .into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(Masked) -> Masked
+#[derive(Debug)]
+struct SliceMaskedRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceMaskedRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(masked) = array.child().as_opt::<MaskedVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let child = masked.child().slice(range.clone());
+        let validity = masked.validity().slice(range);
+
+        let result = MaskedArray::try_new(child, validity)?.into_array();
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(VarBin) -> VarBin
+#[derive(Debug)]
+struct SliceVarBinRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceVarBinRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(varbin) = array.child().as_opt::<VarBinVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+
+        // SAFETY: slicing preserves VarBinArray invariants
+        let result = unsafe {
+            VarBinArray::new_unchecked(
+                varbin.offsets().slice(range.start..range.end + 1),
+                varbin.bytes().clone(),
+                varbin.dtype().clone(),
+                varbin.validity().slice(range),
+            )
+            .into_array()
+        };
+
+        Ok(Some(result))
+    }
+}
+
+/// Reduce rule for Slice(ScalarFn) -> ScalarFn
+#[derive(Debug)]
+struct SliceScalarFnRule;
+
+impl ArrayReduceRule<SliceVTable> for SliceScalarFnRule {
+    fn reduce(&self, array: &SliceArray) -> VortexResult<Option<ArrayRef>> {
+        let Some(scalar_fn_arr) = array.child().as_opt::<ScalarFnVTable>() else {
+            return Ok(None);
+        };
+
+        let range = array.slice_range().clone();
+        let children: Vec<_> = scalar_fn_arr
+            .children()
+            .iter()
+            .map(|c| c.slice(range.clone()))
+            .collect();
+
+        let result =
+            ScalarFnArray::try_new(scalar_fn_arr.scalar_fn().clone(), children, range.len())?
+                .into_array();
 
         Ok(Some(result))
     }

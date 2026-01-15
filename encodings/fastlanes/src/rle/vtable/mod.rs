@@ -28,6 +28,7 @@ mod array;
 mod canonical;
 mod encode;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -154,6 +155,14 @@ impl VTable for RLEVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: &RLEArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 
