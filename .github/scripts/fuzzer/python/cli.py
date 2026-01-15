@@ -13,6 +13,10 @@ from .template import render_template, render_template_to_file
 
 def cmd_extract(args: argparse.Namespace) -> int:
     """Extract crash info from log file."""
+    if not Path(args.log_file).exists():
+        print(f"Error: Log file not found: {args.log_file}", file=sys.stderr)
+        return 1
+
     crash_info = extract_crash_info(args.log_file, args.crash_file)
 
     if args.output:
@@ -25,13 +29,25 @@ def cmd_extract(args: argparse.Namespace) -> int:
 
 def cmd_check_duplicate(args: argparse.Namespace) -> int:
     """Check if crash is a duplicate."""
+    if not Path(args.crash_info).exists():
+        print(f"Error: Crash info file not found: {args.crash_info}", file=sys.stderr)
+        return 1
+
     # Load crash info from JSON
-    crash_data = json.loads(Path(args.crash_info).read_text())
+    try:
+        crash_data = json.loads(Path(args.crash_info).read_text())
+    except json.JSONDecodeError as e:
+        print(f"Error: Invalid JSON in crash info file: {e}", file=sys.stderr)
+        return 1
 
     # Create CrashInfo object
     from .extract import CrashInfo
 
-    crash_info = CrashInfo(**crash_data)
+    try:
+        crash_info = CrashInfo(**crash_data)
+    except TypeError as e:
+        print(f"Error: Invalid crash info format: {e}", file=sys.stderr)
+        return 1
 
     result = check_duplicate(crash_info, args.issues)
     print(result.to_json())
@@ -41,6 +57,10 @@ def cmd_check_duplicate(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     """Render a template."""
+    if not Path(args.template).exists():
+        print(f"Error: Template file not found: {args.template}", file=sys.stderr)
+        return 1
+
     if args.output:
         render_template_to_file(args.template, args.output)
     else:

@@ -82,7 +82,9 @@ class TestRenderTemplateToFile:
             output_path = f.name
 
         try:
-            render_template_to_file(template_file, output_path, variables, use_env=False)
+            render_template_to_file(
+                template_file, output_path, variables, use_env=False
+            )
             content = Path(output_path).read_text()
             assert "Test" in content
         finally:

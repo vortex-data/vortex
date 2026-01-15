@@ -34,13 +34,18 @@ def load_issues(issues_path: str | Path) -> list[dict]:
     path = Path(issues_path)
     if not path.exists():
         return []
-    return json.loads(path.read_text())
+    try:
+        return json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return []
 
 
 def check_seed_hash(seed_hash: str, issues: list[dict]) -> DedupResult:
     """Check if seed hash exists in any issue body."""
     if not seed_hash or seed_hash == "unknown":
-        return DedupResult(duplicate=False, check="seed_hash", reason="No seed hash provided")
+        return DedupResult(
+            duplicate=False, check="seed_hash", reason="No seed hash provided"
+        )
 
     for issue in issues:
         body = issue.get("body", "")
@@ -55,7 +60,9 @@ def check_seed_hash(seed_hash: str, issues: list[dict]) -> DedupResult:
                 reason="Exact seed hash match - same crash input",
             )
 
-    return DedupResult(duplicate=False, check="seed_hash", reason="No matching seed hash found")
+    return DedupResult(
+        duplicate=False, check="seed_hash", reason="No matching seed hash found"
+    )
 
 
 def check_panic_location(panic_location: str, issues: list[dict]) -> DedupResult:
@@ -83,14 +90,18 @@ def check_panic_location(panic_location: str, issues: list[dict]) -> DedupResult
             )
 
     return DedupResult(
-        duplicate=False, check="panic_location", reason="No matching panic location found"
+        duplicate=False,
+        check="panic_location",
+        reason="No matching panic location found",
     )
 
 
 def check_stack_trace(stack_hash: str, issues: list[dict]) -> DedupResult:
     """Check if stack trace hash exists in any issue body."""
     if not stack_hash or stack_hash == "unknown":
-        return DedupResult(duplicate=False, check="stack_trace", reason="No stack hash provided")
+        return DedupResult(
+            duplicate=False, check="stack_trace", reason="No stack hash provided"
+        )
 
     for issue in issues:
         body = issue.get("body", "")
@@ -106,7 +117,9 @@ def check_stack_trace(stack_hash: str, issues: list[dict]) -> DedupResult:
             )
 
     return DedupResult(
-        duplicate=False, check="stack_trace", reason="No matching stack trace hash found"
+        duplicate=False,
+        check="stack_trace",
+        reason="No matching stack trace hash found",
     )
 
 
@@ -153,9 +166,7 @@ def check_error_pattern(
     )
 
 
-def check_duplicate(
-    crash_info: CrashInfo, issues_path: str | Path
-) -> DedupResult:
+def check_duplicate(crash_info: CrashInfo, issues_path: str | Path) -> DedupResult:
     """Run all deduplication checks in order. First match wins."""
     issues = load_issues(issues_path)
 
@@ -178,7 +189,9 @@ def check_duplicate(
         return result
 
     # Check 4: Error pattern (normalized message)
-    result = check_error_pattern(crash_info.message_hash, crash_info.error_variant, issues)
+    result = check_error_pattern(
+        crash_info.message_hash, crash_info.error_variant, issues
+    )
     if result.duplicate:
         result.check_order = 4
         return result

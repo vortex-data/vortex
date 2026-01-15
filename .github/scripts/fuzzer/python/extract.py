@@ -159,7 +159,9 @@ def normalize_message(message: str) -> str:
     return re.sub(r"\d+", "N", message)
 
 
-def extract_crash_info(log_path: str | Path, crash_path: str | Path | None = None) -> CrashInfo:
+def extract_crash_info(
+    log_path: str | Path, crash_path: str | Path | None = None
+) -> CrashInfo:
     """Extract crash information from log file and optional crash seed."""
     log_content = Path(log_path).read_text()
 
