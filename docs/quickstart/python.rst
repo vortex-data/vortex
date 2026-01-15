@@ -35,7 +35,8 @@ Use :func:`~vortex.io.write` to write the Vortex array to disk:
 
 .. doctest::
 
-   >>> vortex.io.write(cvtx, "example.vortex") # doctest: +SKIP
+   >>> import vortex as vx
+   >>> vx.io.write(vtx, "example.vortex")  # doctest: +SKIP
 
 Small Vortex files (this one is just 71KiB) currently have substantial overhead relative to their
 size. This will be addressed shortly. On files with at least tens of megabytes of data, Vortex is
@@ -54,7 +55,8 @@ Use :func:`~vortex.open` to open and read the Vortex array from disk:
 
 .. doctest::
 
-   >>> cvtx = vortex.open("example.vortex").scan().read_all()
+   >>> import vortex as vx
+   >>> cvtx = vx.open("example.vortex").scan().read_all()  # doctest: +SKIP
 
 
 Vortex is architected to achieve fast random access, in many cases hundreds of times faster
@@ -65,7 +67,9 @@ IO and decoding and read just the data that is relevant to you:
 
 .. doctest::
 
-    >>> vf = vortex.open("example.vortex")
+    >>> import vortex as vx
+    >>> vf = vx.open("example.vortex")  # doctest: +SKIP
     >>> # row indices must be ordered and unique
-    >>> result = vf.scan(indices=vortex.array([1, 2, 10])).read_all()
-    >>> assert len(result) == 3
+    >>> indices = vx.array([1, 2, 10])
+    >>> result = vf.scan(indices=indices).read_all()  # doctest: +SKIP
+    >>> assert len(result) == 3  # doctest: +SKIP
