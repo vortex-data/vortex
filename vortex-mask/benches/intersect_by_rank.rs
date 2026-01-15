@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Benchmarks for `intersect_by_rank`.
+//!
+//! Compares two implementations:
+//! - `simple`: Indices-based lookup, O(mask.true_count)
+//! - `optimized`: PDEP-style chunk processing, fast for correlated data
 
 #![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
@@ -52,8 +56,16 @@ fn create_fixture(size: usize, pattern: &str) -> (Mask, Mask) {
     }
 }
 
+/// Simple indices-based implementation (baseline)
 #[divan::bench(args = BENCH_ARGS)]
-fn intersect_by_rank(bencher: Bencher, (size, pattern): (usize, &str)) {
+fn simple(bencher: Bencher, (size, pattern): (usize, &str)) {
+    let (base, rank) = create_fixture(size, pattern);
+    bencher.bench(|| base.intersect_by_rank_simple(&rank));
+}
+
+/// Optimized PDEP-style implementation
+#[divan::bench(args = BENCH_ARGS)]
+fn optimized(bencher: Bencher, (size, pattern): (usize, &str)) {
     let (base, rank) = create_fixture(size, pattern);
     bencher.bench(|| base.intersect_by_rank(&rank));
 }

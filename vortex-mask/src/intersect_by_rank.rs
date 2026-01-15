@@ -53,6 +53,42 @@ fn pdep_portable(mut source: u64, mut mask: u64) -> u64 {
 }
 
 impl Mask {
+    /// Simple baseline implementation using indices lookup.
+    ///
+    /// This is a straightforward O(mask.true_count) algorithm that iterates over
+    /// the mask's true indices and sets corresponding bits in the output.
+    /// Used for benchmarking comparison against the optimized PDEP implementation.
+    #[doc(hidden)]
+    pub fn intersect_by_rank_simple(&self, mask: &Mask) -> Mask {
+        assert_eq!(self.true_count(), mask.len());
+
+        match (self.indices(), mask.indices()) {
+            (AllOr::All, _) => mask.clone(),
+            (_, AllOr::All) => self.clone(),
+            (AllOr::None, _) | (_, AllOr::None) => Self::new_false(self.len()),
+
+            (AllOr::Some(self_indices), AllOr::Some(mask_indices)) => {
+                let len = self.len();
+                if mask_indices.is_empty() {
+                    return Self::new_false(len);
+                }
+
+                let num_chunks = len.div_ceil(64);
+                let mut buffer: BufferMut<u64> = BufferMut::zeroed(num_chunks);
+                let chunks = buffer.as_mut_slice();
+
+                for &mask_idx in mask_indices {
+                    // SAFETY: mask_idx < mask.len() == self.true_count() == self_indices.len()
+                    let result_idx = unsafe { *self_indices.get_unchecked(mask_idx) };
+                    chunks[result_idx / 64] |= 1u64 << (result_idx % 64);
+                }
+
+                buffer.truncate(len.div_ceil(8));
+                Self::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+            }
+        }
+    }
+
     /// Take the intersection of the `mask` with the set of true values in `self`.
     ///
     /// This uses a chunk-based algorithm optimized for correlated data patterns.
