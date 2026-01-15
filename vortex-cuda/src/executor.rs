@@ -32,12 +32,12 @@ use crate::session::CudaSessionExt;
 ///
 /// The kernel launch config:
 /// LaunchConfig {
-///     grid_dim: (array.len() / 1024, 1, 1),
-///     block_dim: (32, 1, 1),
+///     grid_dim: (array.len() / 2048, 1, 1),
+///     block_dim: (64, 1, 1),
 ///     shared_mem_bytes: 0,
 /// };
-/// 32 threads are used per block which corresponds to the thread count of a warp.
-/// Each block handles 1024 elements. Each thread handles 32 elements.
+/// 64 threads are used per block which corresponds to 2 warps.
+/// Each block handles 2048 elements. Each thread handles 32 elements.
 /// The last block and thread are allowed to have less elements.
 ///
 /// Note: A macro is necessary to unroll the launch builder arguments.
@@ -58,12 +58,12 @@ macro_rules! launch_cuda_kernel {
             launch_builder.arg(&$arg);
         )*
 
-        let num_chunks = u32::try_from($len.div_ceil(1024))
+        let num_chunks = u32::try_from($len.div_ceil(2048))
             .vortex_expect("Too many elements for grid");
 
         let config = cudarc::driver::LaunchConfig {
             grid_dim: (num_chunks, 1, 1),
-            block_dim: (32, 1, 1),
+            block_dim: (64, 1, 1),
             shared_mem_bytes: 0,
         };
 

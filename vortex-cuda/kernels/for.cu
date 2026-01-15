@@ -12,10 +12,10 @@ __device__ void for_(
     ValueT reference,
     uint64_t array_len
 ) {
-    // Each block handles 1024 elements. Each thread handles 1024 / 32 contiguous elements.
+    // Each block handles 2048 elements. Each thread handles 2048 / 64 contiguous elements.
     // The last block and thread are allowed to have less elements.
     const uint8_t elements_per_thread = 32;
-    const uint32_t block_start = blockIdx.x * 1024;
+    const uint32_t block_start = blockIdx.x * 2048;
 
     const uint64_t start = block_start + threadIdx.x * elements_per_thread;
     const uint64_t end = (start + elements_per_thread < array_len) ? (start + elements_per_thread) : array_len;

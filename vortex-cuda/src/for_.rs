@@ -121,7 +121,7 @@ mod tests {
 
         let for_array = FoRArray::try_new(
             PrimitiveArray::new(
-                Buffer::from((0u32..1500).collect::<Vec<u32>>()),
+                Buffer::from((0u32..5000).collect::<Vec<u32>>()),
                 Validity::NonNullable,
             )
             .into_array(),
@@ -136,7 +136,7 @@ mod tests {
 
         assert_eq!(
             result.as_primitive().as_slice::<u32>(),
-            (10u32..1510).collect::<Vec<u32>>()
+            (10u32..5010).collect::<Vec<u32>>()
         );
     }
 }
