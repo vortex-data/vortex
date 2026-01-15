@@ -112,9 +112,72 @@ impl Mask {
         }
     }
 
+    /// Portable PDEP implementation (for benchmarking without BMI2).
+    #[doc(hidden)]
+    pub fn intersect_by_rank_portable(&self, mask: &Mask) -> Mask {
+        assert_eq!(self.true_count(), mask.len());
+
+        match (self.bit_buffer(), mask.bit_buffer()) {
+            (AllOr::All, _) => mask.clone(),
+            (_, AllOr::All) => self.clone(),
+            (AllOr::None, _) | (_, AllOr::None) => Self::new_false(self.len()),
+
+            (AllOr::Some(self_buffer), AllOr::Some(mask_buffer)) => {
+                let len = self.len();
+                let num_chunks = len.div_ceil(64);
+                let mut buffer: BufferMut<u64> = BufferMut::with_capacity(num_chunks);
+                let mut rank = 0usize;
+
+                let self_chunks = self_buffer.chunks();
+                let mask_chunks = mask_buffer.chunks();
+                let mask_chunk_vec: Vec<u64> = mask_chunks.iter().collect();
+                let mask_remainder = mask_chunks.remainder_bits();
+
+                for self_chunk in self_chunks.iter() {
+                    let popcount = self_chunk.count_ones() as usize;
+
+                    let result_chunk = if self_chunk == 0 {
+                        0u64
+                    } else if self_chunk == u64::MAX {
+                        extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank)
+                    } else {
+                        let rank_bits =
+                            extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank);
+                        pdep_portable(rank_bits, self_chunk)
+                    };
+
+                    rank += popcount;
+                    unsafe { buffer.push_unchecked(result_chunk) };
+                }
+
+                let remainder = len % 64;
+                if remainder != 0 {
+                    let self_chunk = self_chunks.remainder_bits();
+
+                    let result_chunk = if self_chunk == 0 {
+                        0u64
+                    } else {
+                        let rank_bits =
+                            extract_bits_from_chunks(&mask_chunk_vec, mask_remainder, rank);
+                        pdep_portable(rank_bits, self_chunk)
+                    };
+
+                    unsafe { buffer.push_unchecked(result_chunk) };
+                }
+
+                buffer.truncate(len.div_ceil(8));
+                Self::from_buffer(BitBuffer::new(buffer.freeze().into_byte_buffer(), len))
+            }
+        }
+    }
+
     /// Take the intersection of the `mask` with the set of true values in `self`.
     ///
-    /// This uses a chunk-based algorithm optimized for correlated data patterns.
+    /// This method adaptively chooses between two algorithms based on mask density:
+    /// - For sparse masks (≤5% density), uses indices-based O(true_count) algorithm
+    /// - For dense masks (>5% density), uses chunk-based PDEP algorithm
+    ///
+    /// The chunk-based algorithm is optimized for correlated data patterns.
     /// For chunks that are all 1s (runs of consecutive trues), it directly copies
     /// 64 bits from the rank mask. For mixed chunks, it uses PDEP-style bit scattering.
     ///
@@ -136,6 +199,19 @@ impl Mask {
     /// ```
     pub fn intersect_by_rank(&self, mask: &Mask) -> Mask {
         assert_eq!(self.true_count(), mask.len());
+
+        // Adaptive dispatch: use simple for very sparse masks
+        // Crossover point is approximately 5% based on benchmarks:
+        // - Simple is O(true_count)
+        // - Chunk-based is O(num_chunks) = O(len/64)
+        let density = if self.is_empty() {
+            0.0
+        } else {
+            self.true_count() as f64 / self.len() as f64
+        };
+        if density <= 0.05 {
+            return self.intersect_by_rank_simple(mask);
+        }
 
         match (self.bit_buffer(), mask.bit_buffer()) {
             (AllOr::All, _) => mask.clone(),
