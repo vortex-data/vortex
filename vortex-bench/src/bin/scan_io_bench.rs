@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
         None
     } else {
         Some(std::sync::Arc::new(
-            open_all_targets(&targets, metrics.clone()).await?,
+            open_all_targets(&targets, metrics.clone(), args.file_concurrency).await?,
         ))
     };
     let mut total_rows = 0usize;
@@ -381,12 +381,29 @@ async fn open_vortex_file_for_target(
 async fn open_all_targets(
     targets: &[ScanTarget],
     metrics: VortexMetrics,
+    concurrency: usize,
 ) -> Result<Vec<vortex::file::VortexFile>> {
-    let mut files = Vec::with_capacity(targets.len());
-    for target in targets {
-        files.push(open_vortex_file_for_target(target, metrics.clone()).await?);
+    let mut files = vec![None; targets.len()];
+    let results = futures::stream::iter(targets.iter().enumerate())
+        .map(|(idx, target)| {
+            let metrics = metrics.clone();
+            async move {
+                let file = open_vortex_file_for_target(target, metrics).await?;
+                Ok::<_, anyhow::Error>((idx, file))
+            }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    for (idx, file) in results {
+        files[idx] = Some(file);
     }
-    Ok(files)
+
+    files
+        .into_iter()
+        .map(|file| file.ok_or_else(|| anyhow::anyhow!("file open missing")))
+        .collect()
 }
 
 fn object_store_from_url(
