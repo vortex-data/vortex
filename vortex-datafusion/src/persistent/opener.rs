@@ -5,6 +5,9 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -34,6 +37,7 @@ use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
+use vortex::dtype::DType;
 use vortex::error::VortexError;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -161,9 +165,10 @@ impl FileOpener for VortexOpener {
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
 
-            let physical_file_schema = Arc::new(vxf.dtype().to_arrow_schema().map_err(|e| {
-                exec_datafusion_err!("Failed to convert file schema to arrow: {e}")
-            })?);
+            let physical_file_schema = Arc::new(calculate_physical_file_schema(
+                vxf.dtype(),
+                &logical_file_schema,
+            )?);
 
             let projected_physical_schema = projection.project_schema(&logical_file_schema)?;
 
@@ -196,12 +201,12 @@ impl FileOpener for VortexOpener {
             )?;
 
             // The schema of the stream returned from the vortex scan.
+            // We use the physical_file_schema as reference for types that don't roundtrip.
             let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
                 exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
             })?;
-            let stream_schema = scan_dtype.to_arrow_schema().map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the schema for the underlying Vortex scan")
-            })?;
+            let stream_schema =
+                calculate_physical_file_schema(&scan_dtype, &projected_physical_schema)?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -348,6 +353,175 @@ impl FileOpener for VortexOpener {
         .in_current_span()
         .boxed())
     }
+}
+
+/// Calculate the physical Arrow schema for a Vortex file given its DType and the expected logical schema.
+///
+/// Some Arrow types don't roundtrip cleanly through Vortex's DType system:
+/// - Dictionary types lose their encoding (become the value type)
+/// - Utf8/LargeUtf8 become Utf8View
+/// - Binary/LargeBinary become BinaryView
+/// - RunEndEncoded loses its encoding
+///
+/// For these types, we use the logical schema's type instead of the DType's natural Arrow
+/// conversion, since Vortex's Arrow executor can produce these types when requested.
+fn calculate_physical_file_schema(
+    dtype: &DType,
+    expected_logical_schema: &Schema,
+) -> DFResult<Schema> {
+    let DType::Struct(struct_dtype, _) = dtype else {
+        return Err(exec_datafusion_err!(
+            "Expected struct dtype for schema conversion"
+        ));
+    };
+
+    let fields: Vec<Field> = struct_dtype
+        .names()
+        .iter()
+        .zip(struct_dtype.fields())
+        .map(|(name, field_dtype)| {
+            let arrow_type = match expected_logical_schema.field_with_name(name.as_ref()).ok() {
+                Some(logical_field) => {
+                    calculate_physical_field_type(&field_dtype, logical_field.data_type())?
+                }
+                None => {
+                    // Field not in logical schema, use default conversion
+                    field_dtype.to_arrow_dtype().map_err(|e| {
+                        exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
+                    })?
+                }
+            };
+
+            Ok(Field::new(
+                name.to_string(),
+                arrow_type,
+                field_dtype.is_nullable(),
+            ))
+        })
+        .collect::<DFResult<Vec<_>>>()?;
+
+    Ok(Schema::new(fields))
+}
+
+/// Calculate the physical Arrow type for a field, preferring the logical type when the
+/// DType doesn't roundtrip cleanly.
+fn calculate_physical_field_type(dtype: &DType, logical_type: &DataType) -> DFResult<DataType> {
+    // Check if the logical type is one that doesn't roundtrip through DType
+    Ok(match logical_type {
+        // Dictionary types lose their encoding when converted to DType
+        DataType::Dictionary(..) => logical_type.clone(),
+
+        // Non-view string/binary types become view types after roundtrip
+        DataType::Utf8 | DataType::LargeUtf8 | DataType::Binary | DataType::LargeBinary => {
+            logical_type.clone()
+        }
+
+        // RunEndEncoded loses its encoding
+        DataType::RunEndEncoded(..) => logical_type.clone(),
+
+        // For struct types, recursively check each field
+        DataType::Struct(logical_fields) => {
+            if let DType::Struct(struct_dtype, _) = dtype {
+                let physical_fields: Vec<Field> = struct_dtype
+                    .names()
+                    .iter()
+                    .zip(struct_dtype.fields())
+                    .map(|(name, field_dtype)| {
+                        let arrow_type =
+                            match logical_fields.iter().find(|f| f.name() == name.as_ref()) {
+                                Some(logical_field) => calculate_physical_field_type(
+                                    &field_dtype,
+                                    logical_field.data_type(),
+                                )?,
+                                None => field_dtype.to_arrow_dtype().map_err(|e| {
+                                    exec_datafusion_err!("Failed to convert dtype to arrow: {e}")
+                                })?,
+                            };
+
+                        Ok(Field::new(
+                            name.to_string(),
+                            arrow_type,
+                            field_dtype.is_nullable(),
+                        ))
+                    })
+                    .collect::<DFResult<Vec<_>>>()?;
+
+                DataType::Struct(physical_fields.into())
+            } else {
+                // Type mismatch, fall back to DType conversion
+                dtype
+                    .to_arrow_dtype()
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            }
+        }
+
+        // For list types, recursively check the element type
+        DataType::List(logical_elem) | DataType::LargeList(logical_elem) => {
+            if let DType::List(elem_dtype, _) = dtype {
+                let physical_elem_type =
+                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_field = Field::new(
+                    logical_elem.name(),
+                    physical_elem_type,
+                    logical_elem.is_nullable(),
+                );
+                match logical_type {
+                    DataType::List(_) => DataType::List(physical_field.into()),
+                    DataType::LargeList(_) => DataType::LargeList(physical_field.into()),
+                    _ => unreachable!(),
+                }
+            } else {
+                dtype
+                    .to_arrow_dtype()
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            }
+        }
+
+        // For fixed-size list types, recursively check the element type
+        DataType::FixedSizeList(logical_elem, size) => {
+            if let DType::FixedSizeList(elem_dtype, ..) = dtype {
+                let physical_elem_type =
+                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_field = Field::new(
+                    logical_elem.name(),
+                    physical_elem_type,
+                    logical_elem.is_nullable(),
+                );
+                DataType::FixedSizeList(physical_field.into(), *size)
+            } else {
+                dtype
+                    .to_arrow_dtype()
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            }
+        }
+
+        // For list view types, recursively check the element type
+        DataType::ListView(logical_elem) | DataType::LargeListView(logical_elem) => {
+            if let DType::List(elem_dtype, _) = dtype {
+                let physical_elem_type =
+                    calculate_physical_field_type(elem_dtype, logical_elem.data_type())?;
+                let physical_field = Field::new(
+                    logical_elem.name(),
+                    physical_elem_type,
+                    logical_elem.is_nullable(),
+                );
+                match logical_type {
+                    DataType::ListView(_) => DataType::ListView(physical_field.into()),
+                    DataType::LargeListView(_) => DataType::LargeListView(physical_field.into()),
+                    _ => unreachable!(),
+                }
+            } else {
+                dtype
+                    .to_arrow_dtype()
+                    .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?
+            }
+        }
+
+        // All other types roundtrip cleanly, use the DType's natural conversion
+        _ => dtype
+            .to_arrow_dtype()
+            .map_err(|e| exec_datafusion_err!("Failed to convert dtype to arrow: {e}"))?,
+    })
 }
 
 /// If the file has a [`FileRange`], we translate it into a row range in the file for the scan.
@@ -1107,12 +1281,7 @@ mod tests {
     }
 
     /// When a Struct contains Dictionary fields, writing to vortex and reading back
-    /// should preserve the Dictionary type. Currently fails because is_dtype_incompatible()
-    /// doesn't recursively check Struct fields, so the cast is pushed to vortex where
-    /// DType::from_arrow() loses the Dictionary encoding.
-    /// Recursive dtype compability feels like a stop-gap though, we should push
-    /// down the dict physical type so that if the vortex file is dict encoded
-    /// we can avoid a cast altogether.
+    /// should preserve the Dictionary type.
     #[tokio::test]
     async fn test_struct_with_dictionary_roundtrip() -> anyhow::Result<()> {
         let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
