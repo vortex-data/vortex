@@ -30,7 +30,6 @@ use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
 use datafusion_common::assert_batches_eq;
-use datafusion_common::assert_batches_sorted_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
