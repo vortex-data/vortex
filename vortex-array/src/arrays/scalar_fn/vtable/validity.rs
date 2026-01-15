@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
 
 use crate::Array;
 use crate::IntoArray;
@@ -17,7 +15,8 @@ use crate::VortexSessionExecute;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::executor::CanonicalOutput;
-use crate::expr::ExecutionArgs;
+use crate::expr::Expression;
+use crate::expr::lit;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
@@ -25,26 +24,28 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn is_valid(array: &ScalarFnArray, index: usize) -> bool {
         // inlined to remove a cycle `is_valid()` and `scalar_at()`
         assert!(index < array.len(), "index {index} out of bounds");
-        let input_datums: Vec<_> = array
-            .children()
+        let inputs: Arc<[_]> = array
+            .children
             .iter()
-            .map(|c| c.scalar_at(index))
-            .map(|scalar| Datum::from(scalar.to_vector_scalar()))
-            .collect();
-
-        let ctx = ExecutionArgs {
-            datums: input_datums,
-            dtypes: array.children().iter().map(|c| c.dtype().clone()).collect(),
-            row_count: 1,
-            return_dtype: array.dtype.clone(),
-        };
+            .map(|child| lit(child.scalar_at(index)))
+            .collect::<_>();
 
         let result = array
             .scalar_fn
-            .execute(ctx)
-            .vortex_expect("Scalar function execution should be fallible")
-            .into_scalar()
-            .vortex_expect("Scalar function execution should return scalar");
+            .evaluate(
+                &Expression::try_new(array.scalar_fn.clone(), inputs)
+                    .vortex_expect("create expr must not fail"),
+                &array.to_array(),
+            )
+            .vortex_expect("execute cannot fail");
+
+        let result = result.as_constant().unwrap_or_else(|| {
+            tracing::info!(
+                "Scalar function {} returned non-constant array from execution over all scalar inputs",
+                array.scalar_fn,
+            );
+            result.scalar_at(0)
+        });
 
         result.is_valid()
     }
@@ -98,10 +99,9 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
             CanonicalOutput::Array(a) => a
                 .into_array()
-                .execute::<Vector>(&mut ctx)
-                .vortex_expect("Failed to convert canonical to vector")
                 .validity()
-                .clone(),
+                .vortex_expect("cannot fail")
+                .to_mask(array.len()),
         }
     }
 }
