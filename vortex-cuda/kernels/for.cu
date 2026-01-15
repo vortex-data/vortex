@@ -15,13 +15,12 @@ __device__ void for_(
     // Each block handles 1024 elements. Each thread handles 1024 / 32 contiguous elements.
     const uint8_t elements_per_thread = 32;
     const uint32_t block_start = blockIdx.x * 1024;
-    const uint32_t thread_start = block_start + threadIdx.x * elements_per_thread;
 
-    for (uint8_t j = 0; j < elements_per_thread; ++j) {
-        const uint32_t idx = thread_start + j;
-        if (idx < array_len) {
-            values_in_out_array[idx] = values_in_out_array[idx] + reference;
-        }
+    const uint64_t start = block_start + threadIdx.x * elements_per_thread;
+    const uint64_t end = (start + elements_per_thread < array_len) ? (start + elements_per_thread) : array_len;
+
+    for (uint64_t idx = start; idx < end; ++idx) {
+        values_in_out_array[idx] = values_in_out_array[idx] + reference;
     }
 }
 
