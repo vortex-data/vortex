@@ -86,7 +86,7 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
     .execute::<PrimitiveArray>(&mut ctx)?
-    .buffer::<O>();
+    .to_buffer::<O>();
 
     let nulls = to_null_buffer(array.validity_mask());
     let data = array.bytes().clone();

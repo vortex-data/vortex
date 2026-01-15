@@ -3,7 +3,6 @@
 
 use vortex_error::VortexExpect;
 
-use crate::Array;
 use crate::Canonical;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;

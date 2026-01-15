@@ -69,7 +69,7 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .buffer::<O>();
+        .to_buffer::<O>();
 
     // Convert `offsets` and `validity` to Arrow buffers.
     let arrow_offsets = offsets.into_arrow_offset_buffer();

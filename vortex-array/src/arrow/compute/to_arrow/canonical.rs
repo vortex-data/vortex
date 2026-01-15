@@ -536,7 +536,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(DType::from(O::PTYPE))?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .buffer::<O>()
+        .to_buffer::<O>()
         .into_arrow_offset_buffer();
     let nulls = to_null_buffer(list_array.validity_mask());
 
@@ -560,13 +560,13 @@ fn to_arrow_listview<O: IntegerPType + OffsetSizeTrait>(
         .offsets()
         .cast(offsets_dtype.clone())?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .buffer::<O>()
+        .to_buffer::<O>()
         .into_arrow_scalar_buffer();
     let sizes = array
         .sizes()
         .cast(offsets_dtype)?
         .execute::<PrimitiveArray>(&mut ctx)?
-        .buffer::<O>()
+        .to_buffer::<O>()
         .into_arrow_scalar_buffer();
 
     // Convert `offsets`, `sizes`, and `validity` to Arrow buffers.

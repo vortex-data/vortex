@@ -134,7 +134,7 @@ where
         .cast(values_dtype)?
         .execute::<PrimitiveArray>(&mut ctx)?;
 
-    let values = prim.buffer::<T::Native>().into_arrow_scalar_buffer();
+    let values = prim.to_buffer::<T::Native>().into_arrow_scalar_buffer();
     let nulls = to_null_buffer(prim.validity_mask());
 
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
