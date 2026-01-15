@@ -19,6 +19,7 @@ use crate::matchers::Exact;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
+use crate::vtable::OperationsVTable;
 
 pub(super) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
@@ -140,6 +141,9 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedSlicePushDownRule {
         parent: &SliceArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array.slice(parent.slice_range().clone())))
+        Ok(Some(ChunkedVTable::slice(
+            array,
+            parent.slice_range().clone(),
+        )))
     }
 }
