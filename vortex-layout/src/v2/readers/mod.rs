@@ -6,4 +6,4 @@ pub mod constant;
 pub mod flat;
 pub mod scalar_fn;
 pub mod struct_;
-mod zoned;
+pub mod zoned;
