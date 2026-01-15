@@ -38,6 +38,7 @@ use crate::session::CudaSessionExt;
 /// };
 /// 32 threads are used per block which corresponds to the thread count of a warp.
 /// Each block handles 1024 elements. Each thread handles 32 elements.
+/// The last block and thread are allowed to have less elements.
 ///
 /// Note: A macro is necessary to unroll the launch builder arguments.
 #[macro_export]

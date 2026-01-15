@@ -13,6 +13,7 @@ __device__ void for_(
     uint64_t array_len
 ) {
     // Each block handles 1024 elements. Each thread handles 1024 / 32 contiguous elements.
+    // The last block and thread are allowed to have less elements.
     const uint8_t elements_per_thread = 32;
     const uint32_t block_start = blockIdx.x * 1024;
 
