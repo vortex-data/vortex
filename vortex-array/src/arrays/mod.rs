@@ -36,6 +36,7 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
+mod expression;
 // pub mod pipeline;
 // TODO(connor): Export exact types, not glob.
 
