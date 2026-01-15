@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
+use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -14,6 +15,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::IntoArray;
 use crate::Precision;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -87,6 +89,10 @@ impl VTable for NullVTable {
             children.len()
         );
         Ok(())
+    }
+
+    fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(NullArray::new(range.len()).into_array()))
     }
 }
 

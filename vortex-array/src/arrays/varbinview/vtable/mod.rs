@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
@@ -14,6 +15,7 @@ use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::IntoArray;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -24,6 +26,7 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -120,5 +123,17 @@ impl VTable for VarBinViewVTable {
             ),
         }
         Ok(())
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            VarBinViewArray::new(
+                array.views().slice(range.clone()),
+                array.buffers().clone(),
+                array.dtype().clone(),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
     }
 }

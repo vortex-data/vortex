@@ -26,7 +26,6 @@ use crate::LEGACY_SESSION;
 use crate::Precision;
 use crate::VortexSessionExecute;
 use crate::arrays::slice::array::SliceArray;
-use crate::arrays::slice::execute::slice_canonical;
 use crate::arrays::slice::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -113,8 +112,15 @@ impl VTable for SliceVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Execute the child to get canonical form, then slice it
-        let canonical = array.child.clone().execute(ctx)?;
-        Ok(slice_canonical(canonical, array.range.clone()))
+        let canonical = array.child.clone().execute::<Canonical>(ctx)?;
+        let result = canonical.as_ref().slice(array.range.clone());
+        assert!(
+            result.is_canonical(),
+            "this must be canonical fix the slice impl for the dtype {} showing this error",
+            array.dtype()
+        );
+        // TODO(joe): this is a downcast not a execute.
+        Ok(result.to_canonical())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

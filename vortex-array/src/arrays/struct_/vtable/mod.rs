@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -12,6 +13,7 @@ use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::IntoArray;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -21,6 +23,7 @@ use crate::vtable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -145,6 +148,27 @@ impl VTable for StructVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let fields = array
+            .fields()
+            .iter()
+            .map(|field| field.slice(range.clone()))
+            .collect_vec();
+
+        // SAFETY: Slicing preserves all StructArray invariants
+        Ok(Some(
+            unsafe {
+                StructArray::new_unchecked(
+                    fields,
+                    array.struct_fields().clone(),
+                    range.len(),
+                    array.validity().slice(range),
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 
