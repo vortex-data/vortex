@@ -10575,6 +10575,7 @@ name = "vortex-mask"
 version = "0.1.0"
 dependencies = [
  "arrow-buffer 57.2.0",
+ "codspeed-divan-compat",
  "itertools 0.14.0",
  "rstest",
  "serde",
