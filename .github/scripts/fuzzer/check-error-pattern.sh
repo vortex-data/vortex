@@ -23,10 +23,11 @@ if [[ ! -f "$ISSUES_JSON" ]]; then
 fi
 
 # First try: exact message hash match
-match=$(jq -r --arg hash "$MESSAGE_HASH" '
+# Use -c for compact output (one JSON per line)
+match=$(jq -c --arg hash "$MESSAGE_HASH" '
     .[] | select(.body | contains($hash)) |
     {number: .number, url: .url, title: .title}
-' "$ISSUES_JSON" | head -1)
+' "$ISSUES_JSON" 2>/dev/null | head -1)
 
 if [[ -n "$match" && "$match" != "null" ]]; then
     issue_number=$(echo "$match" | jq -r '.number')
@@ -49,10 +50,10 @@ fi
 
 # Second try: same error variant (lower confidence)
 if [[ -n "$ERROR_VARIANT" && "$ERROR_VARIANT" != "unknown" ]]; then
-    match=$(jq -r --arg variant "$ERROR_VARIANT" '
+    match=$(jq -c --arg variant "$ERROR_VARIANT" '
         .[] | select(.body | contains($variant)) |
         {number: .number, url: .url, title: .title}
-    ' "$ISSUES_JSON" | head -1)
+    ' "$ISSUES_JSON" 2>/dev/null | head -1)
 
     if [[ -n "$match" && "$match" != "null" ]]; then
         issue_number=$(echo "$match" | jq -r '.number')

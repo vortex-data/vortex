@@ -24,10 +24,11 @@ fi
 
 # Search for seed hash in issue bodies
 # The seed hash appears in the "Seed Hash" field of our template
-match=$(jq -r --arg hash "$SEED_HASH" '
+# Use -c for compact output (one JSON per line), then take first match
+match=$(jq -c --arg hash "$SEED_HASH" '
     .[] | select(.body | contains($hash)) |
     {number: .number, url: .url, title: .title}
-' "$ISSUES_JSON" | head -1)
+' "$ISSUES_JSON" 2>/dev/null | head -1)
 
 if [[ -n "$match" && "$match" != "null" ]]; then
     issue_number=$(echo "$match" | jq -r '.number')

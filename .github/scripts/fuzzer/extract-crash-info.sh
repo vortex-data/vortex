@@ -40,7 +40,10 @@ extract_panic_location() {
 
 # Extract panic/error message
 extract_panic_message() {
-    # Look for "panicked at" message
+    # Look for Rust panic format: "panicked at file:line:\nmessage"
+    # The message is on the line after "panicked at"
+    grep -A1 "panicked at" "$LOG_FILE" 2>/dev/null | tail -1 | sed 's/^[[:space:]]*//' | head -1 || \
+    # Or look for "panicked at 'message'" format
     grep -oP "panicked at '\K[^']+(?=')" "$LOG_FILE" 2>/dev/null | head -1 || \
     # Or error message
     grep -oP "ERROR: \K.*" "$LOG_FILE" 2>/dev/null | head -1 || \
@@ -49,11 +52,34 @@ extract_panic_message() {
     echo "unknown"
 }
 
-# Extract VortexFuzzError variant
+# Extract VortexFuzzError variant or panic type
 extract_error_variant() {
-    # Look for error enum variants in the log
-    grep -oP "(ScalarMismatch|SearchSortedError|MinMaxMismatch|ArrayNotEqual|DTypeMismatch|LengthMismatch|VortexError)" "$LOG_FILE" 2>/dev/null | head -1 || \
-    echo "unknown"
+    # Look for VortexFuzzError enum variants
+    local variant
+    variant=$(grep -oP "(ScalarMismatch|SearchSortedError|MinMaxMismatch|ArrayNotEqual|DTypeMismatch|LengthMismatch|VortexError)" "$LOG_FILE" 2>/dev/null | head -1)
+    if [[ -n "$variant" ]]; then
+        echo "$variant"
+        return
+    fi
+
+    # Detect common panic types from message
+    if grep -q "index out of bounds" "$LOG_FILE" 2>/dev/null; then
+        echo "IndexOutOfBounds"
+    elif grep -q "assertion.*failed" "$LOG_FILE" 2>/dev/null; then
+        echo "AssertionFailed"
+    elif grep -q "unwrap.*None" "$LOG_FILE" 2>/dev/null; then
+        echo "UnwrapNone"
+    elif grep -q "overflow" "$LOG_FILE" 2>/dev/null; then
+        echo "Overflow"
+    elif grep -q "out of memory\|OOM" "$LOG_FILE" 2>/dev/null; then
+        echo "OutOfMemory"
+    elif grep -q "timeout" "$LOG_FILE" 2>/dev/null; then
+        echo "Timeout"
+    elif grep -q "SEGV\|segfault" "$LOG_FILE" 2>/dev/null; then
+        echo "Segfault"
+    else
+        echo "unknown"
+    fi
 }
 
 # Extract stack trace frames (function names only, normalized)

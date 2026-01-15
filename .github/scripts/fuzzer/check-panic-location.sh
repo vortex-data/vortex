@@ -26,7 +26,8 @@ fi
 file_pattern=$(echo "$PANIC_LOCATION" | grep -oP '[^/]+\.rs:\d+' || echo "$PANIC_LOCATION")
 
 # Search for this pattern in issue bodies
-match=$(jq -r --arg loc "$file_pattern" '
+# Use -c for compact output (one JSON per line)
+match=$(jq -c --arg loc "$file_pattern" '
     .[] | select(.body | test($loc; "i")) |
     {number: .number, url: .url, title: .title}
 ' "$ISSUES_JSON" 2>/dev/null | head -1)

@@ -23,10 +23,11 @@ fi
 
 # Search for stack hash in issue bodies
 # The stack hash appears in the "Stack Hash" field of our template
-match=$(jq -r --arg hash "$STACK_HASH" '
+# Use -c for compact output (one JSON per line)
+match=$(jq -c --arg hash "$STACK_HASH" '
     .[] | select(.body | contains($hash)) |
     {number: .number, url: .url, title: .title}
-' "$ISSUES_JSON" | head -1)
+' "$ISSUES_JSON" 2>/dev/null | head -1)
 
 if [[ -n "$match" && "$match" != "null" ]]; then
     issue_number=$(echo "$match" | jq -r '.number')
