@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::BitBufferMut;
+
 use crate::AllOr;
 use crate::Mask;
 
@@ -49,12 +51,50 @@ impl Mask {
             }
         }
     }
+
+    /// Alternative implementation using BitBuffers directly without materializing indices.
+    ///
+    /// This approach iterates through `self`'s bit buffer and checks each position's
+    /// rank against the mask's bit buffer. It avoids creating intermediate index vectors.
+    ///
+    /// Trade-offs vs index-based approach:
+    /// - **Pro**: No index vector allocation, better for high-density masks
+    /// - **Con**: Always O(self.len()) iterations regardless of density
+    pub fn intersect_by_rank_bitbuffer(&self, mask: &Mask) -> Mask {
+        assert_eq!(self.true_count(), mask.len());
+
+        match (self.bit_buffer(), mask.bit_buffer()) {
+            (AllOr::All, _) => mask.clone(),
+            (_, AllOr::All) => self.clone(),
+            (AllOr::None, _) | (_, AllOr::None) => Self::new_false(self.len()),
+
+            (AllOr::Some(self_buffer), AllOr::Some(mask_buffer)) => {
+                let mut result = BitBufferMut::new_unset(self.len());
+                let mut rank = 0usize;
+
+                for (i, self_bit) in self_buffer.iter().enumerate() {
+                    if self_bit {
+                        // SAFETY: rank < mask.len() because we increment rank only when
+                        // self_bit is true, and self.true_count() == mask.len()
+                        if unsafe { mask_buffer.value_unchecked(rank) } {
+                            result.set(i);
+                        }
+                        rank += 1;
+                    }
+                }
+
+                Self::from_buffer(result.freeze())
+            }
+        }
+    }
 }
 
 #[cfg(test)]
+#[allow(clippy::cast_possible_truncation)]
 mod test {
     use rstest::rstest;
     use vortex_buffer::BitBuffer;
+    use vortex_error::VortexResult;
 
     use crate::Mask;
 
@@ -195,5 +235,80 @@ mod test {
             crate::AllOr::None => assert!(expected_indices.is_empty()),
             _ => panic!("Unexpected result"),
         }
+    }
+
+    // Tests for BitBuffer-based implementation
+
+    #[rstest]
+    #[case::sparse_base_sparse_rank(0.1, 0.1)]
+    #[case::sparse_base_dense_rank(0.1, 0.9)]
+    #[case::dense_base_sparse_rank(0.5, 0.1)]
+    #[case::dense_base_dense_rank(0.5, 0.9)]
+    #[case::very_sparse(0.01, 0.5)]
+    #[case::very_dense_rank(0.1, 0.99)]
+    fn test_bitbuffer_impl_matches_indices_impl(
+        #[case] base_density: f64,
+        #[case] rank_density: f64,
+    ) -> VortexResult<()> {
+        let base_len = 1000;
+        let step = (1.0 / base_density).ceil() as usize;
+        let base_indices: Vec<usize> = (0..base_len).step_by(step).collect();
+        let base = Mask::from_indices(base_len, base_indices);
+
+        let rank_len = base.true_count();
+        let rank = Mask::from_buffer(BitBuffer::from_iter((0..rank_len).map(|i| {
+            let threshold = (rank_density * 1000.0) as usize;
+            (i * 7 + 13) % 1000 < threshold
+        })));
+
+        let result_indices = base.intersect_by_rank(&rank);
+        let result_bitbuffer = base.intersect_by_rank_bitbuffer(&rank);
+
+        assert_eq!(result_indices, result_bitbuffer);
+        Ok(())
+    }
+
+    #[test]
+    fn test_bitbuffer_impl_example() {
+        let m1 = Mask::from_iter([true, false, false, true, true, true, false, true]);
+        let m2 = Mask::from_iter([false, false, true, false, true]);
+        let result = m1.intersect_by_rank_bitbuffer(&m2);
+        let expected = Mask::from_iter([false, false, false, false, true, false, false, true]);
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_bitbuffer_impl_fast_paths() {
+        // AllTrue base
+        let base = Mask::new_true(5);
+        let rank = Mask::from_iter([true, false, true, false, true]);
+        assert_eq!(
+            base.intersect_by_rank_bitbuffer(&rank),
+            base.intersect_by_rank(&rank)
+        );
+
+        // AllTrue rank
+        let base = Mask::from_iter([true, false, true, false, true]);
+        let rank = Mask::new_true(3);
+        assert_eq!(
+            base.intersect_by_rank_bitbuffer(&rank),
+            base.intersect_by_rank(&rank)
+        );
+
+        // AllFalse base
+        let base = Mask::new_false(5);
+        let rank = Mask::new_true(0);
+        assert_eq!(
+            base.intersect_by_rank_bitbuffer(&rank),
+            base.intersect_by_rank(&rank)
+        );
+
+        // AllFalse rank
+        let base = Mask::from_iter([true, false, true, false, true]);
+        let rank = Mask::new_false(3);
+        assert_eq!(
+            base.intersect_by_rank_bitbuffer(&rank),
+            base.intersect_by_rank(&rank)
+        );
     }
 }

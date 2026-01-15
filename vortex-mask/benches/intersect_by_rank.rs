@@ -247,3 +247,83 @@ fn high_density_dense_base_95_rank(bencher: Bencher, base_size: usize) {
 
     bencher.bench(|| base.intersect_by_rank(&rank));
 }
+
+// =============================================================================
+// BitBuffer vs Indices comparison benchmarks
+// =============================================================================
+
+/// Compare: indices vs bitbuffer for sparse base, sparse rank (indices should win)
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_indices_sparse_base_10_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_bitbuf_sparse_base_10_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.1);
+
+    bencher.bench(|| base.intersect_by_rank_bitbuffer(&rank));
+}
+
+/// Compare: indices vs bitbuffer for sparse base, high density rank
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_indices_sparse_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_bitbuf_sparse_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_bitbuffer(&rank));
+}
+
+/// Compare: indices vs bitbuffer for dense base, high density rank
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_indices_dense_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_bitbuf_dense_base_90_rank(bencher: Bencher, base_size: usize) {
+    let base = create_dense_mask(base_size, 0.5);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.9);
+
+    bencher.bench(|| base.intersect_by_rank_bitbuffer(&rank));
+}
+
+/// Compare: indices vs bitbuffer for 99% rank density
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_indices_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank(&rank));
+}
+
+#[divan::bench(args = BASE_SIZES)]
+fn cmp_bitbuf_sparse_base_99_rank(bencher: Bencher, base_size: usize) {
+    let base = create_sparse_mask(base_size, 0.1);
+    let rank_len = base.true_count();
+    let rank = create_dense_mask(rank_len, 0.99);
+
+    bencher.bench(|| base.intersect_by_rank_bitbuffer(&rank));
+}
