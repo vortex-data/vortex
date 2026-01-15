@@ -12,15 +12,14 @@ use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
 use crate::arrow::compute::ToArrowKernel;
@@ -86,10 +85,8 @@ fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexRes
         array.offsets(),
         &DType::Primitive(O::PTYPE, Nullability::NonNullable),
     )?
-    .execute::<Vector>(&mut ctx)?
-    .into_primitive()
-    .downcast::<O>()
-    .into_nonnull_buffer();
+    .execute::<PrimitiveArray>(&mut ctx)?
+    .buffer::<O>();
 
     let nulls = to_null_buffer(array.validity_mask());
     let data = array.bytes().clone();

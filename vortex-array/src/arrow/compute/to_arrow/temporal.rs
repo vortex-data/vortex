@@ -21,19 +21,18 @@ use arrow_schema::DataType;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::is_temporal_ext_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ExtensionVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::arrow::array::ArrowArray;
 use crate::arrow::compute::to_arrow::ToArrowArgs;
@@ -130,16 +129,13 @@ where
 {
     let values_dtype = DType::Primitive(T::Native::PTYPE, array.dtype().nullability());
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    let values = array
+    let prim = array
         .temporal_values()
         .cast(values_dtype)?
-        .execute::<Vector>(&mut ctx)?
-        .into_primitive()
-        .downcast::<T::Native>();
+        .execute::<PrimitiveArray>(&mut ctx)?;
 
-    let (buffer, validity) = values.into_parts();
-    let values = buffer.into_arrow_scalar_buffer();
-    let nulls = to_null_buffer(validity);
+    let values = prim.buffer::<T::Native>().into_arrow_scalar_buffer();
+    let nulls = to_null_buffer(prim.validity_mask());
 
     Ok(ArrowPrimitiveArray::<T>::new(values, nulls))
 }
