@@ -239,6 +239,275 @@ fn select_block4(buf: &BitBuffer, n: usize) -> usize {
     panic!("out of bounds");
 }
 
+/// Block-based: compute 8 popcounts independently for more ILP
+#[inline]
+fn select_block8(buf: &BitBuffer, n: usize) -> usize {
+    let mut remaining = n;
+    let bytes = buf.inner().as_slice();
+    let len = buf.len();
+    let offset = buf.offset();
+
+    if offset != 0 {
+        return select_simple(buf, n);
+    }
+
+    let ptr = bytes.as_ptr() as *const u64;
+    let num_chunks = len / 64;
+    let mut i = 0;
+
+    // Process 8 chunks at a time
+    while i + 8 <= num_chunks {
+        let c0 = unsafe { ptr.add(i).read_unaligned() };
+        let c1 = unsafe { ptr.add(i + 1).read_unaligned() };
+        let c2 = unsafe { ptr.add(i + 2).read_unaligned() };
+        let c3 = unsafe { ptr.add(i + 3).read_unaligned() };
+        let c4 = unsafe { ptr.add(i + 4).read_unaligned() };
+        let c5 = unsafe { ptr.add(i + 5).read_unaligned() };
+        let c6 = unsafe { ptr.add(i + 6).read_unaligned() };
+        let c7 = unsafe { ptr.add(i + 7).read_unaligned() };
+
+        // 8 independent popcounts
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if remaining < block_pop {
+            // Narrow down within block
+            if remaining < pop0 {
+                return i * 64 + select_in_word(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return (i + 1) * 64 + select_in_word(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return (i + 2) * 64 + select_in_word(c2, remaining);
+            }
+            remaining -= pop2;
+            if remaining < pop3 {
+                return (i + 3) * 64 + select_in_word(c3, remaining);
+            }
+            remaining -= pop3;
+            if remaining < pop4 {
+                return (i + 4) * 64 + select_in_word(c4, remaining);
+            }
+            remaining -= pop4;
+            if remaining < pop5 {
+                return (i + 5) * 64 + select_in_word(c5, remaining);
+            }
+            remaining -= pop5;
+            if remaining < pop6 {
+                return (i + 6) * 64 + select_in_word(c6, remaining);
+            }
+            remaining -= pop6;
+            return (i + 7) * 64 + select_in_word(c7, remaining);
+        }
+        remaining -= block_pop;
+        i += 8;
+    }
+
+    // Handle remaining with block4
+    while i + 4 <= num_chunks {
+        let c0 = unsafe { ptr.add(i).read_unaligned() };
+        let c1 = unsafe { ptr.add(i + 1).read_unaligned() };
+        let c2 = unsafe { ptr.add(i + 2).read_unaligned() };
+        let c3 = unsafe { ptr.add(i + 3).read_unaligned() };
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let block_pop = pop0 + pop1 + pop2 + pop3;
+
+        if remaining < block_pop {
+            if remaining < pop0 {
+                return i * 64 + select_in_word(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return (i + 1) * 64 + select_in_word(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return (i + 2) * 64 + select_in_word(c2, remaining);
+            }
+            remaining -= pop2;
+            return (i + 3) * 64 + select_in_word(c3, remaining);
+        }
+        remaining -= block_pop;
+        i += 4;
+    }
+
+    // Handle remaining chunks one at a time
+    while i < num_chunks {
+        let chunk = unsafe { ptr.add(i).read_unaligned() };
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return i * 64 + select_in_word(chunk, remaining);
+        }
+        remaining -= pop;
+        i += 1;
+    }
+
+    // Handle remainder bits
+    let rem_bits = len % 64;
+    if rem_bits > 0 {
+        let start = num_chunks * 8;
+        let mut buf8 = [0u8; 8];
+        let avail = (bytes.len() - start).min(8);
+        buf8[..avail].copy_from_slice(&bytes[start..start + avail]);
+        let rem = u64::from_le_bytes(buf8) & ((1u64 << rem_bits) - 1);
+
+        if remaining < rem.count_ones() as usize {
+            return num_chunks * 64 + select_in_word(rem, remaining);
+        }
+    }
+    panic!("out of bounds");
+}
+
+/// Branchless block8: uses arithmetic instead of if/else chains
+#[inline]
+fn select_block8_branchless(buf: &BitBuffer, n: usize) -> usize {
+    let mut remaining = n;
+    let bytes = buf.inner().as_slice();
+    let len = buf.len();
+    let offset = buf.offset();
+
+    if offset != 0 {
+        return select_simple(buf, n);
+    }
+
+    let ptr = bytes.as_ptr() as *const u64;
+    let num_chunks = len / 64;
+    let mut i = 0;
+
+    // Process 8 chunks at a time
+    while i + 8 <= num_chunks {
+        let chunks = [
+            unsafe { ptr.add(i).read_unaligned() },
+            unsafe { ptr.add(i + 1).read_unaligned() },
+            unsafe { ptr.add(i + 2).read_unaligned() },
+            unsafe { ptr.add(i + 3).read_unaligned() },
+            unsafe { ptr.add(i + 4).read_unaligned() },
+            unsafe { ptr.add(i + 5).read_unaligned() },
+            unsafe { ptr.add(i + 6).read_unaligned() },
+            unsafe { ptr.add(i + 7).read_unaligned() },
+        ];
+
+        // 8 independent popcounts
+        let pops = [
+            chunks[0].count_ones() as usize,
+            chunks[1].count_ones() as usize,
+            chunks[2].count_ones() as usize,
+            chunks[3].count_ones() as usize,
+            chunks[4].count_ones() as usize,
+            chunks[5].count_ones() as usize,
+            chunks[6].count_ones() as usize,
+            chunks[7].count_ones() as usize,
+        ];
+
+        let block_pop = pops[0] + pops[1] + pops[2] + pops[3] + pops[4] + pops[5] + pops[6] + pops[7];
+
+        if remaining < block_pop {
+            // Branchless: compute prefix sums and find index
+            let s0 = pops[0];
+            let s1 = s0 + pops[1];
+            let s2 = s1 + pops[2];
+            let s3 = s2 + pops[3];
+            let s4 = s3 + pops[4];
+            let s5 = s4 + pops[5];
+            let s6 = s5 + pops[6];
+
+            // Branchless index calculation
+            let idx = (remaining >= s0) as usize
+                + (remaining >= s1) as usize
+                + (remaining >= s2) as usize
+                + (remaining >= s3) as usize
+                + (remaining >= s4) as usize
+                + (remaining >= s5) as usize
+                + (remaining >= s6) as usize;
+
+            // Compute offset into selected chunk
+            let prefix_sum = [0, s0, s1, s2, s3, s4, s5, s6];
+            let adj_remaining = remaining - prefix_sum[idx];
+
+            return (i + idx) * 64 + select_in_word(chunks[idx], adj_remaining);
+        }
+        remaining -= block_pop;
+        i += 8;
+    }
+
+    // Handle remaining with block4 (branchless)
+    while i + 4 <= num_chunks {
+        let chunks = [
+            unsafe { ptr.add(i).read_unaligned() },
+            unsafe { ptr.add(i + 1).read_unaligned() },
+            unsafe { ptr.add(i + 2).read_unaligned() },
+            unsafe { ptr.add(i + 3).read_unaligned() },
+        ];
+
+        let pops = [
+            chunks[0].count_ones() as usize,
+            chunks[1].count_ones() as usize,
+            chunks[2].count_ones() as usize,
+            chunks[3].count_ones() as usize,
+        ];
+
+        let block_pop = pops[0] + pops[1] + pops[2] + pops[3];
+
+        if remaining < block_pop {
+            let s0 = pops[0];
+            let s1 = s0 + pops[1];
+            let s2 = s1 + pops[2];
+
+            let idx = (remaining >= s0) as usize
+                + (remaining >= s1) as usize
+                + (remaining >= s2) as usize;
+
+            let prefix_sum = [0, s0, s1, s2];
+            let adj_remaining = remaining - prefix_sum[idx];
+
+            return (i + idx) * 64 + select_in_word(chunks[idx], adj_remaining);
+        }
+        remaining -= block_pop;
+        i += 4;
+    }
+
+    // Handle remaining chunks one at a time
+    while i < num_chunks {
+        let chunk = unsafe { ptr.add(i).read_unaligned() };
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return i * 64 + select_in_word(chunk, remaining);
+        }
+        remaining -= pop;
+        i += 1;
+    }
+
+    // Handle remainder bits
+    let rem_bits = len % 64;
+    if rem_bits > 0 {
+        let start = num_chunks * 8;
+        let mut buf8 = [0u8; 8];
+        let avail = (bytes.len() - start).min(8);
+        buf8[..avail].copy_from_slice(&bytes[start..start + avail]);
+        let rem = u64::from_le_bytes(buf8) & ((1u64 << rem_bits) - 1);
+
+        if remaining < rem.count_ones() as usize {
+            return num_chunks * 64 + select_in_word(rem, remaining);
+        }
+    }
+    panic!("out of bounds");
+}
+
 /// Bidirectional: search from end if n > 50% of true_count
 /// Note: true_count must be passed in (don't compute it here!)
 #[inline]
@@ -339,27 +608,27 @@ fn select_bitchunk(buf: &BitBuffer, n: usize) -> usize {
 // OPTIMAL: Combined implementation with all optimizations
 // =============================================================================
 
-/// Optimal select: combines block4 + bidirectional + unaligned handling
-/// - Block4: 4 independent popcounts for ILP (1.75x speedup)
-/// - Bidirectional: search from end if n > 50% (up to 39x speedup)
-/// - UnalignedBitChunk: aligned loads for unaligned data (1.27x speedup)
+/// Optimal select: combines block8 + bidirectional + unaligned handling
+/// - Block8: 8 independent popcounts for ILP (~1.4x over block4)
+/// - Bidirectional: search from end if n > 50% (up to 50x speedup)
+/// - UnalignedBitChunk: aligned loads for unaligned data
 #[inline]
 fn select_optimal(buf: &BitBuffer, n: usize, true_count: usize) -> usize {
     // Decide search direction based on which end is closer
     if n < true_count / 2 {
         // Search forward
         if buf.offset() == 0 {
-            select_aligned_forward_block4(buf, n)
+            select_aligned_forward_block8(buf, n)
         } else {
-            select_unaligned_forward_block4(buf, n)
+            select_unaligned_forward_block8(buf, n)
         }
     } else {
         // Search backward (from end)
         let n_from_end = true_count - 1 - n;
         if buf.offset() == 0 {
-            select_aligned_reverse_block4(buf, n_from_end)
+            select_aligned_reverse_block8(buf, n_from_end)
         } else {
-            select_unaligned_reverse_block4(buf, n_from_end)
+            select_unaligned_reverse_block8(buf, n_from_end)
         }
     }
 }
@@ -660,6 +929,409 @@ fn select_unaligned_reverse_block4(buf: &BitBuffer, n_from_end: usize) -> usize 
 }
 
 // =============================================================================
+// Block8 helper functions for optimal
+// =============================================================================
+
+/// Forward search with block8 for aligned data
+#[inline]
+fn select_aligned_forward_block8(buf: &BitBuffer, n: usize) -> usize {
+    let mut remaining = n;
+    let bytes = buf.inner().as_slice();
+    let len = buf.len();
+    let ptr = bytes.as_ptr() as *const u64;
+    let num_chunks = len / 64;
+    let mut i = 0;
+
+    // Process 8 chunks at a time
+    while i + 8 <= num_chunks {
+        let c0 = unsafe { ptr.add(i).read_unaligned() };
+        let c1 = unsafe { ptr.add(i + 1).read_unaligned() };
+        let c2 = unsafe { ptr.add(i + 2).read_unaligned() };
+        let c3 = unsafe { ptr.add(i + 3).read_unaligned() };
+        let c4 = unsafe { ptr.add(i + 4).read_unaligned() };
+        let c5 = unsafe { ptr.add(i + 5).read_unaligned() };
+        let c6 = unsafe { ptr.add(i + 6).read_unaligned() };
+        let c7 = unsafe { ptr.add(i + 7).read_unaligned() };
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if remaining < block_pop {
+            if remaining < pop0 {
+                return i * 64 + select_in_word(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return (i + 1) * 64 + select_in_word(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return (i + 2) * 64 + select_in_word(c2, remaining);
+            }
+            remaining -= pop2;
+            if remaining < pop3 {
+                return (i + 3) * 64 + select_in_word(c3, remaining);
+            }
+            remaining -= pop3;
+            if remaining < pop4 {
+                return (i + 4) * 64 + select_in_word(c4, remaining);
+            }
+            remaining -= pop4;
+            if remaining < pop5 {
+                return (i + 5) * 64 + select_in_word(c5, remaining);
+            }
+            remaining -= pop5;
+            if remaining < pop6 {
+                return (i + 6) * 64 + select_in_word(c6, remaining);
+            }
+            remaining -= pop6;
+            return (i + 7) * 64 + select_in_word(c7, remaining);
+        }
+        remaining -= block_pop;
+        i += 8;
+    }
+
+    // Handle remaining chunks
+    while i < num_chunks {
+        let chunk = unsafe { ptr.add(i).read_unaligned() };
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return i * 64 + select_in_word(chunk, remaining);
+        }
+        remaining -= pop;
+        i += 1;
+    }
+
+    // Handle remainder bits
+    let rem_bits = len % 64;
+    if rem_bits > 0 {
+        let start = num_chunks * 8;
+        let mut buf8 = [0u8; 8];
+        let avail = (bytes.len() - start).min(8);
+        buf8[..avail].copy_from_slice(&bytes[start..start + avail]);
+        let rem = u64::from_le_bytes(buf8) & ((1u64 << rem_bits) - 1);
+        if remaining < rem.count_ones() as usize {
+            return num_chunks * 64 + select_in_word(rem, remaining);
+        }
+    }
+    panic!("out of bounds");
+}
+
+/// Reverse search with block8 for aligned data
+#[inline]
+fn select_aligned_reverse_block8(buf: &BitBuffer, n_from_end: usize) -> usize {
+    let mut remaining = n_from_end;
+    let bytes = buf.inner().as_slice();
+    let len = buf.len();
+    let ptr = bytes.as_ptr() as *const u64;
+    let num_chunks = len / 64;
+    let rem_bits = len % 64;
+
+    // Handle remainder bits first (they're at the end)
+    if rem_bits > 0 {
+        let start = num_chunks * 8;
+        let mut buf8 = [0u8; 8];
+        let avail = (bytes.len() - start).min(8);
+        buf8[..avail].copy_from_slice(&bytes[start..start + avail]);
+        let rem = u64::from_le_bytes(buf8) & ((1u64 << rem_bits) - 1);
+        let pop = rem.count_ones() as usize;
+        if remaining < pop {
+            return num_chunks * 64 + select_in_word_reverse(rem, remaining);
+        }
+        remaining -= pop;
+    }
+
+    // Process chunks in reverse, 8 at a time
+    let mut i = num_chunks;
+    while i >= 8 {
+        let c0 = unsafe { ptr.add(i - 1).read_unaligned() };
+        let c1 = unsafe { ptr.add(i - 2).read_unaligned() };
+        let c2 = unsafe { ptr.add(i - 3).read_unaligned() };
+        let c3 = unsafe { ptr.add(i - 4).read_unaligned() };
+        let c4 = unsafe { ptr.add(i - 5).read_unaligned() };
+        let c5 = unsafe { ptr.add(i - 6).read_unaligned() };
+        let c6 = unsafe { ptr.add(i - 7).read_unaligned() };
+        let c7 = unsafe { ptr.add(i - 8).read_unaligned() };
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if remaining < block_pop {
+            if remaining < pop0 {
+                return (i - 1) * 64 + select_in_word_reverse(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return (i - 2) * 64 + select_in_word_reverse(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return (i - 3) * 64 + select_in_word_reverse(c2, remaining);
+            }
+            remaining -= pop2;
+            if remaining < pop3 {
+                return (i - 4) * 64 + select_in_word_reverse(c3, remaining);
+            }
+            remaining -= pop3;
+            if remaining < pop4 {
+                return (i - 5) * 64 + select_in_word_reverse(c4, remaining);
+            }
+            remaining -= pop4;
+            if remaining < pop5 {
+                return (i - 6) * 64 + select_in_word_reverse(c5, remaining);
+            }
+            remaining -= pop5;
+            if remaining < pop6 {
+                return (i - 7) * 64 + select_in_word_reverse(c6, remaining);
+            }
+            remaining -= pop6;
+            return (i - 8) * 64 + select_in_word_reverse(c7, remaining);
+        }
+        remaining -= block_pop;
+        i -= 8;
+    }
+
+    // Handle remaining chunks
+    while i > 0 {
+        i -= 1;
+        let chunk = unsafe { ptr.add(i).read_unaligned() };
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return i * 64 + select_in_word_reverse(chunk, remaining);
+        }
+        remaining -= pop;
+    }
+
+    panic!("out of bounds");
+}
+
+/// Forward search with block8 for unaligned data (uses UnalignedBitChunk)
+#[inline]
+fn select_unaligned_forward_block8(buf: &BitBuffer, n: usize) -> usize {
+    let mut remaining = n;
+    let unaligned = UnalignedBitChunk::new(buf.inner().as_slice(), buf.offset(), buf.len());
+    let lead_padding = unaligned.lead_padding();
+    let mut bit_idx = 0usize;
+
+    // Handle prefix
+    if let Some(prefix) = unaligned.prefix() {
+        let pop = prefix.count_ones() as usize;
+        if remaining < pop {
+            return select_in_word(prefix, remaining) - lead_padding;
+        }
+        remaining -= pop;
+        bit_idx += 64 - lead_padding;
+    }
+
+    // Process aligned middle chunks with block8
+    let chunks = unaligned.chunks();
+    let num_chunks = chunks.len();
+    let mut i = 0;
+
+    while i + 8 <= num_chunks {
+        let c0 = chunks[i];
+        let c1 = chunks[i + 1];
+        let c2 = chunks[i + 2];
+        let c3 = chunks[i + 3];
+        let c4 = chunks[i + 4];
+        let c5 = chunks[i + 5];
+        let c6 = chunks[i + 6];
+        let c7 = chunks[i + 7];
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if remaining < block_pop {
+            if remaining < pop0 {
+                return bit_idx + select_in_word(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return bit_idx + 64 + select_in_word(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return bit_idx + 128 + select_in_word(c2, remaining);
+            }
+            remaining -= pop2;
+            if remaining < pop3 {
+                return bit_idx + 192 + select_in_word(c3, remaining);
+            }
+            remaining -= pop3;
+            if remaining < pop4 {
+                return bit_idx + 256 + select_in_word(c4, remaining);
+            }
+            remaining -= pop4;
+            if remaining < pop5 {
+                return bit_idx + 320 + select_in_word(c5, remaining);
+            }
+            remaining -= pop5;
+            if remaining < pop6 {
+                return bit_idx + 384 + select_in_word(c6, remaining);
+            }
+            remaining -= pop6;
+            return bit_idx + 448 + select_in_word(c7, remaining);
+        }
+        remaining -= block_pop;
+        bit_idx += 512;
+        i += 8;
+    }
+
+    // Handle remaining chunks
+    while i < num_chunks {
+        let chunk = chunks[i];
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return bit_idx + select_in_word(chunk, remaining);
+        }
+        remaining -= pop;
+        bit_idx += 64;
+        i += 1;
+    }
+
+    // Handle suffix
+    if let Some(suffix) = unaligned.suffix() {
+        let pop = suffix.count_ones() as usize;
+        if remaining < pop {
+            return bit_idx + select_in_word(suffix, remaining);
+        }
+    }
+
+    panic!("out of bounds");
+}
+
+/// Reverse search with block8 for unaligned data
+#[inline]
+fn select_unaligned_reverse_block8(buf: &BitBuffer, n_from_end: usize) -> usize {
+    let mut remaining = n_from_end;
+    let unaligned = UnalignedBitChunk::new(buf.inner().as_slice(), buf.offset(), buf.len());
+    let lead_padding = unaligned.lead_padding();
+    let chunks = unaligned.chunks();
+    let num_chunks = chunks.len();
+
+    // Calculate bit positions for suffix and chunks
+    let prefix_bits = if unaligned.prefix().is_some() {
+        64 - lead_padding
+    } else {
+        0
+    };
+    let middle_bits = num_chunks * 64;
+    let suffix_start = prefix_bits + middle_bits;
+
+    // Handle suffix first (it's at the end)
+    if let Some(suffix) = unaligned.suffix() {
+        let pop = suffix.count_ones() as usize;
+        if remaining < pop {
+            return suffix_start + select_in_word_reverse(suffix, remaining);
+        }
+        remaining -= pop;
+    }
+
+    // Process aligned middle chunks in reverse with block8
+    let mut i = num_chunks;
+    while i >= 8 {
+        let c0 = chunks[i - 1];
+        let c1 = chunks[i - 2];
+        let c2 = chunks[i - 3];
+        let c3 = chunks[i - 4];
+        let c4 = chunks[i - 5];
+        let c5 = chunks[i - 6];
+        let c6 = chunks[i - 7];
+        let c7 = chunks[i - 8];
+
+        let pop0 = c0.count_ones() as usize;
+        let pop1 = c1.count_ones() as usize;
+        let pop2 = c2.count_ones() as usize;
+        let pop3 = c3.count_ones() as usize;
+        let pop4 = c4.count_ones() as usize;
+        let pop5 = c5.count_ones() as usize;
+        let pop6 = c6.count_ones() as usize;
+        let pop7 = c7.count_ones() as usize;
+
+        let block_pop = pop0 + pop1 + pop2 + pop3 + pop4 + pop5 + pop6 + pop7;
+
+        if remaining < block_pop {
+            if remaining < pop0 {
+                return prefix_bits + (i - 1) * 64 + select_in_word_reverse(c0, remaining);
+            }
+            remaining -= pop0;
+            if remaining < pop1 {
+                return prefix_bits + (i - 2) * 64 + select_in_word_reverse(c1, remaining);
+            }
+            remaining -= pop1;
+            if remaining < pop2 {
+                return prefix_bits + (i - 3) * 64 + select_in_word_reverse(c2, remaining);
+            }
+            remaining -= pop2;
+            if remaining < pop3 {
+                return prefix_bits + (i - 4) * 64 + select_in_word_reverse(c3, remaining);
+            }
+            remaining -= pop3;
+            if remaining < pop4 {
+                return prefix_bits + (i - 5) * 64 + select_in_word_reverse(c4, remaining);
+            }
+            remaining -= pop4;
+            if remaining < pop5 {
+                return prefix_bits + (i - 6) * 64 + select_in_word_reverse(c5, remaining);
+            }
+            remaining -= pop5;
+            if remaining < pop6 {
+                return prefix_bits + (i - 7) * 64 + select_in_word_reverse(c6, remaining);
+            }
+            remaining -= pop6;
+            return prefix_bits + (i - 8) * 64 + select_in_word_reverse(c7, remaining);
+        }
+        remaining -= block_pop;
+        i -= 8;
+    }
+
+    // Handle remaining middle chunks
+    while i > 0 {
+        i -= 1;
+        let chunk = chunks[i];
+        let pop = chunk.count_ones() as usize;
+        if remaining < pop {
+            return prefix_bits + i * 64 + select_in_word_reverse(chunk, remaining);
+        }
+        remaining -= pop;
+    }
+
+    // Handle prefix last
+    if let Some(prefix) = unaligned.prefix() {
+        let pop = prefix.count_ones() as usize;
+        if remaining < pop {
+            return select_in_word_reverse(prefix, remaining) - lead_padding;
+        }
+    }
+
+    panic!("out of bounds");
+}
+
+// =============================================================================
 // Test data generators
 // =============================================================================
 
@@ -704,6 +1376,26 @@ fn aligned_block4(bencher: Bencher, pct: usize) {
     bencher
         .with_inputs(|| (&buf, target))
         .bench_refs(|(b, t)| select_block4(b, *t));
+}
+
+#[divan::bench(args = PERCENTILES)]
+fn aligned_block8(bencher: Bencher, pct: usize) {
+    let buf = make_aligned_buf(SIZES[0]);
+    let true_count = buf.true_count();
+    let target = true_count * pct / 100;
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(b, t)| select_block8(b, *t));
+}
+
+#[divan::bench(args = PERCENTILES)]
+fn aligned_block8_branchless(bencher: Bencher, pct: usize) {
+    let buf = make_aligned_buf(SIZES[0]);
+    let true_count = buf.true_count();
+    let target = true_count * pct / 100;
+    bencher
+        .with_inputs(|| (&buf, target))
+        .bench_refs(|(b, t)| select_block8_branchless(b, *t));
 }
 
 #[divan::bench(args = PERCENTILES)]
