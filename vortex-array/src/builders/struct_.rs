@@ -151,7 +151,7 @@ impl ArrayBuilder for StructBuilder {
             // We push zero values into our children when appending a null in case the children are
             // themselves non-nullable.
             .for_each(|builder| builder.append_defaults(n));
-        self.nulls.append_null();
+        self.nulls.append_n_nulls(n);
     }
 
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
@@ -244,9 +244,12 @@ mod tests {
             .append_value(Scalar::struct_(dtype.clone(), vec![1.into(), 2.into()]).as_struct())
             .unwrap();
 
+        builder.append_nulls(2);
+
         let struct_ = builder.finish();
-        assert_eq!(struct_.len(), 1);
+        assert_eq!(struct_.len(), 3);
         assert_eq!(struct_.dtype(), &dtype);
+        assert_eq!(struct_.valid_count(), 1);
     }
 
     #[test]
