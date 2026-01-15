@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::any::Any;
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::Arc;
@@ -26,7 +25,7 @@ pub type LayoutReaderRef = Arc<dyn LayoutReader>;
 
 /// A [`LayoutReader`] is used to read a [`crate::Layout`] in a way that can cache state across multiple
 /// evaluation operations.
-pub trait LayoutReader: Any + 'static + Send + Sync {
+pub trait LayoutReader: 'static + Send + Sync {
     /// Returns the name of the layout reader for debugging.
     fn name(&self) -> &Arc<str>;
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub(crate) mod reader;
+mod reader;
 pub mod writer;
 
 use std::sync::Arc;

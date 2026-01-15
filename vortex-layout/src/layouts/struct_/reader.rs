@@ -60,8 +60,6 @@ pub struct StructReader {
     field_lookup: Option<HashMap<FieldName, usize>>,
     partitioned_expr_cache: DashMap<ExactExpr, Partitioned>,
     last_partitioned_expr: RwLock<Option<(ExactExpr, Partitioned)>>,
-    projection_plan_cache: DashMap<ExactExpr, Arc<StructProjectionPlan>>,
-    last_projection_plan: RwLock<Option<(ExactExpr, Arc<StructProjectionPlan>)>>,
 }
 
 impl StructReader {
@@ -117,8 +115,6 @@ impl StructReader {
             field_lookup,
             partitioned_expr_cache: Default::default(),
             last_partitioned_expr: Default::default(),
-            projection_plan_cache: Default::default(),
-            last_projection_plan: Default::default(),
         })
     }
 
@@ -217,58 +213,6 @@ impl StructReader {
         partitioned
     }
 
-    pub(crate) fn projection_plan(&self, expr: Expression) -> VortexResult<Arc<StructProjectionPlan>> {
-        let exact_expr = ExactExpr(expr.clone());
-        if let Some((cached_expr, cached_plan)) = self.last_projection_plan.read().as_ref()
-            && cached_expr == &exact_expr
-        {
-            return Ok(cached_plan.clone());
-        }
-
-        if let Some(plan) = self.projection_plan_cache.get(&exact_expr) {
-            let plan = plan.clone();
-            *self.last_projection_plan.write() = Some((exact_expr, plan.clone()));
-            return Ok(plan);
-        }
-
-        let plan = Arc::new(self.build_projection_plan(expr)?);
-        self.projection_plan_cache
-            .insert(exact_expr.clone(), plan.clone());
-
-        *self.last_projection_plan.write() = Some((exact_expr, plan.clone()));
-        Ok(plan)
-    }
-
-    fn build_projection_plan(&self, expr: Expression) -> VortexResult<StructProjectionPlan> {
-        Ok(match self.partition_expr(expr) {
-            Partitioned::Single(name, partition) => {
-                let reader = self.field_reader(&name)?.clone();
-                let is_pack_merge = partition.is::<Pack>() || partition.is::<Merge>();
-                StructProjectionPlan {
-                    is_pack_merge,
-                    kind: StructProjectionPlanKind::Single {
-                        reader,
-                        expr: partition,
-                    },
-                }
-            }
-            Partitioned::Multi(partitioned) => {
-                let mut readers = HashMap::with_capacity(partitioned.partitions.len());
-                for name in partitioned.partition_annotations.iter() {
-                    let reader = self.field_reader(name)?.clone();
-                    readers.insert(name.clone(), reader);
-                }
-                let is_pack_merge = partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>();
-                StructProjectionPlan {
-                    is_pack_merge,
-                    kind: StructProjectionPlanKind::Multi {
-                        partitioned,
-                        readers: Arc::new(readers),
-                    },
-                }
-            }
-        })
-    }
 }
 
 /// When partitioning an expression, in the case it only has a single partition we can avoid
@@ -380,66 +324,36 @@ impl LayoutReader for StructReader {
         expr: &Expression,
         mask_fut: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        let plan = self.projection_plan(expr.clone())?;
-        self.projection_with_plan(plan, row_range, mask_fut)
-    }
-}
-
-pub(crate) struct StructProjectionPlan {
-    is_pack_merge: bool,
-    kind: StructProjectionPlanKind,
-}
-
-enum StructProjectionPlanKind {
-    Single {
-        reader: LayoutReaderRef,
-        expr: Expression,
-    },
-    Multi {
-        partitioned: Arc<PartitionedExpr<FieldName>>,
-        readers: Arc<HashMap<FieldName, LayoutReaderRef>>,
-    },
-}
-
-impl StructReader {
-    pub(crate) fn projection_with_plan(
-        &self,
-        plan: Arc<StructProjectionPlan>,
-        row_range: &Range<u64>,
-        mask_fut: MaskFuture,
-    ) -> VortexResult<ArrayFuture> {
         let row_range = row_range.clone();
         let validity_fut = self
             .validity()?
             .map(|reader| reader.projection_evaluation(&row_range, &root(), mask_fut.clone()))
             .transpose()?;
 
-        let (projected, is_pack_merge) = match &plan.kind {
-            StructProjectionPlanKind::Single { reader, expr } => (
-                reader
-                    .projection_evaluation(&row_range, expr, mask_fut)
-                    .map_err(|err| err.with_context("While evaluating projection partition"))?,
-                plan.is_pack_merge,
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
+            Partitioned::Single(name, partition) => (
+                self.field_reader(name)?
+                    .projection_evaluation(&row_range, partition, mask_fut)
+                    .map_err(|err| {
+                        err.with_context(format!("While evaluating projection partition {name}"))
+                    })?,
+                partition.is::<Pack>() || partition.is::<Merge>(),
             ),
-            StructProjectionPlanKind::Multi { partitioned, readers } => {
-                let projected = partitioned
+            Partitioned::Multi(partitioned) => (
+                partitioned
                     .clone()
                     .into_array_future(mask_fut, |name, expr, mask| {
-                        let reader = readers
-                            .get(name)
-                            .vortex_expect("partition reader lookup should succeed")
-                            .clone();
-                        let row_range = row_range.clone();
-                        reader
+                        self.field_reader(name)?
                             .projection_evaluation(&row_range, expr, mask)
                             .map_err(|err| {
                                 err.with_context(format!(
                                     "While evaluating projection partition {name}"
                                 ))
                             })
-                    })?;
-                (projected, plan.is_pack_merge)
-            }
+                    })?,
+                partitioned.root.is::<Pack>() || partitioned.root.is::<Merge>(),
+            ),
         };
 
         Ok(Box::pin(async move {

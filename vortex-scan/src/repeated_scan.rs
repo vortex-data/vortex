@@ -21,7 +21,6 @@ use vortex_error::VortexResult;
 use vortex_io::runtime::BlockingRuntime;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
-use vortex_layout::build_projection_plan;
 use vortex_session::VortexSession;
 
 use crate::filter::FilterExpr;
@@ -122,10 +121,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
             selection: self.selection.clone(),
             filter: self.filter.clone().map(|f| Arc::new(FilterExpr::new(f))),
             reader: self.layout_reader.clone(),
-            projection_plan: build_projection_plan(
-                self.layout_reader.clone(),
-                self.projection.clone(),
-            )?,
+            projection: Arc::new(self.projection.clone()),
             mapper: self.map_fn.clone(),
         });
 
