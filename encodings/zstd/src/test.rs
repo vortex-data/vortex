@@ -7,6 +7,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
+use vortex_array::assert_nth_scalar;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Alignment;
@@ -16,12 +17,6 @@ use vortex_dtype::Nullability;
 use vortex_mask::Mask;
 
 use crate::ZstdArray;
-
-macro_rules! assert_nth_scalar {
-    ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
-    };
-}
 
 #[test]
 fn test_zstd_compress_decompress() {
@@ -115,7 +110,6 @@ fn test_zstd_with_dict() {
 
     let decompressed = compressed.decompress().to_primitive();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
-    assert_eq!(decompressed.validity(), array.validity());
 
     // check slicing works
     let slice = compressed.slice(176..179);

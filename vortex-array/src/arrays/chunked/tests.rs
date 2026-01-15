@@ -102,8 +102,7 @@ fn scalar_at_empty_children_both_sides() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_eq!(array.scalar_at(0), 1u64.into());
-    assert_eq!(array.scalar_at(1), 2u64.into());
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]));
 }
 
 #[test]
@@ -118,10 +117,7 @@ fn scalar_at_empty_children_trailing() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_eq!(array.scalar_at(0), 1u64.into());
-    assert_eq!(array.scalar_at(1), 2u64.into());
-    assert_eq!(array.scalar_at(2), 3u64.into());
-    assert_eq!(array.scalar_at(3), 4u64.into());
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
 }
 
 #[test]
@@ -136,10 +132,7 @@ fn scalar_at_empty_children_leading() {
         DType::Primitive(PType::U64, Nullability::NonNullable),
     )
     .unwrap();
-    assert_eq!(array.scalar_at(0), 1u64.into());
-    assert_eq!(array.scalar_at(1), 2u64.into());
-    assert_eq!(array.scalar_at(2), 3u64.into());
-    assert_eq!(array.scalar_at(3), 4u64.into());
+    assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
 }
 
 #[test]

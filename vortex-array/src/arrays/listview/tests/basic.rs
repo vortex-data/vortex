@@ -18,6 +18,7 @@ use crate::arrays::ListArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::list_view_from_list;
+use crate::assert_arrays_eq;
 use crate::validity::Validity;
 
 #[test]
@@ -44,11 +45,10 @@ fn test_basic_listview_comprehensive() {
     ));
 
     // Check individual list elements.
-    let first_list = listview.list_elements_at(0);
-    assert_eq!(first_list.len(), 3);
-    assert_eq!(first_list.scalar_at(0), 1i32.into());
-    assert_eq!(first_list.scalar_at(1), 2i32.into());
-    assert_eq!(first_list.scalar_at(2), 3i32.into());
+    assert_arrays_eq!(
+        listview.list_elements_at(0),
+        PrimitiveArray::from_iter([1i32, 2, 3])
+    );
 
     // Test scalar_at which returns entire lists as Scalar values.
     let first_scalar = listview.scalar_at(0);
@@ -61,17 +61,15 @@ fn test_basic_listview_comprehensive() {
         )
     );
 
-    let second_list = listview.list_elements_at(1);
-    assert_eq!(second_list.len(), 2);
-    assert_eq!(second_list.scalar_at(0), 4i32.into());
-    assert_eq!(second_list.scalar_at(1), 5i32.into());
+    assert_arrays_eq!(
+        listview.list_elements_at(1),
+        PrimitiveArray::from_iter([4i32, 5])
+    );
 
-    let third_list = listview.list_elements_at(2);
-    assert_eq!(third_list.len(), 4);
-    assert_eq!(third_list.scalar_at(0), 6i32.into());
-    assert_eq!(third_list.scalar_at(1), 7i32.into());
-    assert_eq!(third_list.scalar_at(2), 8i32.into());
-    assert_eq!(third_list.scalar_at(3), 9i32.into());
+    assert_arrays_eq!(
+        listview.list_elements_at(2),
+        PrimitiveArray::from_iter([6i32, 7, 8, 9])
+    );
 }
 
 #[test]
@@ -87,16 +85,16 @@ fn test_out_of_order_offsets() {
     assert_eq!(listview.len(), 3);
 
     // First list starts at offset 6: [7, 8, 9].
-    let first = listview.list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 7i32.into());
-    assert_eq!(first.scalar_at(1), 8i32.into());
-    assert_eq!(first.scalar_at(2), 9i32.into());
+    assert_arrays_eq!(
+        listview.list_elements_at(0),
+        PrimitiveArray::from_iter([7i32, 8, 9])
+    );
 
     // Second list starts at offset 0: [1, 2, 3].
-    let second = listview.list_elements_at(1);
-    assert_eq!(second.scalar_at(0), 1i32.into());
-    assert_eq!(second.scalar_at(1), 2i32.into());
-    assert_eq!(second.scalar_at(2), 3i32.into());
+    assert_arrays_eq!(
+        listview.list_elements_at(1),
+        PrimitiveArray::from_iter([1i32, 2, 3])
+    );
 }
 
 #[test]
@@ -130,9 +128,10 @@ fn test_from_list_array() {
     assert_eq!(list_view.len(), 3);
 
     // Check first list.
-    let first = list_view.list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 1i32.into());
-    assert_eq!(first.scalar_at(1), 2i32.into());
+    assert_arrays_eq!(
+        list_view.list_elements_at(0),
+        PrimitiveArray::from_iter([1i32, 2])
+    );
 
     // Check validity is preserved.
     assert!(list_view.is_valid(0));
@@ -140,10 +139,10 @@ fn test_from_list_array() {
     assert!(list_view.is_valid(2));
 
     // Check third list.
-    let third = list_view.list_elements_at(2);
-    assert_eq!(third.scalar_at(0), 5i32.into());
-    assert_eq!(third.scalar_at(1), 6i32.into());
-    assert_eq!(third.scalar_at(2), 7i32.into());
+    assert_arrays_eq!(
+        list_view.list_elements_at(2),
+        PrimitiveArray::from_iter([5i32, 6, 7])
+    );
 }
 
 // Parameterized tests for ConstantArray scenarios.
@@ -182,11 +181,9 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
 
     if const_sizes && const_offsets {
         // All lists are identical [1, 2, 3] (overlapping).
+        let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
         for i in 0..3 {
-            let list = listview.list_elements_at(i);
-            assert_eq!(list.scalar_at(0), 1i32.into());
-            assert_eq!(list.scalar_at(1), 2i32.into());
-            assert_eq!(list.scalar_at(2), 3i32.into());
+            assert_arrays_eq!(listview.list_elements_at(i), expected);
         }
     } else if const_sizes {
         // All lists have size 3, different offsets (no overlap).
