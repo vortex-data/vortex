@@ -1,0 +1,20 @@
+[
+  {
+    "number": 100,
+    "title": "Fuzzing Crash: IndexOutOfBounds in file_io",
+    "body": "## Fuzzing Crash Report\n\n### Crash Summary\n\n| Field | Value |\n|-------|-------|\n| **Target** | `file_io` |\n| **Crash Type** | `crash` |\n| **Crash File** | `crash-existing1` |\n\n<details>\n<summary>Deduplication Hashes</summary>\n\n| Hash Type | Value |\n|-----------|-------|\n| **Seed Hash** | `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa` |\n| **Stack Hash** | `bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb` |\n| **Message Hash** | `cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc` |\n\n</details>\n\n### Location\n\n**Panic Location**: `vortex-array/src/compute/slice.rs:142`\n\n**Error Variant**: `IndexOutOfBounds`",
+    "url": "https://github.com/vortex-data/vortex/issues/100"
+  },
+  {
+    "number": 101,
+    "title": "Fuzzing Crash: ScalarMismatch in array_ops",
+    "body": "## Fuzzing Crash Report\n\n### Crash Summary\n\n| Field | Value |\n|-------|-------|\n| **Target** | `array_ops` |\n| **Crash Type** | `crash` |\n| **Crash File** | `crash-existing2` |\n\n<details>\n<summary>Deduplication Hashes</summary>\n\n| Hash Type | Value |\n|-----------|-------|\n| **Seed Hash** | `dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd` |\n| **Stack Hash** | `eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee` |\n| **Message Hash** | `ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` |\n\n</details>\n\n### Location\n\n**Panic Location**: `fuzz/src/array/compare.rs:89`\n\n**Error Variant**: `ScalarMismatch`",
+    "url": "https://github.com/vortex-data/vortex/issues/101"
+  },
+  {
+    "number": 102,
+    "title": "Fuzzing Crash: LengthMismatch in array_ops",
+    "body": "## Fuzzing Crash Report\n\n### Crash Summary\n\n| Field | Value |\n|-------|-------|\n| **Target** | `array_ops` |\n| **Crash Type** | `crash` |\n| **Crash File** | `crash-existing3` |\n\n<details>\n<summary>Deduplication Hashes</summary>\n\n| Hash Type | Value |\n|-----------|-------|\n| **Seed Hash** | `1111111111111111111111111111111111111111111111111111111111111111` |\n| **Stack Hash** | `2222222222222222222222222222222222222222222222222222222222222222` |\n| **Message Hash** | `3333333333333333333333333333333333333333333333333333333333333333` |\n\n</details>\n\n### Location\n\n**Panic Location**: `fuzz/src/array/mod.rs:178`\n\n**Error Variant**: `LengthMismatch`",
+    "url": "https://github.com/vortex-data/vortex/issues/102"
+  }
+]

@@ -1,0 +1,32 @@
+Running: cargo +nightly fuzz run array_ops
+INFO: Seed: 1705313111
+#8192 NEW    cov: 34567 ft: 8901 corp: 300/150kb
+
+Output of `std::fmt::Debug`:
+FuzzArrayAction {
+    array: Utf8Array(len=100),
+    actions: [
+        (Filter(Mask { bits: [...] }), ExpectedValue { len: 50 }),
+    ],
+}
+
+Error: LHS len 50 != RHS len 45 in step 1
+   at fuzz/src/array/mod.rs:178
+
+LengthMismatch {
+    lhs_len: 50,
+    rhs_len: 45,
+    step: 1,
+}
+
+thread 'main' panicked at fuzz/src/array/mod.rs:178:9:
+assertion failed: lhs.len() == rhs.len()
+stack backtrace:
+   0:     0x7faabbccdd00 - std::panicking::begin_panic_handler
+   1:     0x7faabbccdd01 - core::panicking::panic
+   2:     0x7faabbccdd02 - vortex_fuzz::array::filter::filter_array
+   3:     0x7faabbccdd03 - vortex_fuzz::array::run_fuzz_action
+   4:     0x7faabbccdd04 - array_ops::fuzz_target
+
+==11111== ERROR: libFuzzer: deadly signal
+artifact_prefix='./fuzz/artifacts/array_ops/'; Test unit written to ./fuzz/artifacts/array_ops/crash-ghi789

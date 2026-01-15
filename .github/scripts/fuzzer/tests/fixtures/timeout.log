@@ -1,0 +1,11 @@
+Running: cargo +nightly fuzz run file_io
+INFO: Running fuzzer with 2048 jobs
+INFO: Seed: 1705313222
+#16384 pulse  cov: 45678 ft: 9012 corp: 400/200kb exec/s: 512
+
+ALARM: working on the last Unit for 120 seconds
+       and target is calling no instrumented code
+
+==22222== ERROR: libFuzzer: timeout after 120 seconds
+MS: 3 ShuffleBytes-ChangeByte-InsertByte-; base unit: xyz789
+artifact_prefix='./fuzz/artifacts/file_io/'; Test unit written to ./fuzz/artifacts/file_io/timeout-jkl012

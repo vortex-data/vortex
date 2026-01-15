@@ -1,0 +1,27 @@
+Running: cargo +nightly fuzz run file_io
+INFO: Running fuzzer with 2048 jobs
+INFO: Seed: 1705312847
+#2048 NEW    cov: 12345 ft: 6789 corp: 100/50kb exec/s: 1024
+thread 'main' panicked at vortex-array/src/compute/slice.rs:142:5:
+index out of bounds: the len is 10 but the index is 15
+stack backtrace:
+   0:     0x7f1234567890 - std::panicking::begin_panic_handler
+   1:     0x7f1234567891 - core::panicking::panic_fmt
+   2:     0x7f1234567892 - core::panicking::panic_bounds_check
+   3:     0x7f1234567893 - vortex_array::compute::slice::slice_primitive
+   4:     0x7f1234567894 - vortex_array::Array::slice
+   5:     0x7f1234567895 - vortex_file::read::reader::VortexFileReader::read_batch
+   6:     0x7f1234567896 - file_io::fuzz_target
+   7:     0x7f1234567897 - libfuzzer_sys::test_one_input
+
+Output of `std::fmt::Debug`:
+FuzzFileAction {
+    array: PrimitiveArray(i32, len=10),
+    projection_expr: None,
+    filter_expr: Some(Gt(col("x"), 5)),
+    compressor_strategy: Default,
+}
+
+==12345== ERROR: libFuzzer: deadly signal
+MS: 1 ChangeByte-; base unit: abc123
+artifact_prefix='./fuzz/artifacts/file_io/'; Test unit written to ./fuzz/artifacts/file_io/crash-abc123

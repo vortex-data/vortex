@@ -1,0 +1,33 @@
+Running: cargo +nightly fuzz run array_ops
+INFO: Running fuzzer with 2048 jobs
+INFO: Seed: 1705312999
+#4096 NEW    cov: 23456 ft: 7890 corp: 200/100kb exec/s: 2048
+
+Output of `std::fmt::Debug`:
+FuzzArrayAction {
+    array: PrimitiveArray(i64, len=50),
+    actions: [
+        (Slice(10..30), ExpectedValue { len: 20 }),
+        (Compare(42, Eq), ExpectedValue { ... }),
+    ],
+}
+
+thread 'main' panicked at fuzz/src/array/compare.rs:89:5:
+Scalar mismatch: expected Int(42), got Int(0) in step 2
+
+ScalarMismatch {
+    expected: Scalar::Int(42),
+    actual: Scalar::Int(0),
+    step: 2,
+}
+
+stack backtrace:
+   0:     0x7f9876543210 - std::panicking::begin_panic_handler
+   1:     0x7f9876543211 - vortex_fuzz::error::VortexFuzzError::scalar_mismatch
+   2:     0x7f9876543212 - vortex_fuzz::array::compare::compare_array
+   3:     0x7f9876543213 - vortex_fuzz::array::run_fuzz_action
+   4:     0x7f9876543214 - array_ops::fuzz_target
+   5:     0x7f9876543215 - libfuzzer_sys::test_one_input
+
+==67890== ERROR: libFuzzer: deadly signal
+artifact_prefix='./fuzz/artifacts/array_ops/'; Test unit written to ./fuzz/artifacts/array_ops/crash-def456
