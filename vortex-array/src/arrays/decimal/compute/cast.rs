@@ -17,7 +17,6 @@ use crate::arrays::DecimalVTable;
 use crate::compute::CastKernel;
 use crate::compute::CastKernelAdapter;
 use crate::register_kernel;
-use crate::stats::ArrayStats;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for DecimalVTable {
@@ -70,14 +69,15 @@ impl CastKernel for DecimalVTable {
             array.clone()
         };
 
-        // Construct DecimalArray with the new precision and nullability
+        // SAFETY: The byte buffer came from a valid DecimalArray with valid lengths.
         Ok(Some(
-            DecimalArray {
-                dtype: DType::Decimal(*to_decimal_dtype, *to_nullability),
-                values: array.byte_buffer(),
-                values_type: array.values_type(),
-                validity: new_validity,
-                stats_set: ArrayStats::default(),
+            unsafe {
+                DecimalArray::new_unchecked_from_byte_buffer(
+                    array.byte_buffer(),
+                    array.values_type(),
+                    *to_decimal_dtype,
+                    new_validity,
+                )
             }
             .to_array(),
         ))
