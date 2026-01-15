@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
@@ -11,6 +12,8 @@ use futures::Stream;
 use pin_project_lite::pin_project;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
+use vortex_metrics::Counter;
+use vortex_metrics::Histogram;
 use vortex_metrics::VortexMetrics;
 
 use crate::read::ReadRequest;
@@ -113,7 +116,23 @@ struct State {
     requests_by_offset: BTreeSet<(u64, RequestId)>,
 
     // Metrics for tracking I/O request patterns
-    metrics: VortexMetrics,
+    metrics: StateMetrics,
+}
+
+struct StateMetrics {
+    individual_requests: Arc<Counter>,
+    coalesced_requests: Arc<Counter>,
+    num_requests_coalesced: Arc<Histogram>,
+}
+
+impl StateMetrics {
+    fn new(registry: VortexMetrics) -> Self {
+        Self {
+            individual_requests: registry.counter("io.requests.individual"),
+            coalesced_requests: registry.counter("io.requests.coalesced"),
+            num_requests_coalesced: registry.histogram("io.requests.coalesced.num_coalesced"),
+        }
+    }
 }
 
 impl State {
@@ -122,7 +141,7 @@ impl State {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
             requests_by_offset: BTreeSet::new(),
-            metrics,
+            metrics: StateMetrics::new(metrics),
         }
     }
 
@@ -156,16 +175,16 @@ impl State {
     fn next(&mut self, coalesce_window: Option<&CoalesceConfig>) -> Option<IoRequest> {
         match coalesce_window {
             None => self.next_uncoalesced().map(|request| {
-                self.metrics.counter("io.requests.individual").inc();
+                self.metrics.individual_requests.inc();
                 IoRequest::new_single(request)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
                 match request.requests.len() {
-                    1 => self.metrics.counter("io.requests.individual").inc(),
+                    1 => self.metrics.individual_requests.inc(),
                     num_requests => {
-                        self.metrics.counter("io.requests.coalesced").inc();
+                        self.metrics.coalesced_requests.inc();
                         self.metrics
-                            .histogram("io.requests.coalesced.num_coalesced")
+                            .num_requests_coalesced
                             .update(num_requests as i64);
                     }
                 };

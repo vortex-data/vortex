@@ -84,6 +84,14 @@ pub trait VortexReadAt: Send + Sync + 'static {
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
+    fn uri(&self) -> Option<&Arc<str>> {
+        self.as_ref().uri()
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.as_ref().coalesce_config()
+    }
+
     fn concurrency(&self) -> usize {
         self.as_ref().concurrency()
     }
