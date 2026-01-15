@@ -28,7 +28,13 @@ arrow-schema = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
-object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
+object_store = { workspace = true, features = [
+    "fs",
+    "aws",
+    "gcp",
+    "azure",
+    "http",
+] }
 parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }

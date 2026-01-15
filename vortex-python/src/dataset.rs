@@ -110,7 +110,7 @@ impl PyVortexDataset {
     }
 
     pub async fn from_url(url: &str) -> VortexResult<Self> {
-        let (_scheme, object_store, path) = object_store_from_url(url)?;
+        let (object_store, path) = object_store_from_url(url)?;
         PyVortexDataset::try_new(
             SESSION
                 .open_options()
