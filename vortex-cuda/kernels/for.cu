@@ -5,27 +5,24 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
-// Kernel wrapper template
 template<typename ValueT>
 __device__ void for_(
     ValueT *const __restrict values_in_out_array,
     ValueT reference,
     uint64_t array_len
 ) {
-    // Each block handles 2048 elements. Each thread handles 2048 / 64 contiguous elements.
-    // The last block and thread are allowed to have less elements.
-    const uint8_t elements_per_thread = 32;
-    const uint32_t block_start = blockIdx.x * 2048;
+    // Each block handles 2048 elements with 64 threads. Each thread handles 32 elements.
+    const uint32_t elements_per_block = 2048;
+    const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * elements_per_block;
+    const uint64_t block_end = (block_start + elements_per_block < array_len)
+                               ? (block_start + elements_per_block)
+                               : array_len;
 
-    const uint64_t start = block_start + threadIdx.x * elements_per_thread;
-    const uint64_t end = (start + elements_per_thread < array_len) ? (start + elements_per_thread) : array_len;
-
-    for (uint64_t idx = start; idx < end; ++idx) {
+    for (uint64_t idx = block_start + threadIdx.x; idx < block_end; idx += blockDim.x) {
         values_in_out_array[idx] = values_in_out_array[idx] + reference;
     }
 }
 
-// Macro to generate the extern "C" wrapper for each type combination
 #define GENERATE_KERNEL(value_suffix, ValueType) \
 extern "C" __global__ void for_##value_suffix( \
     ValueType *const __restrict values, \
