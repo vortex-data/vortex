@@ -23,6 +23,7 @@ use crate::LayoutReaderRef;
 use crate::VTable;
 use crate::display::DisplayLayoutTree;
 use crate::display::display_tree_with_segment_sizes;
+use crate::layouts::flat::FlatVTable;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 
@@ -228,6 +229,30 @@ impl dyn Layout + '_ {
     ) -> VortexResult<DisplayLayoutTree> {
         display_tree_with_segment_sizes(self.to_layout(), segment_source).await
     }
+}
+
+/// Collect all segment IDs that should be fetched for a layout tree.
+pub fn collect_segment_ids(layout: &LayoutRef) -> VortexResult<Vec<SegmentId>> {
+    let mut segment_ids = Vec::new();
+    collect_segments_to_fetch(layout, &mut segment_ids)?;
+    segment_ids.sort();
+    segment_ids.dedup();
+    Ok(segment_ids)
+}
+
+fn collect_segments_to_fetch(layout: &LayoutRef, segment_ids: &mut Vec<SegmentId>) -> VortexResult<()> {
+    if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
+        if flat_layout.array_tree().is_none() {
+            segment_ids.push(flat_layout.segment_id());
+        }
+    } else {
+        segment_ids.extend(layout.segment_ids());
+    }
+
+    for child in layout.children()? {
+        collect_segments_to_fetch(&child, segment_ids)?;
+    }
+    Ok(())
 }
 
 /// Display the encoding, dtype, row count, and segment IDs of this layout.

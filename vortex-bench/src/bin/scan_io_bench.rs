@@ -31,12 +31,14 @@ use vortex::array::expr::root;
 use vortex::array::expr::select;
 use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::layout::collect_segment_ids;
 use vortex::metrics::VortexMetrics;
+use parking_lot::Mutex;
 use vortex_bench::SESSION;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex;
 
 #[derive(Parser, Debug)]
 #[command(version, about = "Benchmark Vortex scans over local files vs object stores")]
@@ -77,6 +79,9 @@ struct Args {
     /// Reopen the file for each iteration to avoid caching effects.
     #[arg(long, default_value_t = false)]
     reopen: bool,
+    /// Only read segments and drop buffers (skip decode/projection).
+    #[arg(long, default_value_t = false)]
+    io_only: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -141,12 +146,27 @@ async fn main() -> Result<()> {
                 let read_bytes = read_bytes.clone();
                 let first_seen = first_seen.clone();
                 let first_info = first_info.clone();
-                let start = start;
                 async move {
                     let file = match &cached_files {
                         Some(files) => files[idx].clone(),
                         None => open_vortex_file_for_target(target, metrics).await?,
                     };
+
+                    if args.io_only {
+                        read_all_segments(&file, args.concurrency).await?;
+                        if !first_seen.load(Ordering::Relaxed)
+                            && !first_seen.swap(true, Ordering::Relaxed)
+                        {
+                            let latency = start.elapsed().as_secs_f64();
+                            let bytes = read_bytes.count() - bytes_before;
+                            *first_info.lock() = Some((latency, bytes));
+                        }
+                        let file_rows = usize::try_from(file.row_count())
+                            .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
+                        drop(file);
+                        return Ok::<_, anyhow::Error>(file_rows);
+                    }
+
                     let scan = file
                         .scan()?
                         .with_projection(projection)
@@ -161,8 +181,7 @@ async fn main() -> Result<()> {
                         {
                             let latency = start.elapsed().as_secs_f64();
                             let bytes = read_bytes.count() - bytes_before;
-                            *first_info.lock().expect("first_info lock poisoned") =
-                                Some((latency, bytes));
+                            *first_info.lock() = Some((latency, bytes));
                         }
                         file_rows += array.len();
                     }
@@ -181,10 +200,8 @@ async fn main() -> Result<()> {
         total_rows += rows;
         total_elapsed += elapsed;
         total_bytes += bytes;
-        let (iter_first_latency, iter_first_bytes) = first_info
-            .lock()
-            .expect("first_info lock poisoned")
-            .unwrap_or((elapsed, read_bytes.count() - bytes_before));
+        let (iter_first_latency, iter_first_bytes) =
+            first_info.lock().unwrap_or((elapsed, read_bytes.count() - bytes_before));
         total_first_latency += iter_first_latency;
         total_first_bytes += iter_first_bytes;
 
@@ -210,7 +227,7 @@ async fn main() -> Result<()> {
     println!("files={}", targets.len());
     println!("rows={}", total_rows / args.iterations);
     println!("avg_time_s={:.3}", avg_elapsed);
-    println!("avg_bytes={}", avg_bytes as i64);
+    println!("avg_bytes={:.0}", avg_bytes);
     println!("avg_mb_s={:.2}", total_mb_s);
     println!("avg_first_latency_ms={:.2}", avg_first_latency * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
@@ -235,9 +252,13 @@ fn build_scan_exprs(args: &Args) -> VortexResult<(Expression, Option<Expression>
         (Some(col_name), Some(op), Some(value)) => {
             let lhs = col(col_name.as_str());
             let rhs = match args.filter_type {
-                LiteralType::I16 => lit(value as i16),
-                LiteralType::I32 => lit(value as i32),
-                LiteralType::I64 => lit(value as i64),
+                LiteralType::I16 => lit(
+                    i16::try_from(value).map_err(|_| vortex_err!("filter_value does not fit in i16"))?,
+                ),
+                LiteralType::I32 => lit(
+                    i32::try_from(value).map_err(|_| vortex_err!("filter_value does not fit in i32"))?,
+                ),
+                LiteralType::I64 => lit(value),
             };
             Some(apply_filter_op(op.clone(), lhs, rhs))
         }
@@ -387,4 +408,28 @@ fn object_store_from_url(
     };
 
     Ok((scheme, store, path))
+}
+
+async fn read_all_segments(
+    file: &vortex::file::VortexFile,
+    concurrency: usize,
+) -> Result<()> {
+    let layout = file.footer().layout().clone();
+    let segment_ids = collect_segment_ids(&layout)?;
+    let segment_source = file.segment_source();
+
+    futures::stream::iter(segment_ids)
+        .map(|segment_id| {
+            let segment_source = segment_source.clone();
+            async move {
+                let buffer = segment_source.request(segment_id).await?;
+                drop(buffer);
+                Ok::<_, anyhow::Error>(())
+            }
+        })
+        .buffer_unordered(concurrency.max(1))
+        .try_collect::<Vec<_>>()
+        .await?;
+
+    Ok(())
 }

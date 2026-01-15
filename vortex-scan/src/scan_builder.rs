@@ -646,7 +646,7 @@ mod test {
 
         let mut values = Vec::new();
         for chunk in &mut iter {
-            values.push(chunk?.to_primitive().buffer::<i32>()[0]);
+            values.push(chunk?.to_primitive().as_slice::<i32>()[0]);
         }
 
         assert_eq!(calls.load(Ordering::Relaxed), 1);
