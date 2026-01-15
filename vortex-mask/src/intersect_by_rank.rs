@@ -152,9 +152,8 @@ impl Mask {
                 let remainder = len % 64;
                 if remainder != 0 {
                     let self_chunk = self_chunks.remainder_bits();
-                    let popcount = self_chunk.count_ones() as usize;
 
-                    let result_chunk = if self_chunk == 0 || popcount == 0 {
+                    let result_chunk = if self_chunk == 0 {
                         0u64
                     } else {
                         let rank_bits =
@@ -364,6 +363,30 @@ mod test {
 
         let result = base.intersect_by_rank(&rank);
         assert!(result.true_count() > 0);
+    }
+
+    #[rstest]
+    #[case::random_sparse(0.1, 0.5)]
+    #[case::random_dense(0.5, 0.5)]
+    #[case::all_true_base(1.0, 0.5)]
+    fn test_simple_matches_optimized(#[case] base_density: f64, #[case] rank_density: f64) {
+        let base_len = 200;
+        let base = Mask::from_buffer(BitBuffer::from_iter((0..base_len).map(|i| {
+            let threshold = (base_density * 100.0) as usize;
+            (i * 7 + 13) % 100 < threshold
+        })));
+        let rank_len = base.true_count();
+        if rank_len == 0 {
+            return;
+        }
+        let rank = Mask::from_buffer(BitBuffer::from_iter((0..rank_len).map(|i| {
+            let threshold = (rank_density * 100.0) as usize;
+            (i * 11 + 7) % 100 < threshold
+        })));
+
+        let result_simple = base.intersect_by_rank_simple(&rank);
+        let result_optimized = base.intersect_by_rank(&rank);
+        assert_eq!(result_simple, result_optimized);
     }
 
     #[test]
