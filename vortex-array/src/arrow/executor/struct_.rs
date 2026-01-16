@@ -88,6 +88,13 @@ fn create_from_fields(
     len: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
+    vortex_ensure!(
+        vortex_fields.len() == fields.len(),
+        "StructArray has {} fields, but target Arrow type has {} fields",
+        vortex_fields.len(),
+        fields.len()
+    );
+
     let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
     for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
         let arrow_field = vx_field.execute_arrow(field.data_type(), ctx)?;

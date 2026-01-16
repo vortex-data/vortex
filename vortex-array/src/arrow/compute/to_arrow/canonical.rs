@@ -67,7 +67,6 @@ use crate::arrays::StructArray;
 use crate::arrays::list_from_list_view;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::compute::ToArrowArgs;
 use crate::arrow::executor::bool::canonical_bool_to_arrow;
 use crate::arrow::executor::byte_view::canonical_varbinview_to_arrow;
 use crate::arrow::executor::null::canonical_null_to_arrow;
@@ -82,208 +81,208 @@ use crate::compute::Output;
 #[derive(Debug)]
 pub(super) struct ToArrowCanonical;
 
-impl Kernel for ToArrowCanonical {
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "large match statement for all canonical types"
-    )]
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let ToArrowArgs {
-            array,
-            arrow_type: arrow_type_opt,
-        } = ToArrowArgs::try_from(args)?;
-        if !array.is_canonical() {
-            // Not handled by this kernel
-            return Ok(None);
-        }
+// impl Kernel for ToArrowCanonical {
+//     #[expect(
+//         clippy::cognitive_complexity,
+//         reason = "large match statement for all canonical types"
+//     )]
+//     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+//         let ToArrowArgs {
+//             array,
+//             arrow_type: arrow_type_opt,
+//         } = ToArrowArgs::try_from(args)?;
+//         if !array.is_canonical() {
+//             // Not handled by this kernel
+//             return Ok(None);
+//         }
+//
+//         // Figure out the target Arrow type, or use the canonical type
+//         let arrow_type = arrow_type_opt
+//             .cloned()
+//             .map(Ok)
+//             .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
+//
+//         // When `arrow_type` is `None`, conversion should respect conversion to the encoding's
+//         // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
+//         let to_preferred = arrow_type_opt.is_none();
+//
+//         let arrow_array = match (array.to_canonical(), &arrow_type) {
+//             (Canonical::Null(array), DataType::Null) => Ok(canonical_null_to_arrow(&array)),
+//             (Canonical::Bool(array), DataType::Boolean) => Ok(canonical_bool_to_arrow(&array)),
+//             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
+//                 Ok(canonical_primitive_to_arrow::<Int8Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Int16)
+//                 if matches!(array.ptype(), PType::I16) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Int16Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Int32)
+//                 if matches!(array.ptype(), PType::I32) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Int32Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Int64)
+//                 if matches!(array.ptype(), PType::I64) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Int64Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::UInt8)
+//                 if matches!(array.ptype(), PType::U8) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<UInt8Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::UInt16)
+//                 if matches!(array.ptype(), PType::U16) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<UInt16Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::UInt32)
+//                 if matches!(array.ptype(), PType::U32) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<UInt32Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::UInt64)
+//                 if matches!(array.ptype(), PType::U64) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<UInt64Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Float16)
+//                 if matches!(array.ptype(), PType::F16) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Float16Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Float32)
+//                 if matches!(array.ptype(), PType::F32) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Float32Type>(array))
+//             }
+//             (Canonical::Primitive(array), DataType::Float64)
+//                 if matches!(array.ptype(), PType::F64) =>
+//             {
+//                 Ok(canonical_primitive_to_arrow::<Float64Type>(array))
+//             }
+//             (Canonical::Decimal(array), DataType::Decimal32(precision, scale)) => {
+//                 if array.decimal_dtype().precision() != *precision
+//                     || array.decimal_dtype().scale() != *scale
+//                 {
+//                     vortex_bail!(
+//                         "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+//                         precision,
+//                         scale,
+//                         array.decimal_dtype().precision(),
+//                         array.decimal_dtype().scale()
+//                     );
+//                 }
+//                 to_arrow_decimal32(array)
+//             }
+//             (Canonical::Decimal(array), DataType::Decimal64(precision, scale)) => {
+//                 if array.decimal_dtype().precision() != *precision
+//                     || array.decimal_dtype().scale() != *scale
+//                 {
+//                     vortex_bail!(
+//                         "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+//                         precision,
+//                         scale,
+//                         array.decimal_dtype().precision(),
+//                         array.decimal_dtype().scale()
+//                     );
+//                 }
+//                 to_arrow_decimal64(array)
+//             }
+//             (Canonical::Decimal(array), DataType::Decimal128(precision, scale)) => {
+//                 if array.decimal_dtype().precision() != *precision
+//                     || array.decimal_dtype().scale() != *scale
+//                 {
+//                     vortex_bail!(
+//                         "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+//                         precision,
+//                         scale,
+//                         array.decimal_dtype().precision(),
+//                         array.decimal_dtype().scale()
+//                     );
+//                 }
+//                 to_arrow_decimal128(array)
+//             }
+//             (Canonical::Decimal(array), DataType::Decimal256(precision, scale)) => {
+//                 if array.decimal_dtype().precision() != *precision
+//                     || array.decimal_dtype().scale() != *scale
+//                 {
+//                     vortex_bail!(
+//                         "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
+//                         precision,
+//                         scale,
+//                         array.decimal_dtype().precision(),
+//                         array.decimal_dtype().scale()
+//                     );
+//                 }
+//                 to_arrow_decimal256(array)
+//             }
+//             (Canonical::Struct(array), DataType::Struct(fields)) => {
+//                 to_arrow_struct(array, fields.as_ref(), to_preferred)
+//             }
+//             (Canonical::List(list_view), DataType::ListView(field)) => {
+//                 to_arrow_listview::<i32>(list_view, arrow_type_opt.map(|_| field))
+//             }
+//             (Canonical::List(list_view), DataType::LargeListView(field)) => {
+//                 to_arrow_listview::<i64>(list_view, arrow_type_opt.map(|_| field))
+//             }
+//             (Canonical::List(list_view), DataType::List(field)) => {
+//                 to_arrow_list::<i32>(list_view, arrow_type_opt.map(|_| field))
+//             }
+//             (Canonical::List(list_view), DataType::LargeList(field)) => {
+//                 to_arrow_list::<i64>(list_view, arrow_type_opt.map(|_| field))
+//             }
+//             (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
+//                 to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
+//             }
+//             (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
+//                 Ok(canonical_varbinview_to_arrow::<BinaryViewType>(&array))
+//             }
+//             (Canonical::VarBinView(array), DataType::Binary) if array.dtype().is_binary() => {
+//                 to_arrow_varbin::<BinaryViewType, BinaryType>(canonical_varbinview_to_arrow::<
+//                     BinaryViewType,
+//                 >(&array))
+//             }
+//             (Canonical::VarBinView(array), DataType::LargeBinary) if array.dtype().is_binary() => {
+//                 to_arrow_varbin::<BinaryViewType, LargeBinaryType>(canonical_varbinview_to_arrow::<
+//                     BinaryViewType,
+//                 >(&array))
+//             }
+//             (Canonical::VarBinView(array), DataType::Utf8View) if array.dtype().is_utf8() => {
+//                 Ok(canonical_varbinview_to_arrow::<StringViewType>(&array))
+//             }
+//             (Canonical::VarBinView(array), DataType::Utf8) if array.dtype().is_utf8() => {
+//                 to_arrow_varbin::<StringViewType, Utf8Type>(canonical_varbinview_to_arrow::<
+//                     StringViewType,
+//                 >(&array))
+//             }
+//             (Canonical::VarBinView(array), DataType::LargeUtf8) if array.dtype().is_utf8() => {
+//                 to_arrow_varbin::<StringViewType, LargeUtf8Type>(canonical_varbinview_to_arrow::<
+//                     StringViewType,
+//                 >(&array))
+//             }
+//             (Canonical::Extension(_), _) => {
+//                 // Datetime and interval types are handled by a different kernel.
+//                 return Ok(None);
+//             }
+//             _ => vortex_bail!(
+//                 "Cannot convert canonical array {} with dtype {} to: {:?}",
+//                 array.encoding_id(),
+//                 array.dtype(),
+//                 &arrow_type
+//             ),
+//         }?;
+//
+//         Ok(Some(
+//             ArrowArray::new(arrow_array, array.dtype().nullability())
+//                 .into_array()
+//                 .into(),
+//         ))
+//     }
+// }
 
-        // Figure out the target Arrow type, or use the canonical type
-        let arrow_type = arrow_type_opt
-            .cloned()
-            .map(Ok)
-            .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
-
-        // When `arrow_type` is `None`, conversion should respect conversion to the encoding's
-        // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
-        let to_preferred = arrow_type_opt.is_none();
-
-        let arrow_array = match (array.to_canonical()?, &arrow_type) {
-            (Canonical::Null(array), DataType::Null) => Ok(canonical_null_to_arrow(&array)),
-            (Canonical::Bool(array), DataType::Boolean) => Ok(canonical_bool_to_arrow(&array)),
-            (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
-                Ok(canonical_primitive_to_arrow::<Int8Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Int16)
-                if matches!(array.ptype(), PType::I16) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Int16Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Int32)
-                if matches!(array.ptype(), PType::I32) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Int32Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Int64)
-                if matches!(array.ptype(), PType::I64) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Int64Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::UInt8)
-                if matches!(array.ptype(), PType::U8) =>
-            {
-                Ok(canonical_primitive_to_arrow::<UInt8Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::UInt16)
-                if matches!(array.ptype(), PType::U16) =>
-            {
-                Ok(canonical_primitive_to_arrow::<UInt16Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::UInt32)
-                if matches!(array.ptype(), PType::U32) =>
-            {
-                Ok(canonical_primitive_to_arrow::<UInt32Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::UInt64)
-                if matches!(array.ptype(), PType::U64) =>
-            {
-                Ok(canonical_primitive_to_arrow::<UInt64Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Float16)
-                if matches!(array.ptype(), PType::F16) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Float16Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Float32)
-                if matches!(array.ptype(), PType::F32) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Float32Type>(array))
-            }
-            (Canonical::Primitive(array), DataType::Float64)
-                if matches!(array.ptype(), PType::F64) =>
-            {
-                Ok(canonical_primitive_to_arrow::<Float64Type>(array))
-            }
-            (Canonical::Decimal(array), DataType::Decimal32(precision, scale)) => {
-                if array.decimal_dtype().precision() != *precision
-                    || array.decimal_dtype().scale() != *scale
-                {
-                    vortex_bail!(
-                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
-                        precision,
-                        scale,
-                        array.decimal_dtype().precision(),
-                        array.decimal_dtype().scale()
-                    );
-                }
-                to_arrow_decimal32(array)
-            }
-            (Canonical::Decimal(array), DataType::Decimal64(precision, scale)) => {
-                if array.decimal_dtype().precision() != *precision
-                    || array.decimal_dtype().scale() != *scale
-                {
-                    vortex_bail!(
-                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
-                        precision,
-                        scale,
-                        array.decimal_dtype().precision(),
-                        array.decimal_dtype().scale()
-                    );
-                }
-                to_arrow_decimal64(array)
-            }
-            (Canonical::Decimal(array), DataType::Decimal128(precision, scale)) => {
-                if array.decimal_dtype().precision() != *precision
-                    || array.decimal_dtype().scale() != *scale
-                {
-                    vortex_bail!(
-                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
-                        precision,
-                        scale,
-                        array.decimal_dtype().precision(),
-                        array.decimal_dtype().scale()
-                    );
-                }
-                to_arrow_decimal128(array)
-            }
-            (Canonical::Decimal(array), DataType::Decimal256(precision, scale)) => {
-                if array.decimal_dtype().precision() != *precision
-                    || array.decimal_dtype().scale() != *scale
-                {
-                    vortex_bail!(
-                        "ToArrowCanonical: target precision/scale {}/{} does not match array precision/scale {}/{}",
-                        precision,
-                        scale,
-                        array.decimal_dtype().precision(),
-                        array.decimal_dtype().scale()
-                    );
-                }
-                to_arrow_decimal256(array)
-            }
-            (Canonical::Struct(array), DataType::Struct(fields)) => {
-                to_arrow_struct(array, fields.as_ref(), to_preferred)
-            }
-            (Canonical::List(list_view), DataType::ListView(field)) => {
-                to_arrow_listview::<i32>(list_view, arrow_type_opt.map(|_| field))
-            }
-            (Canonical::List(list_view), DataType::LargeListView(field)) => {
-                to_arrow_listview::<i64>(list_view, arrow_type_opt.map(|_| field))
-            }
-            (Canonical::List(list_view), DataType::List(field)) => {
-                to_arrow_list::<i32>(list_view, arrow_type_opt.map(|_| field))
-            }
-            (Canonical::List(list_view), DataType::LargeList(field)) => {
-                to_arrow_list::<i64>(list_view, arrow_type_opt.map(|_| field))
-            }
-            (Canonical::FixedSizeList(array), DataType::FixedSizeList(field, list_size)) => {
-                to_arrow_fixed_size_list(array, arrow_type_opt.map(|_| field), *list_size)
-            }
-            (Canonical::VarBinView(array), DataType::BinaryView) if array.dtype().is_binary() => {
-                Ok(canonical_varbinview_to_arrow::<BinaryViewType>(&array))
-            }
-            (Canonical::VarBinView(array), DataType::Binary) if array.dtype().is_binary() => {
-                to_arrow_varbin::<BinaryViewType, BinaryType>(canonical_varbinview_to_arrow::<
-                    BinaryViewType,
-                >(&array))
-            }
-            (Canonical::VarBinView(array), DataType::LargeBinary) if array.dtype().is_binary() => {
-                to_arrow_varbin::<BinaryViewType, LargeBinaryType>(canonical_varbinview_to_arrow::<
-                    BinaryViewType,
-                >(&array))
-            }
-            (Canonical::VarBinView(array), DataType::Utf8View) if array.dtype().is_utf8() => {
-                Ok(canonical_varbinview_to_arrow::<StringViewType>(&array))
-            }
-            (Canonical::VarBinView(array), DataType::Utf8) if array.dtype().is_utf8() => {
-                to_arrow_varbin::<StringViewType, Utf8Type>(canonical_varbinview_to_arrow::<
-                    StringViewType,
-                >(&array))
-            }
-            (Canonical::VarBinView(array), DataType::LargeUtf8) if array.dtype().is_utf8() => {
-                to_arrow_varbin::<StringViewType, LargeUtf8Type>(canonical_varbinview_to_arrow::<
-                    StringViewType,
-                >(&array))
-            }
-            (Canonical::Extension(_), _) => {
-                // Datetime and interval types are handled by a different kernel.
-                return Ok(None);
-            }
-            _ => vortex_bail!(
-                "Cannot convert canonical array {} with dtype {} to: {:?}",
-                array.encoding_id(),
-                array.dtype(),
-                &arrow_type
-            ),
-        }?;
-
-        Ok(Some(
-            ArrowArray::new(arrow_array, array.dtype().nullability())
-                .into_array()
-                .into(),
-        ))
-    }
-}
-
-fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+pub(crate) fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i32> = match array.values_type() {
         DecimalType::I8 => {
@@ -327,7 +326,7 @@ fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+pub(crate) fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i64> = match array.values_type() {
         DecimalType::I8 => {
@@ -366,7 +365,7 @@ fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+pub(crate) fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i128> = match array.values_type() {
         DecimalType::I8 => {
@@ -400,7 +399,7 @@ fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     ))
 }
 
-fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+pub(crate) fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
     let null_buffer = to_null_buffer(array.validity_mask());
     let buffer: Buffer<i256> = match array.values_type() {
         DecimalType::I8 => {
@@ -508,7 +507,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     // Convert listview -> list, via the fast path when possible.
     // TODO(aduffy): extend list_from_list_view to support target offsets/size PTypes
     //   to avoid the copy below
-    let list_array = list_from_list_view(array)?;
+    let list_array = list_from_list_view(array);
 
     let (elements, element_field) = {
         if let Some(element_field) = element_field {

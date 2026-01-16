@@ -550,6 +550,37 @@ mod tests {
     }
 
     #[test]
+    // Cast 3: valid scalar search over nullable list, with some nulls not matched (return no nulls)
+    // #[case(
+    //     null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
+    //     Some("a"),
+    //     bool_array(vec![false, true, false], Validity::AllValid)
+    // )]
+    fn test_contains_nullable22() {
+        let list_array = null_strings(vec![
+            vec![],
+            vec![Some("a"), None],
+            vec![Some("b"), None, None],
+        ]);
+        let value = Some("a");
+        let expected = bool_array(vec![false, true, false], Validity::AllValid);
+        let element_nullability = list_array
+            .dtype()
+            .as_list_element_opt()
+            .unwrap()
+            .nullability();
+        let scalar = match value {
+            None => Scalar::null(DType::Utf8(Nullability::Nullable)),
+            Some(v) => Scalar::utf8(v, element_nullability),
+        };
+        let elem = ConstantArray::new(scalar, list_array.len());
+        let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
+        assert_eq!(bool_result.validity(), expected.validity());
+    }
+
+    #[test]
     fn test_constant_list() {
         let list_array = ConstantArray::new(
             Scalar::list(

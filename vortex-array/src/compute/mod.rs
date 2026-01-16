@@ -82,7 +82,6 @@ pub struct ComputeFn {
 ///
 /// Mostly useful for small benchmarks where the overhead might cause noise depending on the order of benchmarks.
 pub fn warm_up_vtables() {
-    crate::arrow::warm_up_vtable();
     #[allow(unused_qualifications)]
     between::warm_up_vtable();
     boolean::warm_up_vtable();

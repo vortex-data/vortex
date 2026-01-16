@@ -12,6 +12,10 @@ use std::sync::LazyLock;
 use arcref::ArcRef;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_schema::DataType;
+pub(crate) use canonical::to_arrow_decimal32;
+pub(crate) use canonical::to_arrow_decimal64;
+pub(crate) use canonical::to_arrow_decimal128;
+pub(crate) use canonical::to_arrow_decimal256;
 use vortex_dtype::DType;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexError;
@@ -33,24 +37,6 @@ use crate::compute::Kernel;
 use crate::compute::Options;
 use crate::compute::Output;
 use crate::vtable::VTable;
-
-// static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-// let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
-
-// Register the kernels we ship ourselves
-// compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
-// compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
-
-// for kernel in inventory::iter::<ToArrowKernelRef> {
-//     compute.register_kernel(kernel.0.clone());
-// }
-// compute
-// });
-
-pub(crate) fn warm_up_vtable() -> usize {
-    // TO_ARROW_FN.kernels().len()
-    0
-}
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
 ///
@@ -98,128 +84,73 @@ impl Options for ToArrowOptions {
     }
 }
 
-// struct ToArrow;
 //
-// impl ComputeFnVTable for ToArrow {
-//     fn invoke(
-//         &self,
-//         args: &InvocationArgs,
-//         _kernels: &[ArcRef<dyn Kernel>],
-//     ) -> VortexResult<Output> {
-//         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+// pub struct ToArrowArgs<'a> {
+//     array: &'a dyn Array,
+//     arrow_type: Option<&'a DataType>,
+// }
 //
-//         // for kernel in kernels {
-//         //     if let Some(output) = kernel.invoke(args)? {
-//         //         return Ok(output);
-//         //     }
-//         // }
-//         if let Some(output) = array.invoke(&TO_ARROW_FN, args)? {
-//             return Ok(output);
+// impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {
+//     type Error = VortexError;
+//
+//     fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
+//         if value.inputs.len() != 1 {
+//             vortex_bail!("Expected 1 input, found {}", value.inputs.len());
 //         }
+//         let array = value.inputs[0]
+//             .array()
+//             .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
+//         let options = value
+//             .options
+//             .as_any()
+//             .downcast_ref::<ToArrowOptions>()
+//             .vortex_expect("Expected options to be ToArrowOptions");
 //
-//         if !array.is_canonical() {
-//             let arrow_type = arrow_type
-//                 .cloned()
-//                 .map(Ok)
-//                 .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
-//             let mut ctx = LEGACY_SESSION.create_execution_ctx();
-//             let arrow_array = array.to_array().execute_arrow(&arrow_type, &mut ctx)?;
-//
-//             return Ok(ArrowArray::new(arrow_array, array.dtype().nullability())
-//                 .to_array()
-//                 .into());
-//         }
-//
-//         vortex_bail!(
-//             "Failed to convert array {} to Arrow {:?}",
-//             array.encoding_id(),
-//             arrow_type
-//         );
-//     }
-//
-//     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-//         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
-//         Ok(arrow_type
-//             .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
-//             .unwrap_or_else(|| array.dtype().clone()))
-//     }
-//
-//     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-//         let ToArrowArgs { array, .. } = ToArrowArgs::try_from(args)?;
-//         Ok(array.len())
-//     }
-//
-//     fn is_elementwise(&self) -> bool {
-//         false
+//         Ok(ToArrowArgs {
+//             array,
+//             arrow_type: options.arrow_type.as_ref(),
+//         })
 //     }
 // }
-
-pub struct ToArrowArgs<'a> {
-    array: &'a dyn Array,
-    arrow_type: Option<&'a DataType>,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for ToArrowArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 1 {
-            vortex_bail!("Expected 1 input, found {}", value.inputs.len());
-        }
-        let array = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
-        let options = value
-            .options
-            .as_any()
-            .downcast_ref::<ToArrowOptions>()
-            .vortex_expect("Expected options to be ToArrowOptions");
-
-        Ok(ToArrowArgs {
-            array,
-            arrow_type: options.arrow_type.as_ref(),
-        })
-    }
-}
-
-pub struct ToArrowKernelRef(pub ArcRef<dyn Kernel>);
-inventory::collect!(ToArrowKernelRef);
-
-pub trait ToArrowKernel: VTable {
-    fn to_arrow(
-        &self,
-        arr: &Self::Array,
-        arrow_type: Option<&DataType>,
-    ) -> VortexResult<Option<ArrowArrayRef>>;
-}
-
-#[derive(Debug)]
-pub struct ToArrowKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + ToArrowKernel> ToArrowKernelAdapter<V> {
-    pub const fn lift(&'static self) -> ToArrowKernelRef {
-        ToArrowKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + ToArrowKernel> Kernel for ToArrowKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = ToArrowArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_opt::<V>() else {
-            return Ok(None);
-        };
-
-        let Some(arrow_array) = V::to_arrow(&self.0, array, inputs.arrow_type)? else {
-            return Ok(None);
-        };
-
-        Ok(Some(
-            ArrowArray::new(arrow_array, array.dtype().nullability())
-                .to_array()
-                .into(),
-        ))
-    }
-}
+//
+// pub struct ToArrowKernelRef(pub ArcRef<dyn Kernel>);
+// inventory::collect!(ToArrowKernelRef);
+//
+// pub trait ToArrowKernel: VTable {
+//     fn to_arrow(
+//         &self,
+//         arr: &Self::Array,
+//         arrow_type: Option<&DataType>,
+//     ) -> VortexResult<Option<ArrowArrayRef>>;
+// }
+//
+// #[derive(Debug)]
+// pub struct ToArrowKernelAdapter<V: VTable>(pub V);
+//
+// impl<V: VTable + ToArrowKernel> ToArrowKernelAdapter<V> {
+//     pub const fn lift(&'static self) -> ToArrowKernelRef {
+//         ToArrowKernelRef(ArcRef::new_ref(self))
+//     }
+// }
+//
+// impl<V: VTable + ToArrowKernel> Kernel for ToArrowKernelAdapter<V> {
+//     fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
+//         let inputs = ToArrowArgs::try_from(args)?;
+//         let Some(array) = inputs.array.as_opt::<V>() else {
+//             return Ok(None);
+//         };
+//
+//         let Some(arrow_array) = V::to_arrow(&self.0, array, inputs.arrow_type)? else {
+//             return Ok(None);
+//         };
+//
+//         Ok(Some(
+//             ArrowArray::new(arrow_array, array.dtype().nullability())
+//                 .to_array()
+//                 .into(),
+//         ))
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

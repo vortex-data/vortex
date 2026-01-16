@@ -22,41 +22,39 @@ use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::list_view_from_list;
 use crate::arrow::IntoArrowArray;
-use crate::arrow::compute::ToArrowKernel;
-use crate::arrow::compute::ToArrowKernelAdapter;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::register_kernel;
 
-impl ToArrowKernel for ListVTable {
-    fn to_arrow(
-        &self,
-        array: &ListArray,
-        arrow_type: Option<&DataType>,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        match arrow_type {
-            None => {
-                // Default to a `ListArray` with `i32` offsets (preferred) when no `arrow_type` is
-                // specified.
-                list_array_to_arrow_list::<i32>(array, None)
-            }
-            Some(DataType::List(field)) => list_array_to_arrow_list::<i32>(array, Some(field)),
-            Some(DataType::LargeList(field)) => list_array_to_arrow_list::<i64>(array, Some(field)),
-            Some(dt @ DataType::ListView(_)) | Some(dt @ DataType::LargeListView(_)) => {
-                // Convert `ListArray` to `ListViewArray`, then use the canonical conversion.
-                let list_view = list_view_from_list(array.clone());
-                Ok(list_view.into_array().into_arrow(dt)?)
-            }
-            _ => vortex_bail!(
-                "Cannot convert `ListArray` to non-list Arrow type: {:?}",
-                arrow_type
-            ),
-        }
-        .map(Some)
-    }
-}
-
-register_kernel!(ToArrowKernelAdapter(ListVTable).lift());
+// impl ToArrowKernel for ListVTable {
+//     fn to_arrow(
+//         &self,
+//         array: &ListArray,
+//         arrow_type: Option<&DataType>,
+//     ) -> VortexResult<Option<ArrowArrayRef>> {
+//         match arrow_type {
+//             None => {
+//                 // Default to a `ListArray` with `i32` offsets (preferred) when no `arrow_type` is
+//                 // specified.
+//                 list_array_to_arrow_list::<i32>(array, None)
+//             }
+//             Some(DataType::List(field)) => list_array_to_arrow_list::<i32>(array, Some(field)),
+//             Some(DataType::LargeList(field)) => list_array_to_arrow_list::<i64>(array, Some(field)),
+//             Some(dt @ DataType::ListView(_)) | Some(dt @ DataType::LargeListView(_)) => {
+//                 // Convert `ListArray` to `ListViewArray`, then use the canonical conversion.
+//                 let list_view = list_view_from_list(array.clone());
+//                 Ok(list_view.into_array().into_arrow(dt)?)
+//             }
+//             _ => vortex_bail!(
+//                 "Cannot convert `ListArray` to non-list Arrow type: {:?}",
+//                 arrow_type
+//             ),
+//         }
+//         .map(Some)
+//     }
+// }
+//
+// register_kernel!(ToArrowKernelAdapter(ListVTable).lift());
 
 /// Converts a Vortex [`ListArray`] directly into an arrow [`GenericListArray`].
 fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(

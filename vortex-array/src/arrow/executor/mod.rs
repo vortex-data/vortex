@@ -121,14 +121,10 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::Dictionary(codes_type, values_type) => {
                 to_arrow_dictionary(self, codes_type, values_type, ctx)
             }
-            DataType::Decimal32(p, s) => to_arrow_decimal::<Decimal32Type, i32>(self, *p, *s, ctx),
-            DataType::Decimal64(p, s) => to_arrow_decimal::<Decimal64Type, i64>(self, *p, *s, ctx),
-            DataType::Decimal128(p, s) => {
-                to_arrow_decimal::<Decimal128Type, i128>(self, *p, *s, ctx)
-            }
-            DataType::Decimal256(p, s) => {
-                to_arrow_decimal::<Decimal256Type, vortex_dtype::i256>(self, *p, *s, ctx)
-            }
+            dt @ DataType::Decimal32(..) => to_arrow_decimal(self, dt, ctx),
+            dt @ DataType::Decimal64(..) => to_arrow_decimal(self, dt, ctx),
+            dt @ DataType::Decimal128(..) => to_arrow_decimal(self, dt, ctx),
+            dt @ DataType::Decimal256(..) => to_arrow_decimal(self, dt, ctx),
             DataType::RunEndEncoded(ends_type, values_type) => {
                 to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
             }

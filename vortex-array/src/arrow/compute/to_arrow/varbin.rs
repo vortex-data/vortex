@@ -22,62 +22,60 @@ use crate::VortexSessionExecute;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinArray;
 use crate::arrays::VarBinVTable;
-use crate::arrow::compute::ToArrowKernel;
-use crate::arrow::compute::ToArrowKernelAdapter;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::compute::cast;
 use crate::register_kernel;
 
-impl ToArrowKernel for VarBinVTable {
-    fn to_arrow(
-        &self,
-        array: &VarBinArray,
-        arrow_type: Option<&DataType>,
-    ) -> VortexResult<Option<ArrowArrayRef>> {
-        let offsets_ptype = PType::try_from(array.offsets().dtype())?;
-
-        match arrow_type {
-            // Emit out preferred Arrow VarBin array.
-            None => match array.dtype() {
-                DType::Binary(_) => match offsets_ptype {
-                    PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
-                        to_arrow::<i32>(array)
-                    }
-                    PType::F16 | PType::F32 | PType::F64 => {
-                        vortex_panic!("offsets array were somehow floating point")
-                    }
-                },
-                DType::Utf8(_) => match offsets_ptype {
-                    PType::I64 | PType::U64 => to_arrow::<i64>(array),
-                    PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
-                        to_arrow::<i32>(array)
-                    }
-                    PType::F16 | PType::F32 | PType::F64 => {
-                        vortex_panic!("offsets array were somehow floating point")
-                    }
-                },
-                dtype => unreachable!("Unsupported DType {dtype}"),
-            },
-            // Emit the requested Arrow array.
-            Some(DataType::Binary) if array.dtype().is_binary() => to_arrow::<i32>(array),
-            Some(DataType::LargeBinary) if array.dtype().is_binary() => to_arrow::<i64>(array),
-            Some(DataType::Utf8) if array.dtype().is_utf8() => to_arrow::<i32>(array),
-            Some(DataType::LargeUtf8) if array.dtype().is_utf8() => to_arrow::<i64>(array),
-            // Allow fallback to canonicalize to a VarBinView and try again.
-            Some(DataType::BinaryView) | Some(DataType::Utf8View) => {
-                return Ok(None);
-            }
-            // Any other type is not supported.
-            Some(_) => {
-                vortex_bail!("Cannot convert VarBin to Arrow type {arrow_type:?}");
-            }
-        }
-        .map(Some)
-    }
-}
-
-register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
+// impl ToArrowKernel for VarBinVTable {
+//     fn to_arrow(
+//         &self,
+//         array: &VarBinArray,
+//         arrow_type: Option<&DataType>,
+//     ) -> VortexResult<Option<ArrowArrayRef>> {
+//         let offsets_ptype = PType::try_from(array.offsets().dtype())?;
+//
+//         match arrow_type {
+//             // Emit out preferred Arrow VarBin array.
+//             None => match array.dtype() {
+//                 DType::Binary(_) => match offsets_ptype {
+//                     PType::I64 | PType::U64 => to_arrow::<i64>(array),
+//                     PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
+//                         to_arrow::<i32>(array)
+//                     }
+//                     PType::F16 | PType::F32 | PType::F64 => {
+//                         vortex_panic!("offsets array were somehow floating point")
+//                     }
+//                 },
+//                 DType::Utf8(_) => match offsets_ptype {
+//                     PType::I64 | PType::U64 => to_arrow::<i64>(array),
+//                     PType::U8 | PType::U16 | PType::U32 | PType::I8 | PType::I16 | PType::I32 => {
+//                         to_arrow::<i32>(array)
+//                     }
+//                     PType::F16 | PType::F32 | PType::F64 => {
+//                         vortex_panic!("offsets array were somehow floating point")
+//                     }
+//                 },
+//                 dtype => unreachable!("Unsupported DType {dtype}"),
+//             },
+//             // Emit the requested Arrow array.
+//             Some(DataType::Binary) if array.dtype().is_binary() => to_arrow::<i32>(array),
+//             Some(DataType::LargeBinary) if array.dtype().is_binary() => to_arrow::<i64>(array),
+//             Some(DataType::Utf8) if array.dtype().is_utf8() => to_arrow::<i32>(array),
+//             Some(DataType::LargeUtf8) if array.dtype().is_utf8() => to_arrow::<i64>(array),
+//             // Allow fallback to canonicalize to a VarBinView and try again.
+//             Some(DataType::BinaryView) | Some(DataType::Utf8View) => {
+//                 return Ok(None);
+//             }
+//             // Any other type is not supported.
+//             Some(_) => {
+//                 vortex_bail!("Cannot convert VarBin to Arrow type {arrow_type:?}");
+//             }
+//         }
+//         .map(Some)
+//     }
+// }
+//
+// register_kernel!(ToArrowKernelAdapter(VarBinVTable).lift());
 
 fn to_arrow<O: IntegerPType + OffsetSizeTrait>(array: &VarBinArray) -> VortexResult<ArrowArrayRef> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
