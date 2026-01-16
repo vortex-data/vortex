@@ -149,22 +149,17 @@ async fn main() -> Result<()> {
             open_all_targets(&targets, metrics.clone(), args.file_concurrency).await?,
         ))
     };
-    let mut total_rows = 0usize;
-    let mut total_elapsed = 0.0f64;
-    let mut total_bytes = 0i64;
-    let mut total_first_latency = 0.0f64;
-    let mut total_first_bytes = 0i64;
+    read_bytes.clear();
 
-    for _ in 0..args.iterations {
-        read_bytes.clear();
+    let start = Instant::now();
+    let bytes_before = read_bytes.count();
+    let first_seen = std::sync::Arc::new(AtomicBool::new(false));
+    let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, i64)>));
+    let targets = targets.clone();
 
-        let start = Instant::now();
-        let bytes_before = read_bytes.count();
-        let first_seen = std::sync::Arc::new(AtomicBool::new(false));
-        let first_info = std::sync::Arc::new(Mutex::new(None::<(f64, i64)>));
-
-        let rows = futures::stream::iter(targets.iter().enumerate())
-            .map(|(idx, target)| {
+    let rows = futures::stream::iter(0..args.iterations)
+        .flat_map(|_| futures::stream::iter(targets.clone().into_iter().enumerate()))
+        .map(|(idx, target)| {
                 let cached_files = cached_files.clone();
                 let projection = projection.clone();
                 let filter = filter.clone();
@@ -176,7 +171,7 @@ async fn main() -> Result<()> {
                 async move {
                     let file = match &cached_files {
                         Some(files) => files[idx].clone(),
-                        None => open_vortex_file_for_target(target, metrics.clone()).await?,
+                        None => open_vortex_file_for_target(&target, metrics.clone()).await?,
                     };
 
                     if args.prune_segments
@@ -253,23 +248,15 @@ async fn main() -> Result<()> {
             .try_fold(0usize, |rows, file_rows| async move { Ok(rows + file_rows) })
             .await?;
 
-        let elapsed = start.elapsed().as_secs_f64();
-        let bytes = read_bytes.count();
+    let elapsed = start.elapsed().as_secs_f64();
+    let bytes = read_bytes.count();
+    let (first_latency, first_bytes) =
+        first_info.lock().unwrap_or((elapsed, read_bytes.count() - bytes_before));
 
-        total_rows += rows;
-        total_elapsed += elapsed;
-        total_bytes += bytes;
-        let (iter_first_latency, iter_first_bytes) =
-            first_info.lock().unwrap_or((elapsed, read_bytes.count() - bytes_before));
-        total_first_latency += iter_first_latency;
-        total_first_bytes += iter_first_bytes;
-
-    }
-
-    let avg_elapsed = total_elapsed / args.iterations as f64;
-    let avg_bytes = total_bytes as f64 / args.iterations as f64;
-    let avg_first_latency = total_first_latency / args.iterations as f64;
-    let avg_first_bytes = total_first_bytes as f64 / args.iterations as f64;
+    let avg_elapsed = elapsed / args.iterations as f64;
+    let avg_bytes = bytes as f64 / args.iterations as f64;
+    let avg_first_latency = first_latency / args.iterations as f64;
+    let avg_first_bytes = first_bytes as f64 / args.iterations as f64;
     let steady_bytes = (avg_bytes - avg_first_bytes).max(0.0);
     let steady_time = (avg_elapsed - avg_first_latency).max(0.0);
     let total_mb_s = if avg_elapsed > 0.0 {
@@ -284,7 +271,7 @@ async fn main() -> Result<()> {
     };
 
     println!("files={}", targets.len());
-    println!("rows={}", total_rows / args.iterations);
+    println!("rows={}", rows / args.iterations);
     println!("avg_time_s={:.3}", avg_elapsed);
     println!("avg_bytes={:.0}", avg_bytes);
     println!("avg_mb_s={:.2}", total_mb_s);
