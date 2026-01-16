@@ -737,4 +737,73 @@ mod tests {
             }
         }
     }
+
+    /// Regression test for issue #5948: execute_decompress drops patches when chunk_offsets is
+    /// None.
+    ///
+    /// When patches exist but do NOT have chunk_offsets, the execute path incorrectly passes
+    /// `None` to `decompress_unchunked_core` instead of the actual patches.
+    ///
+    /// This can happen after file IO serialization/deserialization where chunk_offsets may not
+    /// be preserved, or when building ALPArrays manually without chunk_offsets.
+    #[test]
+    fn test_execute_decompress_with_patches_no_chunk_offsets_regression_5948() {
+        // Create an array with values that will produce patches. PI doesn't encode cleanly.
+        let values: Vec<f64> = vec![1.0, 2.0, PI, 4.0, 5.0];
+        let original = PrimitiveArray::from_iter(values);
+
+        // First encode normally to get a properly formed ALPArray with patches.
+        let normally_encoded = alp_encode(&original, None).unwrap();
+        assert!(
+            normally_encoded.patches().is_some(),
+            "Test requires patches to be present"
+        );
+
+        let original_patches = normally_encoded.patches().unwrap();
+        assert!(
+            original_patches.chunk_offsets().is_some(),
+            "Normal encoding should have chunk_offsets"
+        );
+
+        // Rebuild the patches WITHOUT chunk_offsets to simulate deserialized patches.
+        let patches_without_chunk_offsets = Patches::new(
+            original_patches.array_len(),
+            original_patches.offset(),
+            original_patches.indices().clone(),
+            original_patches.values().clone(),
+            None, // NO chunk_offsets - this triggers the bug!
+        );
+
+        // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
+        let alp_without_chunk_offsets = ALPArray::new(
+            normally_encoded.encoded().clone(),
+            normally_encoded.exponents(),
+            Some(patches_without_chunk_offsets),
+        );
+
+        // The legacy decompress_into_array path should work correctly.
+        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone());
+        let legacy_slice = result_legacy.as_slice::<f64>();
+
+        // Verify the legacy path produces correct values.
+        assert!(
+            (legacy_slice[2] - PI).abs() < 1e-10,
+            "Legacy path should have PI at index 2, got {}",
+            legacy_slice[2]
+        );
+
+        // The execute path has the bug - it drops patches when chunk_offsets is None.
+        let result_execute = {
+            let mut ctx = SESSION.create_execution_ctx();
+            execute_decompress(alp_without_chunk_offsets, &mut ctx).unwrap()
+        };
+        let execute_slice = result_execute.as_slice::<f64>();
+
+        // This assertion FAILS until the bug is fixed because execute_decompress drops patches.
+        assert!(
+            (execute_slice[2] - PI).abs() < 1e-10,
+            "Execute path should have PI at index 2, but got {} (patches were dropped!)",
+            execute_slice[2]
+        );
+    }
 }
