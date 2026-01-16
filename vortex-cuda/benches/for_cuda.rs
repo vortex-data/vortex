@@ -13,6 +13,7 @@ use criterion::Throughput;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -61,7 +62,7 @@ fn launch_for_kernel_timed(
         module: "for",
         ptypes: &[for_array.ptype()],
         launch_args: [device_data, reference, array_len],
-        event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT,
+        event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
 
