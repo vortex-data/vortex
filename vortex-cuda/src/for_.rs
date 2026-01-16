@@ -75,7 +75,7 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
     let device_data = ctx.to_device(unpacked_slice)?;
 
     let array_len = array.len() as u64;
-    launch_cuda_kernel!(
+    let _kernel_events = launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "for",
         ptypes: &[array.ptype()],

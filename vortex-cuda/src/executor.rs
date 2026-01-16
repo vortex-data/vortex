@@ -28,6 +28,15 @@ use vortex_session::VortexSession;
 use crate::CudaSession;
 use crate::session::CudaSessionExt;
 
+/// CUDA kernel events recorded before and after kernel launch.
+#[derive(Debug)]
+pub struct CudaKernelEvents {
+    /// Event recorded before kernel launch.
+    pub before_launch: CudaEvent,
+    /// Event recorded after kernel launch.
+    pub after_launch: CudaEvent,
+}
+
 /// Convenience macro to launch a CUDA kernel.
 ///
 /// The kernel gets launched on the stream of the execution context.
@@ -89,7 +98,7 @@ pub fn launch_cuda_kernel_impl(
     launch_builder: &mut LaunchArgs,
     event_flags: CUevent_flags,
     array_len: usize,
-) -> VortexResult<(CudaEvent, CudaEvent)> {
+) -> VortexResult<CudaKernelEvents> {
     let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
 
     let config = cudarc::driver::LaunchConfig {
@@ -104,7 +113,14 @@ pub fn launch_cuda_kernel_impl(
         launch_builder
             .launch(config)
             .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
-            .and_then(|events| events.ok_or_else(|| vortex_err!("CUDA events not recorded")))
+            .and_then(|events| {
+                events
+                    .ok_or_else(|| vortex_err!("CUDA events not recorded"))
+                    .map(|(before_launch, after_launch)| CudaKernelEvents {
+                        before_launch,
+                        after_launch,
+                    })
+            })
     }
 }
 

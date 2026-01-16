@@ -10,6 +10,7 @@ mod session;
 
 use std::process::Command;
 
+pub use executor::CudaKernelEvents;
 use for_::ForExecutor;
 use session::CudaSession;
 
