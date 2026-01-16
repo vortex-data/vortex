@@ -43,6 +43,7 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
+use crate::compute;
 use crate::compute::ComputeFn;
 use crate::compute::Cost;
 use crate::compute::InvocationArgs;
@@ -606,7 +607,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return self.len() - invalid_count;
         }
 
-        let count = self.validity_mask().true_count();
+        let count = match self
+            .validity()
+            .vortex_expect("Failed to get validity for valid_count")
+        {
+            Validity::NonNullable | Validity::AllValid => self.len(),
+            Validity::AllInvalid => 0,
+            Validity::Array(a) => {
+                let sum = compute::sum(&a).vortex_expect("Failed to compute sum for valid count");
+                sum.as_primitive()
+                    .as_::<usize>()
+                    .vortex_expect("Sum must be non-nullable")
+            }
+        };
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
@@ -616,19 +629,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn invalid_count(&self) -> usize {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return invalid_count;
-        }
-
-        let count = self.validity_mask().false_count();
-        assert!(count <= self.len(), "Invalid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(count));
-
-        count
+        self.len() - self.valid_count()
     }
 
     fn validity(&self) -> VortexResult<Validity> {
