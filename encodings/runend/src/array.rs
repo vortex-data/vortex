@@ -202,12 +202,13 @@ impl RunEndArray {
             return Ok(());
         }
 
-        // Verify that the ends are strictly monotonic.
-        if let Some(is_sorted) = ends.statistics().compute_is_strict_sorted() {
-            vortex_ensure!(is_sorted, "run ends must be monotonic");
-        } else {
-            // TODO(aduffy): fallback to slow scalar scanning if computefn impl not available?
-            vortex_bail!("run ends must report IsStrictSorted");
+        // Avoid building a non-empty array with zero logical length.
+        if length == 0 {
+            vortex_ensure!(
+                ends.is_empty(),
+                "run ends must be empty when length is zero"
+            );
+            return Ok(());
         }
 
         // Validate the offset and length are valid for the given ends and values
@@ -216,6 +217,14 @@ impl RunEndArray {
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
+        }
+
+        let last_run_end: usize = ends.scalar_at(ends.len() - 1).as_ref().try_into()?;
+        let min_required_end = offset + length;
+        if last_run_end < min_required_end {
+            vortex_bail!(
+                "Last run end {last_run_end} must be >= offset+length {min_required_end}"
+            );
         }
 
         Ok(())
