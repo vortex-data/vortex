@@ -4,7 +4,6 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
-use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -84,7 +83,7 @@ pub fn bitpack_encode(
         );
         bitpacked
             .stats_set
-            .to_ref(&bitpacked)
+            .to_ref(bitpacked.as_ref())
             .inherit_from(array.statistics());
         Ok(bitpacked)
     }
@@ -118,7 +117,7 @@ pub unsafe fn bitpack_encode_unchecked(
         );
         bitpacked
             .stats_set
-            .to_ref(&bitpacked)
+            .to_ref(bitpacked.as_ref())
             .inherit_from(array.statistics());
         Ok(bitpacked)
     }
