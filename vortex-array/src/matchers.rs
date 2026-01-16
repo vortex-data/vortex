@@ -30,6 +30,12 @@ impl Matcher for AnyArray {
 #[derive(Debug)]
 pub struct Exact<V: VTable>(PhantomData<V>);
 
+impl<V: VTable> Default for Exact<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: VTable> Exact<V> {
     /// Create a new Exact matcher for the given VTable type
     pub const fn new() -> Self {

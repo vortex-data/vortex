@@ -57,7 +57,7 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

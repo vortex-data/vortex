@@ -50,7 +50,7 @@ impl VTable for NullVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {

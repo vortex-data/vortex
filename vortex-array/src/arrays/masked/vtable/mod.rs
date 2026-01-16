@@ -65,7 +65,7 @@ impl VTable for MaskedVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {

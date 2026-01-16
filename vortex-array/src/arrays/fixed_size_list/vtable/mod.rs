@@ -48,7 +48,7 @@ impl VTable for FixedSizeListVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {

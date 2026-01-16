@@ -228,6 +228,7 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_session::registry::Registry;
 
     use crate::RLEArray;
     use crate::RLEVTable;
@@ -433,7 +434,7 @@ mod tests {
 
         let original_data = rle_array.to_primitive();
 
-        let ctx = ArrayContext::empty().with(RLEVTable::vtable());
+        let ctx = ArrayContext::empty(Registry::empty().with(RLEVTable::ID, RLEVTable));
         let serialized = rle_array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -466,7 +467,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::empty().with(RLEVTable::vtable());
+        let ctx = ArrayContext::empty(Registry::empty().with(RLEVTable::ID, RLEVTable));
         let serialized = sliced
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();

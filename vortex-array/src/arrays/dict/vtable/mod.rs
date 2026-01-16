@@ -60,7 +60,7 @@ impl VTable for DictVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {

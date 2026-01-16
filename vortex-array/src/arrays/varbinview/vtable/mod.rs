@@ -53,7 +53,7 @@ impl VTable for VarBinViewVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {

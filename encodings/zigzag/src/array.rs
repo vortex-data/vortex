@@ -60,7 +60,7 @@ impl VTable for ZigZagVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {

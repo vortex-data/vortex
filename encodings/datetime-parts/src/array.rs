@@ -86,7 +86,7 @@ impl VTable for DateTimePartsVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {

@@ -64,7 +64,7 @@ impl VTable for ListViewVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

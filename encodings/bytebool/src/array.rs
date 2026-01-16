@@ -56,7 +56,7 @@ impl VTable for ByteBoolVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {

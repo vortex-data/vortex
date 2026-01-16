@@ -79,7 +79,7 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {

@@ -60,7 +60,7 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {

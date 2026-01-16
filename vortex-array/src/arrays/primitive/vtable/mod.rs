@@ -48,7 +48,7 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {

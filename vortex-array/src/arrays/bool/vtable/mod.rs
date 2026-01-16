@@ -56,7 +56,7 @@ impl VTable for BoolVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {

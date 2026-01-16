@@ -100,7 +100,7 @@ impl VTable for PcoVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {

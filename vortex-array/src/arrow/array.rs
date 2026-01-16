@@ -58,7 +58,7 @@ impl VTable for ArrowVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrowVTable::ID.clone()
+        ArrowVTable::ID
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {

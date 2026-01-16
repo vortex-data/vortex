@@ -72,7 +72,7 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {

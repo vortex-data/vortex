@@ -35,8 +35,6 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
 
-pub const Struct: ArrayId = ArrayId::new_ref("vortex.Struct");
-
 vtable!(Struct);
 
 impl VTable for StructVTable {

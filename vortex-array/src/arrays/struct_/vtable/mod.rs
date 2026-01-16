@@ -47,7 +47,7 @@ impl VTable for StructVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {

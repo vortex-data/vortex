@@ -82,7 +82,7 @@ impl VTable for SparseVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
