@@ -11,16 +11,15 @@ use arrow_schema::Field;
 use arrow_schema::FieldRef;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
-use vortex_dtype::PTypeDowncastExt;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Vector;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::list_view_from_list;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::compute::ToArrowKernel;
@@ -69,10 +68,8 @@ fn list_array_to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     let offsets = array
         .offsets()
         .cast(DType::Primitive(O::PTYPE, array.dtype().nullability()))?
-        .execute::<Vector>(&mut ctx)?
-        .into_primitive()
-        .downcast::<O>()
-        .into_nonnull_buffer();
+        .execute::<PrimitiveArray>(&mut ctx)?
+        .to_buffer::<O>();
 
     // Convert `offsets` and `validity` to Arrow buffers.
     let arrow_offsets = offsets.into_arrow_offset_buffer();

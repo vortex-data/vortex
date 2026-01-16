@@ -87,7 +87,7 @@ async fn test_file_roundtrip() {
         .expect("write");
 
     let bytes = ByteBuffer::from(bytes);
-    let vxf = SESSION.open_options().open(bytes).await.expect("open");
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
 
     // Read the data back
     let stream = vxf

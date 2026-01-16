@@ -7,13 +7,13 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantVTable;
 use crate::executor::CanonicalOutput;
 
@@ -34,11 +34,9 @@ impl Executable for Mask {
                 Mask::new(array_len, c.scalar().as_bool().value().unwrap_or(false))
             }
             CanonicalOutput::Array(a) => {
-                let (bits, mask) = a
-                    .into_array()
-                    .execute::<Vector>(ctx)?
-                    .into_bool()
-                    .into_parts();
+                let bool = a.into_array().execute::<BoolArray>(ctx)?;
+                let mask = bool.validity_mask();
+                let bits = bool.into_bit_buffer();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to
                 //  pass non-nullable boolean arrays.

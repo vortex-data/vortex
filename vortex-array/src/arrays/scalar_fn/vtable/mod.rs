@@ -7,8 +7,13 @@ mod operations;
 mod validity;
 mod visitor;
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -16,14 +21,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Datum;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -31,13 +33,16 @@ use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::expr;
-use crate::expr::ExecutionArgs;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
 use crate::expr::ExprVTable;
+use crate::expr::Expression;
 use crate::expr::ScalarFn;
+use crate::expr::lit;
 use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
-use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
@@ -63,7 +68,7 @@ impl VTable for ScalarFnVTable {
     type Metadata = ScalarFnMetadata;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
-    type OperationsVTable = NotSupported;
+    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -141,30 +146,30 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        // NOTE: we don't use iterators here to make the profiles easier to read!
-        let mut datums = Vec::with_capacity(array.children.len());
-        let mut input_dtypes = Vec::with_capacity(array.children.len());
-        for child in array.children.iter() {
-            match child.as_opt::<ConstantVTable>() {
-                None => datums.push(Datum::Vector(child.clone().execute::<Vector>(ctx)?)),
-                Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
-            }
-            input_dtypes.push(child.dtype().clone());
-        }
+        let inputs: Arc<[_]> = array
+            .children
+            .iter()
+            .map(|child| {
+                if let Some(scalar) = child.as_constant() {
+                    return Ok(lit(scalar));
+                }
+                Expression::try_new(
+                    ScalarFn::new(
+                        ArrayExpr,
+                        FakeEq(child.clone().execute::<Canonical>(ctx)?.into_array()),
+                    ),
+                    [],
+                )
+            })
+            .collect::<VortexResult<_>>()?;
 
-        let args = ExecutionArgs {
-            datums,
-            dtypes: input_dtypes,
-            row_count: array.len,
-            return_dtype: array.dtype.clone(),
-        };
-
-        // TODO(joe): should this go via Vector or canonical?
-        Ok(array
+        array
             .scalar_fn
-            .execute(args)?
-            .unwrap_into_vector(array.len)
-            .into_array(array.dtype()))
+            .evaluate(
+                &Expression::try_new(array.scalar_fn.clone(), inputs)?,
+                &array.to_array(),
+            )?
+            .execute::<Canonical>(ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -294,5 +299,67 @@ impl<F: expr::VTable> Deref for ScalarFnArrayView<'_, F> {
 
     fn deref(&self) -> &Self::Target {
         self.array
+    }
+}
+
+// Used only in this method to allow constrained using of Expression evaluate.
+struct ArrayExpr;
+
+#[derive(Clone, Debug)]
+struct FakeEq<T>(T);
+
+impl<T> PartialEq<Self> for FakeEq<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl<T> Eq for FakeEq<T> {}
+
+impl<T> Hash for FakeEq<T> {
+    fn hash<H: Hasher>(&self, _state: &mut H) {}
+}
+
+impl Display for FakeEq<ArrayRef> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.encoding_id())
+    }
+}
+
+impl expr::VTable for ArrayExpr {
+    type Options = FakeEq<ArrayRef>;
+
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.between")
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(0)
+    }
+
+    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
+        todo!()
+    }
+
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        _expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "{}", options.0.encoding_id())
+    }
+
+    fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(options.0.dtype().clone())
+    }
+
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        _expr: &Expression,
+        _scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(options.0.clone())
     }
 }

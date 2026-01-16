@@ -21,16 +21,16 @@ async-trait = { workspace = true }
 bytes = { workspace = true }
 flatbuffers = { workspace = true }
 futures = { workspace = true, features = ["std", "async-await"] }
-# Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
-getrandom_v03 = { workspace = true }
+getrandom_v03 = { workspace = true }                              # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 itertools = { workspace = true }
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true }
+oneshot.workspace = true
 parking_lot = { workspace = true }
+pin-project-lite = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
-# Needed to pickup the "js" feature for wasm targets from the workspace configuration
-uuid = { workspace = true }
+uuid = { workspace = true }                                       # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

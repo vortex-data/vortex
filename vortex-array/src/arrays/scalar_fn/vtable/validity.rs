@@ -4,8 +4,6 @@
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_vector::Vector;
-use vortex_vector::VectorOps;
 
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
@@ -36,10 +34,9 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
             CanonicalOutput::Array(a) => a
                 .into_array()
-                .execute::<Vector>(&mut ctx)
-                .vortex_expect("Failed to convert canonical to vector")
                 .validity()
-                .clone(),
+                .vortex_expect("cannot fail")
+                .to_mask(array.len()),
         }
     }
 }

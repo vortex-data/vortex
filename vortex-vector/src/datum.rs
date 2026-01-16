@@ -104,6 +104,20 @@ impl Datum {
             Datum::Vector(vector) => Some(vector),
         }
     }
+
+    /// Returns `true` if the datum contains a nested type (List, FixedSizeList, or Struct).
+    pub fn is_nested(&self) -> bool {
+        match self {
+            Datum::Scalar(s) => matches!(
+                s,
+                Scalar::List(_) | Scalar::FixedSizeList(_) | Scalar::Struct(_)
+            ),
+            Datum::Vector(v) => matches!(
+                v,
+                Vector::List(_) | Vector::FixedSizeList(_) | Vector::Struct(_)
+            ),
+        }
+    }
 }
 
 impl Datum {

@@ -53,6 +53,18 @@ impl DecimalType {
         }
     }
 
+    /// Returns the size in bytes of the underlying native type for this decimal type.
+    pub fn byte_width(&self) -> usize {
+        match self {
+            DecimalType::I8 => size_of::<i8>(),
+            DecimalType::I16 => size_of::<i16>(),
+            DecimalType::I32 => size_of::<i32>(),
+            DecimalType::I64 => size_of::<i64>(),
+            DecimalType::I128 => size_of::<i128>(),
+            DecimalType::I256 => size_of::<i256>(),
+        }
+    }
+
     /// True if `Self` can represent every value of the type `DecimalDType`.
     pub fn is_compatible_decimal_value_type(self, dtype: DecimalDType) -> bool {
         self >= Self::smallest_decimal_value_type(&dtype)
