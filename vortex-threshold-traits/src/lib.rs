@@ -10,6 +10,8 @@ use std::fmt::Debug;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub mod storage;
+
 /// Defines the range of parameter values to sweep during benchmarking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ParameterScale {

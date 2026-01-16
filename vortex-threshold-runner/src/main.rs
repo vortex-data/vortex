@@ -24,6 +24,8 @@ use vortex_threshold_traits::Variant;
 use vortex_threshold_traits::VerifyResult;
 
 pub mod examples;
+#[cfg(feature = "sqlite")]
+pub mod storage;
 
 /// CLI arguments for the threshold runner.
 #[derive(Parser, Debug)]

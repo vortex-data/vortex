@@ -14,9 +14,14 @@ publish = false
 name = "threshold-runner"
 path = "src/main.rs"
 
+[features]
+default = []
+sqlite = ["dep:rusqlite"]
+
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 rand = { workspace = true }
+rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sysinfo = { workspace = true }
