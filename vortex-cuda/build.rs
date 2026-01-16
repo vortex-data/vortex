@@ -12,8 +12,8 @@ fn main() {
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
-    if !has_nvcc() {
-        // Don't run CUDA compilation if nvcc is not available.
+    if cfg!(target_os = "linux") && !has_nvcc() {
+        // Only warn on Linux where we expect CUDA to be available.
         println!("cargo:warning=nvcc not found, skipping CUDA kernel compilation");
         return;
     }
