@@ -19,6 +19,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -89,7 +90,7 @@ impl VTable for IsNull {
                 ConstantArray::new(false, array.len()).into_array()
             }
             Validity::AllInvalid => ConstantArray::new(true, array.len()).into_array(),
-            Validity::Array(a) => a,
+            Validity::Array(a) => a.not()?,
         })
     }
 
