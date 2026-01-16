@@ -229,11 +229,12 @@ async fn main() -> Result<()> {
                         .with_metrics(metrics.clone())
                         .with_projection(scan_projection)
                         .with_some_filter(scan_filter)
-                        .with_concurrency(args.concurrency);
+                        .with_concurrency(args.concurrency)
+                        .map(|array| Ok(array.len()));
 
                     let mut stream = scan.into_stream()?;
                     let mut file_rows = 0usize;
-                    while let Some(array) = stream.try_next().await? {
+                    while let Some(rows) = stream.try_next().await? {
                         if !first_seen.load(Ordering::Relaxed)
                             && !first_seen.swap(true, Ordering::Relaxed)
                         {
@@ -241,7 +242,7 @@ async fn main() -> Result<()> {
                             let bytes = read_bytes.count() - bytes_before;
                             *first_info.lock() = Some((latency, bytes));
                         }
-                        file_rows += array.len();
+                        file_rows += rows;
                     }
 
                     drop(file);
