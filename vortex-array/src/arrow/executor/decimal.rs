@@ -199,7 +199,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
-    use vortex_dtype::DecimalType;
     use vortex_dtype::NativeDecimalType;
     use vortex_error::VortexResult;
 
