@@ -4,6 +4,7 @@
 use fastlanes::BitPacking;
 use itertools::Itertools;
 use num_traits::PrimInt;
+use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::patches::Patches;
@@ -72,7 +73,7 @@ pub fn bitpack_encode(
 
     // SAFETY: all components validated above
     unsafe {
-        Ok(BitPackedArray::new_unchecked(
+        let bitpacked = BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -80,7 +81,12 @@ pub fn bitpack_encode(
             bit_width,
             array.len(),
             0,
-        ))
+        );
+        bitpacked
+            .stats_set
+            .to_ref(&bitpacked)
+            .inherit_from(array.statistics());
+        Ok(bitpacked)
     }
 }
 
@@ -101,7 +107,7 @@ pub unsafe fn bitpack_encode_unchecked(
 
     // SAFETY: checked by bitpack_unchecked
     unsafe {
-        Ok(BitPackedArray::new_unchecked(
+        let bitpacked = BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -109,7 +115,12 @@ pub unsafe fn bitpack_encode_unchecked(
             bit_width,
             array.len(),
             0,
-        ))
+        );
+        bitpacked
+            .stats_set
+            .to_ref(&bitpacked)
+            .inherit_from(array.statistics());
+        Ok(bitpacked)
     }
 }
 
