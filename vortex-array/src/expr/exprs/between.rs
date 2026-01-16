@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::BitAnd;
 
 use prost::Message;
 use vortex_dtype::DType;
@@ -11,7 +10,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
@@ -150,18 +148,6 @@ impl VTable for Between {
         let lower = expr.child(1).evaluate(scope)?;
         let upper = expr.child(2).evaluate(scope)?;
         between_compute(&arr, &lower, &upper, options)
-    }
-
-    fn evaluate_validity(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        let arr = expr.child(0).evaluate_validity(scope)?;
-        let lower = expr.child(1).evaluate_validity(scope)?;
-        let upper = expr.child(2).evaluate_validity(scope)?;
-        Ok(arr.bitand(&lower).bitand(&upper))
     }
 
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {

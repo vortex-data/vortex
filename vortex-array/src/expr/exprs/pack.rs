@@ -33,6 +33,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::lit;
 use crate::validity::Validity;
 
 /// Pack zero or more expressions into a structure with named fields.
@@ -148,13 +149,12 @@ impl VTable for Pack {
         Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
-    fn evaluate_validity(
+    fn validity(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        Ok(Mask::new_true(scope.len()))
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(lit(true)))
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {

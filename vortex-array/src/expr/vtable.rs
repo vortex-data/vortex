@@ -93,14 +93,6 @@ pub trait VTable: 'static + Sized + Send + Sync {
         vortex_bail!("Expression {} does not support evaluation", self.id());
     }
 
-    /// Evaluate the validity of the expression in the given scope.
-    fn evaluate_validity(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask>;
-
     /// Execute the expression on the given vector with the given dtype.
     ///
     /// This function will become required in a future release.
@@ -179,6 +171,21 @@ pub trait VTable: 'static + Sized + Send + Sync {
         _ = stat;
         _ = catalog;
         None
+    }
+
+    /// Returns an expression that evaluates to the validity of the result of this expression.
+    ///
+    /// If a validity expression cannot be constructed, returns `None` and the expression will
+    /// be evaluated as normal before extracting the validity mask from the result.
+    ///
+    /// This is essentially a specialized form of a `reduce_parent`
+    fn validity(
+        &self,
+        options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        _ = (options, expression);
+        Ok(None)
     }
 
     /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
@@ -383,9 +390,9 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
+    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
-    fn evaluate_validity(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<Mask>;
     fn reduce(
         &self,
         options: &dyn Any,
@@ -489,6 +496,14 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
+    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
+        V::validity(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+        )
+    }
+
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
         let options = downcast::<V>(options);
 
@@ -528,15 +543,6 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         V::evaluate(
-            &self.0,
-            downcast::<V>(expression.options().as_any()),
-            expression,
-            scope,
-        )
-    }
-
-    fn evaluate_validity(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<Mask> {
-        V::evaluate_validity(
             &self.0,
             downcast::<V>(expression.options().as_any()),
             expression,

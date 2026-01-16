@@ -14,7 +14,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
@@ -130,23 +129,6 @@ impl VTable for Binary {
             Operator::Mul => mul(&lhs, &rhs),
             Operator::Div => div(&lhs, &rhs),
         }
-    }
-
-    fn evaluate_validity(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        let lhs = expr.child(0).evaluate_validity(scope)?;
-        let rhs = expr.child(1).evaluate_validity(scope)?;
-
-        Ok(match options {
-            // Kleene logic for AND/OR
-            Operator::And => &lhs & &rhs,
-            Operator::Or => &lhs | &rhs,
-            _ => &lhs & &rhs,
-        })
     }
 
     fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Datum> {

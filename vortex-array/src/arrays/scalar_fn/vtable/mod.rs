@@ -21,7 +21,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -362,14 +361,5 @@ impl expr::VTable for ArrayExpr {
         _scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(options.0.clone())
-    }
-
-    fn evaluate_validity(
-        &self,
-        options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        Ok(options.0.validity()?.to_mask(options.0.len()))
     }
 }

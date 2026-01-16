@@ -14,7 +14,6 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 use vortex_utils::aliases::hash_set::HashSet;
 use vortex_vector::Datum;
 
@@ -36,6 +35,7 @@ use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::lit;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -185,15 +185,6 @@ impl VTable for Merge {
         )
     }
 
-    fn evaluate_validity(
-        &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        Ok(Mask::new_true(scope.len()))
-    }
-
     fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
         todo!()
     }
@@ -255,6 +246,14 @@ impl VTable for Merge {
         )?;
 
         Ok(Some(pack_expr))
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(lit(true)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

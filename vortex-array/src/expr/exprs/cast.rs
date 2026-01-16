@@ -9,7 +9,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_mask::Mask;
 use vortex_proto::expr as pb;
 use vortex_vector::Datum;
 
@@ -26,6 +25,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
@@ -93,19 +93,6 @@ impl VTable for Cast {
         })
     }
 
-    fn evaluate_validity(
-        &self,
-        dtype: &DType,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        if dtype.is_nullable() {
-            expr.child(0).evaluate_validity(scope)
-        } else {
-            Ok(Mask::new_true(scope.len()))
-        }
-    }
-
     fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Datum> {
         let input = args
             .datums
@@ -159,6 +146,14 @@ impl VTable for Cast {
                 None
             }
         }
+    }
+
+    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
+        Ok(Some(if dtype.is_nullable() {
+            expression.child(0).validity()?
+        } else {
+            lit(true)
+        }))
     }
 
     // This might apply a nullability

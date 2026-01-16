@@ -13,7 +13,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 use vortex_vector::Datum;
@@ -117,25 +116,6 @@ impl VTable for DynamicComparison {
             scope.len(),
         )
         .into_array())
-    }
-
-    fn evaluate_validity(
-        &self,
-        dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        let lhs = expr.child(0).evaluate_validity(scope)?;
-        Ok(match dynamic.scalar() {
-            None => lhs,
-            Some(rhs) => {
-                if rhs.is_valid() {
-                    lhs
-                } else {
-                    Mask::new_false(lhs.len())
-                }
-            }
-        })
     }
 
     fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {

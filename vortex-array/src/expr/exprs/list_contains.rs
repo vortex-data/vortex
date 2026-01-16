@@ -120,17 +120,6 @@ impl VTable for ListContains {
         compute_list_contains(list_array.as_ref(), value_array.as_ref())
     }
 
-    fn evaluate_validity(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<Mask> {
-        let lhs = expr.child(0).evaluate_validity(scope)?;
-        let rhs = expr.child(1).evaluate_validity(scope)?;
-        Ok(&lhs & &rhs)
-    }
-
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
         let [lhs, rhs]: [Datum; _] = args
             .datums

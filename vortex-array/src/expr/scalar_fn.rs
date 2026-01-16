@@ -12,19 +12,21 @@ use std::ops::Deref;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
+use crate::expr::IsNull;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
 
@@ -122,9 +124,13 @@ impl ScalarFn {
         self.vtable.as_dyn().evaluate(expr, scope)
     }
 
-    /// Evaluate just the validity of the expression.
-    pub fn evaluate_validity(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<Mask> {
-        self.vtable.as_dyn().evaluate_validity(expr, scope)
+    /// Transforms the expression into one representing the validity of this expression.
+    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
+        Ok(self
+            .vtable
+            .as_dyn()
+            .validity(expr)?
+            .unwrap_or_else(|| IsNull.new_expr(EmptyOptions, [expr.clone()])))
     }
 
     /// Execute the expression given the input arguments.

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::BitAnd;
 use std::ops::Not;
 
 use prost::Message;
@@ -18,7 +17,6 @@ use vortex_vector::Datum;
 use vortex_vector::ScalarOps;
 use vortex_vector::VectorOps;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::builtins::ExprBuiltins;
@@ -41,7 +39,6 @@ use crate::expr::VTableExt;
 use crate::expr::exprs::root::root;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
-use crate::validity::Validity;
 
 pub struct GetItem;
 
@@ -120,26 +117,6 @@ impl VTable for GetItem {
             Nullability::NonNullable => Ok(field),
             Nullability::Nullable => mask(&field, &input.validity_mask().not()),
         }
-    }
-
-    fn evaluate_validity(
-        &self,
-        field_name: &FieldName,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<vortex_mask::Mask> {
-        let input = expr.children()[0].evaluate(scope)?.to_struct();
-        let field = input.field_by_name(field_name).cloned()?;
-
-        Ok(match input.validity()? {
-            Validity::NonNullable | Validity::AllValid => field.validity_mask(),
-            Validity::AllInvalid => vortex_mask::Mask::new_false(field.len()),
-            Validity::Array(a) => {
-                let field_validity = field.validity_mask();
-                let struct_validity = a.try_to_mask_fill_null_false()?;
-                field_validity.bitand(&struct_validity)
-            }
-        })
     }
 
     fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Datum> {
