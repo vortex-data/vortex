@@ -6,12 +6,17 @@ mod canonical;
 mod operations;
 mod validity;
 
+use prost::Message;
+use rand_distr::Exp;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_proto::expr as pb;
 
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
 use crate::expr::Expression;
+use crate::expr::proto::ExprSerializeProtoExt;
+use crate::expr::proto::deserialize_expr_proto;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
@@ -62,7 +67,7 @@ pub struct ExpressionVTable;
 
 impl VTable for ExpressionVTable {
     type Array = ExpressionArray;
-    type Metadata = Self;
+    type Metadata = Expression;
     type ArrayVTable = Self;
     type CanonicalVTable = Self;
     type OperationsVTable = Self;
@@ -83,12 +88,14 @@ impl VTable for ExpressionVTable {
         todo!()
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        todo!()
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize_proto()?.encode_to_vec()))
     }
 
     fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
-        todo!()
+        // TODO(ngates): do we pass the VortexSession into the deserialize function?
+        //  Or do we force the ExpressionVTable to hold the session?
+        deserialize_expr_proto(pb::Expr::decode(bytes)?, &ExprRegistry::default())
     }
 
     fn build(
