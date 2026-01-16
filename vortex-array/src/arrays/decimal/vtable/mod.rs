@@ -175,7 +175,7 @@ mod tests {
         );
         let dtype = array.dtype().clone();
 
-        let registry = ArrayRegistry::empty().with(DecimalVTable::ID, DecimalVTable.into());
+        let registry = ArrayRegistry::empty().with(DecimalVTable::ID, DecimalVTable);
         let ctx = ArrayContext::from_registry_sorted(&registry);
         let out = array
             .into_array()

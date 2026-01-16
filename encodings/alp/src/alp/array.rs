@@ -450,7 +450,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 }
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(canonical: &Canonical, like: Option<&ALPArray>) -> VortexResult<Option<ALPArray>> {
         let parray = canonical.clone().into_primitive();
         let exponents = like.map(|a| a.exponents());
         let alp = alp_encode(&parray, exponents)?;

@@ -2,14 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -135,17 +136,14 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let encodings: Vec<_> = header
+                            let encoding_ids: Vec<_> = header
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
-                                .map(|id| {
-                                    self.registry.find(id).ok_or_else(|| {
-                                        vortex_err!("unknown array encoding id: {}", id)
-                                    })
-                                })
-                                .try_collect()?;
-                            let ctx = ArrayContext::new(encodings);
+                                .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
+                                .collect();
+                            let ctx = ArrayContext::try_new(encoding_ids, self.registry.clone())?;
+
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();

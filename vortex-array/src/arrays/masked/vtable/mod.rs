@@ -221,7 +221,7 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let registry = ArrayRegistry::empty().with(MaskedVTable::ID, MaskedVTable.into());
+        let registry = ArrayRegistry::empty().with(MaskedVTable::ID, MaskedVTable);
         let ctx = ArrayContext::from_registry_sorted(&registry);
 
         let serialized = array

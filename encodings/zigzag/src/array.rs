@@ -238,6 +238,7 @@ impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
@@ -247,7 +248,10 @@ mod test {
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let canonical = array.to_canonical();
-        let zigzag = ZigZagVTable.encode(&canonical, None).unwrap().unwrap();
+        let zigzag = ZigZagVTable::vtable()
+            .encode(&canonical, None)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

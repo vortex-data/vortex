@@ -443,7 +443,10 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        canonical: &Canonical,
+        like: Option<&ALPRDArray>,
+    ) -> VortexResult<Option<ALPRDArray>> {
         let parray = canonical.clone().into_primitive();
 
         let alprd_array = match like {

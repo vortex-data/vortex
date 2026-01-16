@@ -57,8 +57,7 @@ mod test {
         11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
-        let alp = ALPVTable
-            .as_vtable()
+        let alp = ALPVTable::vtable()
             .encode(&array.to_canonical(), None)
             .unwrap()
             .unwrap();

@@ -35,7 +35,7 @@ use crate::compress::runend_encode;
 impl EncodeVTable<RunEndVTable> for RunEndVTable {
     fn encode(
         canonical: &Canonical,
-        like: Option<&RunEndArray>,
+        _like: Option<&RunEndArray>,
     ) -> VortexResult<Option<RunEndArray>> {
         let parray = canonical.clone().into_primitive();
         let (ends, values) = runend_encode(&parray);

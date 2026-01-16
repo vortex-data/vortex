@@ -165,23 +165,23 @@ mod forever_constant {
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &mut VortexSession) {
     session.arrays().register_many([
-        ALPVTable.as_vtable(),
-        ALPRDVTable.as_vtable(),
-        BitPackedVTable.as_vtable(),
-        ByteBoolVTable.as_vtable(),
-        DateTimePartsVTable.as_vtable(),
-        DecimalBytePartsVTable.as_vtable(),
-        DeltaVTable.as_vtable(),
-        DictVTable.as_vtable(),
-        FSSTVTable.as_vtable(),
-        FoRVTable.as_vtable(),
-        PcoVTable.as_vtable(),
-        RLEVTable.as_vtable(),
-        SequenceVTable.as_vtable(),
-        SparseVTable.as_vtable(),
-        ZigZagVTable.as_vtable(),
+        ALPVTable::vtable(),
+        ALPRDVTable::vtable(),
+        BitPackedVTable::vtable(),
+        ByteBoolVTable::vtable(),
+        DateTimePartsVTable::vtable(),
+        DecimalBytePartsVTable::vtable(),
+        DeltaVTable::vtable(),
+        DictVTable::vtable(),
+        FSSTVTable::vtable(),
+        FoRVTable::vtable(),
+        PcoVTable::vtable(),
+        RLEVTable::vtable(),
+        SequenceVTable::vtable(),
+        SparseVTable::vtable(),
+        ZigZagVTable::vtable(),
         #[cfg(feature = "zstd")]
-        vortex_zstd::ZstdVTable.as_vtable(),
+        vortex_zstd::ZstdVTable::vtable(),
     ]);
 
     // Eventually all encodings crates should expose an initialize function. For now it's only

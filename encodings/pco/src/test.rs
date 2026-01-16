@@ -14,7 +14,6 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -136,13 +135,9 @@ fn test_serde() {
         .to_array();
 
     let session = ArraySession::default();
-    let context = ArrayContext::new(
-        session
-            .registry()
-            .items()
-            .chain([PcoVTable.as_vtable()])
-            .collect(),
-    );
+    session.registry().register(PcoVTable::ID, PcoVTable);
+
+    let context = ArrayContext::from_registry_sorted(session.registry());
 
     let bytes = pco
         .serialize(

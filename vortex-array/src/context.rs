@@ -23,6 +23,13 @@ pub struct VTableContext<T> {
 }
 
 impl<T: Clone> VTableContext<T> {
+    pub fn empty(registry: Registry<T>) -> Self {
+        Self {
+            ids: Arc::new(RwLock::new(Vec::new())),
+            registry,
+        }
+    }
+
     pub fn try_new(ids: Vec<ArcRef<str>>, registry: Registry<T>) -> VortexResult<Self> {
         for id in &ids {
             vortex_ensure!(
@@ -44,30 +51,15 @@ impl<T: Clone> VTableContext<T> {
             registry: registry.clone(),
         }
     }
-    //
-    // pub fn with(self, encoding: T) -> Self {
-    //     {
-    //         let mut write = self.0.write();
-    //         if write.iter().all(|e| e != &encoding) {
-    //             write.push(encoding);
-    //         }
-    //     }
-    //     self
-    // }
-    //
-    // pub fn with_many<E: IntoIterator<Item = T>>(self, items: E) -> Self {
-    //     items.into_iter().fold(self, |ctx, e| ctx.with(e))
-    // }
-    //
-    // pub fn encodings(&self) -> Vec<T> {
-    //     self.0.read().clone()
-    // }
 
     /// Returns the index of the encoding in the context, or adds it if it doesn't exist.
     ///
     /// At write time the order encodings are registered by this method can change.
     /// See [File Format specification](https://docs.vortex.rs/specs/file-format#file-determinism-and-reproducibility)
     /// for more details.
+    ///
+    /// TODO(ngates): we should split out the read/write half of the context since this doesn't
+    ///  use the registry at all...
     pub fn encoding_idx(&self, id: &ArcRef<str>) -> u16 {
         let mut write = self.ids.write();
         if let Some(idx) = write.iter().position(|e| e == id) {
@@ -85,5 +77,9 @@ impl<T: Clone> VTableContext<T> {
     pub fn lookup_encoding(&self, idx: u16) -> Option<(ArcRef<str>, T)> {
         let id = self.ids.read().get(idx as usize).cloned()?;
         self.registry.find(&id).map(|entry| (id, entry))
+    }
+
+    pub fn ids(&self) -> Vec<ArcRef<str>> {
+        self.ids.read().clone()
     }
 }

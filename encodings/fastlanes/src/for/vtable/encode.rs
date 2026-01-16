@@ -9,7 +9,7 @@ use super::FoRVTable;
 use crate::FoRArray;
 
 impl EncodeVTable<FoRVTable> for FoRVTable {
-    fn encode(canonical: &Canonical, like: Option<&FoRArray>) -> VortexResult<Option<FoRArray>> {
+    fn encode(canonical: &Canonical, _like: Option<&FoRArray>) -> VortexResult<Option<FoRArray>> {
         let parray = canonical.clone().into_primitive();
         Ok(Some(FoRArray::encode(parray)?))
     }

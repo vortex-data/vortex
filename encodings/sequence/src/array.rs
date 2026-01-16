@@ -432,7 +432,10 @@ impl SequenceVTable {
 }
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        _canonical: &Canonical,
+        _like: Option<&SequenceArray>,
+    ) -> VortexResult<Option<SequenceArray>> {
         // TODO(joe): hook up compressor
         Ok(None)
     }
