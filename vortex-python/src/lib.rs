@@ -23,6 +23,7 @@ mod registry;
 pub mod scalar;
 mod scan;
 mod serde;
+mod store;
 
 use log::LevelFilter;
 use pyo3_log::Caching;
@@ -66,6 +67,7 @@ fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     file::init(py, m)?;
     io::init(py, m)?;
     iter::init(py, m)?;
+    store::init(py, m)?;
     registry::init(py, m)?;
     scalar::init(py, m)?;
     serde::init(py, m)?;

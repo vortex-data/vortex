@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     import polars
 
 
-def open(path: str, *, without_segment_cache: bool = False) -> VortexFile:
+def open(path: str, *, store=None, without_segment_cache: bool = False) -> VortexFile:
     """
     Lazily open a Vortex file located at the given path or URL.
 
@@ -29,6 +29,9 @@ def open(path: str, *, without_segment_cache: bool = False) -> VortexFile:
     ----------
     path : :class:`str`
         A local path or URL to the Vortex file.
+    store :
+        An object store created from the `vortex.store` package. By default
+        the store is inferred based on the path
     without_segment_cache : :class:`bool`
         If true, disable the segment cache for this file, useful when memory is constrained.
 
@@ -43,7 +46,7 @@ def open(path: str, *, without_segment_cache: bool = False) -> VortexFile:
     See also: :class:`vortex.dataset.VortexDataset`
     """
 
-    return VortexFile(_file.open(path, without_segment_cache=without_segment_cache))
+    return VortexFile(_file.open(path, store=store, without_segment_cache=without_segment_cache))
 
 
 @final
