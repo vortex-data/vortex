@@ -500,8 +500,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = SliceArray::new(self.0.to_array(), range)
-            .into_array()
+        let sliced = V::slice(&self.0, range.clone())
+            .vortex_expect("cannot fail")
+            .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
             .optimize()
             .vortex_expect("cannot fail for now");
 

@@ -266,6 +266,7 @@ impl VTable for BitPackedVTable {
         RULES.evaluate(array, parent, child_idx)
     }
 
+    // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let offset_start = range.start + array.offset() as usize;
         let offset_stop = range.end + array.offset() as usize;
