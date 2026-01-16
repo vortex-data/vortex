@@ -4,19 +4,15 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::StructArray;
+use arrow_array::StructArray as ArrowStructArray;
 use arrow_buffer::NullBuffer;
-use arrow_schema::DataType;
 use arrow_schema::Fields;
 use itertools::Itertools;
-use vortex_compute::arrow::IntoArrow;
 use vortex_dtype::DType;
 use vortex_dtype::StructFields;
 use vortex_dtype::arrow::FromArrowType;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -25,6 +21,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
@@ -71,7 +68,7 @@ pub(super) fn to_arrow_struct(
         );
     }
 
-    // Otherwise, we fall back to executing the full struct vector.
+    // Otherwise, we fall back to executing to a StructArray.
     // First we apply a cast to ensure we push down casting where possible into the struct fields.
     let vx_fields = StructFields::from_arrow(fields);
     let array = array.cast(DType::Struct(
@@ -79,11 +76,9 @@ pub(super) fn to_arrow_struct(
         vortex_dtype::Nullability::Nullable,
     ))?;
 
-    let struct_array = array.execute::<Vector>(ctx)?.into_struct().into_arrow()?;
-
-    // Finally, we cast to Arrow to ensure any types not representable by Vortex (e.g. Dictionary)
-    // are properly converted.
-    arrow_cast::cast(&struct_array, &DataType::Struct(fields.clone())).map_err(VortexError::from)
+    let struct_array = array.execute::<StructArray>(ctx)?;
+    let validity = to_arrow_null_buffer(struct_array.validity(), struct_array.len(), ctx)?;
+    create_from_fields(fields, struct_array.into_fields(), validity, len, ctx)
 }
 
 fn create_from_fields(
@@ -105,6 +100,6 @@ fn create_from_fields(
     }
 
     Ok(Arc::new(unsafe {
-        StructArray::new_unchecked_with_length(fields.clone(), arrow_fields, null_buffer, len)
+        ArrowStructArray::new_unchecked_with_length(fields.clone(), arrow_fields, null_buffer, len)
     }))
 }

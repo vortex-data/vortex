@@ -14,12 +14,13 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::arrow::null_buffer::to_null_buffer;
+use crate::arrays::DecimalArray;
+use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::vtable::ValidityHelper;
 
 // TODO(ngates): our i256 is different from Arrow's. Therefore we need an explicit `N` type
 //  representing the Vortex native type that is equivalent to the Arrow native type.
@@ -44,17 +45,17 @@ pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
         Nullability::Nullable,
     ))?;
 
-    // Execute the array as a vector and downcast to our native type.
-    let vector = array.execute::<Vector>(ctx)?.into_decimal();
+    // Execute the array as a DecimalArray and extract its components.
+    let decimal_array = array.execute::<DecimalArray>(ctx)?;
     vortex_ensure!(
-        vector.decimal_type() == N::DECIMAL_TYPE,
+        decimal_array.values_type() == N::DECIMAL_TYPE,
         "Decimal array conversion produced unexpected decimal type: expected {:?}, got {:?}",
         N::DECIMAL_TYPE,
-        vector.decimal_type()
+        decimal_array.values_type()
     );
 
-    let (_ps, buffer, validity) = N::downcast(vector).into_parts();
-    let nulls = to_null_buffer(validity);
+    let buffer = decimal_array.buffer::<N>();
+    let nulls = to_arrow_null_buffer(decimal_array.validity(), decimal_array.len(), ctx)?;
 
     assert_eq!(
         size_of::<D::Native>(),

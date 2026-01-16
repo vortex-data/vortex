@@ -9,7 +9,6 @@ use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
 use arrow_schema::FieldRef;
 use vortex_buffer::BufferMut;
-use vortex_compute::cast::Cast;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
@@ -17,7 +16,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -33,7 +31,6 @@ use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::validity::Validity;
-use crate::vectors::VectorIntoArray;
 use crate::vtable::ValidityHelper;
 
 /// Convert a Vortex array into an Arrow GenericBinaryArray.
@@ -62,24 +59,8 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
     // TODO(ngates): we should do the slightly more expensive thing which is to verify ZCTL.
     //  In other words, check that offsets + sizes are monotonically increasing.
 
-    // Otherwise, we execute the array to become a ListViewVector.
-    let elements_dtype = array
-        .dtype()
-        .as_list_element_opt()
-        .ok_or_else(|| vortex_err!("Cannot convert non-list array to Arrow ListArray"))?;
-    let nullability = array.dtype().nullability();
-    let list_view = array.clone().execute::<Vector>(ctx)?.into_list();
-    let (elements, offsets, sizes, validity) = list_view.into_parts();
-    let offset_dtype = DType::Primitive(O::PTYPE, Nullability::NonNullable);
-    let list_view = unsafe {
-        ListViewArray::new_unchecked(
-            (*elements).clone().into_array(elements_dtype),
-            offsets.cast(&offset_dtype)?.into_array(&offset_dtype),
-            sizes.cast(&offset_dtype)?.into_array(&offset_dtype),
-            Validity::from_mask(validity, nullability),
-        )
-    };
-
+    // Otherwise, we execute the array to become a ListViewArray.
+    let list_view = array.execute::<ListViewArray>(ctx)?;
     list_view_to_list::<O>(list_view, elements_field, ctx)
 
     // FIXME(ngates): we need this PR from arrow-rs:

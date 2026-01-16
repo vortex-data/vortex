@@ -6,22 +6,17 @@ use std::sync::Arc;
 use arrow_array::GenericListViewArray;
 use arrow_array::OffsetSizeTrait;
 use arrow_schema::FieldRef;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::cast::Cast;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability::NonNullable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_vector::Vector;
-use vortex_vector::listview::ListViewVector;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
@@ -37,25 +32,9 @@ pub(super) fn to_arrow_list_view<O: OffsetSizeTrait + IntegerPType>(
         Err(array) => array,
     };
 
-    // Otherwise, we execute as a vector and convert.
-    let mut vector = array
-        .execute::<Vector>(ctx)?
-        .into_list_opt()
-        .ok_or_else(|| vortex_err!("Failed to convert array to ListVector"))?;
-
-    // Ensure the offset type matches.
-    if vector.offsets().ptype() != O::PTYPE || vector.sizes().ptype() != O::PTYPE {
-        let (elements, offsets, sizes, validity) = vector.into_parts();
-        let offsets = offsets
-            .cast(&DType::Primitive(O::PTYPE, NonNullable))?
-            .into_primitive();
-        let sizes = sizes
-            .cast(&DType::Primitive(O::PTYPE, NonNullable))?
-            .into_primitive();
-        vector = unsafe { ListViewVector::new_unchecked(elements, offsets, sizes, validity) };
-    }
-
-    Ok(Arc::new(vector.into_arrow()?))
+    // Otherwise, we execute to ListViewArray and convert.
+    let list_view_array = array.execute::<ListViewArray>(ctx)?;
+    list_view_to_list_view::<O>(list_view_array, elements_field, ctx)
 }
 
 fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
@@ -73,14 +52,12 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute::<Canonical>(ctx)?
-        .into_primitive()
+        .execute::<PrimitiveArray>(ctx)?
         .to_buffer::<O>()
         .into_arrow_scalar_buffer();
     let sizes = sizes
         .cast(DType::Primitive(O::PTYPE, NonNullable))?
-        .execute::<Canonical>(ctx)?
-        .into_primitive()
+        .execute::<PrimitiveArray>(ctx)?
         .to_buffer::<O>()
         .into_arrow_scalar_buffer();
 
