@@ -6,11 +6,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use pyo3::Python;
-use pyo3::exceptions::PyValueError;
 use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
-use pyo3::types::PyType;
 use vortex::array::ArrayBufferVisitor;
 use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
@@ -24,7 +22,6 @@ use vortex::array::stats::StatsSetRef;
 use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
-use vortex::array::vtable::ArrayVTable;
 use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::CanonicalVTable;
 use vortex::array::vtable::ComputeVTable;
@@ -52,32 +49,6 @@ vtable!(Python);
 #[derive(Debug)]
 pub struct PythonVTable;
 
-/// Convert a Python class into a [`PythonVTable`].
-impl<'py> FromPyObject<'_, 'py> for PythonVTable {
-    type Error = PyErr;
-
-    fn extract(ob: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        let cls = ob.cast::<PyType>()?;
-
-        let id = ArrayId::new_arc(
-            cls.getattr("id")
-                .map_err(|_| {
-                    PyValueError::new_err(format!(
-                        "PyEncoding subclass {cls:?} must have an 'id' attribute"
-                    ))
-                })?
-                .extract::<String>()
-                .map_err(|_| PyValueError::new_err("'id' attribute must be a string"))?
-                .into(),
-        );
-
-        Ok(PythonVTable {
-            id,
-            cls: cls.to_owned().unbind(),
-        })
-    }
-}
-
 impl VTable for PythonVTable {
     type Array = PythonArray;
 
@@ -91,12 +62,8 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
 
-    fn id(_array: &Self::Array) -> ArrayId {
-        self.id.clone()
-    }
-
-    fn encoding(array: &Self::Array) -> ArrayVTable {
-        array.vtable.clone()
+    fn id(array: &Self::Array) -> ArrayId {
+        array.id.clone()
     }
 
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
@@ -161,14 +128,14 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
 
     fn array_hash<H: std::hash::Hasher>(array: &PythonArray, state: &mut H, _precision: Precision) {
         Arc::as_ptr(&array.object).hash(state);
-        array.vtable.id().hash(state);
+        array.id.hash(state);
         array.len.hash(state);
         array.dtype.hash(state);
     }
 
     fn array_eq(array: &PythonArray, other: &PythonArray, _precision: Precision) -> bool {
         Arc::ptr_eq(&array.object, &other.object)
-            && array.vtable == other.vtable
+            && array.id == other.id
             && array.len == other.len
             && array.dtype == other.dtype
     }
@@ -233,7 +200,10 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
 }
 
 impl EncodeVTable<PythonVTable> for PythonVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        _canonical: &Canonical,
+        _like: Option<&PythonArray>,
+    ) -> VortexResult<Option<PythonArray>> {
         todo!()
     }
 }

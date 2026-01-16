@@ -111,7 +111,6 @@ use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_bytebool::ByteBoolVTable;
 use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;

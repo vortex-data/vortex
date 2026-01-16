@@ -9,10 +9,9 @@ use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
 use vortex::array::stats::ArrayStats;
+use vortex::array::vtable::ArrayId;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
-use vortex_array::session::ArrayRegistry;
-use vortex_array::vtable::ArrayId;
 
 use crate::arrays::py::PyPythonArray;
 
@@ -37,8 +36,8 @@ impl<'py> FromPyObject<'_, 'py> for PythonArray {
         let ob_cast = ob.cast::<PyPythonArray>()?;
         let python_array = ob_cast.get();
         Ok(Self {
+            id: python_array.id.clone(),
             object: Arc::new(ob.to_owned().unbind()),
-            vtable: python_array.vtable.clone(),
             len: python_array.len,
             dtype: python_array.dtype.clone(),
             stats: python_array.stats.clone(),

@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use pyo3::conversion::FromPyObject;
 use pyo3::prelude::*;
 use pyo3::types::PyType;
 use vortex::array::stats::ArrayStats;
+use vortex::array::vtable::ArrayId;
 use vortex::dtype::DType;
-use vortex_array::vtable::ArrayId;
 
 use crate::arrays::PyArray;
-use crate::arrays::py::PythonVTable;
+use crate::arrays::py::id_from_obj;
 use crate::dtype::PyDType;
 
 /// Base class for implementing a Vortex encoding in Python.
@@ -33,9 +32,9 @@ impl PyPythonArray {
         len: usize,
         dtype: PyDType,
     ) -> PyResult<PyClassInitializer<Self>> {
-        let vtable = PythonVTable::extract(cls.as_any().as_borrowed())?.into_vtable();
+        let id = id_from_obj(cls)?;
         Ok(PyClassInitializer::from(PyArray).add_subclass(Self {
-            vtable,
+            id,
             len,
             dtype: dtype.into_inner(),
             stats: Default::default(),

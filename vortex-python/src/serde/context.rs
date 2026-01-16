@@ -7,6 +7,9 @@ use itertools::Itertools;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::ArrayContext;
+use vortex::array::session::ArraySessionExt;
+
+use crate::SESSION;
 
 /// An ArrayContext captures an ordered set of encodings.
 ///
@@ -33,14 +36,14 @@ impl Deref for PyArrayContext {
 impl PyArrayContext {
     #[new]
     fn new() -> Self {
-        Self(ArrayContext::empty())
+        Self(ArrayContext::empty(SESSION.arrays().registry().clone()))
     }
 
     fn __str__(&self) -> String {
-        self.0.encodings().iter().join(", ")
+        self.0.ids().iter().join(", ")
     }
 
     fn __len__(&self) -> usize {
-        self.encodings().len()
+        self.ids().len()
     }
 }
