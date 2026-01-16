@@ -312,6 +312,7 @@ impl PyArray {
     ///   3
     /// ]
     /// ```
+    ///
     fn to_arrow_array<'py>(self_: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
@@ -586,10 +587,11 @@ impl PyArray {
     /// Keep only the first and third elements:
     ///
     /// ```python
+    /// >>> import vortex as vx
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringArray object at ...>
+    /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
     ///   "c"
@@ -602,7 +604,7 @@ impl PyArray {
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 1, 1, 0])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringArray object at ...>
+    /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
     ///   "b",
