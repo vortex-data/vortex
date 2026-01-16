@@ -222,7 +222,6 @@ mod tests {
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;

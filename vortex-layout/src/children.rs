@@ -150,7 +150,7 @@ impl LayoutChildren for ViewedLayoutChildren {
             array_ctx: self.array_ctx.clone(),
             layout_ctx: self.layout_ctx.clone(),
         };
-        let encoding = self
+        let (_encoding_id, encoding) = self
             .layout_ctx
             .lookup_encoding(fb_child.encoding())
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;

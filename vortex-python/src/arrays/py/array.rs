@@ -9,9 +9,10 @@ use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::prelude::*;
 use vortex::array::stats::ArrayStats;
-use vortex::array::vtable::ArrayVTable;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
+use vortex_array::session::ArrayRegistry;
+use vortex_array::vtable::ArrayId;
 
 use crate::arrays::py::PyPythonArray;
 
@@ -22,8 +23,8 @@ use crate::arrays::py::PyPythonArray;
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PythonArray {
+    pub(super) id: ArrayId,
     pub(super) object: Arc<Py<PyAny>>,
-    pub(super) vtable: ArrayVTable,
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) stats: ArrayStats,

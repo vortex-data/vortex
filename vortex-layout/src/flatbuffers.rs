@@ -49,7 +49,7 @@ pub fn layout_from_flatbuffer(
     array_ctx: &ArrayContext,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
-    let encoding = layout_ctx
+    let (_encoding_id, encoding) = layout_ctx
         .lookup_encoding(fb_layout.encoding())
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
@@ -138,7 +138,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let segments = (!segments.is_empty()).then(|| fbb.create_vector(&segments));
 
         // Dictionary-encode the layout ID
-        let encoding = self.ctx.encoding_idx(&self.layout.encoding());
+        let encoding = self.ctx.encoding_idx(&self.layout.encoding_id());
 
         layout::Layout::create(
             fbb,

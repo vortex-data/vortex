@@ -45,17 +45,12 @@ use vortex::scalar::Scalar;
 
 use crate::arrays::py::PythonArray;
 
-pub const Python: ArrayId = ArrayId::new_ref("vortex.Python");
-
 vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
 #[allow(dead_code)]
 #[derive(Debug)]
-pub struct PythonVTable {
-    pub(super) id: ArrayId,
-    pub(super) cls: Py<PyType>,
-}
+pub struct PythonVTable;
 
 /// Convert a Python class into a [`PythonVTable`].
 impl<'py> FromPyObject<'_, 'py> for PythonVTable {

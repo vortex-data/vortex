@@ -401,6 +401,7 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
+    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
@@ -420,7 +421,7 @@ mod test {
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(

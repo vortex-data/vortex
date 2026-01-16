@@ -56,6 +56,7 @@ mod test {
 
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
+    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_dtype::FieldPath;
     use vortex_io::runtime::single::block_on;
@@ -70,7 +71,7 @@ mod test {
     use crate::test::SCAN_SESSION;
 
     fn reader() -> LayoutReaderRef {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SCAN_SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let layout = block_on(|handle| async {

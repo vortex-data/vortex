@@ -164,25 +164,26 @@ mod forever_constant {
 /// NOTE: this function will be changed in the future to encapsulate logic for using different
 /// Vortex "Editions" that may support different sets of encodings.
 pub fn register_default_encodings(session: &mut VortexSession) {
-    session.arrays().register_many([
-        ALPVTable::vtable(),
-        ALPRDVTable::vtable(),
-        BitPackedVTable::vtable(),
-        ByteBoolVTable::vtable(),
-        DateTimePartsVTable::vtable(),
-        DecimalBytePartsVTable::vtable(),
-        DeltaVTable::vtable(),
-        DictVTable::vtable(),
-        FSSTVTable::vtable(),
-        FoRVTable::vtable(),
-        PcoVTable::vtable(),
-        RLEVTable::vtable(),
-        SequenceVTable::vtable(),
-        SparseVTable::vtable(),
-        ZigZagVTable::vtable(),
+    {
+        let arrays = session.arrays();
+        arrays.register(ALPVTable::ID, ALPVTable);
+        arrays.register(ALPRDVTable::ID, ALPRDVTable);
+        arrays.register(BitPackedVTable::ID, BitPackedVTable);
+        arrays.register(ByteBoolVTable::ID, ByteBoolVTable);
+        arrays.register(DateTimePartsVTable::ID, DateTimePartsVTable);
+        arrays.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
+        arrays.register(DeltaVTable::ID, DeltaVTable);
+        arrays.register(DictVTable::ID, DictVTable);
+        arrays.register(FSSTVTable::ID, FSSTVTable);
+        arrays.register(FoRVTable::ID, FoRVTable);
+        arrays.register(PcoVTable::ID, PcoVTable);
+        arrays.register(RLEVTable::ID, RLEVTable);
+        arrays.register(SequenceVTable::ID, SequenceVTable);
+        arrays.register(SparseVTable::ID, SparseVTable);
+        arrays.register(ZigZagVTable::ID, ZigZagVTable);
         #[cfg(feature = "zstd")]
-        vortex_zstd::ZstdVTable::vtable(),
-    ]);
+        arrays.register(vortex_zstd::ZstdVTable::ID, vortex_zstd::ZstdVTable);
+    }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only
     // a few of them.

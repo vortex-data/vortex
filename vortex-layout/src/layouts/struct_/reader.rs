@@ -398,6 +398,7 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -420,7 +421,7 @@ mod tests {
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -454,7 +455,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(
@@ -489,7 +490,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -531,7 +532,7 @@ mod tests {
     /// |`{"b": {"c": 6 }}`|
     #[fixture]
     fn nested_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(

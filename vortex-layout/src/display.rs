@@ -220,6 +220,7 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::serde::ArrayParts;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -242,13 +243,14 @@ mod tests {
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::strategy::LayoutStrategy;
+    use crate::test::SESSION;
 
     /// Test display_tree with inline array_tree metadata (no segment source needed).
     #[test]
     fn test_display_tree_inline_array_tree() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
         block_on(|handle| async move {
-            let ctx = ArrayContext::empty();
+            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
             let segments = Arc::new(TestSegments::default());
 
             // Create nullable i64 array (2 buffers: data + validity)
@@ -339,7 +341,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
         // Ensure inline array node is disabled for this test
         let _guard = EnvVarGuard::remove("FLAT_LAYOUT_INLINE_ARRAY_NODE");
         block_on(|handle| async move {
-            let ctx = ArrayContext::empty();
+            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
             let segments = Arc::new(TestSegments::default());
 
             // Create simple i32 array
@@ -397,7 +399,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
     fn test_display_array_tree_with_inline_node() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
 
@@ -439,7 +441,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
     fn test_display_tree_without_inline_node() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-        let ctx = ArrayContext::empty();
+        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
 

@@ -254,6 +254,7 @@ mod tests {
     use vortex_array::expr::not;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
+    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::FieldName;
@@ -300,7 +301,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -383,7 +384,7 @@ mod tests {
             );
 
             let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
-            let ctx = ArrayContext::empty();
+            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -446,7 +447,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty();
+            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
