@@ -110,3 +110,129 @@ fn create_from_fields(
         ArrowStructArray::new_unchecked_with_length(fields.clone(), arrow_fields, null_buffer, len)
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use arrow_array::ArrayRef;
+    use arrow_array::PrimitiveArray as ArrowPrimitiveArray;
+    use arrow_array::StringViewArray;
+    use arrow_array::StructArray as ArrowStructArray;
+    use arrow_array::types::Int32Type;
+    use arrow_buffer::NullBuffer;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use vortex_buffer::buffer;
+    use vortex_dtype::FieldNames;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::StructArray;
+    use crate::arrow::IntoArrowArray;
+    use crate::arrow::compute::to_arrow;
+    use crate::validity::Validity;
+
+    #[test]
+    fn struct_nullable_non_null_to_arrow() -> VortexResult<()> {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs"]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )?;
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        struct_a.into_array().into_arrow(&arrow_dt)?;
+        Ok(())
+    }
+
+    #[test]
+    fn struct_nullable_with_nulls_to_arrow() -> VortexResult<()> {
+        let xs =
+            PrimitiveArray::from_option_iter(vec![Some(0_i64), Some(1), Some(2), None, Some(3)]);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs"]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )?;
+
+        let fields = vec![Field::new("xs", DataType::Int64, false)];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        assert!(struct_a.into_array().into_arrow(&arrow_dt).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn struct_to_arrow_with_schema_mismatch() -> VortexResult<()> {
+        let xs = PrimitiveArray::new(buffer![0i64, 1, 2, 3, 4], Validity::AllValid);
+
+        let struct_a = StructArray::try_new(
+            FieldNames::from(["xs"]),
+            vec![xs.into_array()],
+            5,
+            Validity::AllValid,
+        )?;
+
+        let fields = vec![
+            Field::new("xs", DataType::Int8, false),
+            Field::new("ys", DataType::Int64, false),
+        ];
+        let arrow_dt = DataType::Struct(fields.into());
+
+        let err = struct_a.into_array().into_arrow(&arrow_dt).err().unwrap();
+        assert!(
+            err.to_string()
+                .contains("StructArray has 1 fields, but target Arrow type has 2 fields")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow() -> VortexResult<()> {
+        let array = StructArray::from_fields(
+            vec![
+                (
+                    "a",
+                    PrimitiveArray::from_option_iter(vec![Some(1), None, Some(2)]).into_array(),
+                ),
+                (
+                    "b",
+                    arrays::VarBinViewArray::from_iter_str(vec!["a", "b", "c"]).into_array(),
+                ),
+            ]
+            .as_slice(),
+        )?;
+
+        let arrow_array: ArrayRef = Arc::new(ArrowStructArray::try_from(vec![
+            (
+                "a",
+                Arc::new(
+                    ArrowPrimitiveArray::<Int32Type>::from_iter_values_with_nulls(
+                        vec![1, 0, 2],
+                        Some(NullBuffer::from(vec![true, false, true])),
+                    ),
+                ) as ArrayRef,
+            ),
+            (
+                "b",
+                Arc::new(StringViewArray::from(vec![Some("a"), Some("b"), Some("c")])),
+            ),
+        ])?);
+
+        assert_eq!(
+            &to_arrow(array.as_ref(), &array.dtype().to_arrow_dtype()?)?,
+            &arrow_array
+        );
+        Ok(())
+    }
+}

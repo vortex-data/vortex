@@ -221,3 +221,114 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
         null_buffer,
     )))
 }
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Array;
+    use arrow_array::GenericListArray;
+    use arrow_schema::DataType;
+    use arrow_schema::Field;
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::ListViewArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrow::IntoArrowArray;
+    use crate::validity::Validity;
+
+    #[test]
+    fn test_to_arrow_list_i32() -> VortexResult<()> {
+        // Create a ListViewArray with i32 elements: [[1, 2, 3], [4, 5]]
+        let elements = PrimitiveArray::new(buffer![1i32, 2, 3, 4, 5], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i32, 3], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![3i32, 2], Validity::NonNullable);
+
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::AllValid,
+            )
+            .with_zero_copy_to_list(true)
+        };
+
+        // Convert to Arrow List with i32 offsets.
+        let field = Field::new("item", DataType::Int32, false);
+        let arrow_dt = DataType::List(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i32>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_null(0));
+        assert!(!list.is_null(1));
+
+        // Verify the values in the first list.
+        let first_list = list.value(0);
+        assert_eq!(first_list.len(), 3);
+        let first_values = first_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(first_values.value(0), 1);
+        assert_eq!(first_values.value(1), 2);
+        assert_eq!(first_values.value(2), 3);
+
+        // Verify the values in the second list.
+        let second_list = list.value(1);
+        assert_eq!(second_list.len(), 2);
+        let second_values = second_list
+            .as_any()
+            .downcast_ref::<arrow_array::Int32Array>()
+            .unwrap();
+        assert_eq!(second_values.value(0), 4);
+        assert_eq!(second_values.value(1), 5);
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_list_i64() -> VortexResult<()> {
+        // Create a ListViewArray with i64 offsets: [[10, 20], [30]]
+        let elements = PrimitiveArray::new(buffer![10i64, 20, 30], Validity::NonNullable);
+        let offsets = PrimitiveArray::new(buffer![0i64, 2], Validity::NonNullable);
+        let sizes = PrimitiveArray::new(buffer![2i64, 1], Validity::NonNullable);
+
+        let list_array = unsafe {
+            ListViewArray::new_unchecked(
+                elements.into_array(),
+                offsets.into_array(),
+                sizes.into_array(),
+                Validity::AllValid,
+            )
+            .with_zero_copy_to_list(true)
+        };
+
+        // Convert to Arrow LargeList with i64 offsets.
+        let field = Field::new("item", DataType::Int64, false);
+        let arrow_dt = DataType::LargeList(field.into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+
+        // Verify the type is correct.
+        assert_eq!(arrow_array.data_type(), &arrow_dt);
+
+        // Downcast and verify the structure.
+        let list = arrow_array
+            .as_any()
+            .downcast_ref::<GenericListArray<i64>>()
+            .unwrap();
+
+        assert_eq!(list.len(), 2);
+        assert!(!list.is_null(0));
+        assert!(!list.is_null(1));
+        Ok(())
+    }
+}
