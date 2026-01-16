@@ -45,6 +45,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -200,9 +201,8 @@ impl VTable for FSSTVTable {
                     array.dtype().clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    array
-                        .codes()
-                        .slice(range.clone())
+                    VarBinVTable::slice(array.codes().as_::<VarBinVTable>(), range.clone())?
+                        .vortex_expect("varbin slice cannot fail")
                         .as_::<VarBinVTable>()
                         .clone(),
                     array.uncompressed_lengths().slice(range),
