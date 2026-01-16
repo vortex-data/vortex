@@ -369,16 +369,10 @@ impl dyn Array + '_ {
     }
 
     pub fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts {
-            cost: Cost::Specialized,
-        };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
+        self.is::<ConstantVTable>()
     }
 
+    // TODO(ngates): we should deprecate this and have callers use the compute function directly.
     pub fn is_constant_opts(&self, cost: Cost) -> bool {
         let opts = IsConstantOpts { cost };
         is_constant_opts(self, &opts)
@@ -389,7 +383,7 @@ impl dyn Array + '_ {
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant().then(|| self.scalar_at(0))
+        self.as_opt::<ConstantVTable>().map(|a| a.scalar().clone())
     }
 
     /// Total size of the array in bytes, including all children and buffers.
