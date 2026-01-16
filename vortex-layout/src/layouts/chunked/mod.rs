@@ -26,6 +26,8 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
 
+pub const Chunked: ArrayId = ArrayId::new_ref("vortex.Chunked");
+
 vtable!(Chunked);
 
 impl VTable for ChunkedVTable {

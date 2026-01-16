@@ -37,6 +37,8 @@ mod rules;
 mod validity;
 mod visitor;
 
+pub const Dict: ArrayId = ArrayId::new_ref("vortex.Dict");
+
 vtable!(Dict);
 
 #[derive(Debug)]

@@ -58,6 +58,8 @@ use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
 
+pub const Sequence: ArrayId = ArrayId::new_ref("vortex.Sequence");
+
 vtable!(Sequence);
 
 #[derive(Clone, prost::Message)]

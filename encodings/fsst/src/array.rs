@@ -52,6 +52,8 @@ use crate::fsst_compress;
 use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
 
+pub const FSST: ArrayId = ArrayId::new_ref("vortex.FSST");
+
 vtable!(FSST);
 
 #[derive(Clone, prost::Message)]

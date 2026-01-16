@@ -32,6 +32,8 @@ use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
 use crate::vtable;
 
+pub const Dict: ArrayId = ArrayId::new_ref("vortex.Dict");
+
 vtable!(Dict);
 
 impl VTable for DictVTable {

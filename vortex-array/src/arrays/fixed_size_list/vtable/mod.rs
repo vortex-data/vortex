@@ -25,6 +25,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const FixedSizeList: ArrayId = ArrayId::new_ref("vortex.FixedSizeList");
+
 vtable!(FixedSizeList);
 
 #[derive(Debug)]

@@ -29,6 +29,8 @@ mod rules;
 mod validity;
 mod visitor;
 
+pub const Constant: ArrayId = ArrayId::new_ref("vortex.Constant");
+
 vtable!(Constant);
 
 #[derive(Debug)]

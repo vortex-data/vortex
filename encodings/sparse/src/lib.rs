@@ -61,6 +61,8 @@ mod canonical;
 mod compute;
 mod ops;
 
+pub const Sparse: ArrayId = ArrayId::new_ref("vortex.Sparse");
+
 vtable!(Sparse);
 
 #[derive(Clone, prost::Message)]

@@ -29,6 +29,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const VarBin: ArrayId = ArrayId::new_ref("vortex.VarBin");
+
 vtable!(VarBin);
 
 #[derive(Clone, prost::Message)]

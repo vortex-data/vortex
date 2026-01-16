@@ -37,6 +37,8 @@ pub use rules::DecimalMaskedValidityRule;
 use crate::arrays::decimal::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
+pub const Decimal: ArrayId = ArrayId::new_ref("vortex.Decimal");
+
 vtable!(Decimal);
 
 // The type of the values can be determined by looking at the type info...right?

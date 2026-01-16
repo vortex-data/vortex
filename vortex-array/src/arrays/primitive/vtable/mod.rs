@@ -32,6 +32,8 @@ use vortex_buffer::Alignment;
 use crate::arrays::primitive::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
+pub const Primitive: ArrayId = ArrayId::new_ref("vortex.Primitive");
+
 vtable!(Primitive);
 
 impl VTable for PrimitiveVTable {

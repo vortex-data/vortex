@@ -28,6 +28,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const RLE: ArrayId = ArrayId::new_ref("vortex.RLE");
+
 vtable!(RLE);
 
 #[derive(Clone, prost::Message)]

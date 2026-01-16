@@ -45,6 +45,8 @@ use vortex::scalar::Scalar;
 
 use crate::arrays::py::PythonArray;
 
+pub const Python: ArrayId = ArrayId::new_ref("vortex.Python");
+
 vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.

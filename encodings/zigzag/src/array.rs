@@ -46,6 +46,8 @@ use crate::compute::ZigZagEncoded;
 use crate::zigzag_decode;
 use crate::zigzag_encode;
 
+pub const ZigZag: ArrayId = ArrayId::new_ref("vortex.ZigZag");
+
 vtable!(ZigZag);
 
 impl VTable for ZigZagVTable {

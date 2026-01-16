@@ -47,6 +47,8 @@ use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
+pub const ScalarFn: ArrayId = ArrayId::new_ref("vortex.ScalarFn");
+
 vtable!(ScalarFn);
 
 #[derive(Clone, Debug)]

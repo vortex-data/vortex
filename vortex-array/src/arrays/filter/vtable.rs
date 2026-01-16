@@ -45,6 +45,8 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
+pub const Filter: ArrayId = ArrayId::new_ref("vortex.Filter");
+
 vtable!(Filter);
 
 #[derive(Debug)]

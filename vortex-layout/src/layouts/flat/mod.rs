@@ -35,6 +35,8 @@ pub(super) fn flat_layout_inline_array_node() -> bool {
     env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok()
 }
 
+pub const Flat: ArrayId = ArrayId::new_ref("vortex.Flat");
+
 vtable!(Flat);
 
 impl VTable for FlatVTable {

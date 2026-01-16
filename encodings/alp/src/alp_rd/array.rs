@@ -50,6 +50,8 @@ use vortex_error::vortex_err;
 
 use crate::alp_rd::alp_rd_decode;
 
+pub const ALPRD: ArrayId = ArrayId::new_ref("vortex.ALPRD");
+
 vtable!(ALPRD);
 
 #[derive(Clone, prost::Message)]

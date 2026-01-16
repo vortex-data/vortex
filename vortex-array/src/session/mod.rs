@@ -3,6 +3,7 @@
 
 use vortex_session::Ref;
 use vortex_session::SessionExt;
+use vortex_session::registry::Identify;
 use vortex_session::registry::Registry;
 
 use crate::arrays::BoolVTable;
@@ -35,7 +36,7 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register(&self, encoding: ArrayVTable) {
+    pub fn register<T: DynVTable + Identify>(&self, encoding: &T) {
         self.registry.register(encoding)
     }
 
@@ -64,7 +65,7 @@ impl Default for ArraySession {
 
         // Register the utility encodings.
         encodings.register_many([
-            ChunkedVTable.as_vtable(),
+            (Chunked, ChunkedVTable).as_vtable(),
             ConstantVTable.as_vtable(),
             MaskedVTable.as_vtable(),
             ListVTable.as_vtable(),

@@ -51,6 +51,8 @@ use vortex_scalar::Scalar;
 
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
+pub const DecimalByteParts: ArrayId = ArrayId::new_ref("vortex.DecimalByteParts");
+
 vtable!(DecimalByteParts);
 
 #[derive(Clone, prost::Message)]

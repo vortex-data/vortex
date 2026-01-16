@@ -31,6 +31,8 @@ mod visitor;
 
 use crate::vtable::ArrayId;
 
+pub const Struct: ArrayId = ArrayId::new_ref("vortex.Struct");
+
 vtable!(Struct);
 
 impl VTable for StructVTable {

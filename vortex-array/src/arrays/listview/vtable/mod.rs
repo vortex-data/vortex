@@ -31,6 +31,8 @@ mod rules;
 mod validity;
 mod visitor;
 
+pub const ListView: ArrayId = ArrayId::new_ref("vortex.ListView");
+
 vtable!(ListView);
 
 #[derive(Debug)]

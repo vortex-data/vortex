@@ -34,6 +34,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const List: ArrayId = ArrayId::new_ref("vortex.List");
+
 vtable!(List);
 
 #[derive(Clone, prost::Message)]

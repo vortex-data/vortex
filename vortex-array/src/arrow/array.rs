@@ -42,6 +42,8 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
+pub const Arrow: ArrayId = ArrayId::new_ref("vortex.Arrow");
+
 vtable!(Arrow);
 
 impl VTable for ArrowVTable {

@@ -49,6 +49,8 @@ use crate::alp::alp_encode;
 use crate::alp::decompress::decompress_into_array;
 use crate::alp::decompress::execute_decompress;
 
+pub const ALP: ArrayId = ArrayId::new_ref("vortex.ALP");
+
 vtable!(ALP);
 
 impl VTable for ALPVTable {

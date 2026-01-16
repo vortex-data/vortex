@@ -34,6 +34,8 @@ use crate::vtable::VisitorVTable;
 
 mod compute;
 
+pub const Null: ArrayId = ArrayId::new_ref("vortex.Null");
+
 vtable!(Null);
 
 impl VTable for NullVTable {

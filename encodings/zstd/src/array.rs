@@ -84,6 +84,8 @@ type ViewLen = u32;
 // We then insert these values to the correct position using a primitive array
 // constructor.
 
+pub const Zstd: ArrayId = ArrayId::new_ref("vortex.Zstd");
+
 vtable!(Zstd);
 
 impl VTable for ZstdVTable {

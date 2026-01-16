@@ -26,6 +26,8 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
 
+pub const Extension: ArrayId = ArrayId::new_ref("vortex.Extension");
+
 vtable!(Extension);
 
 impl VTable for ExtensionVTable {

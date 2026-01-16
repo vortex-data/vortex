@@ -30,6 +30,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const VarBinView: ArrayId = ArrayId::new_ref("vortex.VarBinView");
+
 vtable!(VarBinView);
 
 #[derive(Debug)]

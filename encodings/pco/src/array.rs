@@ -86,6 +86,8 @@ use crate::PcoPageInfo;
 
 const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
+pub const Pco: ArrayId = ArrayId::new_ref("vortex.Pco");
+
 vtable!(Pco);
 
 impl VTable for PcoVTable {

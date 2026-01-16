@@ -8,16 +8,18 @@ use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
+use arcref::ArcRef;
 use vortex_utils::aliases::dash_map::DashMap;
 
-pub trait Identifed {
+pub trait Identify {
+    /// Returns the identifier of this item.
     fn id(&self) -> ArcRef<str>;
 }
 
 /// A registry of items that are keyed by a string identifier.
 // TODO(ngates): define a RegistryItem trait that has a custom key to avoid to_string calls.
 #[derive(Clone, Debug)]
-pub struct Registry<T>(Arc<DashMap<Arc<str>, T>>);
+pub struct Registry<T>(Arc<DashMap<ArcRef<str>, T>>);
 
 impl<T> Default for Registry<T> {
     fn default() -> Self {
@@ -38,25 +40,31 @@ impl<T: Clone + Display + Eq> Registry<T> {
     /// Return the items with the given IDs.
     pub fn find_many<'a>(
         &self,
-        ids: impl IntoIterator<Item = &'a str>,
+        ids: impl IntoIterator<Item = &'a ArcRef<str>>,
     ) -> impl Iterator<Item = Option<impl Deref<Target = T>>> {
         ids.into_iter().map(|id| self.0.get(id))
     }
 
     /// Find the item with the given ID.
-    pub fn find(&self, id: &str) -> Option<T> {
+    pub fn find(&self, id: &ArcRef<str>) -> Option<T> {
         self.0.get(id).as_deref().cloned()
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&self, id: Arc<str>, item: T) {
-        self.0.insert(id, item);
+    pub fn register(&self, item: T)
+    where
+        T: Identify,
+    {
+        self.0.insert(item.id(), item);
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register_many<I: IntoIterator<Item = (Arc<str>, T)>>(&self, items: I) {
-        for (id, item) in items {
-            self.0.insert(id, item);
+    pub fn register_many<I: IntoIterator<Item = T>>(&self, items: I)
+    where
+        T: Identify,
+    {
+        for item in items {
+            self.0.insert(item.id(), item);
         }
     }
 }

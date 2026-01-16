@@ -38,6 +38,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const BitPacked: ArrayId = ArrayId::new_ref("vortex.BitPacked");
+
 vtable!(BitPacked);
 
 #[derive(Clone, prost::Message)]

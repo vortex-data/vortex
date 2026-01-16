@@ -33,6 +33,8 @@ pub use rules::BoolMaskedValidityRule;
 use crate::arrays::bool::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
+pub const Bool: ArrayId = ArrayId::new_ref("vortex.Bool");
+
 vtable!(Bool);
 
 #[derive(prost::Message)]

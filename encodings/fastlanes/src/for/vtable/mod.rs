@@ -34,6 +34,8 @@ mod rules;
 mod validity;
 mod visitor;
 
+pub const FoR: ArrayId = ArrayId::new_ref("vortex.FoR");
+
 vtable!(FoR);
 
 impl VTable for FoRVTable {

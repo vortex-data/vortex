@@ -33,6 +33,8 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
 
+pub const Masked: ArrayId = ArrayId::new_ref("vortex.Masked");
+
 vtable!(Masked);
 
 #[derive(Debug)]

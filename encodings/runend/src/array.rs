@@ -48,6 +48,8 @@ use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
 use crate::rules::RULES;
 
+pub const RunEnd: ArrayId = ArrayId::new_ref("vortex.RunEnd");
+
 vtable!(RunEnd);
 
 #[derive(Clone, prost::Message)]

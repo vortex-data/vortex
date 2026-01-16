@@ -50,7 +50,7 @@ use crate::serde::ArrayChildren;
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug + Default {
+pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Metadata: Debug;
 

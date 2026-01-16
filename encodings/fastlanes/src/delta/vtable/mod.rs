@@ -29,6 +29,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+pub const Delta: ArrayId = ArrayId::new_ref("vortex.Delta");
+
 vtable!(Delta);
 
 #[derive(Clone, prost::Message)]

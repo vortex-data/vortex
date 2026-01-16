@@ -42,6 +42,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
+pub const ByteBool: ArrayId = ArrayId::new_ref("vortex.ByteBool");
+
 vtable!(ByteBool);
 
 impl VTable for ByteBoolVTable {

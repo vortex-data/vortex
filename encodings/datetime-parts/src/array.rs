@@ -42,6 +42,8 @@ use vortex_error::vortex_err;
 
 use crate::compute::rules::PARENT_RULES;
 
+pub const DateTimeParts: ArrayId = ArrayId::new_ref("vortex.DateTimeParts");
+
 vtable!(DateTimeParts);
 
 #[derive(Clone, prost::Message)]
