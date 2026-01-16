@@ -203,7 +203,7 @@ impl VTable for SequenceVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        Self::ID.clone()
+        Self::ID
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {

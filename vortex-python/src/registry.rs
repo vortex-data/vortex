@@ -29,6 +29,8 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 #[pyfunction]
 pub(crate) fn register(cls: &Bound<PyAny>) -> PyResult<()> {
     let id = id_from_obj(cls)?;
+    // TODO(ngates): we would need to register the Python class object in a PyVortexSession
+    //  to call back into it during deserialize operations.
     SESSION.arrays().register(id, PythonVTable);
     Ok(())
 }
