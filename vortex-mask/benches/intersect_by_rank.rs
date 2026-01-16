@@ -153,3 +153,38 @@ fn density_portable(bencher: Bencher, (self_density, mask_density, _name): (f64,
     let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
     bencher.bench(|| base.intersect_by_rank_portable(&rank));
 }
+
+/// Original (pre-PR) with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_original(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_original(&rank));
+}
+
+/// Unrolled 2x with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_unrolled(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_unrolled(&rank));
+}
+
+/// Streaming (no alloc) with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_streaming(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_streaming(&rank));
+}
+
+/// Fully broadword-based (no trailing_zeros) with density matrix
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_broadword(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_broadword(&rank));
+}
+
+/// Arrow-style with inlined trailing_zeros
+#[divan::bench(args = DENSITY_MATRIX_ARGS)]
+fn density_arrow(bencher: Bencher, (self_density, mask_density, _name): (f64, f64, &str)) {
+    let (base, rank) = create_density_matrix_fixture(100_000, self_density, mask_density);
+    bencher.bench(|| base.intersect_by_rank_arrow(&rank));
+}
