@@ -1,0 +1,185 @@
+# ISA Threshold Detection Workflow
+#
+# Runs benchmarks across multiple CPU architectures to find crossover points
+# where one algorithm implementation becomes faster than another.
+#
+# This workflow uses RunsOn for AWS EC2 spot instances.
+
+name: ISA Thresholds
+
+on:
+  workflow_dispatch:
+    inputs:
+      iterations:
+        description: 'Number of benchmark iterations'
+        default: '100'
+        type: string
+      seed:
+        description: 'Random seed for reproducibility'
+        default: '42'
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  benchmark:
+    name: Benchmark (${{ matrix.name }})
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Intel Sapphire Rapids (c7i - Ice Lake derivative)
+          - name: intel-sapphire
+            runner: "runs-on=${{ github.run_id }},family=c7i,cpu=4,spot=true,image=ubuntu24-full-x64"
+            arch: x86_64
+
+          # AMD Genoa (c7a - Zen 4)
+          - name: amd-genoa
+            runner: "runs-on=${{ github.run_id }},family=c7a,cpu=4,spot=true,image=ubuntu24-full-x64"
+            arch: x86_64
+
+          # AWS Graviton 3 (c7g - ARM Neoverse V1)
+          - name: graviton3
+            runner: "runs-on=${{ github.run_id }},family=c7g,cpu=4,spot=true,image=ubuntu24-full-arm64"
+            arch: aarch64
+
+          # Intel Ice Lake (c6i)
+          - name: intel-icelake
+            runner: "runs-on=${{ github.run_id }},family=c6i,cpu=4,spot=true,image=ubuntu24-full-x64"
+            arch: x86_64
+
+          # AMD Milan (c6a - Zen 3)
+          - name: amd-milan
+            runner: "runs-on=${{ github.run_id }},family=c6a,cpu=4,spot=true,image=ubuntu24-full-x64"
+            arch: x86_64
+
+          # AWS Graviton 2 (c6g - ARM Neoverse N1)
+          - name: graviton2
+            runner: "runs-on=${{ github.run_id }},family=c6g,cpu=4,spot=true,image=ubuntu24-full-arm64"
+            arch: aarch64
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build threshold-runner
+        shell: bash
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+        run: |
+          cargo build --release -p vortex-threshold-runner
+
+      - name: Run benchmarks
+        shell: bash
+        env:
+          RUST_BACKTRACE: full
+        run: |
+          ./target/release/threshold-runner \
+            --output results-${{ matrix.name }}.json \
+            --iterations ${{ inputs.iterations || '100' }} \
+            --seed ${{ inputs.seed || '42' }}
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: results-${{ matrix.name }}
+          path: results-${{ matrix.name }}.json
+          retention-days: 30
+
+  aggregate:
+    name: Aggregate Results
+    needs: benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Flatten artifact directory
+        run: |
+          mkdir -p results
+          find artifacts -name '*.json' -exec cp {} results/ \;
+          ls -la results/
+
+      - name: Build threshold-aggregator
+        run: |
+          cargo build --release -p vortex-threshold-aggregator
+
+      - name: Aggregate results
+        run: |
+          ./target/release/threshold-aggregator \
+            --input-dir results/ \
+            --output thresholds/aggregated.json \
+            --generate-rust thresholds/generated.rs
+
+      - name: Upload aggregated results
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregated-thresholds
+          path: |
+            thresholds/aggregated.json
+            thresholds/generated.rs
+          retention-days: 90
+
+      - name: Create PR with updated thresholds
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create a new branch
+          BRANCH_NAME="isa-thresholds-$(date +%Y%m%d-%H%M%S)"
+          git checkout -b "$BRANCH_NAME"
+
+          # Stage the updated files
+          git add thresholds/
+
+          # Check if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Commit and push
+          git commit -m "Update ISA thresholds from benchmark run
+
+          Signed-off-by: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+
+          git push -u origin "$BRANCH_NAME"
+
+          # Create PR
+          gh pr create \
+            --title "Update ISA thresholds" \
+            --body "## Summary
+          - Updated ISA threshold tables from benchmark run
+          - Run ID: ${{ github.run_id }}
+          - Trigger: ${{ github.event_name }}
+
+          ## Test plan
+          - [ ] Review generated thresholds
+          - [ ] Verify thresholds are reasonable for each architecture
+          - [ ] Run affected benchmarks to validate improvements" \
+            --base develop \
+            --head "$BRANCH_NAME"

@@ -1,0 +1,17 @@
+[package]
+name = "vortex-threshold-traits"
+description = "Trait definitions for ISA threshold detection in Vortex"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true

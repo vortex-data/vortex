@@ -27,6 +27,9 @@ members = [
     "vortex-scan",
     "vortex-scalar",
     "vortex-session",
+    "vortex-threshold-aggregator",
+    "vortex-threshold-runner",
+    "vortex-threshold-traits",
     "vortex-tui",
     "vortex-utils",
     "vortex-vector",
@@ -251,6 +254,9 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
+vortex-threshold-aggregator = { path = "./vortex-threshold-aggregator" }
+vortex-threshold-runner = { path = "./vortex-threshold-runner" }
+vortex-threshold-traits = { path = "./vortex-threshold-traits" }
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
