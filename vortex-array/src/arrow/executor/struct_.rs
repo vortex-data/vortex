@@ -128,11 +128,13 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::IntoArrowArray;
-    use crate::arrow::compute::to_arrow;
     use crate::validity::Validity;
 
     #[test]
@@ -229,8 +231,11 @@ mod tests {
             ),
         ])?);
 
+        let arrow_dtype = array.dtype().to_arrow_dtype()?;
         assert_eq!(
-            &to_arrow(array.as_ref(), &array.dtype().to_arrow_dtype()?)?,
+            &array
+                .into_array()
+                .execute_arrow(&arrow_dtype, &mut LEGACY_SESSION.create_execution_ctx())?,
             &arrow_array
         );
         Ok(())

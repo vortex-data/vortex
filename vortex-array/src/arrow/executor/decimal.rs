@@ -199,12 +199,16 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DecimalDType;
+    use vortex_dtype::DecimalType;
     use vortex_dtype::NativeDecimalType;
     use vortex_error::VortexResult;
 
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array::IntoArray;
     use crate::arrays::DecimalArray;
+    use crate::arrow::ArrowArrayExecutor;
     use crate::arrow::IntoArrowArray;
-    use crate::arrow::compute::to_arrow;
     use crate::builders::ArrayBuilder;
     use crate::builders::DecimalBuilder;
     use crate::validity::Validity;
@@ -217,7 +221,10 @@ mod tests {
             DecimalDType::new(19, 2),
             Validity::NonNullable,
         );
-        let arrow = to_arrow(decimal_vortex.as_ref(), &DataType::Decimal128(19, 2))?;
+        let arrow = decimal_vortex.into_array().execute_arrow(
+            &DataType::Decimal128(19, 2),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
         let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
         assert_eq!(
