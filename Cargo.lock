@@ -10733,6 +10733,7 @@ dependencies = [
 name = "vortex-session"
 version = "0.1.0"
 dependencies = [
+ "arcref",
  "dashmap",
  "vortex-error",
  "vortex-utils",

@@ -10,11 +10,7 @@ use crate::BitPackedVTable;
 use crate::bitpack_compress;
 
 impl EncodeVTable<BitPackedVTable> for BitPackedVTable {
-    fn encode(
-        _vtable: &BitPackedVTable,
-        canonical: &Canonical,
-        like: Option<&BitPackedArray>,
-    ) -> VortexResult<Option<BitPackedArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
 
         let bit_width = like

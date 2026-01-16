@@ -19,10 +19,9 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
+use crate::vtable::DynVTable;
 
-pub type ArrayRegistry = Registry<ArrayVTable>;
+pub type ArrayRegistry = Registry<&'static dyn DynVTable>;
 
 #[derive(Debug)]
 pub struct ArraySession {

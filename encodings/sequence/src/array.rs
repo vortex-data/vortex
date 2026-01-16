@@ -204,12 +204,8 @@ impl VTable for SequenceVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.sequence")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SequenceVTable.as_vtable()
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -230,7 +226,6 @@ impl VTable for SequenceVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -435,11 +430,7 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 pub struct SequenceVTable;
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
-    fn encode(
-        _vtable: &SequenceVTable,
-        _canonical: &Canonical,
-        _like: Option<&SequenceArray>,
-    ) -> VortexResult<Option<SequenceArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         // TODO(joe): hook up compressor
         Ok(None)
     }

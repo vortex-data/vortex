@@ -20,6 +20,7 @@ all-features = true
 workspace = true
 
 [dependencies]
+arcref = { workspace = true }
 dashmap = { workspace = true }
 vortex-error = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }

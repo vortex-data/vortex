@@ -99,12 +99,8 @@ impl VTable for ZstdVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.zstd")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ZstdVTable.as_vtable()
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -120,7 +116,6 @@ impl VTable for ZstdVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -787,11 +782,7 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl EncodeVTable<ZstdVTable> for ZstdVTable {
-    fn encode(
-        _vtable: &ZstdVTable,
-        canonical: &Canonical,
-        _like: Option<&ZstdArray>,
-    ) -> VortexResult<Option<ZstdArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         ZstdArray::from_canonical(canonical, 3, 0)
     }
 }

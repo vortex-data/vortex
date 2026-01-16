@@ -34,11 +34,7 @@ use vortex_session::VortexSession;
 use crate::compress::runend_encode;
 
 impl EncodeVTable<RunEndVTable> for RunEndVTable {
-    fn encode(
-        _vtable: &RunEndVTable,
-        canonical: &Canonical,
-        _like: Option<&RunEndArray>,
-    ) -> VortexResult<Option<RunEndArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
         let (ends, values) = runend_encode(&parray);
         // SAFETY: runend_decode implementation must return valid RunEndArray

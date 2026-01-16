@@ -10,7 +10,6 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
 use crate::vtable::VTable;
 
@@ -49,9 +48,7 @@ impl<V: VTable> ParentKernelSet<V> {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         for kernel in self.kernels.iter() {
-            if let MatchKey::Array(id) = kernel.parent_key()
-                && parent.encoding_id() != id
-            {
+            if !kernel.matches(parent) {
                 continue;
             }
             if let Some(reduced) = kernel.execute_parent(child, parent, child_idx, ctx)? {
@@ -79,7 +76,7 @@ pub trait ExecuteParentKernel<V: VTable>: Debug {
 }
 
 pub trait DynParentKernel<V: VTable> {
-    fn parent_key(&self) -> MatchKey;
+    fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn execute_parent(
         &self,
@@ -105,8 +102,8 @@ impl<V: VTable, K: ExecuteParentKernel<V>> Debug for ParentKernelAdapter<V, K> {
 }
 
 impl<V: VTable, R: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAdapter<V, R> {
-    fn parent_key(&self) -> MatchKey {
-        self.kernel.parent().key()
+    fn matches(&self, parent: &ArrayRef) -> bool {
+        self.kernel.parent().try_match(parent).is_some()
     }
 
     fn execute_parent(

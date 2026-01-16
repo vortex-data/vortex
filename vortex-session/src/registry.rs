@@ -10,10 +10,14 @@ use std::sync::Arc;
 
 use vortex_utils::aliases::dash_map::DashMap;
 
+pub trait Identifed {
+    fn id(&self) -> ArcRef<str>;
+}
+
 /// A registry of items that are keyed by a string identifier.
 // TODO(ngates): define a RegistryItem trait that has a custom key to avoid to_string calls.
 #[derive(Clone, Debug)]
-pub struct Registry<T>(Arc<DashMap<String, T>>);
+pub struct Registry<T>(Arc<DashMap<Arc<str>, T>>);
 
 impl<T> Default for Registry<T> {
     fn default() -> Self {
@@ -45,14 +49,14 @@ impl<T: Clone + Display + Eq> Registry<T> {
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&self, item: T) {
-        self.0.insert(item.to_string(), item);
+    pub fn register(&self, id: Arc<str>, item: T) {
+        self.0.insert(id, item);
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&self, items: I) {
-        for item in items {
-            self.0.insert(item.to_string(), item);
+    pub fn register_many<I: IntoIterator<Item = (Arc<str>, T)>>(&self, items: I) {
+        for (id, item) in items {
+            self.0.insert(id, item);
         }
     }
 }

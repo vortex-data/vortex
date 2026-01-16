@@ -63,12 +63,8 @@ impl VTable for BitPackedVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("fastlanes.bitpacked")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        BitPackedVTable.as_vtable()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -166,7 +162,6 @@ impl VTable for BitPackedVTable {
     /// - No patches: `[validity?]`
     /// - With patches: `[patch_indices, patch_values, chunk_offsets?, validity?]`
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

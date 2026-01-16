@@ -80,12 +80,8 @@ impl VTable for FSSTVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.fsst")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FSSTVTable.as_vtable()
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -106,7 +102,6 @@ impl VTable for FSSTVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -386,11 +381,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 }
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
-    fn encode(
-        _vtable: &FSSTVTable,
-        canonical: &Canonical,
-        like: Option<&FSSTArray>,
-    ) -> VortexResult<Option<FSSTArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let array = canonical.clone().into_varbinview();
 
         let compressor = match like {

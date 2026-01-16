@@ -59,12 +59,8 @@ impl VTable for RLEVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("fastlanes.rle")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        RLEVTable.as_vtable()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -106,7 +102,6 @@ impl VTable for RLEVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

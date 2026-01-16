@@ -15,8 +15,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -45,12 +43,8 @@ impl VTable for FixedSizeListVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.fixed_size_list")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FixedSizeListVTable.as_vtable()
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
@@ -69,7 +63,6 @@ impl VTable for FixedSizeListVTable {
     ///
     /// This method expects 1 or 2 children (a second child indicates a validity array).
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

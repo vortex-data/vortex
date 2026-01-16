@@ -50,7 +50,7 @@ use crate::serde::ArrayChildren;
 /// implementations so do not need to be checked in the vtable implementations (for example, index
 /// out of bounds). Post-conditions are validated after invocation of the vtable function and will
 /// panic if violated.
-pub trait VTable: 'static + Sized + Send + Sync + Debug {
+pub trait VTable: 'static + Sized + Send + Sync + Debug + Default {
     type Array: 'static + Send + Sync + Clone + Debug + Deref<Target = dyn Array> + IntoArray;
     type Metadata: Debug;
 
@@ -68,11 +68,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type EncodeVTable: EncodeVTable<Self>;
 
-    /// Returns the ID of the encoding.
-    fn id(&self) -> ArrayId;
-
-    /// Returns the encoding for the array.
-    fn encoding(array: &Self::Array) -> ArrayVTable;
+    /// Returns the ID of the array.
+    fn id(array: &Self::Array) -> ArrayId;
 
     /// Exports metadata for an array.
     ///
@@ -122,7 +119,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
     // TODO(ngates): take the parts by ownership, since most arrays need them anyway
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

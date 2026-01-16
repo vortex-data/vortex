@@ -74,12 +74,8 @@ impl VTable for DecimalBytePartsVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.decimal_byte_parts")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DecimalBytePartsVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -98,7 +94,6 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

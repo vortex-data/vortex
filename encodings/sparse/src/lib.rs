@@ -83,12 +83,8 @@ impl VTable for SparseVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.sparse")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SparseVTable.as_vtable()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -106,7 +102,6 @@ impl VTable for SparseVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -491,16 +486,13 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 }
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
-    fn encode(
-        _vtable: &SparseVTable,
-        input: &Canonical,
-        like: Option<&SparseArray>,
-    ) -> VortexResult<Option<SparseArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
-        let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
+        let fill_value =
+            like.and_then(|arr| arr.fill_scalar().cast(canonical.as_ref().dtype()).ok());
 
         // TODO(ngates): encode should only handle arrays that _can_ be made sparse.
-        Ok(SparseArray::encode(input.as_ref(), fill_value)?
+        Ok(SparseArray::encode(canonical.as_ref(), fill_value)?
             .as_opt::<SparseVTable>()
             .cloned())
     }

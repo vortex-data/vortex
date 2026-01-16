@@ -53,12 +53,8 @@ impl VTable for DeltaVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("fastlanes.delta")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DeltaVTable.as_vtable()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -94,7 +90,6 @@ impl VTable for DeltaVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

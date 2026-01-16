@@ -25,7 +25,6 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .collect();
 
         ScalarFnArray {
-            vtable: array.vtable.clone(),
             scalar_fn: array.scalar_fn.clone(),
             dtype: array.dtype.clone(),
             len: range.len(),

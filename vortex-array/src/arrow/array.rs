@@ -34,8 +34,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
@@ -59,12 +57,8 @@ impl VTable for ArrowVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.arrow")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrowVTable.as_vtable()
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -80,7 +74,6 @@ impl VTable for ArrowVTable {
     }
 
     fn build(
-        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,

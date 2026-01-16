@@ -15,20 +15,12 @@ pub trait EncodeVTable<V: VTable> {
     ///
     /// If the encoding does not support the given array (e.g. [`crate::arrays::ConstantVTable`]
     /// was passed a non-constant array), then `None` is returned.
-    fn encode(
-        vtable: &V,
-        canonical: &Canonical,
-        like: Option<&V::Array>,
-    ) -> VortexResult<Option<V::Array>>;
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>>;
 }
 
 /// Default implementation for encodings that do not support encoding.
 impl<V: VTable> EncodeVTable<V> for NotSupported {
-    fn encode(
-        _vtable: &V,
-        _canonical: &Canonical,
-        _like: Option<&V::Array>,
-    ) -> VortexResult<Option<V::Array>> {
+    fn encode(_canonical: &Canonical, _like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         Ok(None)
     }
 }

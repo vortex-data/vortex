@@ -26,8 +26,6 @@ use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -57,12 +55,8 @@ impl VTable for DictVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.dict")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DictVTable.as_vtable()
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
@@ -89,7 +83,6 @@ impl VTable for DictVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

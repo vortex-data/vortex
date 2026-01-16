@@ -40,13 +40,10 @@ use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::lit;
-use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -74,12 +71,8 @@ impl VTable for ScalarFnVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        self.vtable.id()
-    }
-
-    fn encoding(array: &Self::Array) -> ArrayVTable {
-        array.vtable.clone()
+    fn id(array: &Self::Array) -> ArrayId {
+        array.scalar_fn.id()
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -100,7 +93,6 @@ impl VTable for ScalarFnVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &ScalarFnMetadata,
@@ -125,7 +117,6 @@ impl VTable for ScalarFnVTable {
 
         Ok(ScalarFnArray {
             // This requires a new Arc, but we plan to remove this later anyway.
-            vtable: self.to_vtable(),
             scalar_fn: metadata.scalar_fn.clone(),
             dtype: dtype.clone(),
             len,
@@ -204,13 +195,7 @@ pub trait ScalarFnArrayExt: expr::VTable {
         let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
         let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
-        let array_vtable: ArrayVTable = ScalarFnVTable {
-            vtable: scalar_fn.vtable().clone(),
-        }
-        .into_vtable();
-
         Ok(ScalarFnArray {
-            vtable: array_vtable,
             scalar_fn,
             dtype,
             len,
@@ -227,10 +212,6 @@ impl<V: expr::VTable> ScalarFnArrayExt for V {}
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
     type View<'a> = &'a ScalarFnArray;
-
-    fn key(&self) -> MatchKey {
-        MatchKey::Any
-    }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
         array.as_opt::<ScalarFnVTable>()
@@ -255,10 +236,6 @@ impl<F: expr::VTable> From<&'static F> for ExactScalarFn<F> {
 
 impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     type View<'a> = ScalarFnArrayView<'a, F>;
-
-    fn key(&self) -> MatchKey {
-        MatchKey::Array(self.id.clone())
-    }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
         if array.encoding_id() != self.id {

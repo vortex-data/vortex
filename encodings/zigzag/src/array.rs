@@ -61,12 +61,8 @@ impl VTable for ZigZagVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.zigzag")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ZigZagVTable.as_vtable()
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -82,7 +78,6 @@ impl VTable for ZigZagVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -212,11 +207,7 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 }
 
 impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
-    fn encode(
-        encoding: &ZigZagVTable,
-        canonical: &Canonical,
-        _like: Option<&ZigZagArray>,
-    ) -> VortexResult<Option<ZigZagArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
 
         if !parray.ptype().is_signed_int() {

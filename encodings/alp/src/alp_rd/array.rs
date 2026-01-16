@@ -79,12 +79,8 @@ impl VTable for ALPRDVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.alprd")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ALPRDVTable.as_vtable()
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -118,7 +114,6 @@ impl VTable for ALPRDVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -446,11 +441,7 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
-    fn encode(
-        _vtable: &ALPRDVTable,
-        canonical: &Canonical,
-        like: Option<&ALPRDArray>,
-    ) -> VortexResult<Option<ALPRDArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
 
         let alprd_array = match like {

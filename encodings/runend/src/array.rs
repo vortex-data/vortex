@@ -73,12 +73,8 @@ impl VTable for RunEndVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.runend")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        RunEndVTable.as_vtable()
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -100,7 +96,6 @@ impl VTable for RunEndVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

@@ -8,7 +8,6 @@ use std::marker::PhantomData;
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
-use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
 use crate::vtable::VTable;
 
@@ -46,7 +45,7 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
 
 /// Dynamic trait for array parent reduce rules
 pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
-    fn parent_key(&self) -> MatchKey;
+    fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn reduce_parent(
         &self,
@@ -74,8 +73,8 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V
 impl<V: VTable, R: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
     for ParentReduceRuleAdapter<V, R>
 {
-    fn parent_key(&self) -> MatchKey {
-        self.rule.parent().key()
+    fn matches(&self, parent: &ArrayRef) -> bool {
+        self.rule.parent().try_match(parent).is_some()
     }
 
     fn reduce_parent(
@@ -147,9 +146,7 @@ impl<V: VTable> ParentRuleSet<V> {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
-            if let MatchKey::Array(id) = rule.parent_key()
-                && parent.encoding_id() != id
-            {
+            if !rule.matches(parent) {
                 continue;
             }
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {

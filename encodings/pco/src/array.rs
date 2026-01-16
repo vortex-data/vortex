@@ -101,12 +101,8 @@ impl VTable for PcoVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.pco")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        PcoVTable.as_vtable()
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -122,7 +118,6 @@ impl VTable for PcoVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -540,11 +535,7 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 }
 
 impl EncodeVTable<PcoVTable> for PcoVTable {
-    fn encode(
-        _vtable: &PcoVTable,
-        canonical: &Canonical,
-        _like: Option<&PcoArray>,
-    ) -> VortexResult<Option<PcoArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
 
         Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))

@@ -15,7 +15,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -32,7 +31,6 @@ use vortex_buffer::Alignment;
 
 use crate::arrays::primitive::vtable::rules::RULES;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
 
 vtable!(Primitive);
 
@@ -49,12 +47,8 @@ impl VTable for PrimitiveVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.primitive")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        PrimitiveVTable.as_vtable()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
@@ -70,7 +64,6 @@ impl VTable for PrimitiveVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

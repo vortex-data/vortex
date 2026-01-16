@@ -23,8 +23,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -54,12 +52,8 @@ impl VTable for ChunkedVTable {
     type ComputeVTable = Self;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.chunked")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ChunkedVTable.as_vtable()
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {
@@ -75,7 +69,6 @@ impl VTable for ChunkedVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,

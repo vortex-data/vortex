@@ -94,7 +94,7 @@ impl VTable for PythonVTable {
     type ComputeVTable = Self;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         self.id.clone()
     }
 
@@ -130,7 +130,6 @@ impl VTable for PythonVTable {
     }
 
     fn build(
-        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -237,11 +236,7 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
 }
 
 impl EncodeVTable<PythonVTable> for PythonVTable {
-    fn encode(
-        _vtable: &PythonVTable,
-        _canonical: &Canonical,
-        _like: Option<&PythonArray>,
-    ) -> VortexResult<Option<PythonArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         todo!()
     }
 }

@@ -21,7 +21,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -37,7 +36,6 @@ pub use rules::DecimalMaskedValidityRule;
 
 use crate::arrays::decimal::vtable::rules::RULES;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
 
 vtable!(Decimal);
 
@@ -61,12 +59,8 @@ impl VTable for DecimalVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.decimal")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DecimalVTable.as_vtable()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -85,7 +79,6 @@ impl VTable for DecimalVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

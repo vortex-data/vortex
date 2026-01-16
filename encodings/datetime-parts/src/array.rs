@@ -87,12 +87,8 @@ impl VTable for DateTimePartsVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.datetimeparts")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DateTimePartsVTable.as_vtable()
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -114,7 +110,6 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -294,11 +289,7 @@ impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn encode(
-        _vtable: &DateTimePartsVTable,
-        canonical: &Canonical,
-        _like: Option<&DateTimePartsArray>,
-    ) -> VortexResult<Option<DateTimePartsArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let ext_array = canonical.clone().into_extension();
         let temporal = TemporalArray::try_from(ext_array)?;
 

@@ -29,7 +29,6 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
     fn id(&self) -> LayoutEncodingId;
 
     fn build(
-        &self,
         dtype: &DType,
         row_count: u64,
         metadata: &[u8],
@@ -52,7 +51,6 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         row_count: u64,
         metadata: &[u8],

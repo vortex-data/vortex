@@ -10,11 +10,7 @@ use crate::builders::dict::dict_encode;
 use crate::vtable::EncodeVTable;
 
 impl EncodeVTable<DictVTable> for DictVTable {
-    fn encode(
-        _vtable: &DictVTable,
-        canonical: &Canonical,
-        _like: Option<&DictArray>,
-    ) -> VortexResult<Option<DictArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         Ok(Some(dict_encode(canonical.as_ref())?))
     }
 }

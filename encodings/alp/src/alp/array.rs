@@ -64,12 +64,8 @@ impl VTable for ALPVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.alp")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ALPVTable.as_vtable()
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -95,7 +91,6 @@ impl VTable for ALPVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -453,11 +448,7 @@ impl CanonicalVTable<ALPVTable> for ALPVTable {
 }
 
 impl EncodeVTable<ALPVTable> for ALPVTable {
-    fn encode(
-        _vtable: &ALPVTable,
-        canonical: &Canonical,
-        like: Option<&ALPArray>,
-    ) -> VortexResult<Option<ALPArray>> {
+    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
         let parray = canonical.clone().into_primitive();
         let exponents = like.map(|a| a.exponents());
         let alp = alp_encode(&parray, exponents)?;

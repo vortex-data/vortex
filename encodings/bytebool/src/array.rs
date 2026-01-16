@@ -57,12 +57,8 @@ impl VTable for ByteBoolVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.bytebool")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ByteBoolVTable.as_vtable()
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -78,7 +74,6 @@ impl VTable for ByteBoolVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

@@ -49,12 +49,8 @@ impl VTable for FoRVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("fastlanes.for")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FoRVTable.as_vtable()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -87,7 +83,6 @@ impl VTable for FoRVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

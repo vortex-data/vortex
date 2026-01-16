@@ -12,9 +12,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_session::registry::Registry;
 
-use crate::vtable::ArrayVTable;
+use crate::vtable::DynVTable;
 
-pub type ArrayContext = VTableContext<ArrayVTable>;
+pub type ArrayContext = VTableContext<&'static dyn DynVTable>;
 
 /// A collection of encodings that can be addressed by a u16 positional index.
 /// This is used to map array encodings and layout encodings when reading from a file.

@@ -18,7 +18,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -31,7 +30,6 @@ mod validity;
 mod visitor;
 
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
 
 vtable!(Struct);
 
@@ -48,12 +46,8 @@ impl VTable for StructVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.struct")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        StructVTable.as_vtable()
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -69,7 +63,6 @@ impl VTable for StructVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

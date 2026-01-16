@@ -18,8 +18,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -50,12 +48,8 @@ impl VTable for ConstantVTable {
     type ComputeVTable = NotSupported;
     type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
+    fn id(_array: &Self::Array) -> ArrayId {
         ArrayId::new_ref("vortex.constant")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ConstantVTable.as_vtable()
     }
 
     fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {
@@ -71,7 +65,6 @@ impl VTable for ConstantVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
