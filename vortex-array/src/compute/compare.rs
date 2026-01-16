@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
+use arrow_array::Array as ArrowArray;
 use arrow_array::BooleanArray;
 use arrow_buffer::NullBuffer;
 use arrow_ord::cmp;

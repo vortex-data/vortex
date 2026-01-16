@@ -18,6 +18,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::Array;
@@ -25,7 +26,6 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::array::ArrowArray;
-use crate::arrow::array::ArrowVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -34,21 +34,22 @@ use crate::compute::Options;
 use crate::compute::Output;
 use crate::vtable::VTable;
 
-static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
+// static TO_ARROW_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
+// let compute = ComputeFn::new("to_arrow".into(), ArcRef::new_ref(&ToArrow));
 
-    // Register the kernels we ship ourselves
-    compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
-    compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
+// Register the kernels we ship ourselves
+// compute.register_kernel(ArcRef::new_ref(&canonical::ToArrowCanonical));
+// compute.register_kernel(ArcRef::new_ref(&temporal::ToArrowTemporal));
 
-    for kernel in inventory::iter::<ToArrowKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
+// for kernel in inventory::iter::<ToArrowKernelRef> {
+//     compute.register_kernel(kernel.0.clone());
+// }
+// compute
+// });
 
 pub(crate) fn warm_up_vtable() -> usize {
-    TO_ARROW_FN.kernels().len()
+    // TO_ARROW_FN.kernels().len()
+    0
 }
 
 /// Convert a Vortex array to an Arrow array with the encoding's preferred `DataType`.
@@ -64,35 +65,24 @@ pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
 
 /// Convert a Vortex array to an Arrow array of the given type.
 pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowArrayRef> {
-    to_arrow_opts(
-        array,
-        &ToArrowOptions {
-            arrow_type: Some(arrow_type.clone()),
-        },
-    )
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    array.to_array().execute_arrow(arrow_type, &mut ctx)
 }
 
 pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResult<ArrowArrayRef> {
-    let arrow = TO_ARROW_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into()],
-            options,
-        })?
-        .unwrap_array()?
-        .as_opt::<ArrowVTable>()
-        .ok_or_else(|| vortex_err!("ToArrow compute kernels must return a Vortex ArrowArray"))?
-        .inner()
-        .clone();
+    let data_type = if let Some(data_type) = &options.arrow_type {
+        data_type.clone()
+    } else {
+        array.dtype().to_arrow_dtype()?
+    };
+    let arrow = to_arrow(array, &data_type)?;
 
-    if let Some(arrow_type) = &options.arrow_type
-        && arrow.data_type() != arrow_type
-    {
-        vortex_bail!(
-            "Arrow array type mismatch: expected {:?}, got {:?}",
-            &options.arrow_type,
-            arrow.data_type()
-        );
-    }
+    vortex_ensure!(
+        &data_type == arrow.data_type(),
+        "to arrow returned array with data_type {}, expected {}",
+        arrow.data_type(),
+        data_type
+    );
 
     Ok(arrow)
 }
@@ -108,61 +98,61 @@ impl Options for ToArrowOptions {
     }
 }
 
-struct ToArrow;
-
-impl ComputeFnVTable for ToArrow {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
-
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-        if let Some(output) = array.invoke(&TO_ARROW_FN, args)? {
-            return Ok(output);
-        }
-
-        if !array.is_canonical() {
-            let arrow_type = arrow_type
-                .cloned()
-                .map(Ok)
-                .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
-            let mut ctx = LEGACY_SESSION.create_execution_ctx();
-            let arrow_array = array.to_array().execute_arrow(&arrow_type, &mut ctx)?;
-
-            return Ok(ArrowArray::new(arrow_array, array.dtype().nullability())
-                .to_array()
-                .into());
-        }
-
-        vortex_bail!(
-            "Failed to convert array {} to Arrow {:?}",
-            array.encoding_id(),
-            arrow_type
-        );
-    }
-
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
-        Ok(arrow_type
-            .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
-            .unwrap_or_else(|| array.dtype().clone()))
-    }
-
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let ToArrowArgs { array, .. } = ToArrowArgs::try_from(args)?;
-        Ok(array.len())
-    }
-
-    fn is_elementwise(&self) -> bool {
-        false
-    }
-}
+// struct ToArrow;
+//
+// impl ComputeFnVTable for ToArrow {
+//     fn invoke(
+//         &self,
+//         args: &InvocationArgs,
+//         _kernels: &[ArcRef<dyn Kernel>],
+//     ) -> VortexResult<Output> {
+//         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+//
+//         // for kernel in kernels {
+//         //     if let Some(output) = kernel.invoke(args)? {
+//         //         return Ok(output);
+//         //     }
+//         // }
+//         if let Some(output) = array.invoke(&TO_ARROW_FN, args)? {
+//             return Ok(output);
+//         }
+//
+//         if !array.is_canonical() {
+//             let arrow_type = arrow_type
+//                 .cloned()
+//                 .map(Ok)
+//                 .unwrap_or_else(|| array.dtype().to_arrow_dtype())?;
+//             let mut ctx = LEGACY_SESSION.create_execution_ctx();
+//             let arrow_array = array.to_array().execute_arrow(&arrow_type, &mut ctx)?;
+//
+//             return Ok(ArrowArray::new(arrow_array, array.dtype().nullability())
+//                 .to_array()
+//                 .into());
+//         }
+//
+//         vortex_bail!(
+//             "Failed to convert array {} to Arrow {:?}",
+//             array.encoding_id(),
+//             arrow_type
+//         );
+//     }
+//
+//     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
+//         let ToArrowArgs { array, arrow_type } = ToArrowArgs::try_from(args)?;
+//         Ok(arrow_type
+//             .map(|arrow_type| DType::from_arrow((arrow_type, array.dtype().nullability())))
+//             .unwrap_or_else(|| array.dtype().clone()))
+//     }
+//
+//     fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
+//         let ToArrowArgs { array, .. } = ToArrowArgs::try_from(args)?;
+//         Ok(array.len())
+//     }
+//
+//     fn is_elementwise(&self) -> bool {
+//         false
+//     }
+// }
 
 pub struct ToArrowArgs<'a> {
     array: &'a dyn Array,

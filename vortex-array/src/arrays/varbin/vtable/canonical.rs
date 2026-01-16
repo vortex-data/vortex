@@ -3,57 +3,54 @@
 
 use std::sync::Arc;
 
-use arrow_array::BinaryViewArray;
-use arrow_array::StringViewArray;
 use arrow_array::cast::AsArray;
-use arrow_schema::DataType;
-use vortex_dtype::DType;
+use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
+use vortex_buffer::BufferMut;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
+use vortex_vector::binaryview::BinaryView;
 
-use crate::ArrayRef;
-use crate::Canonical;
-use crate::ToCanonical;
-use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
+use crate::arrays::VarBinVTable;
+use crate::arrays::VarBinViewArray;
 use crate::vtable::CanonicalVTable;
+use crate::{ArrayRef, Canonical};
+use crate::ToCanonical;
 
 impl CanonicalVTable<VarBinVTable> for VarBinVTable {
-    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
+    fn canonicalize(array: &VarBinArray) -> Canonical {
         let dtype = array.dtype().clone();
         let nullable = dtype.is_nullable();
 
+        // Zero the offsets first to ensure the bytes buffer starts at 0
         let array = array.clone().zero_offsets();
-        assert_eq!(array.offset_at(0), 0);
+        let (dtype, bytes, offsets, validity) = array.into_parts();
 
-        let array_ref = array
-            .to_array()
-            .into_arrow_preferred()
-            .vortex_expect("VarBinArray must be convertible to arrow array");
+        // Get offsets as a primitive array
+        let offsets = offsets.to_primitive();
 
-        let array = match (&dtype, array_ref.data_type()) {
-            (DType::Utf8(_), DataType::Utf8) => {
-                Arc::new(StringViewArray::from(array_ref.as_string::<i32>()))
-                    as Arc<dyn arrow_array::Array>
-            }
-            (DType::Utf8(_), DataType::LargeUtf8) => {
-                Arc::new(StringViewArray::from(array_ref.as_string::<i64>()))
-                    as Arc<dyn arrow_array::Array>
-            }
+        // Build views directly from offsets - this is much faster than iterating
+        // and appending one by one because we keep the bytes buffer as-is.
+        let views: Buffer<BinaryView> = match_each_integer_ptype!(offsets.ptype(), |O| {
+            let offsets_slice = offsets.as_slice::<O>();
+            let bytes_slice = bytes.as_ref();
 
-            (DType::Binary(_), DataType::Binary) => {
-                Arc::new(BinaryViewArray::from(array_ref.as_binary::<i32>()))
+            let mut views = BufferMut::<BinaryView>::with_capacity(offsets_slice.len() - 1);
+            for window in offsets_slice.windows(2) {
+                let start: usize = window[0].as_();
+                let end: usize = window[1].as_();
+                let value = &bytes_slice[start..end];
+                // buffer_index = 0 since we have a single buffer, offset = start
+                views.push(BinaryView::make_view(value, 0, start as u32));
             }
-            (DType::Binary(_), DataType::LargeBinary) => {
-                Arc::new(BinaryViewArray::from(array_ref.as_binary::<i64>()))
-            }
-            // If its already a view, no need to do anything
-            (DType::Binary(_), DataType::BinaryView) | (DType::Utf8(_), DataType::Utf8View) => {
-                array_ref
-            }
-            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype, instead got: {dtype}",),
+            views.freeze()
+        });
+
+        // Create VarBinViewArray with the original bytes buffer and computed views
+        // SAFETY: views are correctly computed from valid offsets
+        let varbinview = unsafe {
+            VarBinViewArray::new_unchecked(views, Arc::from([bytes]), dtype, validity)
         };
         Ok(Canonical::VarBinView(
             ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview(),
