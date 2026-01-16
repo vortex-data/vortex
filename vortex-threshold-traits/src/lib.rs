@@ -10,10 +10,24 @@ use std::fmt::Debug;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub mod bench;
 pub mod builder;
+pub mod measure;
+pub mod scale;
+pub mod stats;
 pub mod storage;
 
+pub use bench::BenchResults;
+pub use bench::BuiltStatsBench;
+pub use bench::SearchResults;
+pub use bench::StatsBench;
 pub use builder::ThresholdBench;
+pub use measure::BatchSize;
+pub use measure::MeasurementResult;
+pub use measure::Measurer;
+pub use scale::Scale;
+pub use stats::StatsGrid;
+pub use stats::StatsPoint;
 
 /// Defines the range of parameter values to sweep during benchmarking.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,16 +295,40 @@ pub trait DynBenchmarkableAlgorithm: Send + Sync {
 /// Result of a single benchmark run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchmarkResult {
+    /// Median time per iteration in nanoseconds.
+    pub median_ns: f64,
     /// Mean time per iteration in nanoseconds.
     pub mean_ns: f64,
     /// Standard deviation in nanoseconds.
     pub stddev_ns: f64,
     /// Minimum time in nanoseconds.
-    pub min_ns: u64,
+    pub min_ns: f64,
     /// Maximum time in nanoseconds.
-    pub max_ns: u64,
-    /// Number of iterations run.
-    pub iterations: usize,
+    pub max_ns: f64,
+    /// Lower bound of 95% confidence interval.
+    pub ci_lower_ns: f64,
+    /// Upper bound of 95% confidence interval.
+    pub ci_upper_ns: f64,
+    /// Number of samples collected.
+    pub samples: usize,
+    /// Number of outliers removed.
+    pub outliers_removed: usize,
+}
+
+impl From<MeasurementResult> for BenchmarkResult {
+    fn from(m: MeasurementResult) -> Self {
+        Self {
+            median_ns: m.median_ns,
+            mean_ns: m.mean_ns,
+            stddev_ns: m.stddev_ns,
+            min_ns: m.min_ns,
+            max_ns: m.max_ns,
+            ci_lower_ns: m.ci_lower_ns,
+            ci_upper_ns: m.ci_upper_ns,
+            samples: m.samples,
+            outliers_removed: m.outliers_removed,
+        }
+    }
 }
 
 /// Result of correctness verification.
@@ -335,7 +373,7 @@ where
         variant: &str,
         param: usize,
         seed: u64,
-        iterations: usize,
+        _iterations: usize, // Kept for API compatibility, but Measurer handles this
     ) -> Option<BenchmarkResult> {
         // Check if variant is available
         let variants = BenchmarkableAlgorithm::variants(self);
@@ -344,42 +382,25 @@ where
             return None;
         }
 
-        let input = BenchmarkableAlgorithm::generate_input(self, param, seed);
+        // Use Measurer for proper benchmarking with:
+        // - black_box on inputs AND outputs
+        // - Batched iterations to amortize timer overhead
+        // - Warmup phase
+        // - IQR outlier removal
+        // - Bootstrap confidence intervals
+        let measurer = Measurer::default();
 
-        // Warmup
-        for _ in 0..10 {
-            std::hint::black_box(BenchmarkableAlgorithm::run_variant(self, variant, &input));
-        }
+        // Capture variant name for the closure
+        let variant_name = variant.to_string();
 
-        // Benchmark
-        let mut times = Vec::with_capacity(iterations);
-        for _ in 0..iterations {
-            let start = std::time::Instant::now();
-            std::hint::black_box(BenchmarkableAlgorithm::run_variant(self, variant, &input));
-            // Truncation is acceptable here: u64 nanoseconds spans ~584 years,
-            // far exceeding any reasonable benchmark duration.
-            #[allow(clippy::cast_possible_truncation)]
-            let elapsed = start.elapsed().as_nanos() as u64;
-            times.push(elapsed);
-        }
+        let result = measurer.measure(
+            // Setup: generate input (NOT timed)
+            || BenchmarkableAlgorithm::generate_input(self, param, seed),
+            // Routine: run variant (timed)
+            |input| BenchmarkableAlgorithm::run_variant(self, &variant_name, input),
+        );
 
-        let mean_ns = times.iter().sum::<u64>() as f64 / iterations as f64;
-        let variance = times
-            .iter()
-            .map(|&t| (t as f64 - mean_ns).powi(2))
-            .sum::<f64>()
-            / iterations as f64;
-        let stddev_ns = variance.sqrt();
-        let min_ns = times.iter().copied().min().unwrap_or(0);
-        let max_ns = times.iter().copied().max().unwrap_or(0);
-
-        Some(BenchmarkResult {
-            mean_ns,
-            stddev_ns,
-            min_ns,
-            max_ns,
-            iterations,
-        })
+        Some(result.into())
     }
 
     fn verify_variant(&self, variant: &str, param: usize, seed: u64) -> VerifyResult {
@@ -485,20 +506,15 @@ impl CpuClass {
                     return Self::detect_amd();
                 }
             }
+            return Self::Unknown;
         }
 
         #[cfg(target_arch = "aarch64")]
         {
-            // Check for AWS Graviton or Apple Silicon
-            return Self::detect_arm();
+            Self::detect_arm()
         }
 
         #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-        {
-            Self::Unknown
-        }
-
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
         Self::Unknown
     }
 
@@ -559,7 +575,7 @@ impl CpuClass {
         // macOS detection
         #[cfg(target_os = "macos")]
         {
-            return Self::AppleSilicon;
+            Self::AppleSilicon
         }
 
         #[cfg(not(any(target_os = "linux", target_os = "macos")))]

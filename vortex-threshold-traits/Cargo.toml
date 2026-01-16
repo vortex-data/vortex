@@ -16,5 +16,9 @@ serde = { workspace = true, features = ["derive"] }
 [dev-dependencies]
 rand = { workspace = true }
 
+[[example]]
+name = "target_api"
+path = "examples/target_api.rs"
+
 [lints]
 workspace = true

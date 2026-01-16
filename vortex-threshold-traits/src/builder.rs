@@ -290,10 +290,12 @@ mod tests {
     use super::*;
     use crate::ParameterScale;
 
+    #[allow(clippy::ptr_arg)]
     fn sum_naive(data: &Vec<u64>) -> u64 {
         data.iter().fold(0u64, |acc, &x| acc.wrapping_add(x))
     }
 
+    #[allow(clippy::ptr_arg)]
     fn sum_chunked(data: &Vec<u64>) -> u64 {
         data.chunks(4)
             .map(|c| c.iter().fold(0u64, |acc, &x| acc.wrapping_add(x)))
