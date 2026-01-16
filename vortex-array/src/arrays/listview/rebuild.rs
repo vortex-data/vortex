@@ -7,6 +7,7 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -51,14 +52,14 @@ pub enum ListViewRebuildMode {
 
 impl ListViewArray {
     /// Rebuilds the [`ListViewArray`] according to the specified mode.
-    pub fn rebuild(&self, mode: ListViewRebuildMode) -> ListViewArray {
+    pub fn rebuild(&self, mode: ListViewRebuildMode) -> VortexResult<ListViewArray> {
         if self.is_empty() {
-            return self.clone();
+            return Ok(self.clone());
         }
 
         match mode {
             ListViewRebuildMode::MakeZeroCopyToList => self.rebuild_zero_copy_to_list(),
-            ListViewRebuildMode::TrimElements => self.rebuild_trim_elements(),
+            ListViewRebuildMode::TrimElements => Ok(self.rebuild_trim_elements()),
             ListViewRebuildMode::MakeExact => self.rebuild_make_exact(),
             ListViewRebuildMode::OverlapCompression => unimplemented!("Does P=NP?"),
         }
@@ -71,10 +72,10 @@ impl ListViewArray {
     /// a [`ListArray`].
     ///
     /// [`ListArray`]: crate::arrays::ListArray
-    fn rebuild_zero_copy_to_list(&self) -> ListViewArray {
+    fn rebuild_zero_copy_to_list(&self) -> VortexResult<ListViewArray> {
         if self.is_zero_copy_to_list() {
             // Note that since everything in `ListViewArray` is `Arc`ed, this is quite cheap.
-            return self.clone();
+            return Ok(self.clone());
         }
 
         let offsets_ptype = self.offsets().dtype().as_ptype();
@@ -108,7 +109,7 @@ impl ListViewArray {
     /// by piece.
     fn naive_rebuild<O: IntegerPType, NewOffset: IntegerPType, S: IntegerPType>(
         &self,
-    ) -> ListViewArray {
+    ) -> VortexResult<ListViewArray> {
         let element_dtype = self
             .dtype()
             .as_list_element_opt()
@@ -129,7 +130,11 @@ impl ListViewArray {
         let mut new_sizes = BufferMut::<S>::with_capacity(len);
 
         // Canonicalize the elements up front as we will be slicing the elements quite a lot.
-        let elements_canonical = self.elements().to_canonical().into_array();
+        let elements_canonical = self
+            .elements()
+            .to_canonical()
+            .vortex_expect("canonicalize elements for rebuild")
+            .into_array();
 
         // Note that we do not know what the exact capacity should be of the new elements since
         // there could be overlaps in the existing `ListViewArray`.
@@ -177,10 +182,10 @@ impl ListViewArray {
         // - The validity array is preserved from the original array unchanged
         // - The array satisfies the zero-copy-to-list property by having sorted offsets, no gaps,
         //   and no overlaps.
-        unsafe {
+        Ok(unsafe {
             ListViewArray::new_unchecked(elements, offsets, sizes, self.validity.clone())
                 .with_zero_copy_to_list(true)
-        }
+        })
     }
 
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
@@ -245,9 +250,9 @@ impl ListViewArray {
         }
     }
 
-    fn rebuild_make_exact(&self) -> ListViewArray {
+    fn rebuild_make_exact(&self) -> VortexResult<ListViewArray> {
         if self.is_zero_copy_to_list() {
-            self.rebuild_trim_elements()
+            Ok(self.rebuild_trim_elements())
         } else {
             // When we completely rebuild the `ListViewArray`, we get the benefit that we also trim
             // any leading and trailing garbage data.
@@ -260,6 +265,7 @@ impl ListViewArray {
 mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
 
     use super::ListViewRebuildMode;
     use crate::IntoArray;
@@ -271,7 +277,7 @@ mod tests {
     use crate::vtable::ValidityHelper;
 
     #[test]
-    fn test_rebuild_flatten_removes_overlaps() {
+    fn test_rebuild_flatten_removes_overlaps() -> VortexResult<()> {
         // Create a list view with overlapping lists: [A, B, C]
         // List 0: offset=0, size=3 -> [A, B, C]
         // List 1: offset=1, size=2 -> [B, C] (overlaps with List 0)
@@ -281,7 +287,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
+        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
 
         // After flatten: elements should be [A, B, C, B, C] = [1, 2, 3, 2, 3]
         // Lists should be sequential with no overlaps
@@ -303,10 +309,11 @@ mod tests {
             flattened.list_elements_at(1),
             PrimitiveArray::from_iter([2i32, 3])
         );
+        Ok(())
     }
 
     #[test]
-    fn test_rebuild_flatten_with_nullable() {
+    fn test_rebuild_flatten_with_nullable() -> VortexResult<()> {
         use crate::arrays::BoolArray;
 
         // Create a nullable list view with a null list
@@ -323,7 +330,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, validity);
 
-        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
+        let flattened = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
@@ -341,10 +348,11 @@ mod tests {
             flattened.list_elements_at(2),
             PrimitiveArray::from_iter([3i32])
         );
+        Ok(())
     }
 
     #[test]
-    fn test_rebuild_trim_elements_basic() {
+    fn test_rebuild_trim_elements_basic() -> VortexResult<()> {
         // Test trimming both leading and trailing unused elements while preserving gaps in the
         // middle.
         // Elements: [_, _, A, B, _, C, D, _, _]
@@ -359,7 +367,7 @@ mod tests {
 
         let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable);
 
-        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements);
+        let trimmed = listview.rebuild(ListViewRebuildMode::TrimElements)?;
 
         // After trimming: elements should be [A, B, _, C, D] = [1, 2, 97, 3, 4].
         assert_eq!(trimmed.elements().len(), 5);
@@ -384,10 +392,11 @@ mod tests {
         // Note that element at index 2 (97) is preserved as a gap.
         let all_elements = trimmed.elements().to_primitive();
         assert_eq!(all_elements.scalar_at(2), 97i32.into());
+        Ok(())
     }
 
     #[test]
-    fn test_rebuild_with_trailing_nulls_regression() {
+    fn test_rebuild_with_trailing_nulls_regression() -> VortexResult<()> {
         // Regression test for issue #5412
         // Tests that zero-copy-to-list arrays with trailing NULLs correctly calculate
         // offsets for NULL items to maintain no-overlap invariant
@@ -401,7 +410,7 @@ mod tests {
         let listview = ListViewArray::new(elements, offsets, sizes, validity);
 
         // First rebuild to make it zero-copy-to-list
-        let rebuilt = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
+        let rebuilt = listview.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
         assert!(rebuilt.is_zero_copy_to_list());
 
         // Verify NULL items have correct offsets (should not reuse previous offsets)
@@ -419,7 +428,7 @@ mod tests {
 
         // Now rebuild with MakeExact (which calls naive_rebuild then trim_elements)
         // This should not panic (issue #5412)
-        let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact);
+        let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact)?;
 
         // Verify the result is still valid
         assert!(exact.is_valid(0));
@@ -437,5 +446,6 @@ mod tests {
             exact.list_elements_at(1),
             PrimitiveArray::from_iter([3i32, 4])
         );
+        Ok(())
     }
 }

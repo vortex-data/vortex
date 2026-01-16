@@ -37,7 +37,7 @@ pub async fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<ChunkedA
 
         // Make sure data is uncompressed and canonicalized
         let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-        chunk.append_to_builder(builder.as_mut());
+        chunk.append_to_builder(builder.as_mut())?;
         let chunk = builder.finish();
         chunks.push(chunk);
     }

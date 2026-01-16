@@ -64,6 +64,7 @@ register_kernel!(NumericKernelAdapter(DictVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_scalar::NumericOperator;
 
     use crate::IntoArray;
@@ -74,7 +75,7 @@ mod tests {
     use crate::compute::numeric;
 
     #[test]
-    fn test_add_const() {
+    fn test_add_const() -> VortexResult<()> {
         // Create a dict with all_values_referenced = true
         let dict = unsafe {
             DictArray::new_unchecked(
@@ -92,11 +93,12 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([15i32, 25, 35, 15, 25]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(res.to_canonical()?.into_array(), expected.to_array());
+        Ok(())
     }
 
     #[test]
-    fn test_mul_const() {
+    fn test_mul_const() -> VortexResult<()> {
         // Create a dict with all_values_referenced = true
         let dict = unsafe {
             DictArray::new_unchecked(
@@ -114,11 +116,12 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([20i32, 30, 50, 30, 20]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(res.to_canonical()?.into_array(), expected.to_array());
+        Ok(())
     }
 
     #[test]
-    fn test_no_pushdown_when_not_all_values_referenced() {
+    fn test_no_pushdown_when_not_all_values_referenced() -> VortexResult<()> {
         // Create a dict with all_values_referenced = false (default)
         let dict = DictArray::try_new(
             buffer![0u32, 1, 0, 1].into_array(),
@@ -136,11 +139,12 @@ mod tests {
 
         // Verify the result by canonicalizing
         let expected = PrimitiveArray::from_iter([15i32, 25, 15, 25]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(res.to_canonical()?.into_array(), expected.to_array());
+        Ok(())
     }
 
     #[test]
-    fn test_sub_const() {
+    fn test_sub_const() -> VortexResult<()> {
         // Create a dict with all_values_referenced = true
         let dict = unsafe {
             DictArray::new_unchecked(
@@ -158,6 +162,7 @@ mod tests {
         .unwrap();
 
         let expected = PrimitiveArray::from_iter([90i32, 40, 15]);
-        assert_arrays_eq!(res.to_canonical().into_array(), expected.to_array());
+        assert_arrays_eq!(res.to_canonical()?.into_array(), expected.to_array());
+        Ok(())
     }
 }

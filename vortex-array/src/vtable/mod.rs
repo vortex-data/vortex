@@ -145,7 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // TODO(ngates): convert arrays to canonicalize over vectors, so remove default impl.
-        Ok(Self::CanonicalVTable::canonicalize(array))
+        Self::CanonicalVTable::canonicalize(array)
     }
 
     /// Attempt to execute the parent of this array to produce a [`Canonical`].

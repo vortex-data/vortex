@@ -62,7 +62,14 @@ fn test_take_all(array: &dyn Array) {
     assert_eq!(result.dtype(), array.dtype());
 
     // Verify elements match
-    match (&array.to_canonical(), &result.to_canonical()) {
+    match (
+        array
+            .to_canonical()
+            .vortex_expect("to_canonical failed on array"),
+        result
+            .to_canonical()
+            .vortex_expect("to_canonical failed on result"),
+    ) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
             assert_eq!(
                 orig_prim.buffer_handle().to_host(),

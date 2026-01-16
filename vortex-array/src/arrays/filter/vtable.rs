@@ -198,9 +198,8 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 }
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
-    fn canonicalize(array: &FilterArray) -> Canonical {
+    fn canonicalize(array: &FilterArray) -> VortexResult<Canonical> {
         FilterVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Canonicalize should be fallible")
     }
 }
 

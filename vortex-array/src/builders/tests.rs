@@ -12,6 +12,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
 use vortex_dtype::half::f16;
+use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use crate::builders::ArrayBuilder;
@@ -243,7 +244,10 @@ where
 
     // Get canonical arrays using both methods.
     let canonical_direct = builder1.finish_into_canonical();
-    let canonical_indirect = builder2.finish().to_canonical();
+    let canonical_indirect = builder2
+        .finish()
+        .to_canonical()
+        .vortex_expect("to_canonical failed");
 
     // Convert both to arrays for comparison.
     let array_direct = canonical_direct.into_array();

@@ -13,6 +13,7 @@ use vortex_dtype::match_each_decimal_value;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_scalar::BinaryScalar;
 use vortex_scalar::BoolScalar;
 use vortex_scalar::DecimalValue;
@@ -41,7 +42,7 @@ use crate::validity::Validity;
 use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ConstantVTable> for ConstantVTable {
-    fn canonicalize(array: &ConstantArray) -> Canonical {
+    fn canonicalize(array: &ConstantArray) -> VortexResult<Canonical> {
         let scalar = array.scalar();
 
         let validity = match array.dtype().nullability() {
@@ -52,7 +53,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
             },
         };
 
-        match array.dtype() {
+        Ok(match array.dtype() {
             DType::Null => Canonical::Null(NullArray::new(array.len())),
             DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
                 if BoolScalar::try_from(scalar)
@@ -96,7 +97,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                             )
                         }
                     });
-                    return Canonical::Decimal(all_null);
+                    return Ok(Canonical::Decimal(all_null));
                 };
 
                 let decimal_array = match_each_decimal_value!(value, |value| {
@@ -176,7 +177,7 @@ impl CanonicalVTable<ConstantVTable> for ConstantVTable {
                 let storage_self = ConstantArray::new(storage_scalar, array.len()).into_array();
                 Canonical::Extension(ExtensionArray::new(ext_dtype.clone(), storage_self))
             }
-        }
+        })
     }
 }
 
@@ -329,6 +330,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
+    use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
 
     use crate::Array;
@@ -366,14 +368,14 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_propagates_stats() {
+    fn test_canonicalize_propagates_stats() -> VortexResult<()> {
         let scalar = Scalar::bool(true, Nullability::NonNullable);
         let const_array = ConstantArray::new(scalar, 4).into_array();
         let stats = const_array
             .statistics()
             .compute_all(&all::<Stat>().collect_vec())
             .unwrap();
-        let canonical = const_array.to_canonical();
+        let canonical = const_array.to_canonical()?;
         let canonical_stats = canonical.as_ref().statistics();
 
         let stats_ref = stats.as_typed_ref(canonical.as_ref().dtype());
@@ -388,6 +390,7 @@ mod tests {
                 "stat mismatch {stat}"
             );
         }
+        Ok(())
     }
 
     #[test]
@@ -404,7 +407,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonicalize_lists() {
+    fn test_canonicalize_lists() -> VortexResult<()> {
         let list_scalar = Scalar::list(
             Arc::new(DType::Primitive(PType::U64, Nullability::NonNullable)),
             vec![1u64.into(), 2u64.into()],
@@ -412,7 +415,7 @@ mod tests {
         );
         let const_array = ConstantArray::new(list_scalar, 2).into_array();
         let canonical_const = const_array.to_listview();
-        let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList);
+        let list_array = canonical_const.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?;
         assert_arrays_eq!(
             list_array.elements().to_primitive(),
             PrimitiveArray::from_iter([1u64, 2, 1, 2])
@@ -425,6 +428,7 @@ mod tests {
             list_array.sizes().to_primitive(),
             PrimitiveArray::from_iter([2u64, 2])
         );
+        Ok(())
     }
 
     #[test]

@@ -34,7 +34,7 @@ impl FillNullKernel for DictVTable {
             // No fill values found, so we must canonicalize and fill_null.
             // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
             //  fall back.
-            return fill_null(&array.to_canonical().into_array(), fill_value);
+            return fill_null(&array.to_canonical()?.into_array(), fill_value);
         };
 
         // Now we rewrite the nullable codes to point at the fill value.
