@@ -29,6 +29,12 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
+criterion = "0.7"
+divan = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [build-dependencies]
+
+[[bench]]
+name = "for_cuda"
+harness = false
