@@ -288,7 +288,7 @@ impl ListArray {
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
         let mut elements = self.sliced_elements();
         if recurse && elements.is_canonical() {
-            elements = elements.to_canonical().compact()?.into_array();
+            elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {
             elements = child_list_array.reset_offsets(recurse)?.into_array();
         }

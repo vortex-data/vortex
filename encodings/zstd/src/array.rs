@@ -483,7 +483,7 @@ impl ZstdArray {
     }
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical(), level, values_per_frame)?
+        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
@@ -775,7 +775,7 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl CanonicalVTable<ZstdVTable> for ZstdVTable {
-    fn canonicalize(array: &ZstdArray) -> Canonical {
+    fn canonicalize(array: &ZstdArray) -> VortexResult<Canonical> {
         array.decompress().to_canonical()
     }
 }

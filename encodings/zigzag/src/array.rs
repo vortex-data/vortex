@@ -181,8 +181,10 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
-    fn canonicalize(array: &ZigZagArray) -> Canonical {
-        Canonical::Primitive(zigzag_decode(array.encoded().to_primitive()))
+    fn canonicalize(array: &ZigZagArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(zigzag_decode(
+            array.encoded().to_primitive(),
+        )))
     }
 }
 
@@ -250,9 +252,9 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_compute_statistics() {
+    fn test_compute_statistics() -> VortexResult<()> {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical()?;
         let zigzag = ZigZagVTable
             .as_vtable()
             .encode(&canonical, None)
@@ -288,5 +290,6 @@ mod test {
             sliced.statistics().compute_is_constant(),
             array.statistics().compute_is_constant()
         );
+        Ok(())
     }
 }

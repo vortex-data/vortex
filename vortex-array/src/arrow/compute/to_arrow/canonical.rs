@@ -107,7 +107,7 @@ impl Kernel for ToArrowCanonical {
         // preferred Arrow type if the array has child arrays (struct, list, and fixed-size list).
         let to_preferred = arrow_type_opt.is_none();
 
-        let arrow_array = match (array.to_canonical(), &arrow_type) {
+        let arrow_array = match (array.to_canonical()?, &arrow_type) {
             (Canonical::Null(array), DataType::Null) => Ok(canonical_null_to_arrow(&array)),
             (Canonical::Bool(array), DataType::Boolean) => Ok(canonical_bool_to_arrow(&array)),
             (Canonical::Primitive(array), DataType::Int8) if matches!(array.ptype(), PType::I8) => {
@@ -508,7 +508,7 @@ fn to_arrow_list<O: IntegerPType + OffsetSizeTrait>(
     // Convert listview -> list, via the fast path when possible.
     // TODO(aduffy): extend list_from_list_view to support target offsets/size PTypes
     //   to avoid the copy below
-    let list_array = list_from_list_view(array);
+    let list_array = list_from_list_view(array)?;
 
     let (elements, element_field) = {
         if let Some(element_field) = element_field {

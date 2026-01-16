@@ -135,7 +135,7 @@ impl VTable for MaskedVTable {
         }
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &array.validity_mask());
+        let canonical = mask_validity_canonical(child, &array.validity_mask())?;
 
         vortex_ensure!(
             canonical.as_ref().dtype() == array.dtype(),
@@ -144,10 +144,10 @@ impl VTable for MaskedVTable {
             canonical.as_ref().dtype()
         );
         vortex_ensure!(
-            canonical.as_ref().len() == array.len(),
+            canonical.len() == array.len(),
             "Mask result length mismatch: expected {}, got {}",
             array.len(),
-            canonical.as_ref().len()
+            canonical.len()
         );
 
         Ok(canonical)

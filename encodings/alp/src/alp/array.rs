@@ -460,8 +460,8 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 }
 
 impl CanonicalVTable<ALPVTable> for ALPVTable {
-    fn canonicalize(array: &ALPArray) -> Canonical {
-        Canonical::Primitive(decompress_into_array(array.clone()))
+    fn canonicalize(array: &ALPArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(decompress_into_array(array.clone())))
     }
 }
 

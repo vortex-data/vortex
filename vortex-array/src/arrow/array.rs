@@ -151,7 +151,7 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl CanonicalVTable<ArrowVTable> for ArrowVTable {
-    fn canonicalize(array: &ArrowArray) -> Canonical {
+    fn canonicalize(array: &ArrowArray) -> VortexResult<Canonical> {
         ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
     }
 }

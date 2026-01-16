@@ -67,5 +67,5 @@ fn decompress_bitpacking_late_filter<T: IntegerPType>(bencher: Bencher, fraction
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| (&array, Mask::from_buffer(mask.clone())))
-        .bench_refs(|(array, mask)| filter(array.to_canonical().as_ref(), mask).unwrap());
+        .bench_refs(|(array, mask)| filter(array.to_canonical().unwrap().as_ref(), mask).unwrap());
 }

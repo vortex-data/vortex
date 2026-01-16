@@ -311,7 +311,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
 
         // Otherwise, after removing any leading and trailing elements, we can simply bulk append
         // the entire array.
-        let listview = listview.rebuild(ListViewRebuildMode::MakeExact);
+        let listview = listview
+            .rebuild(ListViewRebuildMode::MakeExact)
+            .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
         self.nulls.append_validity_mask(array.validity_mask());

@@ -351,7 +351,11 @@ mod tests {
         .unwrap();
 
         // TODO(joe): replace with compute null count
-        let invalid_slice = rle_array.slice(2..5).to_canonical().into_primitive();
+        let invalid_slice = rle_array
+            .slice(2..5)
+            .to_canonical()
+            .unwrap()
+            .into_primitive();
         assert!(invalid_slice.all_invalid());
 
         let mixed_slice = rle_array.slice(1..4);

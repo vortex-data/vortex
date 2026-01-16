@@ -17,14 +17,15 @@ use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect as _;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;
 
 impl CanonicalVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn canonicalize(array: &DateTimePartsArray) -> Canonical {
-        Canonical::Extension(decode_to_temporal(array).into())
+    fn canonicalize(array: &DateTimePartsArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(array).into()))
     }
 }
 
