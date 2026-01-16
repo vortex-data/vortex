@@ -46,7 +46,7 @@ use crate::session::CudaSessionExt;
 ///
 /// # Returns
 ///
-/// Returns a pair of CUDA events submitted before and after the kernel.
+/// A pair of CUDA events submitted before and after the kernel.
 /// Depending on `CUevent_flags` these events can contain timestamps. Use
 /// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
 /// enable timestamps.
@@ -81,7 +81,7 @@ macro_rules! launch_cuda_kernel {
 ///
 /// # Returns
 ///
-/// Returns a pair of CUDA events submitted before and after the kernel.
+/// A pair of CUDA events submitted before and after the kernel.
 /// Depending on `CUevent_flags` these events can contain timestamps. Use
 /// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
 /// enable timestamps.
