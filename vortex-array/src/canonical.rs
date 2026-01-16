@@ -80,7 +80,7 @@ use crate::builders::builder_with_capacity;
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update [`Array::is_canonical`],
+/// If you add another variant to this enum, make sure to update `dyn Array::is_canonical`,
 /// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {

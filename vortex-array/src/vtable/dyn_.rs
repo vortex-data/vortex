@@ -33,8 +33,8 @@ pub type ArrayId = ArcRef<str>;
 /// Dynamically typed vtable trait.
 ///
 /// This trait is sealed, therefore users should implement the strongly typed [`VTable`] trait
-/// instead. The [`ArrayVTableExt::as_vtable`] can be used to lift the implementation into this
-/// object-safe form.
+/// instead. The [`ArrayVTableExt::vtable`] function can be used to lift the implementation into
+/// this object-safe form.
 ///
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`Array`] trait API to a minimum.

@@ -44,7 +44,7 @@ use crate::serde::ArrayChildren;
 /// which can be disabled by assigning to the [`NotSupported`] type.
 ///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
-/// traits via the [`crate::ArrayAdapter`] and [`ArrayVTableAdapter`] types respectively.
+/// traits.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
 /// post-conditions. The pre-conditions are validated inside the [`Array`] and [`DynVTable`]
