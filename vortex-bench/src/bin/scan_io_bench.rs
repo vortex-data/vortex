@@ -424,7 +424,7 @@ async fn open_vortex_file_for_target(
         ScanTarget::Local(path) => Ok(session
             .open_options()
             .with_metrics(metrics)
-            .open(path.clone())
+            .open_path(path)
             .await?),
         ScanTarget::ObjectStore { store, path } => {
             let path_str = path.to_string();
