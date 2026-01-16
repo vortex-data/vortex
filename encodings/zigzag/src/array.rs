@@ -102,6 +102,12 @@ impl VTable for ZigZagVTable {
         array.encoded = children.into_iter().next().vortex_expect("checked");
         Ok(())
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ZigZagArray::new(array.encoded().slice(range)).into_array(),
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -178,10 +184,6 @@ impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn slice(array: &ZigZagArray, range: Range<usize>) -> ArrayRef {
-        ZigZagArray::new(array.encoded().slice(range)).into_array()
-    }
-
     fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
         let scalar = array.encoded().scalar_at(index);
         if scalar.is_null() {

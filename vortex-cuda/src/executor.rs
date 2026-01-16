@@ -5,12 +5,14 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::ValidAsZeroBits;
+use cudarc::driver::sys::CUevent_flags;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -25,6 +27,15 @@ use vortex_session::VortexSession;
 
 use crate::CudaSession;
 use crate::session::CudaSessionExt;
+
+/// CUDA kernel events recorded before and after kernel launch.
+#[derive(Debug)]
+pub struct CudaKernelEvents {
+    /// Event recorded before kernel launch.
+    pub before_launch: CudaEvent,
+    /// Event recorded after kernel launch.
+    pub after_launch: CudaEvent,
+}
 
 /// Convenience macro to launch a CUDA kernel.
 ///
@@ -41,6 +52,13 @@ use crate::session::CudaSessionExt;
 /// The last block and thread are allowed to have less elements.
 ///
 /// Note: A macro is necessary to unroll the launch builder arguments.
+///
+/// # Returns
+///
+/// A pair of CUDA events submitted before and after the kernel.
+/// Depending on `CUevent_flags` these events can contain timestamps. Use
+/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
+/// enable timestamps.
 #[macro_export]
 macro_rules! launch_cuda_kernel {
     (
@@ -48,6 +66,7 @@ macro_rules! launch_cuda_kernel {
         module: $module:expr,
         ptypes: $ptypes:expr,
         launch_args: [$($arg:expr),* $(,)?],
+        event_recording: $event_recording:expr,
         array_len: $len:expr
     ) => {{
         let cuda_function = $ctx.load_function($module, $ptypes)?;
@@ -58,7 +77,7 @@ macro_rules! launch_cuda_kernel {
             launch_builder.arg(&$arg);
         )*
 
-        $crate::executor::launch_cuda_kernel_impl(&mut launch_builder, $len)?
+        $crate::executor::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
     }};
 }
 
@@ -68,10 +87,18 @@ macro_rules! launch_cuda_kernel {
 ///
 /// * `launch_builder` - Configured launch builder
 /// * `array_len` - Length of the array to process
+///
+/// # Returns
+///
+/// A pair of CUDA events submitted before and after the kernel.
+/// Depending on `CUevent_flags` these events can contain timestamps. Use
+/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
+/// enable timestamps.
 pub fn launch_cuda_kernel_impl(
     launch_builder: &mut LaunchArgs,
+    event_flags: CUevent_flags,
     array_len: usize,
-) -> VortexResult<()> {
+) -> VortexResult<CudaKernelEvents> {
     let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
 
     let config = cudarc::driver::LaunchConfig {
@@ -80,13 +107,21 @@ pub fn launch_cuda_kernel_impl(
         shared_mem_bytes: 0,
     };
 
+    launch_builder.record_kernel_launch(event_flags);
+
     unsafe {
         launch_builder
             .launch(config)
-            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))?
-    };
-
-    Ok(())
+            .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
+            .and_then(|events| {
+                events
+                    .ok_or_else(|| vortex_err!("CUDA events not recorded"))
+                    .map(|(before_launch, after_launch)| CudaKernelEvents {
+                        before_launch,
+                        after_launch,
+                    })
+            })
+    }
 }
 
 /// CUDA execution context.

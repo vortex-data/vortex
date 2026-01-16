@@ -39,6 +39,7 @@ use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
@@ -492,7 +493,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, range);
+        let sliced = V::slice(&self.0, range.clone())
+            .vortex_expect("cannot fail")
+            .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
+            .optimize()
+            .vortex_expect("cannot fail for now");
 
         assert_eq!(
             sliced.len(),

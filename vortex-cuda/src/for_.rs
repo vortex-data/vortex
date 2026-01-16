@@ -4,9 +4,12 @@
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::validity::Validity::NonNullable;
 use vortex_dtype::FromPrimitiveOrF16;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
@@ -72,11 +75,15 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
     let device_data = ctx.to_device(unpacked_slice)?;
 
     let array_len = array.len() as u64;
-    launch_cuda_kernel!(
+    let _kernel_events = launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "for",
         ptypes: &[array.ptype()],
         launch_args: [device_data, reference, array_len],
+        // CUDA events are submitted before and after the kernel launch. This
+        // enables waiting for a single kernel to finish without doing a global
+        // synchronize on the stream. Timing is disabled to keep the overhead low.
+        event_recording: CU_EVENT_DISABLE_TIMING,
         array_len: array.len()
     );
 
@@ -87,11 +94,7 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
         vortex_buffer::Alignment::of::<P>(),
     )?;
 
-    let primitive = vortex_array::arrays::PrimitiveArray::new(
-        result,
-        vortex_array::validity::Validity::NonNullable,
-    )
-    .reinterpret_cast(array.ptype());
+    let primitive = PrimitiveArray::new(result, NonNullable).reinterpret_cast(array.ptype());
 
     Ok(Canonical::Primitive(primitive))
 }
@@ -100,7 +103,6 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
@@ -122,7 +124,7 @@ mod tests {
         let for_array = FoRArray::try_new(
             PrimitiveArray::new(
                 Buffer::from((0u32..5000).collect::<Vec<u32>>()),
-                Validity::NonNullable,
+                NonNullable,
             )
             .into_array(),
             10u32.into(),

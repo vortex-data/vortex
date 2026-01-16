@@ -13,6 +13,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -79,6 +80,25 @@ impl VTable for ALPRDVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
+    }
+
+    fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let left_parts_exceptions = array
+            .left_parts_patches()
+            .and_then(|patches| patches.slice(range.clone()));
+
+        // SAFETY: slicing components does not change the encoded values
+        Ok(Some(unsafe {
+            ALPRDArray::new_unchecked(
+                array.dtype().clone(),
+                array.left_parts().slice(range.clone()),
+                array.left_parts_dictionary().clone(),
+                array.right_parts().slice(range),
+                array.right_bit_width(),
+                left_parts_exceptions,
+            )
+            .into_array()
+        }))
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {

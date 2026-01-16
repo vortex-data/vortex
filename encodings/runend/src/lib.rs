@@ -10,6 +10,7 @@ mod arrow;
 pub mod compress;
 mod compute;
 mod iter;
+mod kernel;
 mod ops;
 mod rules;
 

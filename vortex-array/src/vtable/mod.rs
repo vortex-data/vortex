@@ -14,6 +14,7 @@ mod visitor;
 
 use std::fmt::Debug;
 use std::ops::Deref;
+use std::ops::Range;
 
 pub use array::*;
 pub use canonical::*;
@@ -180,6 +181,21 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
+        Ok(None)
+    }
+
+    /// Perform a constant-time slice of the array.
+    ///
+    /// If an encoding cannot perform this slice in constant time, it should instead return Ok(None).
+    ///
+    /// This function returns [`ArrayRef`] since some encodings can return a simpler array for
+    /// some slices, for example a [`crate::arrays::ChunkedArray`] may slice into a single chunk.
+    ///
+    /// ## Preconditions
+    ///
+    /// Bounds-checking has already been performed by the time this function is called.
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        _ = (array, range);
         Ok(None)
     }
 }

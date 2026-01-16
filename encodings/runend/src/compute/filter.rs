@@ -141,10 +141,12 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 
 #[cfg(test)]
 mod tests {
+    use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
     use super::filter_run_end;
@@ -181,22 +183,17 @@ mod tests {
     }
 
     #[test]
-    fn filter_sliced_run_end() {
+    fn filter_sliced_run_end() -> VortexResult<()> {
         let arr = ree_array().slice(2..7);
-        let filtered = filter_run_end(
-            arr.as_::<RunEndVTable>(),
-            &Mask::from_iter([true, false, false, true, true]),
-        )
-        .unwrap();
-        let filtered_run_end = filtered.as_::<RunEndVTable>();
+        let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
         assert_arrays_eq!(
-            filtered_run_end.ends().to_primitive(),
-            PrimitiveArray::from_iter([1u8, 2, 3])
+            filtered,
+            RunEndArray::new(
+                PrimitiveArray::from_iter([1u8, 2, 3]).into_array(),
+                PrimitiveArray::from_iter([1i32, 4, 2]).into_array()
+            )
         );
-        assert_arrays_eq!(
-            filtered_run_end.values().to_primitive(),
-            PrimitiveArray::from_iter([1i32, 4, 2])
-        );
+        Ok(())
     }
 }

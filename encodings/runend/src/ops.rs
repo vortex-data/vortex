@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
-use vortex_array::arrays::ConstantArray;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -18,30 +13,6 @@ use crate::RunEndArray;
 use crate::RunEndVTable;
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
-    fn slice(array: &RunEndArray, range: Range<usize>) -> ArrayRef {
-        let new_length = range.len();
-
-        let slice_begin = array.find_physical_index(range.start);
-        let slice_end = find_slice_end_index(array.ends(), range.end + array.offset());
-
-        // If the sliced range contains only a single run, opt to return a ConstantArray.
-        if slice_begin + 1 == slice_end {
-            let value = array.values().scalar_at(slice_begin);
-            return ConstantArray::new(value, new_length).into_array();
-        }
-
-        // SAFETY: we maintain the ends invariant in our slice implementation
-        unsafe {
-            RunEndArray::new_unchecked(
-                array.ends().slice(slice_begin..slice_end),
-                array.values().slice(slice_begin..slice_end),
-                range.start + array.offset(),
-                new_length,
-            )
-            .into_array()
-        }
-    }
-
     fn scalar_at(array: &RunEndArray, index: usize) -> Scalar {
         array.values().scalar_at(array.find_physical_index(index))
     }
@@ -74,6 +45,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::compute::Cost;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -159,7 +131,7 @@ mod tests {
 
         let sliced_array = re_array.slice(2..5);
 
-        assert!(sliced_array.is_constant())
+        assert!(sliced_array.is_constant_opts(Cost::Canonicalize))
     }
 
     #[test]

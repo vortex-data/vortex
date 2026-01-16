@@ -174,6 +174,10 @@ impl VTable for ZstdVTable {
 
         Ok(())
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(array._slice(range.start, range.end).into_array()))
+    }
 }
 
 #[derive(Debug)]
@@ -774,10 +778,6 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn slice(array: &ZstdArray, range: Range<usize>) -> ArrayRef {
-        array._slice(range.start, range.end).into_array()
-    }
-
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }
