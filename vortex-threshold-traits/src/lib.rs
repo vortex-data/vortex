@@ -10,7 +10,10 @@ use std::fmt::Debug;
 use serde::Deserialize;
 use serde::Serialize;
 
+pub mod builder;
 pub mod storage;
+
+pub use builder::ThresholdBench;
 
 /// Defines the range of parameter values to sweep during benchmarking.
 #[derive(Debug, Clone, Serialize, Deserialize)]

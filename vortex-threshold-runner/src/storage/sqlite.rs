@@ -45,7 +45,7 @@ impl SqliteStorage {
             CREATE TABLE IF NOT EXISTS measurements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id TEXT NOT NULL,
-                commit TEXT NOT NULL,
+                git_commit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 cpu_class TEXT NOT NULL,
                 algorithm TEXT NOT NULL,
@@ -65,12 +65,12 @@ impl SqliteStorage {
             CREATE INDEX IF NOT EXISTS idx_measurements_timestamp
                 ON measurements(timestamp);
             CREATE INDEX IF NOT EXISTS idx_measurements_commit
-                ON measurements(commit);
+                ON measurements(git_commit);
 
             CREATE TABLE IF NOT EXISTS thresholds (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 run_id TEXT NOT NULL,
-                commit TEXT NOT NULL,
+                git_commit TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 cpu_class TEXT NOT NULL,
                 algorithm TEXT NOT NULL,
@@ -104,7 +104,7 @@ impl SqliteStorage {
     ) -> SqlResult<()> {
         self.conn.execute(
             r"INSERT INTO thresholds
-              (run_id, commit, timestamp, cpu_class, algorithm, from_variant, to_variant, threshold, ci_low, ci_high)
+              (run_id, git_commit, timestamp, cpu_class, algorithm, from_variant, to_variant, threshold, ci_low, ci_high)
               VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 run_id,
@@ -135,7 +135,7 @@ impl SqliteStorage {
                 a.from_variant = b.from_variant AND
                 a.to_variant = b.to_variant AND
                 a.cpu_class = b.cpu_class
-            WHERE a.commit = ?1 AND b.commit = ?2
+            WHERE a.git_commit = ?1 AND b.git_commit = ?2
             AND a.threshold != b.threshold
             ",
         )?;
@@ -219,7 +219,7 @@ impl BenchmarkStorage for SqliteStorage {
         {
             let mut stmt = self.conn.prepare(
                 r"INSERT INTO measurements
-                  (run_id, commit, timestamp, cpu_class, algorithm, variant, parameter,
+                  (run_id, git_commit, timestamp, cpu_class, algorithm, variant, parameter,
                    mean_ns, stddev_ns, min_ns, max_ns, iterations)
                   VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             )?;
@@ -262,7 +262,7 @@ impl BenchmarkStorage for SqliteStorage {
             params_vec.push(Box::new(cpu_class_to_str(cpu).to_string()));
         }
         if let Some(ref commit) = query.commit {
-            sql.push_str(" AND commit = ?");
+            sql.push_str(" AND git_commit = ?");
             params_vec.push(Box::new(commit.clone()));
         }
         if let Some(since) = query.since {
