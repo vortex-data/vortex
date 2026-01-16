@@ -89,7 +89,7 @@ pub fn launch_cuda_kernel_impl(
     launch_builder: &mut LaunchArgs,
     event_flags: CUevent_flags,
     array_len: usize,
-) -> VortexResult<Option<(CudaEvent, CudaEvent)>> {
+) -> VortexResult<(CudaEvent, CudaEvent)> {
     let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
 
     let config = cudarc::driver::LaunchConfig {
@@ -104,6 +104,7 @@ pub fn launch_cuda_kernel_impl(
         launch_builder
             .launch(config)
             .map_err(|e| vortex_err!("Failed to launch kernel: {}", e))
+            .and_then(|events| events.ok_or_else(|| vortex_err!("CUDA events not recorded")))
     }
 }
 
