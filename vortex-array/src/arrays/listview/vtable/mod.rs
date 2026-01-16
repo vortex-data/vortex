@@ -31,12 +31,14 @@ mod rules;
 mod validity;
 mod visitor;
 
-pub const ListView: ArrayId = ArrayId::new_ref("vortex.ListView");
-
 vtable!(ListView);
 
 #[derive(Debug)]
 pub struct ListViewVTable;
+
+impl ListViewVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -62,7 +64,7 @@ impl VTable for ListViewVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.listview")
+        Self::ID.clone()
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

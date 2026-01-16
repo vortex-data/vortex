@@ -36,8 +36,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -86,8 +84,6 @@ use crate::PcoPageInfo;
 
 const VALUES_PER_CHUNK: usize = pco::DEFAULT_MAX_PAGE_N;
 
-pub const Pco: ArrayId = ArrayId::new_ref("vortex.Pco");
-
 vtable!(Pco);
 
 impl VTable for PcoVTable {
@@ -104,7 +100,7 @@ impl VTable for PcoVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.pco")
+        Self::ID.clone()
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -213,6 +209,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 
 #[derive(Debug)]
 pub struct PcoVTable;
+
+impl PcoVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
+}
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {
@@ -537,7 +537,7 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 }
 
 impl EncodeVTable<PcoVTable> for PcoVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(canonical: &Canonical, _like: Option<&PcoArray>) -> VortexResult<Option<PcoArray>> {
         let parray = canonical.clone().into_primitive();
 
         Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))

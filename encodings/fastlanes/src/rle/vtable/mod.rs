@@ -8,8 +8,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -27,8 +25,6 @@ mod encode;
 mod operations;
 mod validity;
 mod visitor;
-
-pub const RLE: ArrayId = ArrayId::new_ref("vortex.RLE");
 
 vtable!(RLE);
 
@@ -62,7 +58,7 @@ impl VTable for RLEVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("fastlanes.rle")
+        Self::ID.clone()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -144,6 +140,10 @@ impl VTable for RLEVTable {
 
 #[derive(Debug)]
 pub struct RLEVTable;
+
+impl RLEVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.RLE");
+}
 
 #[cfg(test)]
 mod tests {

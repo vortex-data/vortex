@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 
+use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::session::ExprRegistry;
 
@@ -41,9 +42,9 @@ pub fn deserialize_expr_proto(
     expr: &pb::Expr,
     registry: &ExprRegistry,
 ) -> VortexResult<Expression> {
-    let expr_id = expr.id.as_str();
+    let expr_id = ExprId::new_arc(Arc::from(expr.id.to_string()));
     let vtable = registry
-        .find(expr_id)
+        .find(&expr_id)
         .ok_or_else(|| vortex_err!("unknown expression id: {}", expr_id))?;
 
     let children = expr

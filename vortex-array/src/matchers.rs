@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
+
 use crate::ArrayRef;
 use crate::vtable::VTable;
 
@@ -26,18 +28,19 @@ impl Matcher for AnyArray {
 
 /// Matches a specific Array by its VTable type.
 #[derive(Debug)]
-pub struct Exact<V: VTable>(&'static V);
+pub struct Exact<V: VTable>(PhantomData<V>);
+
+impl<V: VTable> Exact<V> {
+    /// Create a new Exact matcher for the given VTable type
+    pub const fn new() -> Self {
+        Self(PhantomData)
+    }
+}
 
 impl<V: VTable> Matcher for Exact<V> {
     type View<'a> = &'a V::Array;
 
     fn try_match<'a>(&self, parent: &'a ArrayRef) -> Option<Self::View<'a>> {
         parent.as_opt::<V>()
-    }
-}
-
-impl<V: VTable> From<&'static V> for Exact<V> {
-    fn from(vtable: &'static V) -> Self {
-        Self(vtable)
     }
 }

@@ -36,7 +36,6 @@ use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExprId;
-use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::lit;
@@ -47,20 +46,10 @@ use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
-pub const ScalarFn: ArrayId = ArrayId::new_ref("vortex.ScalarFn");
-
 vtable!(ScalarFn);
 
 #[derive(Clone, Debug)]
-pub struct ScalarFnVTable {
-    vtable: ExprVTable,
-}
-
-impl ScalarFnVTable {
-    pub fn new(vtable: ExprVTable) -> Self {
-        Self { vtable }
-    }
-}
+pub struct ScalarFnVTable;
 
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;

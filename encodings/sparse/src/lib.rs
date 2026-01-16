@@ -33,8 +33,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
@@ -61,8 +59,6 @@ mod canonical;
 mod compute;
 mod ops;
 
-pub const Sparse: ArrayId = ArrayId::new_ref("vortex.Sparse");
-
 vtable!(Sparse);
 
 #[derive(Clone, prost::Message)]
@@ -86,7 +82,7 @@ impl VTable for SparseVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.sparse")
+        Self::ID.clone()
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -172,6 +168,10 @@ pub struct SparseArray {
 
 #[derive(Debug)]
 pub struct SparseVTable;
+
+impl SparseVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
+}
 
 impl SparseArray {
     pub fn try_new(
@@ -488,7 +488,10 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
 }
 
 impl EncodeVTable<SparseVTable> for SparseVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        canonical: &Canonical,
+        like: Option<&SparseArray>,
+    ) -> VortexResult<Option<SparseArray>> {
         // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
         let fill_value =
             like.and_then(|arr| arr.fill_scalar().cast(canonical.as_ref().dtype()).ok());

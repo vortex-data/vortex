@@ -42,8 +42,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
-pub const Arrow: ArrayId = ArrayId::new_ref("vortex.Arrow");
-
 vtable!(Arrow);
 
 impl VTable for ArrowVTable {
@@ -60,7 +58,7 @@ impl VTable for ArrowVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.arrow")
+        ArrowVTable::ID.clone()
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -99,6 +97,10 @@ impl VTable for ArrowVTable {
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
 #[derive(Debug)]
 pub struct ArrowVTable;
+
+impl ArrowVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.arrow");
+}
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {

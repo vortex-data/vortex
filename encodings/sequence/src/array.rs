@@ -24,8 +24,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -57,8 +55,6 @@ use vortex_vector::VectorMutOps;
 use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
-
-pub const Sequence: ArrayId = ArrayId::new_ref("vortex.Sequence");
 
 vtable!(Sequence);
 
@@ -207,7 +203,7 @@ impl VTable for SequenceVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.sequence")
+        Self::ID.clone()
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -430,6 +426,10 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 
 #[derive(Debug)]
 pub struct SequenceVTable;
+
+impl SequenceVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
+}
 
 impl EncodeVTable<SequenceVTable> for SequenceVTable {
     fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {

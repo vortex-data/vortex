@@ -21,8 +21,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -46,8 +44,6 @@ use crate::compute::ZigZagEncoded;
 use crate::zigzag_decode;
 use crate::zigzag_encode;
 
-pub const ZigZag: ArrayId = ArrayId::new_ref("vortex.ZigZag");
-
 vtable!(ZigZag);
 
 impl VTable for ZigZagVTable {
@@ -64,7 +60,7 @@ impl VTable for ZigZagVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.zigzag")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -117,6 +113,10 @@ pub struct ZigZagArray {
 
 #[derive(Debug)]
 pub struct ZigZagVTable;
+
+impl ZigZagVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
+}
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {
@@ -209,13 +209,16 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 }
 
 impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        canonical: &Canonical,
+        _like: Option<&ZigZagArray>,
+    ) -> VortexResult<Option<ZigZagArray>> {
         let parray = canonical.clone().into_primitive();
 
         if !parray.ptype().is_signed_int() {
             vortex_bail!(
                 "only signed integers can be encoded into {}, got {}",
-                encoding.id(),
+                ZigZagVTable::ID,
                 parray.ptype()
             )
         }
@@ -244,11 +247,7 @@ mod test {
     fn test_compute_statistics() {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let canonical = array.to_canonical();
-        let zigzag = ZigZagVTable
-            .as_vtable()
-            .encode(&canonical, None)
-            .unwrap()
-            .unwrap();
+        let zigzag = ZigZagVTable.encode(&canonical, None).unwrap().unwrap();
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

@@ -34,8 +34,6 @@ use crate::vtable::VisitorVTable;
 
 mod compute;
 
-pub const Null: ArrayId = ArrayId::new_ref("vortex.Null");
-
 vtable!(Null);
 
 impl VTable for NullVTable {
@@ -52,7 +50,7 @@ impl VTable for NullVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.null")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -119,6 +117,10 @@ pub struct NullArray {
 
 #[derive(Debug)]
 pub struct NullVTable;
+
+impl NullVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
+}
 
 impl NullArray {
     pub fn new(len: usize) -> Self {

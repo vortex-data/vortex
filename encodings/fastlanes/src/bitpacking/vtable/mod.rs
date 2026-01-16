@@ -14,8 +14,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
@@ -37,8 +35,6 @@ mod kernels;
 mod operations;
 mod validity;
 mod visitor;
-
-pub const BitPacked: ArrayId = ArrayId::new_ref("vortex.BitPacked");
 
 vtable!(BitPacked);
 
@@ -66,7 +62,7 @@ impl VTable for BitPackedVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("fastlanes.bitpacked")
+        Self::ID.clone()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -252,3 +248,7 @@ impl VTable for BitPackedVTable {
 
 #[derive(Debug)]
 pub struct BitPackedVTable;
+
+impl BitPackedVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.bitpacked");
+}

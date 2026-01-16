@@ -31,8 +31,6 @@ mod visitor;
 
 use crate::vtable::ArrayId;
 
-pub const Struct: ArrayId = ArrayId::new_ref("vortex.Struct");
-
 vtable!(Struct);
 
 impl VTable for StructVTable {
@@ -49,7 +47,7 @@ impl VTable for StructVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.struct")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -145,3 +143,7 @@ impl VTable for StructVTable {
 
 #[derive(Debug)]
 pub struct StructVTable;
+
+impl StructVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
+}

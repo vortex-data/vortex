@@ -37,8 +37,6 @@ pub use rules::DecimalMaskedValidityRule;
 use crate::arrays::decimal::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
-pub const Decimal: ArrayId = ArrayId::new_ref("vortex.Decimal");
-
 vtable!(Decimal);
 
 // The type of the values can be determined by looking at the type info...right?
@@ -62,7 +60,7 @@ impl VTable for DecimalVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.decimal")
+        Self::ID.clone()
     }
 
     fn metadata(array: &DecimalArray) -> VortexResult<Self::Metadata> {
@@ -149,6 +147,10 @@ impl VTable for DecimalVTable {
 #[derive(Debug)]
 pub struct DecimalVTable;
 
+impl DecimalVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal");
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::ByteBufferMut;
@@ -161,8 +163,8 @@ mod tests {
     use crate::arrays::DecimalVTable;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::session::ArrayRegistry;
     use crate::validity::Validity;
-    use crate::vtable::ArrayVTableExt;
 
     #[test]
     fn test_array_serde() {
@@ -172,7 +174,9 @@ mod tests {
             Validity::NonNullable,
         );
         let dtype = array.dtype().clone();
-        let ctx = ArrayContext::empty().with(DecimalVTable.as_vtable());
+
+        let registry = ArrayRegistry::empty().with(DecimalVTable::ID, DecimalVTable.into());
+        let ctx = ArrayContext::from_registry_sorted(&registry);
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())

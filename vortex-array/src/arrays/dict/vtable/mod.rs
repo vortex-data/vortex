@@ -37,12 +37,14 @@ mod rules;
 mod validity;
 mod visitor;
 
-pub const Dict: ArrayId = ArrayId::new_ref("vortex.Dict");
-
 vtable!(Dict);
 
 #[derive(Debug)]
 pub struct DictVTable;
+
+impl DictVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
+}
 
 impl VTable for DictVTable {
     type Array = DictArray;
@@ -58,7 +60,7 @@ impl VTable for DictVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.dict")
+        Self::ID.clone()
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {

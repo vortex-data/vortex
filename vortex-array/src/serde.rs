@@ -195,7 +195,8 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.ctx.encoding_idx(&self.array.encoding());
+        let encoding = self.ctx.encoding_idx(&self.array.encoding_id());
+
         let metadata = self
             .array
             .metadata()
@@ -293,10 +294,10 @@ impl Debug for ArrayParts {
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
     pub fn decode(&self, ctx: &ArrayContext, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let encoding_id = self.flatbuffer().encoding();
-        let vtable = ctx
-            .lookup_encoding(encoding_id)
-            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
+        let encoding_idx = self.flatbuffer().encoding();
+        let (encoding_id, vtable) = ctx
+            .lookup_encoding(encoding_idx)
+            .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_idx))?;
 
         let buffers: Vec<_> = (0..self.nbuffers())
             .map(|idx| self.buffer(idx))
@@ -304,15 +305,20 @@ impl ArrayParts {
 
         let children = ArrayPartsChildren { parts: self, ctx };
 
-        let decoded = vtable
-            .as_dyn()
-            .build(dtype, len, self.metadata(), &buffers, &children)?;
+        let decoded = vtable.build(
+            encoding_id.clone(),
+            dtype,
+            len,
+            self.metadata(),
+            &buffers,
+            &children,
+        )?;
 
         assert_eq!(
             decoded.len(),
             len,
             "Array decoded from {} has incorrect length {}, expected {}",
-            vtable.id(),
+            encoding_id,
             decoded.len(),
             len
         );
@@ -320,15 +326,15 @@ impl ArrayParts {
             decoded.dtype(),
             dtype,
             "Array decoded from {} has incorrect dtype {}, expected {}",
-            vtable.id(),
+            encoding_id,
             decoded.dtype(),
             dtype,
         );
         assert_eq!(
             decoded.encoding_id(),
-            vtable.id(),
+            encoding_id,
             "Array decoded from {} has incorrect encoding {}",
-            vtable.id(),
+            encoding_id,
             decoded.encoding_id(),
         );
 

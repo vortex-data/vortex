@@ -27,8 +27,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -49,8 +47,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::alp_rd::alp_rd_decode;
-
-pub const ALPRD: ArrayId = ArrayId::new_ref("vortex.ALPRD");
 
 vtable!(ALPRD);
 
@@ -82,7 +78,7 @@ impl VTable for ALPRDVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.alprd")
+        Self::ID.clone()
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -239,6 +235,10 @@ pub struct ALPRDArray {
 
 #[derive(Debug)]
 pub struct ALPRDVTable;
+
+impl ALPRDVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.alprd");
+}
 
 impl ALPRDArray {
     /// Build a new `ALPRDArray` from components.

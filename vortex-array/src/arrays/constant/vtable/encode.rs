@@ -9,7 +9,10 @@ use crate::arrays::ConstantVTable;
 use crate::vtable::EncodeVTable;
 
 impl EncodeVTable<ConstantVTable> for ConstantVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        canonical: &Canonical,
+        _like: Option<&ConstantArray>,
+    ) -> VortexResult<Option<ConstantArray>> {
         let canonical = canonical.as_ref();
         if canonical.is_constant() {
             let scalar = canonical.scalar_at(0);

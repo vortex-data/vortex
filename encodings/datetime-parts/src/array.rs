@@ -22,8 +22,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
@@ -41,8 +39,6 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::compute::rules::PARENT_RULES;
-
-pub const DateTimeParts: ArrayId = ArrayId::new_ref("vortex.DateTimeParts");
 
 vtable!(DateTimeParts);
 
@@ -90,7 +86,7 @@ impl VTable for DateTimePartsVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.datetimeparts")
+        Self::ID.clone()
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -179,6 +175,10 @@ pub struct DateTimePartsArray {
 
 #[derive(Debug)]
 pub struct DateTimePartsVTable;
+
+impl DateTimePartsVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
+}
 
 impl DateTimePartsArray {
     pub fn try_new(
@@ -291,7 +291,10 @@ impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
 }
 
 impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(
+        canonical: &Canonical,
+        _like: Option<&DateTimePartsArray>,
+    ) -> VortexResult<Option<DateTimePartsArray>> {
         let ext_array = canonical.clone().into_extension();
         let temporal = TemporalArray::try_from(ext_array)?;
 

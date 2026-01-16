@@ -30,8 +30,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -84,8 +82,6 @@ type ViewLen = u32;
 // We then insert these values to the correct position using a primitive array
 // constructor.
 
-pub const Zstd: ArrayId = ArrayId::new_ref("vortex.Zstd");
-
 vtable!(Zstd);
 
 impl VTable for ZstdVTable {
@@ -102,7 +98,7 @@ impl VTable for ZstdVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.zstd")
+        Self::ID.clone()
     }
 
     fn metadata(array: &ZstdArray) -> VortexResult<Self::Metadata> {
@@ -182,6 +178,10 @@ impl VTable for ZstdVTable {
 
 #[derive(Debug)]
 pub struct ZstdVTable;
+
+impl ZstdVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.zstd");
+}
 
 #[derive(Clone, Debug)]
 pub struct ZstdArray {
@@ -784,7 +784,7 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl EncodeVTable<ZstdVTable> for ZstdVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(canonical: &Canonical, _like: Option<&ZstdArray>) -> VortexResult<Option<ZstdArray>> {
         ZstdArray::from_canonical(canonical, 3, 0)
     }
 }

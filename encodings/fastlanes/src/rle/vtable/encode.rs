@@ -9,7 +9,7 @@ use super::RLEVTable;
 use crate::RLEArray;
 
 impl EncodeVTable<RLEVTable> for RLEVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(canonical: &Canonical, like: Option<&RLEArray>) -> VortexResult<Option<RLEArray>> {
         let array = canonical.clone().into_primitive();
         Ok(Some(RLEArray::encode(&array)?))
     }

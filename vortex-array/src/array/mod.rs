@@ -373,11 +373,6 @@ impl dyn Array + '_ {
         nbytes
     }
 
-    /// Returns whether the array is of the given encoding.
-    fn is_encoding(&self, encoding: ArrayId) -> bool {
-        self.encoding_id() == encoding
-    }
-
     /// Returns whether this array is an arrow encoding.
     pub fn is_arrow(&self) -> bool {
         self.is::<NullVTable>()

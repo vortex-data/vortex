@@ -34,8 +34,6 @@ mod operations;
 mod validity;
 mod visitor;
 
-pub const List: ArrayId = ArrayId::new_ref("vortex.List");
-
 vtable!(List);
 
 #[derive(Clone, prost::Message)]
@@ -60,7 +58,7 @@ impl VTable for ListVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.list")
+        Self::ID.clone()
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -151,3 +149,7 @@ impl VTable for ListVTable {
 
 #[derive(Debug)]
 pub struct ListVTable;
+
+impl ListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
+}

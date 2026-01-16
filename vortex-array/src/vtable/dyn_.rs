@@ -6,7 +6,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
@@ -41,6 +40,7 @@ pub type ArrayId = ArcRef<str>;
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
     fn build(
         &self,
+        id: ArrayId,
         dtype: &DType,
         len: usize,
         metadata: &[u8],
@@ -86,13 +86,14 @@ struct ArrayVTableAdapter<V: VTable>(PhantomData<V>);
 impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
     fn build(
         &self,
+        _id: ArrayId,
         dtype: &DType,
         len: usize,
-        metadata_bytes: &[u8],
+        metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata_bytes)?;
+        let metadata = V::deserialize(metadata)?;
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");
@@ -245,6 +246,12 @@ fn downcast<V: VTable>(array: &ArrayRef) -> &V::Array {
 impl<V: VTable> Debug for ArrayVTableAdapter<V> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "Encoding<{}>", type_name::<V>())
+    }
+}
+
+impl<V: VTable> From<V> for &'static dyn DynVTable {
+    fn from(_vtable: V) -> Self {
+        const { &ArrayVTableAdapter::<V>(PhantomData) }
     }
 }
 

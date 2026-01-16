@@ -33,12 +33,14 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
 
-pub const Masked: ArrayId = ArrayId::new_ref("vortex.Masked");
-
 vtable!(Masked);
 
 #[derive(Debug)]
 pub struct MaskedVTable;
+
+impl MaskedVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
+}
 
 impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
@@ -63,7 +65,7 @@ impl VTable for MaskedVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.masked")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -194,8 +196,8 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
+    use crate::session::ArrayRegistry;
     use crate::validity::Validity;
-    use crate::vtable::ArrayVTableExt;
 
     #[rstest]
     #[case(
@@ -219,7 +221,8 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let ctx = ArrayContext::empty().with(MaskedVTable.as_vtable());
+        let registry = ArrayRegistry::empty().with(MaskedVTable::ID, MaskedVTable.into());
+        let ctx = ArrayContext::from_registry_sorted(&registry);
 
         let serialized = array
             .to_array()

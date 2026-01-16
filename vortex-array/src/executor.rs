@@ -82,8 +82,7 @@ impl Executable for Canonical {
         // Try and dispatch to a child that can optimize execution.
         for (child_idx, child) in array.children().iter().enumerate() {
             if let Some(result) = child
-                .encoding()
-                .as_dyn()
+                .vtable()
                 .execute_canonical_parent(child, &array, child_idx, ctx)?
             {
                 tracing::debug!(
@@ -96,7 +95,7 @@ impl Executable for Canonical {
         }
 
         // Otherwise fall back to the default execution.
-        array.encoding().as_dyn().execute_canonical(&array, ctx)
+        array.vtable().execute_canonical(&array, ctx)
     }
 }
 

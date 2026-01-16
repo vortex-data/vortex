@@ -30,8 +30,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
@@ -51,8 +49,6 @@ use vortex_error::vortex_err;
 use crate::fsst_compress;
 use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
-
-pub const FSST: ArrayId = ArrayId::new_ref("vortex.FSST");
 
 vtable!(FSST);
 
@@ -83,7 +79,7 @@ impl VTable for FSSTVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.fsst")
+        Self::ID.clone()
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -218,6 +214,10 @@ impl Debug for FSSTArray {
 
 #[derive(Debug)]
 pub struct FSSTVTable;
+
+impl FSSTVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.FSST");
+}
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.
@@ -383,7 +383,7 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 }
 
 impl EncodeVTable<FSSTVTable> for FSSTVTable {
-    fn encode(canonical: &Canonical, like: Option<&V::Array>) -> VortexResult<Option<V::Array>> {
+    fn encode(canonical: &Canonical, like: Option<&FSSTArray>) -> VortexResult<Option<FSSTArray>> {
         let array = canonical.clone().into_varbinview();
 
         let compressor = match like {

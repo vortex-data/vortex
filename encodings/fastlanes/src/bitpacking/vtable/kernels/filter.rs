@@ -57,7 +57,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
     // TODO(joe): impl execute without to_canonical and execute_parent without vector

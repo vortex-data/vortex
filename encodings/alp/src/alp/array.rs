@@ -24,8 +24,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::EncodeVTable;
@@ -49,8 +47,6 @@ use crate::alp::alp_encode;
 use crate::alp::decompress::decompress_into_array;
 use crate::alp::decompress::execute_decompress;
 
-pub const ALP: ArrayId = ArrayId::new_ref("vortex.ALP");
-
 vtable!(ALP);
 
 impl VTable for ALPVTable {
@@ -67,7 +63,7 @@ impl VTable for ALPVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.alp")
+        Self::ID.clone()
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -201,6 +197,10 @@ pub struct ALPArray {
 
 #[derive(Debug)]
 pub struct ALPVTable;
+
+impl ALPVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {

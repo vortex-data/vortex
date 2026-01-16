@@ -25,8 +25,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
@@ -47,8 +45,6 @@ use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
 use crate::rules::RULES;
-
-pub const RunEnd: ArrayId = ArrayId::new_ref("vortex.RunEnd");
 
 vtable!(RunEnd);
 
@@ -76,7 +72,7 @@ impl VTable for RunEndVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.runend")
+        Self::ID.clone()
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -152,6 +148,10 @@ pub struct RunEndArray {
 
 #[derive(Debug)]
 pub struct RunEndVTable;
+
+impl RunEndVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
+}
 
 impl RunEndArray {
     fn validate(

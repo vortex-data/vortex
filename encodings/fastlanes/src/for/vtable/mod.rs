@@ -11,8 +11,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -34,8 +32,6 @@ mod rules;
 mod validity;
 mod visitor;
 
-pub const FoR: ArrayId = ArrayId::new_ref("vortex.FoR");
-
 vtable!(FoR);
 
 impl VTable for FoRVTable {
@@ -52,7 +48,7 @@ impl VTable for FoRVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("fastlanes.for")
+        Self::ID.clone()
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -115,6 +111,10 @@ impl VTable for FoRVTable {
 
 #[derive(Debug)]
 pub struct FoRVTable;
+
+impl FoRVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
+}
 
 #[derive(Clone)]
 pub struct ScalarValueMetadata(pub ScalarValue);

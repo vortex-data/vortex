@@ -25,12 +25,14 @@ mod operations;
 mod validity;
 mod visitor;
 
-pub const FixedSizeList: ArrayId = ArrayId::new_ref("vortex.FixedSizeList");
-
 vtable!(FixedSizeList);
 
 #[derive(Debug)]
 pub struct FixedSizeListVTable;
+
+impl FixedSizeListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
+}
 
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
@@ -46,7 +48,7 @@ impl VTable for FixedSizeListVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.fixed_size_list")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {

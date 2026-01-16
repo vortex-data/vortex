@@ -26,8 +26,6 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
 
-pub const Extension: ArrayId = ArrayId::new_ref("vortex.Extension");
-
 vtable!(Extension);
 
 impl VTable for ExtensionVTable {
@@ -44,7 +42,7 @@ impl VTable for ExtensionVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.ext")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -100,3 +98,7 @@ impl VTable for ExtensionVTable {
 
 #[derive(Debug)]
 pub struct ExtensionVTable;
+
+impl ExtensionVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
+}

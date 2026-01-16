@@ -32,8 +32,6 @@ use vortex_buffer::Alignment;
 use crate::arrays::primitive::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
-pub const Primitive: ArrayId = ArrayId::new_ref("vortex.Primitive");
-
 vtable!(Primitive);
 
 impl VTable for PrimitiveVTable {
@@ -50,7 +48,7 @@ impl VTable for PrimitiveVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.primitive")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &PrimitiveArray) -> VortexResult<Self::Metadata> {
@@ -144,3 +142,7 @@ impl VTable for PrimitiveVTable {
 
 #[derive(Debug)]
 pub struct PrimitiveVTable;
+
+impl PrimitiveVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.primitive");
+}

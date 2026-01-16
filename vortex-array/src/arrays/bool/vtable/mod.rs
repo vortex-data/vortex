@@ -33,8 +33,6 @@ pub use rules::BoolMaskedValidityRule;
 use crate::arrays::bool::vtable::rules::RULES;
 use crate::vtable::ArrayId;
 
-pub const Bool: ArrayId = ArrayId::new_ref("vortex.Bool");
-
 vtable!(Bool);
 
 #[derive(prost::Message)]
@@ -58,7 +56,7 @@ impl VTable for BoolVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.bool")
+        Self::ID.clone()
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
@@ -131,3 +129,7 @@ impl VTable for BoolVTable {
 
 #[derive(Debug)]
 pub struct BoolVTable;
+
+impl BoolVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
+}

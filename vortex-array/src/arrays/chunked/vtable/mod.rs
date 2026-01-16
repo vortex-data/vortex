@@ -34,12 +34,14 @@ mod rules;
 mod validity;
 mod visitor;
 
-pub const CHUNKED: ArrayId = ArrayId::new_ref("vortex.chunked");
-
 vtable!(Chunked);
 
 #[derive(Debug)]
 pub struct ChunkedVTable;
+
+impl ChunkedVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.chunked");
+}
 
 impl VTable for ChunkedVTable {
     type Array = ChunkedArray;
@@ -55,7 +57,7 @@ impl VTable for ChunkedVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        CHUNKED.clone()
+        Self::ID.clone()
     }
 
     fn metadata(_array: &ChunkedArray) -> VortexResult<Self::Metadata> {

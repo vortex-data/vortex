@@ -4,17 +4,11 @@
 //! Many session types use a registry of objects that can be looked up by name to construct
 //! contexts. This module provides a generic registry type for that purpose.
 
-use std::fmt::Display;
 use std::ops::Deref;
 use std::sync::Arc;
 
 use arcref::ArcRef;
 use vortex_utils::aliases::dash_map::DashMap;
-
-pub trait Identify {
-    /// Returns the identifier of this item.
-    fn id(&self) -> ArcRef<str>;
-}
 
 /// A registry of items that are keyed by a string identifier.
 // TODO(ngates): define a RegistryItem trait that has a custom key to avoid to_string calls.
@@ -27,9 +21,14 @@ impl<T> Default for Registry<T> {
     }
 }
 
-impl<T: Clone + Display + Eq> Registry<T> {
+impl<T: Clone> Registry<T> {
     pub fn empty() -> Self {
         Self(Default::default())
+    }
+
+    /// List the IDs in the registry.
+    pub fn ids(&self) -> impl Iterator<Item = ArcRef<str>> + '_ {
+        self.0.iter().map(|i| i.key().clone())
     }
 
     /// List the items in the registry.
@@ -51,20 +50,13 @@ impl<T: Clone + Display + Eq> Registry<T> {
     }
 
     /// Register a new item, replacing any existing item with the same ID.
-    pub fn register(&self, item: T)
-    where
-        T: Identify,
-    {
-        self.0.insert(item.id(), item);
+    pub fn register(&self, id: impl Into<ArcRef<str>>, item: impl Into<T>) {
+        self.0.insert(id.into(), item.into());
     }
 
-    /// Register a new item, replacing any existing item with the same ID.
-    pub fn register_many<I: IntoIterator<Item = T>>(&self, items: I)
-    where
-        T: Identify,
-    {
-        for item in items {
-            self.0.insert(item.id(), item);
-        }
+    /// Register a new item, replacing any existing item with the same ID, and return self for
+    pub fn with(self, id: impl Into<ArcRef<str>>, item: impl Into<T>) -> Self {
+        self.register(id, item.into());
+        self
     }
 }

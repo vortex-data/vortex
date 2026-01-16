@@ -29,12 +29,14 @@ mod rules;
 mod validity;
 mod visitor;
 
-pub const Constant: ArrayId = ArrayId::new_ref("vortex.Constant");
-
 vtable!(Constant);
 
 #[derive(Debug)]
 pub struct ConstantVTable;
+
+impl ConstantVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
+}
 
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
@@ -51,7 +53,7 @@ impl VTable for ConstantVTable {
     type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.constant")
+        Self::ID.clone()
     }
 
     fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {

@@ -29,8 +29,6 @@ mod operations;
 mod validity;
 mod visitor;
 
-pub const VarBin: ArrayId = ArrayId::new_ref("vortex.VarBin");
-
 vtable!(VarBin);
 
 #[derive(Clone, prost::Message)]
@@ -53,7 +51,7 @@ impl VTable for VarBinVTable {
     type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
-        ArrayId::new_ref("vortex.varbin")
+        Self::ID.clone()
     }
 
     fn metadata(array: &VarBinArray) -> VortexResult<Self::Metadata> {
@@ -129,3 +127,7 @@ impl VTable for VarBinVTable {
 
 #[derive(Debug)]
 pub struct VarBinVTable;
+
+impl VarBinVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbin");
+}
