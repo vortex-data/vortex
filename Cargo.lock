@@ -10264,7 +10264,6 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "codspeed-divan-compat",
  "criterion",
  "cudarc",
  "tokio",
