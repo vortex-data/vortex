@@ -632,23 +632,13 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        run: cargo codspeed build -m simulation ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
-      - name: Build memory benchmarks
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        run: cargo codspeed build -m analysis ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
-      - name: Run memory benchmarks
-        uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "memory"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
