@@ -138,7 +138,7 @@ impl VTable for MaskedVTable {
         let canonical = mask_validity_canonical(child, &array.validity_mask())?;
 
         vortex_ensure!(
-            canonical.as_ref().dtype().clone() == array.dtype().clone(),
+            canonical.as_ref().dtype() == array.dtype(),
             "Mask result dtype mismatch: expected {:?}, got {:?}",
             array.dtype(),
             canonical.as_ref().dtype()
