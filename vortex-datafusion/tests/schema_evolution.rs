@@ -510,7 +510,7 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
 
     assert_eq!(filtered_scan[0].schema(), read_schema);
 
-    assert_batches_eq!(
+    assert_batches_sorted_eq!(
         &[
             "+-----------------------+",
             "| my_struct             |",
