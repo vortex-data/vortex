@@ -41,10 +41,21 @@ impl CastKernel for StructVTable {
             }
         } else {
             // Re-order, handle fields by value instead.
+            // Track which source field indices have been used to handle duplicate field names.
+            let mut used_source_indices = vec![false; source_sdtype.nfields()];
+
             for (target_name, target_type) in
                 target_sdtype.names().iter().zip_eq(target_sdtype.fields())
             {
-                match source_sdtype.find(target_name) {
+                // Find the first unused source field with this name.
+                let src_field_idx = source_sdtype
+                    .names()
+                    .iter()
+                    .enumerate()
+                    .find(|(idx, name)| !used_source_indices[*idx] && *name == target_name)
+                    .map(|(idx, _)| idx);
+
+                match src_field_idx {
                     None => {
                         // No source field with this name => evolve the schema compatibly.
                         // If the field is nullable, we add a new ConstantArray field with the type.
@@ -57,9 +68,11 @@ impl CastKernel for StructVTable {
                             ConstantArray::new(Scalar::null(target_type), array.len()).into_array(),
                         );
                     }
-                    Some(src_field_idx) => {
+                    Some(src_idx) => {
+                        // Mark this source field as used.
+                        used_source_indices[src_idx] = true;
                         // Field exists in source field. Cast it to the target type.
-                        let cast_field = cast(&array.fields()[src_field_idx], &target_type)?;
+                        let cast_field = cast(&array.fields()[src_idx], &target_type)?;
                         cast_fields.push(cast_field);
                     }
                 }
@@ -96,6 +109,8 @@ mod tests {
     use crate::Array;
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::BoolArray;
+    use crate::arrays::ListArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
@@ -230,5 +245,54 @@ mod tests {
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
         assert_eq!(result.to_struct().fields().len(), 3);
+    }
+
+    /// Regression test for <https://github.com/vortex-data/vortex/issues/5865>.
+    ///
+    /// When casting a struct with duplicate field names using the name-based lookup path
+    /// (triggered by schema evolution), [`StructFields::find()`] returns the same index for
+    /// all fields with the same name, causing incorrect field casting.
+    #[test]
+    fn cast_struct_with_duplicate_names_schema_evolution() {
+        // Source struct: Two fields both named "a" with different types.
+        // Field 0: bool?
+        // Field 1: list(bool?)
+        let names = FieldNames::from(["a", "a"]);
+
+        let bool_field = BoolArray::from_iter([Some(true), None, Some(false)]).into_array();
+
+        let list_elements = BoolArray::from_iter([Some(true), Some(false)]).into_array();
+        let list_offsets = buffer![0i32, 1, 1, 2].into_array(); // 3 lists: [true], [], [false]
+        let list_field = ListArray::try_new(list_elements, list_offsets, Validity::NonNullable)
+            .unwrap()
+            .into_array();
+
+        let struct_array = StructArray::try_new(
+            names,
+            vec![bool_field.clone(), list_field.clone()],
+            3,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        // Target dtype: Same fields PLUS a new nullable field "c".
+        // This triggers name-based lookup because field count differs (2 vs 3).
+        let target_dtype = DType::struct_(
+            [
+                ("a", bool_field.dtype().clone()),
+                ("a", list_field.dtype().clone()),
+                ("c", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ],
+            Nullability::NonNullable,
+        );
+
+        // BUG: The name-based lookup path calls find("a") twice, getting index 0 both times.
+        // This tries to cast bool_field to list(bool?) which fails.
+        let result = crate::compute::cast(struct_array.as_ref(), &target_dtype);
+        assert!(
+            result.is_ok(),
+            "cast with duplicate field names failed: {:?}",
+            result.err()
+        );
     }
 }
