@@ -34,6 +34,7 @@ use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::layouts::flat::writer::FlatLayoutStrategy;
+use crate::layouts::list::writer::ListStrategy;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -97,8 +98,7 @@ impl TableStrategy {
     ///
     /// ```no_run
     /// # use std::sync::Arc;
-    /// # use vortex_dtype::{field_path, Field, FieldPath};
-    /// # use vortex_layout::layouts::compact::CompactCompressor;
+    /// # use vortex_dtype::field_path;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
@@ -106,19 +106,15 @@ impl TableStrategy {
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
     /// let compress_btrblocks = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
     ///
-    /// // A strategy that compresses data using ZSTD
-    /// let compress_compact = CompressingStrategy::new_compact(FlatLayoutStrategy::default(), CompactCompressor::default());
-    ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
-    /// // for most columns, and will use ZSTD compression for a nested binary column that we know
-    /// // is never filtered in.
+    /// // for most columns, and will leave a nested binary column uncompressed.
     /// let strategy = TableStrategy::new(
     ///         Arc::new(FlatLayoutStrategy::default()),
     ///         Arc::new(compress_btrblocks),
     ///     )
     ///     .with_field_writer(
     ///         field_path!(request.body.bytes),
-    ///         Arc::new(compress_compact),
+    ///         Arc::new(FlatLayoutStrategy::default()),
     ///     );
     /// ```
     pub fn with_field_writer(
@@ -336,6 +332,15 @@ impl LayoutStrategy for TableStrategy {
                             if dtype.is_struct() {
                                 // Step into the field path for struct columns
                                 Arc::new(self.descend(&field))
+                            } else if matches!(dtype, DType::List(..) | DType::FixedSizeList(..)) {
+                                // Component shredding for lists: descend into the element type.
+                                let elements =
+                                    Arc::new(self.descend(&field).descend(&Field::ElementType));
+                                Arc::new(ListStrategy::new(
+                                    self.validity.clone(),
+                                    self.fallback.clone(),
+                                    elements,
+                                ))
                             } else {
                                 // Use fallback for leaf columns
                                 self.fallback.clone()
