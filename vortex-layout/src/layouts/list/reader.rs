@@ -6,10 +6,8 @@ use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
 
-use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::Array;
-use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::ToCanonical;
@@ -137,7 +135,7 @@ impl ListReader {
             .transpose()?;
 
         match dtype {
-            DType::List(element_dtype, list_nullability) => {
+            DType::List(_, list_nullability) => {
                 let offsets_reader = self.offsets()?.clone();
                 let elements_reader = self.elements()?.clone();
                 let row_range_clone = row_range.clone();
@@ -155,15 +153,12 @@ impl ListReader {
                         MaskFuture::new_true(offsets_len),
                     )?;
 
-                    let (offsets, validity) = try_join!(
-                        offsets_fut,
-                        async move {
-                            match validity_fut {
-                                Some(v) => v.await.map(Some),
-                                None => Ok(None),
-                            }
+                    let (offsets, validity) = try_join!(offsets_fut, async move {
+                        match validity_fut {
+                            Some(v) => v.await.map(Some),
+                            None => Ok(None),
                         }
-                    )?;
+                    })?;
 
                     let offsets = offsets.to_primitive();
                     let offsets_slice = offsets.as_slice::<u64>();
@@ -181,36 +176,33 @@ impl ListReader {
 
                     let elements = elements.await?;
 
-                    let normalized_offsets =
-                        vortex_array::arrays::PrimitiveArray::from_iter(
-                            offsets_slice.iter().map(|v| *v - base),
-                        )
-                        .into_array();
+                    let normalized_offsets = vortex_array::arrays::PrimitiveArray::from_iter(
+                        offsets_slice.iter().map(|v| *v - base),
+                    )
+                    .into_array();
 
                     let validity = match (list_nullability, validity) {
-                        (Nullability::NonNullable, _) => vortex_array::validity::Validity::NonNullable,
+                        (Nullability::NonNullable, _) => {
+                            vortex_array::validity::Validity::NonNullable
+                        }
                         (Nullability::Nullable, Some(v)) => {
                             vortex_array::validity::Validity::Array(v)
                         }
                         (Nullability::Nullable, None) => vortex_array::validity::Validity::AllValid,
-                        _ => vortex_array::validity::Validity::NonNullable,
                     };
 
-                    Ok(
-                        ListArray::try_new(elements, normalized_offsets, validity)?
-                            .into_array(),
-                    )
+                    Ok(ListArray::try_new(elements, normalized_offsets, validity)?.into_array())
                 }))
             }
-            DType::FixedSizeList(element_dtype, list_size, list_nullability) => {
+            DType::FixedSizeList(_, list_size, list_nullability) => {
                 let elements_reader = self.elements()?.clone();
                 let row_range_clone = row_range.clone();
                 let element_expr = element_expr.clone();
 
                 Ok(Box::pin(async move {
                     let row_len_u64 = row_range_clone.end - row_range_clone.start;
-                    let row_len = usize::try_from(row_len_u64)
-                        .vortex_expect("row range must fit in usize");
+                    let row_len =
+                        usize::try_from(row_len_u64).vortex_expect("row range must fit in usize");
 
                     let list_size_u64 = u64::from(list_size);
                     let element_start = row_range_clone
@@ -231,23 +223,21 @@ impl ListReader {
                         MaskFuture::new_true(elements_len),
                     )?;
 
-                    let (elements, validity) = try_join!(
-                        elements_fut,
-                        async move {
-                            match validity_fut {
-                                Some(v) => v.await.map(Some),
-                                None => Ok(None),
-                            }
+                    let (elements, validity) = try_join!(elements_fut, async move {
+                        match validity_fut {
+                            Some(v) => v.await.map(Some),
+                            None => Ok(None),
                         }
-                    )?;
+                    })?;
 
                     let validity = match (list_nullability, validity) {
-                        (Nullability::NonNullable, _) => vortex_array::validity::Validity::NonNullable,
+                        (Nullability::NonNullable, _) => {
+                            vortex_array::validity::Validity::NonNullable
+                        }
                         (Nullability::Nullable, Some(v)) => {
                             vortex_array::validity::Validity::Array(v)
                         }
                         (Nullability::Nullable, None) => vortex_array::validity::Validity::AllValid,
-                        _ => vortex_array::validity::Validity::NonNullable,
                     };
 
                     Ok(
@@ -338,10 +328,8 @@ impl LayoutReader for ListReader {
         let row_range = row_range.clone();
         let expr = expr.clone();
         let root_expr = root();
-        let list_fut = self.list_slice_future(
-            row_range.clone(),
-            if is_pushdown { &expr } else { &root_expr },
-        )?;
+        let list_fut =
+            self.list_slice_future(row_range, if is_pushdown { &expr } else { &root_expr })?;
 
         Ok(Box::pin(async move {
             let (mut array, mask) = try_join!(list_fut, mask)?;

@@ -66,7 +66,7 @@ impl VTable for ListVTable {
     fn nchildren(layout: &Self::Layout) -> usize {
         let validity_children = layout.dtype.is_nullable() as usize;
         match layout.dtype {
-            DType::List(..) => 2 + validity_children,          // offsets + elements
+            DType::List(..) => 2 + validity_children, // offsets + elements
             DType::FixedSizeList(..) => 1 + validity_children, // elements
             _ => 0,
         }
@@ -81,9 +81,9 @@ impl VTable for ListVTable {
             (_, true, 0) => DType::Bool(Nullability::NonNullable),
 
             // variable-size list
-            (DType::List(element_dtype, _), false, 0) => offsets_dtype,
+            (DType::List(..), false, 0) => offsets_dtype,
             (DType::List(element_dtype, _), false, 1) => (*element_dtype.as_ref()).clone(),
-            (DType::List(element_dtype, _), true, 1) => offsets_dtype,
+            (DType::List(..), true, 1) => offsets_dtype,
             (DType::List(element_dtype, _), true, 2) => (*element_dtype.as_ref()).clone(),
 
             // fixed-size list
@@ -218,4 +218,3 @@ impl ListLayout {
         &self.children
     }
 }
-

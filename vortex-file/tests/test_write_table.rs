@@ -31,8 +31,8 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
-use vortex_session::VortexSession;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
@@ -127,7 +127,10 @@ async fn test_list_of_struct_nested_projection() {
 
     let element_dtype = Arc::new(vortex_dtype::DType::Struct(
         [
-            ("a", vortex_dtype::DType::Primitive(PType::I32, Nullability::NonNullable)),
+            (
+                "a",
+                vortex_dtype::DType::Primitive(PType::I32, Nullability::NonNullable),
+            ),
             ("b", vortex_dtype::DType::Utf8(Nullability::NonNullable)),
         ]
         .into_iter()
@@ -168,7 +171,10 @@ async fn test_list_of_struct_nested_projection() {
     )
     .unwrap();
 
-    let ids = PrimitiveArray::from_iter((0..row_count).map(|i| i as i32)).into_array();
+    let ids = PrimitiveArray::from_iter(
+        (0..row_count).map(|i| i32::try_from(i).expect("row id fits in i32")),
+    )
+    .into_array();
 
     let data = StructArray::new(
         FieldNames::from(["id", "items"]),
@@ -207,7 +213,10 @@ async fn test_list_of_struct_nested_projection() {
     // Smoke-check the projected shape; detailed value semantics are covered by unit tests in
     // `vortex-array`.
     assert_eq!(out.len(), row_count);
-    assert!(matches!(out.dtype(), vortex_dtype::DType::List(_, Nullability::Nullable)));
+    assert!(matches!(
+        out.dtype(),
+        vortex_dtype::DType::List(_, Nullability::Nullable)
+    ));
 
     // Verify the list column is not stored as a single flat blob layout.
     // This is the root cause of poor nested support described in #4889.
