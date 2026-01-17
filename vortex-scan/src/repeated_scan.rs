@@ -161,15 +161,21 @@ impl<A: 'static + Send> RepeatedScan<A> {
         };
 
         let mut limit = self.limit;
-        ranges
-            .filter_map(|range| {
-                if range.start >= range.end || limit.is_some_and(|l| l == 0) {
-                    None
-                } else {
-                    Some(split_exec(ctx.clone(), range, limit.as_mut()))
-                }
-            })
-            .try_collect()
+        let mut tasks = Vec::new();
+
+        for range in ranges {
+            if range.start >= range.end {
+                continue;
+            }
+
+            if limit.is_some_and(|l| l == 0) {
+                break;
+            }
+
+            tasks.push(split_exec(ctx.clone(), range, limit.as_mut())?);
+        }
+
+        Ok(tasks)
     }
 
     pub fn execute_stream(
