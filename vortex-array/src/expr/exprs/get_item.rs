@@ -245,6 +245,8 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::FieldNames;
@@ -255,6 +257,7 @@ mod tests {
 
     use crate::Array;
     use crate::IntoArray;
+    use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
@@ -304,6 +307,90 @@ mod tests {
         assert_eq!(
             item.dtype(),
             &DType::Primitive(PType::I32, Nullability::Nullable)
+        );
+    }
+
+    #[test]
+    fn get_item_list_of_struct() {
+        let element_dtype = Arc::new(DType::Struct(
+            [
+                ("a", DType::Primitive(PType::I32, NonNullable)),
+                ("b", DType::Utf8(NonNullable)),
+            ]
+            .into_iter()
+            .collect(),
+            NonNullable,
+        ));
+
+        let row_count = 4;
+        let items = ListArray::from_iter_opt_slow::<u32, _, _>(
+            [
+                Some(vec![
+                    Scalar::struct_(
+                        (*element_dtype).clone(),
+                        vec![
+                            Scalar::primitive(1i32, NonNullable),
+                            Scalar::utf8("x", NonNullable),
+                        ],
+                    ),
+                    Scalar::struct_(
+                        (*element_dtype).clone(),
+                        vec![
+                            Scalar::primitive(2i32, NonNullable),
+                            Scalar::utf8("y", NonNullable),
+                        ],
+                    ),
+                ]),
+                Some(Vec::new()),
+                None,
+                Some(vec![Scalar::struct_(
+                    (*element_dtype).clone(),
+                    vec![
+                        Scalar::primitive(3i32, NonNullable),
+                        Scalar::utf8("z", NonNullable),
+                    ],
+                )]),
+            ],
+            element_dtype,
+        )
+        .unwrap();
+
+        let ids = buffer![0i32, 1, 2, 3].into_array();
+
+        let data = StructArray::new(
+            FieldNames::from(["id", "items"]),
+            vec![ids, items],
+            row_count,
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        // Regression for nested field projection on list-of-struct: `items.a`.
+        // The key path here is `Array::apply(...)`, which must be able to infer the correct return
+        // dtype for `GetItem` when its input is a list with struct elements.
+        let projection = get_item("a", get_item("items", root()));
+        let out = data.apply(&projection).expect("apply");
+
+        assert_eq!(
+            out.dtype(),
+            &DType::List(
+                Arc::new(DType::Primitive(PType::I32, NonNullable)),
+                Nullability::Nullable
+            )
+        );
+
+        assert_eq!(
+            out.scalar_at(0).as_list().elements().unwrap().to_vec(),
+            vec![
+                Scalar::primitive(1i32, NonNullable),
+                Scalar::primitive(2i32, NonNullable),
+            ]
+        );
+        assert!(out.scalar_at(1).as_list().elements().unwrap().is_empty());
+        assert!(out.scalar_at(2).is_null());
+        assert_eq!(
+            out.scalar_at(3).as_list().elements().unwrap().to_vec(),
+            vec![Scalar::primitive(3i32, NonNullable)]
         );
     }
 
