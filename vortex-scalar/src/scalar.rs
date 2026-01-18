@@ -186,7 +186,7 @@ impl Scalar {
                 .ok()
                 .flatten()
                 .map_or(0, |s| s.len()),
-            DType::Struct(_dtype, _) => self
+            DType::Struct(..) => self
                 .as_struct()
                 .fields()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
@@ -196,7 +196,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
+            DType::Extension(_) => self.as_extension().storage().nbytes(),
         }
     }
 

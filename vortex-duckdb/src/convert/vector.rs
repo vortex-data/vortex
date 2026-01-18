@@ -62,7 +62,7 @@ impl<'a> DuckString<'a> {
         unsafe {
             let len = duckdb_string_t_length(*self.ptr);
             let c_ptr = duckdb_string_t_data(self.ptr);
-            std::slice::from_raw_parts(c_ptr as *const u8, len as usize)
+            std::slice::from_raw_parts(c_ptr.cast::<u8>(), len as usize)
         }
     }
 }

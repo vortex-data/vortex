@@ -39,7 +39,7 @@ pub fn take_portable<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[
         // SAFETY: We know that f16 has the same bit pattern as u16, so this transmute is fine to
         // make.
         let u16_slice: &[u16] =
-            unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u16, buffer.len()) };
+            unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast(), buffer.len()) };
         return unsafe { take_with_indices(u16_slice, indices).transmute::<T>() };
     }
 
@@ -49,7 +49,7 @@ pub fn take_portable<T: NativePType, I: UnsignedPType>(buffer: &[T], indices: &[
         // SAFETY: This is essentially a no-op that tricks the compiler into adding the
         // `simd::SimdElement` bound we need to call `take_with_indices`.
         let buffer: &[TC] =
-            unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const TC, buffer.len()) };
+            unsafe { std::slice::from_raw_parts(buffer.as_ptr().cast::<TC>(), buffer.len()) };
         unsafe { take_with_indices(buffer, indices).transmute::<T>() }
     })
 }
@@ -64,7 +64,7 @@ fn take_with_indices<T: NativePType + simd::SimdElement, I: UnsignedPType>(
 ) -> Buffer<T> {
     match_each_unsigned_integer_ptype!(I::PTYPE, |IC| {
         let indices: &[IC] =
-            unsafe { std::slice::from_raw_parts(indices.as_ptr() as *const IC, indices.len()) };
+            unsafe { std::slice::from_raw_parts(indices.as_ptr().cast::<IC>(), indices.len()) };
         take_portable_simd::<T, IC, SIMD_WIDTH>(buffer, indices)
     })
 }

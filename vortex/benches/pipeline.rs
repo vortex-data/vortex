@@ -680,7 +680,7 @@ fn alp_decompress(encoded: &[i32], exponents: Exponents, output: &mut [f32]) {
 /// This is safe because i32 and u32 have the same size and alignment.
 fn cast_i32_as_u32(slice: &[i32]) -> &[u32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const u32, slice.len()) }
+    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
 }
 
 /// Cast u32 slice to i32 slice.
@@ -688,7 +688,7 @@ fn cast_i32_as_u32(slice: &[i32]) -> &[u32] {
 /// This is safe because u32 and i32 have the same size and alignment.
 fn cast_u32_as_i32(slice: &[u32]) -> &[i32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
-    unsafe { std::slice::from_raw_parts(slice.as_ptr() as *const i32, slice.len()) }
+    unsafe { std::slice::from_raw_parts(slice.as_ptr().cast(), slice.len()) }
 }
 
 /// Cast mutable u32 slice to mutable i32 slice.
@@ -696,7 +696,7 @@ fn cast_u32_as_i32(slice: &[u32]) -> &[i32] {
 /// This is safe because u32 and i32 have the same size and alignment.
 fn cast_u32_as_i32_mut(slice: &mut [u32]) -> &mut [i32] {
     // SAFETY: i32 and u32 have the same size and alignment, so this transmute is safe.
-    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr() as *mut i32, slice.len()) }
+    unsafe { std::slice::from_raw_parts_mut(slice.as_mut_ptr().cast(), slice.len()) }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
