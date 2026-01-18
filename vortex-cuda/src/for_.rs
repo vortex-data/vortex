@@ -113,7 +113,7 @@ mod tests {
     use crate::session::CudaSession;
 
     #[tokio::test]
-    async fn test_cuda_for_decompression() {
+    async fn test_cuda_for_decompression_u8() {
         if !has_nvcc() {
             return;
         }
@@ -121,13 +121,77 @@ mod tests {
         let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
+        // Create u8 offset values that cycle through 0-255, creating 5000 elements
+        #[allow(clippy::cast_possible_truncation)]
+        let input_data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
+
         let for_array = FoRArray::try_new(
-            PrimitiveArray::new(
-                Buffer::from((0u32..5000).collect::<Vec<u32>>()),
-                NonNullable,
-            )
-            .into_array(),
-            10u32.into(),
+            PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
+            10u8.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decompress on the GPU.
+        let result = execute_for(&for_array, &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        assert_eq!(
+            result.as_primitive().as_slice::<u8>(),
+            input_data
+                .iter()
+                .map(|&val| val.wrapping_add(10))
+                .collect::<Vec<u8>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cuda_for_decompression_u16() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create u16 offset values that cycle through 0-5000, creating 5000 elements
+        let input_data: Vec<u16> = (0..5000).map(|i| (i % 5000) as u16).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
+            1000u16.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decompress on the GPU.
+        let result = execute_for(&for_array, &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        assert_eq!(
+            result.as_primitive().as_slice::<u16>(),
+            input_data
+                .iter()
+                .map(|&val| val.wrapping_add(1000))
+                .collect::<Vec<u16>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cuda_for_decompression_u32() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create u32 offset values that cycle through 0-5000, creating 5000 elements
+        let input_data: Vec<u32> = (0..5000).map(|i| (i % 5000) as u32).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
+            100000u32.into(),
         )
         .vortex_expect("failed to create FoR array");
 
@@ -138,7 +202,42 @@ mod tests {
 
         assert_eq!(
             result.as_primitive().as_slice::<u32>(),
-            (10u32..5010).collect::<Vec<u32>>()
+            input_data
+                .iter()
+                .map(|&val| val.wrapping_add(100000))
+                .collect::<Vec<u32>>()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cuda_for_decompression_u64() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Create u64 offset values that cycle through 0-5000, creating 5000 elements
+        let input_data: Vec<u64> = (0..5000).map(|i| (i % 5000) as u64).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
+            1000000u64.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decompress on the GPU.
+        let result = execute_for(&for_array, &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        assert_eq!(
+            result.as_primitive().as_slice::<u64>(),
+            input_data
+                .iter()
+                .map(|&val| val.wrapping_add(1000000u64))
+                .collect::<Vec<u64>>()
         );
     }
 }

@@ -31,37 +31,69 @@ const BENCH_ARGS: &[(usize, &str)] = &[
     (100_000, "100K"),
     (1_000_000, "1M"),
     (10_000_000, "10M"),
-    (100_000_000, "100M"),
 ];
 
-/// Creates a FoR array for the given size.
-fn make_for_array(len: usize) -> FoRArray {
+/// Creates a FoR array of u8 for the given size.
+fn make_for_array_u8(len: usize) -> FoRArray {
+    let data: Vec<u8> = (0..len as u8).map(|i| i.wrapping_add(10)).collect();
+    let primitive_array = PrimitiveArray::new(
+        Buffer::from(data),
+        vortex_array::validity::Validity::NonNullable,
+    )
+    .into_array();
+
+    FoRArray::try_new(primitive_array, 10u8.into()).vortex_expect("failed to create FoR array")
+}
+
+/// Creates a FoR array of u16 for the given size.
+fn make_for_array_u16(len: usize) -> FoRArray {
+    let data: Vec<u16> = (0..len as u16).map(|i| i.wrapping_add(10)).collect();
+    let primitive_array = PrimitiveArray::new(
+        Buffer::from(data),
+        vortex_array::validity::Validity::NonNullable,
+    )
+    .into_array();
+
+    FoRArray::try_new(primitive_array, 10u16.into()).vortex_expect("failed to create FoR array")
+}
+
+/// Creates a FoR array of u32 for the given size.
+fn make_for_array_u32(len: usize) -> FoRArray {
     let primitive_array = PrimitiveArray::new(
         Buffer::from((0u32..len as u32).collect::<Vec<u32>>()),
         vortex_array::validity::Validity::NonNullable,
     )
     .into_array();
 
-    let for_offset = 10u32;
+    FoRArray::try_new(primitive_array, 10u32.into()).vortex_expect("failed to create FoR array")
+}
 
-    FoRArray::try_new(primitive_array, for_offset.into())
-        .vortex_expect("failed to create FoR array")
+/// Creates a FoR array of u64 for the given size.
+fn make_for_array_u64(len: usize) -> FoRArray {
+    let data: Vec<u64> = (0..len as u64).map(|i| i.wrapping_add(10)).collect();
+    let primitive_array = PrimitiveArray::new(
+        Buffer::from(data),
+        vortex_array::validity::Validity::NonNullable,
+    )
+    .into_array();
+
+    FoRArray::try_new(primitive_array, 10u64.into()).vortex_expect("failed to create FoR array")
 }
 
 /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
-fn launch_for_kernel_timed(
+fn launch_for_kernel_timed_u8(
     for_array: &FoRArray,
-    reference: u32,
-    device_data: cudarc::driver::CudaSlice<u32>,
+    device_data: cudarc::driver::CudaSlice<u8>,
+    reference: u8,
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> vortex_error::VortexResult<Duration> {
-    let array_len = for_array.len() as u64;
+    let array_len_u64 = for_array.len() as u64;
 
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "for",
         ptypes: &[for_array.ptype()],
-        launch_args: [device_data, reference, array_len],
+        launch_args: [device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
@@ -74,17 +106,189 @@ fn launch_for_kernel_timed(
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }
 
-fn benchmark_for_cuda(c: &mut Criterion) {
-    if !has_nvcc() {
-        eprintln!("nvcc not found, skipping CUDA benchmarks");
-        return;
-    }
+/// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
+fn launch_for_kernel_timed_u16(
+    for_array: &FoRArray,
+    device_data: cudarc::driver::CudaSlice<u16>,
+    reference: u16,
+    cuda_ctx: &mut CudaExecutionCtx,
+) -> vortex_error::VortexResult<Duration> {
+    let array_len_u64 = for_array.len() as u64;
 
-    let mut group = c.benchmark_group("FoR_cuda");
+    let events = vortex_cuda::launch_cuda_kernel!(
+        execution_ctx: cuda_ctx,
+        module: "for",
+        ptypes: &[for_array.ptype()],
+        launch_args: [device_data, reference, array_len_u64],
+        event_recording: CU_EVENT_BLOCKING_SYNC,
+        array_len: for_array.len()
+    );
+
+    let elapsed_ms = events
+        .before_launch
+        .elapsed_ms(&events.after_launch) // synchronizes
+        .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
+
+    Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+}
+
+/// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
+fn launch_for_kernel_timed_u32(
+    for_array: &FoRArray,
+    device_data: cudarc::driver::CudaSlice<u32>,
+    reference: u32,
+    cuda_ctx: &mut CudaExecutionCtx,
+) -> vortex_error::VortexResult<Duration> {
+    let array_len_u64 = for_array.len() as u64;
+
+    let events = vortex_cuda::launch_cuda_kernel!(
+        execution_ctx: cuda_ctx,
+        module: "for",
+        ptypes: &[for_array.ptype()],
+        launch_args: [device_data, reference, array_len_u64],
+        event_recording: CU_EVENT_BLOCKING_SYNC,
+        array_len: for_array.len()
+    );
+
+    let elapsed_ms = events
+        .before_launch
+        .elapsed_ms(&events.after_launch) // synchronizes
+        .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
+
+    Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+}
+
+/// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
+fn launch_for_kernel_timed_u64(
+    for_array: &FoRArray,
+    device_data: cudarc::driver::CudaSlice<u64>,
+    reference: u64,
+    cuda_ctx: &mut CudaExecutionCtx,
+) -> vortex_error::VortexResult<Duration> {
+    let array_len_u64 = for_array.len() as u64;
+
+    let events = vortex_cuda::launch_cuda_kernel!(
+        execution_ctx: cuda_ctx,
+        module: "for",
+        ptypes: &[for_array.ptype()],
+        launch_args: [device_data, reference, array_len_u64],
+        event_recording: CU_EVENT_BLOCKING_SYNC,
+        array_len: for_array.len()
+    );
+
+    let elapsed_ms = events
+        .before_launch
+        .elapsed_ms(&events.after_launch) // synchronizes
+        .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
+
+    Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+}
+
+/// Benchmark u8 FoR decompression
+fn benchmark_for_u8(c: &mut Criterion) {
+    let mut group = c.benchmark_group("FoR_cuda_u8");
     group.sample_size(10);
 
     for (len, label) in BENCH_ARGS {
-        let for_array = make_for_array(*len);
+        let for_array = make_for_array_u8(*len);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u8>()) as u64));
+        group.bench_with_input(
+            BenchmarkId::new("u8_FoR", label),
+            &for_array,
+            |b, for_array| {
+                b.iter_custom(|iters| {
+                    let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+                        .vortex_expect("failed to create execution context");
+
+                    let encoded = for_array.encoded();
+                    let unpacked_array = encoded.to_primitive();
+                    let unpacked_slice = unpacked_array.as_slice::<u8>();
+
+                    let reference = 10u8;
+                    let mut total_time = Duration::ZERO;
+
+                    for _ in 0..iters {
+                        let device_data = cuda_ctx
+                            .to_device(unpacked_slice)
+                            .vortex_expect("failed to copy to device");
+
+                        let kernel_time = launch_for_kernel_timed_u8(
+                            for_array,
+                            device_data,
+                            reference,
+                            &mut cuda_ctx,
+                        )
+                        .vortex_expect("kernel launch failed");
+
+                        total_time += kernel_time;
+                    }
+
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark u16 FoR decompression
+fn benchmark_for_u16(c: &mut Criterion) {
+    let mut group = c.benchmark_group("FoR_cuda_u16");
+    group.sample_size(10);
+
+    for (len, label) in BENCH_ARGS {
+        let for_array = make_for_array_u16(*len);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u16>()) as u64));
+        group.bench_with_input(
+            BenchmarkId::new("u16_FoR", label),
+            &for_array,
+            |b, for_array| {
+                b.iter_custom(|iters| {
+                    let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+                        .vortex_expect("failed to create execution context");
+
+                    let encoded = for_array.encoded();
+                    let unpacked_array = encoded.to_primitive();
+                    let unpacked_slice = unpacked_array.as_slice::<u16>();
+
+                    let reference = 10u16;
+                    let mut total_time = Duration::ZERO;
+
+                    for _ in 0..iters {
+                        let device_data = cuda_ctx
+                            .to_device(unpacked_slice)
+                            .vortex_expect("failed to copy to device");
+
+                        let kernel_time = launch_for_kernel_timed_u16(
+                            for_array,
+                            device_data,
+                            reference,
+                            &mut cuda_ctx,
+                        )
+                        .vortex_expect("kernel launch failed");
+
+                        total_time += kernel_time;
+                    }
+
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+/// Benchmark u32 FoR decompression
+fn benchmark_for_u32(c: &mut Criterion) {
+    let mut group = c.benchmark_group("FoR_cuda_u32");
+    group.sample_size(10);
+
+    for (len, label) in BENCH_ARGS {
+        let for_array = make_for_array_u32(*len);
 
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
         group.bench_with_input(
@@ -107,10 +311,10 @@ fn benchmark_for_cuda(c: &mut Criterion) {
                             .to_device(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
-                        let kernel_time = launch_for_kernel_timed(
+                        let kernel_time = launch_for_kernel_timed_u32(
                             for_array,
-                            reference,
                             device_data,
+                            reference,
                             &mut cuda_ctx,
                         )
                         .vortex_expect("kernel launch failed");
@@ -125,6 +329,67 @@ fn benchmark_for_cuda(c: &mut Criterion) {
     }
 
     group.finish();
+}
+
+/// Benchmark u64 FoR decompression
+fn benchmark_for_u64(c: &mut Criterion) {
+    let mut group = c.benchmark_group("FoR_cuda_u64");
+    group.sample_size(10);
+
+    for (len, label) in BENCH_ARGS {
+        let for_array = make_for_array_u64(*len);
+
+        group.throughput(Throughput::Bytes((len * size_of::<u64>()) as u64));
+        group.bench_with_input(
+            BenchmarkId::new("u64_FoR", label),
+            &for_array,
+            |b, for_array| {
+                b.iter_custom(|iters| {
+                    let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+                        .vortex_expect("failed to create execution context");
+
+                    let encoded = for_array.encoded();
+                    let unpacked_array = encoded.to_primitive();
+                    let unpacked_slice = unpacked_array.as_slice::<u64>();
+
+                    let reference = 10u64;
+                    let mut total_time = Duration::ZERO;
+
+                    for _ in 0..iters {
+                        let device_data = cuda_ctx
+                            .to_device(unpacked_slice)
+                            .vortex_expect("failed to copy to device");
+
+                        let kernel_time = launch_for_kernel_timed_u64(
+                            for_array,
+                            device_data,
+                            reference,
+                            &mut cuda_ctx,
+                        )
+                        .vortex_expect("kernel launch failed");
+
+                        total_time += kernel_time;
+                    }
+
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn benchmark_for_cuda(c: &mut Criterion) {
+    if !has_nvcc() {
+        eprintln!("nvcc not found, skipping CUDA benchmarks");
+        return;
+    }
+
+    benchmark_for_u8(c);
+    benchmark_for_u16(c);
+    benchmark_for_u32(c);
+    benchmark_for_u64(c);
 }
 
 criterion_group!(benches, benchmark_for_cuda);
