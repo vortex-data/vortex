@@ -40,7 +40,10 @@ public final class VortexTableFunction extends AbstractConnectorTableFunction {
         super(
                 SCHEMA_NAME,
                 FUNCTION_NAME,
-                List.of(ScalarArgumentSpecification.builder()
+                List.of(
+                        TableArgumentSpecification.builder()
+                                        .rowSemantics()
+                        ScalarArgumentSpecification.builder()
                         .name("URI")
                         .type(VarcharType.VARCHAR)
                         .build()),
