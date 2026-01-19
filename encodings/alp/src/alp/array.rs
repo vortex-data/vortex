@@ -45,8 +45,6 @@ use vortex_error::vortex_err;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
-use crate::alp::alp_encode;
-use crate::alp::decompress::decompress_into_array;
 use crate::alp::decompress::execute_decompress;
 
 vtable!(ALP);
@@ -482,6 +480,8 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::alp_encode;
+    use crate::decompress_into_array;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
