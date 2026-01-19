@@ -675,21 +675,16 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and run C++ unit tests
-        working-directory: vortex-cxx/
         run: |
-          mkdir -p build
-          cd build
-          cmake -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON ..
-          cmake --build . --parallel $(nproc)
-          ctest -V
+          mkdir -p vortex-cxx/build
+          cmake -S vortex-cxx -B vortex-cxx/build -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON
+          cmake --build vortex-cxx/build --parallel $(nproc)
+          ctest --test-dir vortex-cxx/build -V
       - name: Build and run the example in release mode
-        working-directory: vortex-cxx/examples
         run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . --parallel $(nproc)
-          ./hello-vortex ../goldenfiles/example.vortex
+          cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build vortex-cxx/examples/build --parallel $(nproc)
+          vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
 
   wasm-integration:
     name: "wasm-integration"
