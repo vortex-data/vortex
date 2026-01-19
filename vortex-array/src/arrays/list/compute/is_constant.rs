@@ -9,6 +9,7 @@ use crate::arrays::ListVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
+use crate::compute::is_constant;
 use crate::compute::numeric;
 use crate::register_kernel;
 
@@ -47,7 +48,7 @@ impl IsConstantKernel for ListVTable {
                 .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1);
             let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
 
-            if !list_lengths.is_constant() {
+            if !is_constant(&list_lengths)?.unwrap_or_default() {
                 return Ok(Some(false));
             }
         }
@@ -107,7 +108,11 @@ mod tests {
                 .unwrap()
                 .unwrap()
         );
-        assert!(struct_of_lists.is_constant());
+        assert!(
+            is_constant(struct_of_lists.as_ref())
+                .unwrap()
+                .unwrap_or_default()
+        );
     }
 
     #[rstest]

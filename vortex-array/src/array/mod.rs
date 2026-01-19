@@ -46,11 +46,8 @@ use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
 use crate::compute;
 use crate::compute::ComputeFn;
-use crate::compute::Cost;
 use crate::compute::InvocationArgs;
-use crate::compute::IsConstantOpts;
 use crate::compute::Output;
-use crate::compute::is_constant_opts;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -371,28 +368,8 @@ impl dyn Array + '_ {
         self.as_opt::<V>().is_some()
     }
 
-    pub fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts {
-            cost: Cost::Specialized,
-        };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
-    pub fn is_constant_opts(&self, cost: Cost) -> bool {
-        let opts = IsConstantOpts { cost };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant().then(|| self.scalar_at(0))
+        self.as_opt::<ConstantVTable>().map(|a| a.scalar().clone())
     }
 
     /// Total size of the array in bytes, including all children and buffers.

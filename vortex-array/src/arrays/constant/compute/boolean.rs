@@ -3,7 +3,6 @@
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
@@ -26,17 +25,15 @@ impl BooleanKernel for ConstantVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // We only implement this for constant <-> constant arrays, otherwise we allow fall back
         // to the Arrow implementation.
-        if !rhs.is_constant() {
+        let Some(rhs) = rhs.as_opt::<ConstantVTable>() else {
             return Ok(None);
-        }
+        };
 
         let length = lhs.len();
         let nullable = lhs.dtype().is_nullable() || rhs.dtype().is_nullable();
         let lhs = lhs.scalar().as_bool().value();
-        let Some(rhs) = rhs.as_constant() else {
-            vortex_bail!("Binary boolean operation requires both sides to be constant");
-        };
         let rhs = rhs
+            .scalar()
             .as_bool_opt()
             .ok_or_else(|| vortex_err!("expected rhs to be boolean"))?
             .value();

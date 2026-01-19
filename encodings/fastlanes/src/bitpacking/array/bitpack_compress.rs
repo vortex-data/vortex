@@ -71,8 +71,8 @@ pub fn bitpack_encode(
         .flatten();
 
     // SAFETY: all components validated above
-    unsafe {
-        Ok(BitPackedArray::new_unchecked(
+    let bitpacked = unsafe {
+        BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -80,8 +80,13 @@ pub fn bitpack_encode(
             bit_width,
             array.len(),
             0,
-        ))
-    }
+        )
+    };
+    bitpacked
+        .stats_set
+        .to_ref(bitpacked.as_ref())
+        .inherit_from(array.statistics());
+    Ok(bitpacked)
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -100,8 +105,8 @@ pub unsafe fn bitpack_encode_unchecked(
     let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
     // SAFETY: checked by bitpack_unchecked
-    unsafe {
-        Ok(BitPackedArray::new_unchecked(
+    let bitpacked = unsafe {
+        BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -109,8 +114,13 @@ pub unsafe fn bitpack_encode_unchecked(
             bit_width,
             array.len(),
             0,
-        ))
-    }
+        )
+    };
+    bitpacked
+        .stats_set
+        .to_ref(bitpacked.as_ref())
+        .inherit_from(array.statistics());
+    Ok(bitpacked)
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.

@@ -30,6 +30,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrow::Datum;
 use crate::arrow::IntoArrowArray;
 use crate::arrow::from_arrow_array_with_len;
@@ -174,10 +175,10 @@ impl ComputeFnVTable for Compare {
                 .into());
         }
 
-        let right_is_constant = rhs.is_constant();
+        let right_is_constant = rhs.is::<ConstantVTable>();
 
         // Always try to put constants on the right-hand side so encodings can optimise themselves.
-        if lhs.is_constant() && !right_is_constant {
+        if lhs.is::<ConstantVTable>() && !right_is_constant {
             return Ok(compare(rhs, lhs, operator.swap())?.into());
         }
 

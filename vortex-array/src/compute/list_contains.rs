@@ -28,6 +28,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::BinaryArgs;
@@ -255,7 +256,7 @@ fn list_contains_scalar(
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
-    if array.len() > 1 && array.is_constant() {
+    if array.len() > 1 && array.is::<ConstantVTable>() {
         let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
         return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
