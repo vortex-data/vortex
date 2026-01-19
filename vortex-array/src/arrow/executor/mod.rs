@@ -88,7 +88,7 @@ impl ArrowArrayExecutor for ArrayRef {
     ) -> VortexResult<ArrowArrayRef> {
         let len = self.len();
 
-        // Resolve the DataType if it is a leave type
+        // Resolve the DataType if it is a leaf type
         // we should likely make this extensible.
         let resolved_type: DataType = match data_type {
             Some(dt) => dt.clone(),
@@ -120,18 +120,31 @@ impl ArrowArrayExecutor for ArrayRef {
             DataType::LargeUtf8 => to_arrow_byte_array::<LargeUtf8Type>(self, ctx),
             DataType::BinaryView => to_arrow_byte_view::<BinaryViewType>(self, ctx),
             DataType::Utf8View => to_arrow_byte_view::<StringViewType>(self, ctx),
+            // TODO(joe): pass down preferred
             DataType::List(elements_field) => to_arrow_list::<i32>(self, elements_field, ctx),
+            // TODO(joe): pass down preferred
             DataType::LargeList(elements_field) => to_arrow_list::<i64>(self, elements_field, ctx),
+            // TODO(joe): pass down preferred
             DataType::FixedSizeList(elements_field, list_size) => {
                 to_arrow_fixed_list(self, *list_size, elements_field, ctx)
             }
+            // TODO(joe): pass down preferred
             DataType::ListView(elements_field) => {
                 to_arrow_list_view::<i32>(self, elements_field, ctx)
             }
+            // TODO(joe): pass down preferred
             DataType::LargeListView(elements_field) => {
                 to_arrow_list_view::<i64>(self, elements_field, ctx)
             }
-            DataType::Struct(fields) => to_arrow_struct(self, fields, ctx),
+            DataType::Struct(fields) => {
+                let fields = if data_type.is_none() {
+                    None
+                } else {
+                    Some(fields)
+                };
+                to_arrow_struct(self, fields, ctx)
+            }
+            // TODO(joe): pass down preferred
             DataType::Dictionary(codes_type, values_type) => {
                 to_arrow_dictionary(self, codes_type, values_type, ctx)
             }
@@ -139,6 +152,7 @@ impl ArrowArrayExecutor for ArrayRef {
             dt @ DataType::Decimal64(..) => to_arrow_decimal(self, dt, ctx),
             dt @ DataType::Decimal128(..) => to_arrow_decimal(self, dt, ctx),
             dt @ DataType::Decimal256(..) => to_arrow_decimal(self, dt, ctx),
+            // TODO(joe): pass down preferred
             DataType::RunEndEncoded(ends_type, values_type) => {
                 to_arrow_run_end(self, ends_type.data_type(), values_type, ctx)
             }

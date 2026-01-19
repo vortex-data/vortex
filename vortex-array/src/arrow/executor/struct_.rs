@@ -6,9 +6,11 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::StructArray as ArrowStructArray;
 use arrow_buffer::NullBuffer;
+use arrow_schema::Field;
 use arrow_schema::Fields;
 use itertools::Itertools;
 use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
 use vortex_dtype::StructFields;
 use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
@@ -31,7 +33,7 @@ use crate::vtable::ValidityHelper;
 
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
-    fields: &Fields,
+    fields: Option<&Fields>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -50,7 +52,13 @@ pub(super) fn to_arrow_struct(
     let array = match array.try_into::<StructVTable>() {
         Ok(array) => {
             let validity = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
-            return create_from_fields(fields, array.into_fields(), validity, len, ctx);
+            return create_from_fields(
+                fields.ok_or_else(|| array.names().clone()),
+                array.into_fields(),
+                validity,
+                len,
+                ctx,
+            );
         }
         Err(array) => array,
     };
@@ -59,8 +67,11 @@ pub(super) fn to_arrow_struct(
     if let Some(array) = array.as_opt::<ScalarFnVTable>()
         && let Some(_pack_options) = array.scalar_fn().as_opt::<Pack>()
     {
+        let DType::Struct(struct_fields, _) = array.dtype() else {
+            unreachable!("Pack must have Struct dtype");
+        };
         return create_from_fields(
-            fields,
+            fields.ok_or_else(|| struct_fields.names().clone()),
             array.children().to_vec(),
             None, // Pack is never null,
             len,
@@ -69,46 +80,91 @@ pub(super) fn to_arrow_struct(
     }
 
     // Otherwise, we fall back to executing to a StructArray.
-    // First we apply a cast to ensure we push down casting where possible into the struct fields.
-    let vx_fields = StructFields::from_arrow(fields);
-    let array = array.cast(DType::Struct(
-        vx_fields,
-        vortex_dtype::Nullability::Nullable,
-    ))?;
+    let array = if let Some(fields) = fields {
+        let vx_fields = StructFields::from_arrow(fields);
+        // We apply a cast to ensure we push down casting where possible into the struct fields.
+        array.cast(DType::Struct(
+            vx_fields,
+            vortex_dtype::Nullability::Nullable,
+        ))?
+    } else {
+        array
+    };
 
     let struct_array = array.execute::<StructArray>(ctx)?;
     let validity = to_arrow_null_buffer(struct_array.validity(), struct_array.len(), ctx)?;
-    create_from_fields(fields, struct_array.into_fields(), validity, len, ctx)
+    create_from_fields(
+        fields.ok_or_else(|| struct_array.names().clone()),
+        struct_array.into_fields(),
+        validity,
+        len,
+        ctx,
+    )
 }
 
 fn create_from_fields(
-    fields: &Fields,
+    fields: Result<&Fields, FieldNames>,
     vortex_fields: Vec<ArrayRef>,
     null_buffer: Option<NullBuffer>,
     len: usize,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    vortex_ensure!(
-        vortex_fields.len() == fields.len(),
-        "StructArray has {} fields, but target Arrow type has {} fields",
-        vortex_fields.len(),
-        fields.len()
-    );
+    match fields {
+        Ok(fields) => {
+            vortex_ensure!(
+                vortex_fields.len() == fields.len(),
+                "StructArray has {} fields, but target Arrow type has {} fields",
+                vortex_fields.len(),
+                fields.len()
+            );
 
-    let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
-    for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
-        let arrow_field = vx_field.execute_arrow(Some(field.data_type()), ctx)?;
-        vortex_ensure!(
-            field.is_nullable() || arrow_field.null_count() == 0,
-            "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
-            field.name()
-        );
-        arrow_fields.push(arrow_field);
+            let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
+            for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
+                let arrow_field = vx_field.execute_arrow(Some(field.data_type()), ctx)?;
+                vortex_ensure!(
+                    field.is_nullable() || arrow_field.null_count() == 0,
+                    "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
+                    field.name()
+                );
+                arrow_arrays.push(arrow_field);
+            }
+
+            Ok(Arc::new(unsafe {
+                ArrowStructArray::new_unchecked_with_length(
+                    fields.clone(),
+                    arrow_arrays,
+                    null_buffer,
+                    len,
+                )
+            }))
+        }
+        Err(names) => {
+            // No target fields specified - use preferred types for each child
+            let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
+            for vx_field in vortex_fields.into_iter() {
+                let arrow_array = vx_field.execute_arrow(None, ctx)?;
+                arrow_arrays.push(arrow_array);
+            }
+
+            // Build the Arrow fields from the resulting arrays
+            let arrow_fields: Fields = names
+                .iter()
+                .zip_eq(arrow_arrays.iter())
+                .map(|(name, arr)| {
+                    Arc::new(Field::new(name.as_ref(), arr.data_type().clone(), true))
+                })
+                .collect();
+
+            Ok(Arc::new(unsafe {
+                ArrowStructArray::new_unchecked_with_length(
+                    arrow_fields,
+                    arrow_arrays,
+                    null_buffer,
+                    len,
+                )
+            }))
+        }
     }
-
-    Ok(Arc::new(unsafe {
-        ArrowStructArray::new_unchecked_with_length(fields.clone(), arrow_fields, null_buffer, len)
-    }))
 }
 
 #[cfg(test)]

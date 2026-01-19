@@ -87,7 +87,7 @@ def _Array_to_arrow_table(self: _arrays.Array) -> pyarrow.Table:
     >>> array.to_arrow_table()
     pyarrow.Table
     age: int64
-    name: string_view
+    name: string
     ----
     age: [[25,31,33,57]]
     name: [["Joseph","Narendra","Angela","Mikhail"]]
