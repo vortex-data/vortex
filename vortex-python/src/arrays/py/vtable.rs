@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 use std::sync::Arc;
 
 use pyo3::Python;
@@ -179,16 +178,12 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
 }
 
 impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> Canonical {
+    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
         todo!()
     }
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn slice(_array: &PythonArray, _range: Range<usize>) -> ArrayRef {
-        todo!()
-    }
-
     fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
         todo!()
     }

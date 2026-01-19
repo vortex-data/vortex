@@ -99,7 +99,7 @@ fn canonicalize_compare(
         .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(
-                fsst_array.to_canonical().as_ref(),
+                fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )
@@ -130,7 +130,7 @@ fn chunked_canonicalize_into(
     bencher.with_inputs(|| &array).bench_refs(|array| {
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
-        array.append_to_builder(&mut builder);
+        array.append_to_builder(&mut builder).unwrap();
         builder.finish()
     });
 }

@@ -264,7 +264,7 @@ pub fn sum_impl(
             array.encoding_id()
         );
     }
-    sum_with_accumulator(array.to_canonical().as_ref(), accumulator)
+    sum_with_accumulator(array.to_canonical()?.as_ref(), accumulator)
 }
 
 #[cfg(test)]

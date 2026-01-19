@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::ops::Range;
 
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
@@ -199,17 +198,12 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 }
 
 impl CanonicalVTable<FilterVTable> for FilterVTable {
-    fn canonicalize(array: &FilterArray) -> Canonical {
+    fn canonicalize(array: &FilterArray) -> VortexResult<Canonical> {
         FilterVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Canonicalize should be fallible")
     }
 }
 
 impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
-        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
-    }
-
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)

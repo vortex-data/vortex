@@ -14,6 +14,7 @@ mod visitor;
 
 use std::fmt::Debug;
 use std::ops::Deref;
+use std::ops::Range;
 
 pub use array::*;
 pub use canonical::*;
@@ -144,7 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// incorrectly contains null values.
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // TODO(ngates): convert arrays to canonicalize over vectors, so remove default impl.
-        Ok(Self::CanonicalVTable::canonicalize(array))
+        Self::CanonicalVTable::canonicalize(array)
     }
 
     /// Attempt to execute the parent of this array to produce a [`Canonical`].
@@ -184,6 +185,21 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
+        Ok(None)
+    }
+
+    /// Perform a constant-time slice of the array.
+    ///
+    /// If an encoding cannot perform this slice in constant time, it should instead return Ok(None).
+    ///
+    /// This function returns [`ArrayRef`] since some encodings can return a simpler array for
+    /// some slices, for example a [`crate::arrays::ChunkedArray`] may slice into a single chunk.
+    ///
+    /// ## Preconditions
+    ///
+    /// Bounds-checking has already been performed by the time this function is called.
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        _ = (array, range);
         Ok(None)
     }
 }

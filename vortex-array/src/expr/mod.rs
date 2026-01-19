@@ -103,7 +103,7 @@ impl Hash for ExactExpr {
     }
 }
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;

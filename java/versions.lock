@@ -330,7 +330,7 @@ org.glassfish.jersey.core:jersey-server:3.0.18 (4 constraints: 584ca4a0)
 
 org.glassfish.jersey.inject:jersey-hk2:3.0.18 (2 constraints: 441a849a)
 
-org.immutables:value:2.12.0 (1 constraints: 3705353b)
+org.immutables:value:2.12.1 (1 constraints: 3805363b)
 
 org.javassist:javassist:3.30.2-GA (3 constraints: 1f2c152b)
 
@@ -386,9 +386,9 @@ oro:oro:2.0.8 (2 constraints: 1e1d4d7b)
 
 [Test dependencies]
 
-ch.qos.logback:logback-classic:1.5.23 (1 constraints: 3d053e3b)
+ch.qos.logback:logback-classic:1.5.25 (1 constraints: 3f05403b)
 
-ch.qos.logback:logback-core:1.5.23 (1 constraints: 3c0d432a)
+ch.qos.logback:logback-core:1.5.25 (1 constraints: 3e0d452a)
 
 org.junit:junit-bom:6.0.2 (7 constraints: 6f74267c)
 

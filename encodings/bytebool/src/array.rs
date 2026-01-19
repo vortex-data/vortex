@@ -117,6 +117,16 @@ impl VTable for ByteBoolVTable {
 
         Ok(())
     }
+
+    fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ByteBoolArray::new(
+                array.buffer().slice(range.clone()),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -205,22 +215,17 @@ impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
 }
 
 impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn canonicalize(array: &ByteBoolArray) -> Canonical {
+    fn canonicalize(array: &ByteBoolArray) -> VortexResult<Canonical> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Canonical::Bool(BoolArray::from_bit_buffer(boolean_buffer, validity))
+        Ok(Canonical::Bool(BoolArray::from_bit_buffer(
+            boolean_buffer,
+            validity,
+        )))
     }
 }
 
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn slice(array: &ByteBoolArray, range: Range<usize>) -> ArrayRef {
-        ByteBoolArray::new(
-            array.buffer().slice(range.clone()),
-            array.validity().slice(range),
-        )
-        .into_array()
-    }
-
     fn scalar_at(array: &ByteBoolArray, index: usize) -> Scalar {
         Scalar::bool(array.buffer()[index] == 1, array.dtype().nullability())
     }

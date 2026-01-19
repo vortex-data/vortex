@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -13,6 +15,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
@@ -27,6 +30,7 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -61,6 +65,17 @@ impl VTable for ListVTable {
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.list")
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ListArray::new(
+                array.elements().clone(),
+                array.offsets().slice(range.start..range.end + 1),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {

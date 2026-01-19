@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
+use std::ops::Range;
+
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -18,6 +22,7 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
+use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
@@ -28,6 +33,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::BitPackedArray;
+use crate::bitpacking::rules::RULES;
 use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
 
 mod array;
@@ -250,6 +256,41 @@ impl VTable for BitPackedVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
+    // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let offset_start = range.start + array.offset() as usize;
+        let offset_stop = range.end + array.offset() as usize;
+        let offset = offset_start % 1024;
+        let block_start = max(0, offset_start - offset);
+        let block_stop = offset_stop.div_ceil(1024) * 1024;
+
+        let encoded_start = (block_start / 8) * array.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+
+        // slice the buffer using the encoded start/stop values
+        // SAFETY: slicing packed values without decoding preserves invariants
+        Ok(Some(unsafe {
+            BitPackedArray::new_unchecked(
+                array.packed().slice(encoded_start..encoded_stop),
+                array.dtype.clone(),
+                array.validity().slice(range.clone()),
+                array.patches().and_then(|p| p.slice(range.clone())),
+                array.bit_width(),
+                range.len(),
+                offset as u16,
+            )
+            .into_array()
+        }))
     }
 }
 

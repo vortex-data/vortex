@@ -24,4 +24,4 @@ workspace = true
 
 [features]
 dyn-traits = []
-test-harness = ["dashmap", "parking_lot"]
+_test-harness = ["dashmap", "parking_lot"]

@@ -569,9 +569,11 @@ impl TryFrom<ByteBuffer> for ArrayParts {
             })
             .collect();
 
+        let flatbuffer_loc = fb_root._tab.loc();
+
         Ok(ArrayParts {
-            flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_root._tab.loc(),
+            flatbuffer: fb_buffer,
+            flatbuffer_loc,
             buffers,
         })
     }

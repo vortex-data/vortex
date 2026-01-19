@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
@@ -14,25 +10,6 @@ use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
 impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
-    fn slice(array: &ALPRDArray, range: Range<usize>) -> ArrayRef {
-        let left_parts_exceptions = array
-            .left_parts_patches()
-            .and_then(|patches| patches.slice(range.clone()));
-
-        // SAFETY: slicing components does not change the encoded values
-        unsafe {
-            ALPRDArray::new_unchecked(
-                array.dtype().clone(),
-                array.left_parts().slice(range.clone()),
-                array.left_parts_dictionary().clone(),
-                array.right_parts().slice(range),
-                array.right_bit_width(),
-                left_parts_exceptions,
-            )
-            .into_array()
-        }
-    }
-
     fn scalar_at(array: &ALPRDArray, index: usize) -> Scalar {
         // The left value can either be a direct value, or an exception.
         // The exceptions array represents exception positions with non-null values.

@@ -109,6 +109,12 @@ impl VTable for ZigZagVTable {
         array.encoded = children.into_iter().next().vortex_expect("checked");
         Ok(())
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ZigZagArray::new(array.encoded().slice(range)).into_array(),
+        ))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -175,16 +181,14 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
-    fn canonicalize(array: &ZigZagArray) -> Canonical {
-        Canonical::Primitive(zigzag_decode(array.encoded().to_primitive()))
+    fn canonicalize(array: &ZigZagArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(zigzag_decode(
+            array.encoded().to_primitive(),
+        )))
     }
 }
 
 impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn slice(array: &ZigZagArray, range: Range<usize>) -> ArrayRef {
-        ZigZagArray::new(array.encoded().slice(range)).into_array()
-    }
-
     fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
         let scalar = array.encoded().scalar_at(index);
         if scalar.is_null() {
@@ -248,9 +252,9 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_compute_statistics() {
+    fn test_compute_statistics() -> VortexResult<()> {
         let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical()?;
         let zigzag = ZigZagVTable
             .as_vtable()
             .encode(&canonical, None)
@@ -286,5 +290,6 @@ mod test {
             sliced.statistics().compute_is_constant(),
             array.statistics().compute_is_constant()
         );
+        Ok(())
     }
 }

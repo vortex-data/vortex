@@ -180,36 +180,34 @@ impl ListArray {
         // the elements array.
         if let Some(min_max) = min_max(offsets)? {
             match_each_integer_ptype!(offsets_ptype, |P| {
-                let max_offset = P::try_from(offsets.scalar_at(offsets.len() - 1))
-                    .vortex_expect("Offsets type must fit offsets values");
-
                 #[allow(clippy::absurd_extreme_comparisons, unused_comparisons)]
                 {
-                    if let Some(min) = min_max.min.as_primitive().as_::<P>() {
-                        vortex_ensure!(
-                            min >= 0 && min <= max_offset,
-                            "offsets minimum {min} outside valid range [0, {max_offset}]"
-                        );
-                    }
+                    let max = min_max
+                        .max
+                        .as_primitive()
+                        .as_::<P>()
+                        .vortex_expect("offsets type must fit offsets values");
+                    let min = min_max
+                        .min
+                        .as_primitive()
+                        .as_::<P>()
+                        .vortex_expect("offsets type must fit offsets values");
 
-                    if let Some(max) = min_max.max.as_primitive().as_::<P>() {
-                        vortex_ensure!(
-                            max >= 0 && max <= max_offset,
-                            "offsets maximum {max} outside valid range [0, {max_offset}]"
-                        )
-                    }
-                }
+                    vortex_ensure!(
+                        min >= 0,
+                        "offsets minimum {min} outside valid range [0, {max}]"
+                    );
 
-                vortex_ensure!(
-                    max_offset
-                        <= P::try_from(elements.len()).unwrap_or_else(|_| vortex_panic!(
+                    vortex_ensure!(
+                        max <= P::try_from(elements.len()).unwrap_or_else(|_| vortex_panic!(
                             "Offsets type {} must be able to fit elements length {}",
                             <P as NativePType>::PTYPE,
                             elements.len()
                         )),
-                    "Max offset {max_offset} is beyond the length of the elements array {}",
-                    elements.len()
-                );
+                        "Max offset {max} is beyond the length of the elements array {}",
+                        elements.len()
+                    );
+                }
             })
         } else {
             // TODO(aduffy): fallback to slower validation pathway?
@@ -290,7 +288,7 @@ impl ListArray {
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
         let mut elements = self.sliced_elements();
         if recurse && elements.is_canonical() {
-            elements = elements.to_canonical().compact()?.into_array();
+            elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {
             elements = child_list_array.reset_offsets(recurse)?.into_array();
         }

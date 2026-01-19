@@ -43,7 +43,7 @@ impl CompareKernel for DictVTable {
             };
 
             // We canonicalize the result because dictionary-encoded bools is dumb.
-            return Ok(Some(result.to_canonical().into_array()));
+            return Ok(Some(result.to_canonical()?.into_array()));
         }
 
         // It's a little more complex, but we could perform a comparison against the dictionary

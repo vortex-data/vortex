@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::LEGACY_SESSION;
@@ -12,11 +12,8 @@ use crate::vtable::CanonicalVTable;
 
 impl CanonicalVTable<ScalarFnVTable> for ScalarFnVTable {
     // TODO(joe): fixme move to execute
-    fn canonicalize(array: &ScalarFnArray) -> Canonical {
+    fn canonicalize(array: &ScalarFnArray) -> VortexResult<Canonical> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        array
-            .to_array()
-            .execute::<Canonical>(&mut ctx)
-            .vortex_expect("should handle panic")
+        array.to_array().execute::<Canonical>(&mut ctx)
     }
 }
