@@ -230,6 +230,7 @@ mod tests {
     use vortex_dtype::PType;
 
     use crate::RLEArray;
+    use crate::RLEVTable;
 
     #[test]
     fn test_try_new() {
@@ -450,7 +451,10 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let registry = ArraySession::default().registry().clone();
+        let registry = ArraySession::default()
+            .registry()
+            .clone()
+            .with(RLEVTable::ID, RLEVTable);
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
             .decode(
@@ -484,7 +488,10 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let registry = ArraySession::default().registry().clone();
+        let registry = ArraySession::default()
+            .registry()
+            .clone()
+            .with(RLEVTable::ID, RLEVTable);
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
             .decode(sliced.dtype(), sliced.len(), &ctx, &registry)

@@ -205,7 +205,7 @@ impl VTable for RLEVTable {
 pub struct RLEVTable;
 
 impl RLEVTable {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.RLE");
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
 }
 
 #[cfg(test)]

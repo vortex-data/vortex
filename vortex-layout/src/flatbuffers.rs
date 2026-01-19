@@ -101,12 +101,12 @@ impl dyn Layout + '_ {
 }
 
 /// An adapter struct for writing a layout to a FlatBuffer.
-pub struct LayoutFlatBufferWriter<'a> {
+struct LayoutFlatBufferWriter<'a> {
     layout: &'a dyn Layout,
     ctx: &'a LayoutContext,
 }
 
-impl<'a> FlatBufferRoot for LayoutFlatBufferWriter<'a> {}
+impl FlatBufferRoot for LayoutFlatBufferWriter<'_> {}
 
 impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
     type Target<'fb> = layout::Layout<'fb>;
@@ -119,7 +119,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let child_layouts = self
             .layout
             .children()
-            .vortex_expect("failed to get layout children");
+            .vortex_expect("Failed to load layout children");
         let children = child_layouts
             .iter()
             .map(|layout| {

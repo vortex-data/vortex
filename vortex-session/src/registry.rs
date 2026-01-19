@@ -94,11 +94,9 @@ impl<T: Clone> Context<T> {
     }
 
     /// Configure a registry to restrict the permissible set of interned items.
-    pub fn with_registry(registry: Registry<T>) -> Self {
-        Self {
-            ids: Mutex::new(Vec::new()),
-            registry: Some(registry),
-        }
+    pub fn with_registry(mut self, registry: Registry<T>) -> Self {
+        self.registry = Some(registry);
+        self
     }
 
     /// Intern an ID, returning its index.
