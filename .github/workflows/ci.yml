@@ -670,10 +670,16 @@ jobs:
       - extras=s3-cache
       - tag=cxx-build
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
+          cache-suffix: "cxx"
       - name: Build and run C++ unit tests
         run: |
           mkdir -p vortex-cxx/build
@@ -685,6 +691,9 @@ jobs:
           cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
           cmake --build vortex-cxx/examples/build --parallel $(nproc)
           vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   wasm-integration:
     name: "wasm-integration"

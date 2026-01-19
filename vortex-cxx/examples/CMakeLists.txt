@@ -35,11 +35,3 @@ endif()
 
 target_link_libraries(hello-vortex PRIVATE vortex ${APPLE_LINK_FLAGS})
 
-add_custom_target(convert-parquet
-    COMMAND cargo run -p vortex-tui convert ${CMAKE_CURRENT_SOURCE_DIR}/goldenfiles/example.parquet
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Converting example.parquet using vortex-tui"
-    VERBATIM
-)
-
-add_dependencies(hello-vortex convert-parquet)
