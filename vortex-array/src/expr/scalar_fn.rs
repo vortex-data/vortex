@@ -126,11 +126,14 @@ impl ScalarFn {
 
     /// Transforms the expression into one representing the validity of this expression.
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
-        Ok(self
-            .vtable
-            .as_dyn()
-            .validity(expr)?
-            .unwrap_or_else(|| IsNull.new_expr(EmptyOptions, [expr.clone()])))
+        Ok(self.vtable.as_dyn().validity(expr)?.unwrap_or_else(|| {
+            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
+            tracing::warn!(
+                "expr::VTable::validity is not implemented for {}",
+                self.vtable.id()
+            );
+            IsNull.new_expr(EmptyOptions, [expr.clone()])
+        }))
     }
 
     /// Execute the expression given the input arguments.

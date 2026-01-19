@@ -40,6 +40,7 @@ use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
+use crate::expr::VTableExt;
 use crate::expr::lit;
 use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
@@ -382,5 +383,14 @@ impl expr::VTable for ArrayExpr {
         _scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(options.0.clone())
+    }
+
+    fn validity(
+        &self,
+        options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let validity_array = options.0.validity()?.to_array(options.0.len());
+        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
     }
 }
