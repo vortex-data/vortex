@@ -18,8 +18,8 @@ use vortex_vector::bool::BoolVector;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -32,6 +32,7 @@ use crate::expr::VTableExt;
 use crate::expr::exprs::binary::eq;
 use crate::expr::exprs::literal::lit;
 use crate::expr::stats::Stat;
+use crate::validity::Validity;
 
 /// Expression that checks for null values.
 pub struct IsNull;
@@ -84,11 +85,13 @@ impl VTable for IsNull {
         scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         let array = expr.child(0).evaluate(scope)?;
-        match array.validity_mask() {
-            Mask::AllTrue(len) => Ok(ConstantArray::new(false, len).into_array()),
-            Mask::AllFalse(len) => Ok(ConstantArray::new(true, len).into_array()),
-            Mask::Values(mask) => Ok(BoolArray::from(mask.bit_buffer().not()).into_array()),
-        }
+        Ok(match array.validity()? {
+            Validity::NonNullable | Validity::AllValid => {
+                ConstantArray::new(false, array.len()).into_array()
+            }
+            Validity::AllInvalid => ConstantArray::new(true, array.len()).into_array(),
+            Validity::Array(a) => a.not()?,
+        })
     }
 
     fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {

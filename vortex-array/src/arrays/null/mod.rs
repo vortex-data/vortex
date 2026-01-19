@@ -175,18 +175,6 @@ impl OperationsVTable<NullVTable> for NullVTable {
 }
 
 impl ValidityVTable<NullVTable> for NullVTable {
-    fn is_valid(_array: &NullArray, _index: usize) -> bool {
-        false
-    }
-
-    fn all_valid(array: &NullArray) -> bool {
-        array.is_empty()
-    }
-
-    fn all_invalid(array: &NullArray) -> bool {
-        !array.is_empty()
-    }
-
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
     }

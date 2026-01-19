@@ -185,18 +185,6 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn is_valid(_array: &PythonArray, _index: usize) -> bool {
-        todo!()
-    }
-
-    fn all_valid(_array: &PythonArray) -> bool {
-        todo!()
-    }
-
-    fn all_invalid(_array: &PythonArray) -> bool {
-        todo!()
-    }
-
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }

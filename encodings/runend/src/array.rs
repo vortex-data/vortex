@@ -424,19 +424,6 @@ impl BaseArrayVTable<RunEndVTable> for RunEndVTable {
 }
 
 impl ValidityVTable<RunEndVTable> for RunEndVTable {
-    fn is_valid(array: &RunEndArray, index: usize) -> bool {
-        let physical_idx = array.find_physical_index(index);
-        array.values().is_valid(physical_idx)
-    }
-
-    fn all_valid(array: &RunEndArray) -> bool {
-        array.values().all_valid()
-    }
-
-    fn all_invalid(array: &RunEndArray) -> bool {
-        array.values().all_invalid()
-    }
-
     fn validity(array: &RunEndArray) -> VortexResult<Validity> {
         Ok(match array.values().validity()? {
             Validity::NonNullable | Validity::AllValid => Validity::AllValid,

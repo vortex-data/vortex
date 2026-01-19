@@ -159,18 +159,6 @@ impl OperationsVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl ValidityVTable<ArrowVTable> for ArrowVTable {
-    fn is_valid(array: &ArrowArray, index: usize) -> bool {
-        array.inner.is_valid(index)
-    }
-
-    fn all_valid(array: &ArrowArray) -> bool {
-        array.inner.logical_null_count() == 0
-    }
-
-    fn all_invalid(array: &ArrowArray) -> bool {
-        array.inner.logical_null_count() == array.inner.len()
-    }
-
     fn validity(array: &ArrowArray) -> VortexResult<Validity> {
         Ok(match array.inner.logical_nulls() {
             None => Validity::AllValid,

@@ -25,6 +25,7 @@ use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
+use crate::expr::lit;
 use crate::expr::stats::Stat;
 
 /// A cast expression that converts values to a target data type.
@@ -145,6 +146,14 @@ impl VTable for Cast {
                 None
             }
         }
+    }
+
+    fn validity(&self, dtype: &DType, expression: &Expression) -> VortexResult<Option<Expression>> {
+        Ok(Some(if dtype.is_nullable() {
+            expression.child(0).validity()?
+        } else {
+            lit(true)
+        }))
     }
 
     // This might apply a nullability

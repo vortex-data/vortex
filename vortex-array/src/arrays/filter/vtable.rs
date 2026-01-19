@@ -200,21 +200,6 @@ impl OperationsVTable<FilterVTable> for FilterVTable {
 }
 
 impl ValidityVTable<FilterVTable> for FilterVTable {
-    fn is_valid(array: &FilterArray, index: usize) -> bool {
-        let rank_idx = array.mask.rank(index);
-        array.child.is_valid(rank_idx)
-    }
-
-    fn all_valid(array: &FilterArray) -> bool {
-        // An over-approximation: if the child is all valid, then the filtered array is all valid.
-        array.child.all_valid()
-    }
-
-    fn all_invalid(array: &FilterArray) -> bool {
-        // An over-approximation: if the child is all invalid, then the filtered array is all invalid.
-        array.child.all_invalid()
-    }
-
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
     }

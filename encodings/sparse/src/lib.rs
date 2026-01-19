@@ -413,33 +413,6 @@ impl BaseArrayVTable<SparseVTable> for SparseVTable {
 }
 
 impl ValidityVTable<SparseVTable> for SparseVTable {
-    fn is_valid(array: &SparseArray, index: usize) -> bool {
-        match array.patches().get_patched(index) {
-            None => array.fill_scalar().is_valid(),
-            Some(patch_value) => patch_value.is_valid(),
-        }
-    }
-
-    fn all_valid(array: &SparseArray) -> bool {
-        if array.fill_scalar().is_null() {
-            // We need _all_ values to be patched, and all patches to be valid
-            return array.patches().values().len() == array.len()
-                && array.patches().values().all_valid();
-        }
-
-        array.patches().values().all_valid()
-    }
-
-    fn all_invalid(array: &SparseArray) -> bool {
-        if !array.fill_scalar().is_null() {
-            // We need _all_ values to be patched, and all patches to be invalid
-            return array.patches().values().len() == array.len()
-                && array.patches().values().all_invalid();
-        }
-
-        array.patches().values().all_invalid()
-    }
-
     fn validity(array: &SparseArray) -> VortexResult<Validity> {
         let patches = unsafe {
             Patches::new_unchecked(

@@ -112,6 +112,13 @@ impl Expression {
         self.scalar_fn.evaluate(self, scope)
     }
 
+    /// Returns a new expression representing the validity mask output of this expression.
+    ///
+    /// The returned expression evaluates to a non-nullable boolean array.
+    pub fn validity(&self) -> VortexResult<Expression> {
+        self.scalar_fn.validity(self)
+    }
+
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.
     ///
     /// Given an expression, `e`, if `e.stat_falsification(..)` evaluates to true, it is guaranteed

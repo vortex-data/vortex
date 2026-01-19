@@ -404,18 +404,6 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
-        true
-    }
-
-    fn all_valid(_array: &SequenceArray) -> bool {
-        true
-    }
-
-    fn all_invalid(_array: &SequenceArray) -> bool {
-        false
-    }
-
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }

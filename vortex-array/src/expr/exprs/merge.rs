@@ -35,6 +35,7 @@ use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::lit;
 use crate::validity::Validity;
 
 /// Merge zero or more expressions that ALL return structs.
@@ -245,6 +246,14 @@ impl VTable for Merge {
         )?;
 
         Ok(Some(pack_expr))
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(lit(true)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

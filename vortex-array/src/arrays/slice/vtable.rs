@@ -166,22 +166,6 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 }
 
 impl ValidityVTable<SliceVTable> for SliceVTable {
-    fn is_valid(array: &SliceArray, index: usize) -> bool {
-        array.child.is_valid(array.range.start + index)
-    }
-
-    fn all_valid(array: &SliceArray) -> bool {
-        // This is an over-approximation: if the entire child is all valid,
-        // then the slice is all valid too.
-        array.child.all_valid()
-    }
-
-    fn all_invalid(array: &SliceArray) -> bool {
-        // This is an over-approximation: if the entire child is all invalid,
-        // then the slice is all invalid too.
-        array.child.all_invalid()
-    }
-
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         Ok(array.child.validity()?.slice(array.range.clone()))
     }
