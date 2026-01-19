@@ -283,6 +283,7 @@ jobs:
           toolchain: nightly
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           timestamp: "true"
+          cache-suffix: "clippy"
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -321,6 +322,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           timestamp: "true"
+          cache-suffix: "clippy"
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
