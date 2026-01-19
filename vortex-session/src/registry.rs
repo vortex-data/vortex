@@ -7,6 +7,7 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 use arcref::ArcRef;
 use vortex_error::VortexExpect;
@@ -67,7 +68,10 @@ impl<T: Clone> Registry<T> {
 
 #[derive(Debug)]
 pub struct Context<T> {
-    ids: Vec<Id>,
+    // TODO(ngates): it's a long story, but if we make SegmentSink and SegmentSource take an
+    //  enum of Segment { Array, DType, Buffer } then we don't actually need a mutable context
+    //  in the LayoutWriter, therefore we don't need a Mutex here and everyone is happier.
+    ids: Mutex<Vec<Id>>,
     // Optional registry used to filter the permissible interned items.
     registry: Option<Registry<T>>,
 }
@@ -75,7 +79,7 @@ pub struct Context<T> {
 impl<T> Default for Context<T> {
     fn default() -> Self {
         Self {
-            ids: Vec::new(),
+            ids: Mutex::new(Vec::new()),
             registry: None,
         }
     }
@@ -84,7 +88,7 @@ impl<T> Default for Context<T> {
 impl<T: Clone> Context<T> {
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
-            ids,
+            ids: Mutex::new(ids),
             registry: None,
         }
     }
@@ -92,38 +96,45 @@ impl<T: Clone> Context<T> {
     /// Configure a registry to restrict the permissible set of interned items.
     pub fn with_registry(registry: Registry<T>) -> Self {
         Self {
-            ids: Vec::new(),
+            ids: Mutex::new(Vec::new()),
             registry: Some(registry),
         }
     }
 
     /// Intern an ID, returning its index.
-    pub fn intern(&mut self, id: &Id) -> Option<u16> {
+    pub fn intern(&self, id: &Id) -> Option<u16> {
         if let Some(registry) = &self.registry
             && registry.find(id).is_none()
         {
+            // ID not in registry, cannot intern.
             return None;
         }
-        if let Some(idx) = self.ids.iter().position(|e| e == id) {
+
+        let mut ids = self.ids.lock().vortex_expect("poisoned");
+        if let Some(idx) = ids.iter().position(|e| e == id) {
             return Some(u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX items"));
         }
 
-        let idx = self.ids.len();
+        let idx = ids.len();
         assert!(
             idx < u16::MAX as usize,
             "Cannot have more than u16::MAX items"
         );
-        self.ids.push(id.clone());
+        ids.push(id.clone());
         Some(u16::try_from(idx).vortex_expect("checked already"))
     }
 
     /// Resolve an interned ID by its index.
-    pub fn resolve(&self, idx: u16) -> Option<&Id> {
-        self.ids.get(idx as usize)
+    pub fn resolve(&self, idx: u16) -> Option<Id> {
+        self.ids
+            .lock()
+            .vortex_expect("poisoned")
+            .get(idx as usize)
+            .cloned()
     }
 
     /// Get the list of interned IDs.
-    pub fn ids(&self) -> &[Id] {
-        &self.ids
+    pub fn to_ids(&self) -> Vec<Id> {
+        self.ids.lock().vortex_expect("poisoned").clone()
     }
 }

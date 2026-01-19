@@ -80,7 +80,7 @@ impl FlatReader {
                 ArrayParts::try_from(segment)?
             };
             parts
-                .decode(&dtype, row_count, &ctx.lock(), &registry)
+                .decode(&dtype, row_count, &ctx, &registry)
                 .map_err(Arc::new)
         }
         .boxed()

@@ -36,14 +36,14 @@ impl Deref for PyArrayContext {
 impl PyArrayContext {
     #[new]
     fn new() -> Self {
-        Self(ArrayContext::empty(SESSION.arrays().registry().clone()))
+        Self(ArrayContext::default())
     }
 
     fn __str__(&self) -> String {
-        self.0.ids().iter().join(", ")
+        self.0.to_ids().iter().join(", ")
     }
 
     fn __len__(&self) -> usize {
-        self.ids().len()
+        self.to_ids().len()
     }
 }

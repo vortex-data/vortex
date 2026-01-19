@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
@@ -14,7 +13,7 @@ use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
 
-pub type ArrayContextRef = Arc<Mutex<ArrayContext>>;
+pub type ArrayContextRef = Arc<ArrayContext>;
 
 // [layout writer]
 #[async_trait]

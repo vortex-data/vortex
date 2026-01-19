@@ -25,7 +25,6 @@ use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayContext;
-use vortex_array::session::ArraySessionExt;
 use vortex_array::stats::StatsSet;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::ByteBuffer;
@@ -35,6 +34,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::footer as fb;
+use vortex_layout::ArrayContextRef;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;
@@ -49,7 +49,7 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
-    array_ctx: &ArrayContextRef,
+    array_ctx: ArrayContextRef,
 }
 
 impl Footer {
@@ -57,7 +57,7 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
-        array_ctx: &ArrayContextRef,
+        array_ctx: ArrayContextRef,
     ) -> Self {
         Self {
             root_layout,
@@ -84,7 +84,7 @@ impl Footer {
             .flat_map(|e| e.iter())
             .map(|encoding| LayoutEncodingId::new_arc(Arc::from(encoding.id())))
             .collect();
-        let layout_ctx = LayoutContext::try_new(layout_ids, session.layouts().registry().clone())?;
+        let layout_ctx = Arc::new(LayoutContext::new(layout_ids));
 
         // Create an ArrayContext from the registry.
         let array_specs = fb_footer.array_specs();
@@ -93,9 +93,15 @@ impl Footer {
             .flat_map(|e| e.iter())
             .map(|encoding| ArrayId::new_arc(Arc::from(encoding.id())))
             .collect();
-        let array_ctx = ArrayContext::try_new(array_ids, session.arrays().registry().clone())?;
+        let array_ctx = Arc::new(ArrayContext::new(array_ids));
 
-        let root_layout = layout_from_flatbuffer(layout_bytes, &dtype, &layout_ctx, &array_ctx)?;
+        let root_layout = layout_from_flatbuffer(
+            layout_bytes,
+            &dtype,
+            &layout_ctx,
+            &array_ctx,
+            session.layouts().registry(),
+        )?;
 
         let segments: Arc<[SegmentSpec]> = fb_footer
             .segment_specs()

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use flatbuffers::Follow;
 use itertools::Itertools;
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -14,8 +15,7 @@ use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 
-use crate::ArrayContextRef;
-use crate::LayoutContextRef;
+use crate::LayoutContext;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
 use crate::session::LayoutRegistry;
@@ -101,8 +101,8 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    array_ctx: ArrayContextRef,
-    layout_ctx: LayoutContextRef,
+    array_ctx: Arc<ArrayContext>,
+    layout_ctx: Arc<LayoutContext>,
     layouts: LayoutRegistry,
 }
 
@@ -115,8 +115,8 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        array_ctx: ArrayContextRef,
-        layout_ctx: LayoutContextRef,
+        array_ctx: Arc<ArrayContext>,
+        layout_ctx: Arc<LayoutContext>,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {
@@ -158,9 +158,7 @@ impl LayoutChildren for ViewedLayoutChildren {
 
         let encoding_id = self
             .layout_ctx
-            .lock()
             .resolve(fb_child.encoding())
-            .cloned()
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
         let encoding = self.layouts.find(&encoding_id).ok_or_else(|| {
             vortex_err!("Encoding not found in registry: {}", fb_child.encoding())

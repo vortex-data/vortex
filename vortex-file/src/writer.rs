@@ -144,7 +144,9 @@ impl VortexWriteOptions {
         // serialised array order is deterministic. The serialisation of arrays are done
         // parallel and with an empty context they can register their encodings to the context
         // in different order, changing the written bytes from run to run.
-        let ctx = ArrayContext::from_registry_sorted(self.session.arrays().registry());
+        let ctx = Arc::new(ArrayContext::new(
+            self.session.arrays().registry().ids().collect(),
+        ));
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();

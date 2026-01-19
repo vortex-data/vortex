@@ -59,7 +59,7 @@ impl dyn Array + '_ {
     /// little-endian u32 describing the length of the flatbuffer message.
     pub fn serialize(
         &self,
-        ctx: &mut ArrayContext,
+        ctx: &ArrayContext,
         options: &SerializeOptions,
     ) -> VortexResult<Vec<ByteBuffer>> {
         // Collect all array buffers
@@ -118,7 +118,7 @@ impl dyn Array + '_ {
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
 
-        let mut root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
+        let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
         let fb_root = root.try_write_flatbuffer(&mut fbb)?;
 
         let fb_buffers = fbb.create_vector(&fb_buffers);
@@ -157,13 +157,13 @@ impl dyn Array + '_ {
 
 /// A utility struct for creating an [`fba::ArrayNode`] flatbuffer.
 pub struct ArrayNodeFlatBuffer<'a> {
-    ctx: &'a mut ArrayContext,
+    ctx: &'a ArrayContext,
     array: &'a dyn Array,
     buffer_idx: u16,
 }
 
 impl<'a> ArrayNodeFlatBuffer<'a> {
-    pub fn try_new(ctx: &'a mut ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
+    pub fn try_new(ctx: &'a ArrayContext, array: &'a dyn Array) -> VortexResult<Self> {
         // Depth-first traversal of the array to ensure it supports serialization.
         for child in array.depth_first_traversal() {
             if child.metadata()?.is_none() {
@@ -188,7 +188,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
     }
 
     pub fn try_write_flatbuffer<'fb>(
-        &mut self,
+        &self,
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
         let encoding_idx = self
@@ -312,7 +312,7 @@ impl ArrayParts {
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
         let vtable = registry
-            .find(encoding_id)
+            .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
         let buffers: Vec<_> = (0..self.nbuffers())
@@ -351,7 +351,7 @@ impl ArrayParts {
             dtype,
         );
         assert_eq!(
-            &decoded.encoding_id(),
+            decoded.encoding_id(),
             encoding_id,
             "Array decoded from {} has incorrect encoding {}",
             encoding_id,
