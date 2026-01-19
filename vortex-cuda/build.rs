@@ -9,10 +9,15 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    if cfg!(not(target_os = "linux")) {
+        // cuda is only support on linux right now
+        return;
+    }
+
     let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
-    if cfg!(target_os = "linux") && !has_nvcc() {
+    if !has_nvcc() {
         // Only warn on Linux where we expect CUDA to be available.
         println!("cargo:warning=nvcc not found, skipping CUDA kernel compilation");
         return;
