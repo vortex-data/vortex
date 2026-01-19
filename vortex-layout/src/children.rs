@@ -15,9 +15,10 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::layout as fbl;
 
 use crate::ArrayContextRef;
-use crate::LayoutContext;
+use crate::LayoutContextRef;
 use crate::LayoutRef;
 use crate::segments::SegmentId;
+use crate::session::LayoutRegistry;
 
 /// Abstract way of accessing the children of a layout.
 ///
@@ -101,7 +102,8 @@ pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
     array_ctx: ArrayContextRef,
-    layout_ctx: LayoutContext,
+    layout_ctx: LayoutContextRef,
+    layouts: LayoutRegistry,
 }
 
 impl ViewedLayoutChildren {
@@ -114,13 +116,15 @@ impl ViewedLayoutChildren {
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
         array_ctx: ArrayContextRef,
-        layout_ctx: LayoutContext,
+        layout_ctx: LayoutContextRef,
+        layouts: LayoutRegistry,
     ) -> Self {
         Self {
             flatbuffer,
             flatbuffer_loc,
             array_ctx,
             layout_ctx,
+            layouts,
         }
     }
 
@@ -149,11 +153,18 @@ impl LayoutChildren for ViewedLayoutChildren {
             flatbuffer_loc: fb_child._tab.loc(),
             array_ctx: self.array_ctx.clone(),
             layout_ctx: self.layout_ctx.clone(),
+            layouts: self.layouts.clone(),
         };
-        let (_encoding_id, encoding) = self
+
+        let encoding_id = self
             .layout_ctx
-            .lookup_encoding(fb_child.encoding())
+            .lock()
+            .resolve(fb_child.encoding())
+            .cloned()
             .ok_or_else(|| vortex_err!("Encoding not found: {}", fb_child.encoding()))?;
+        let encoding = self.layouts.find(&encoding_id).ok_or_else(|| {
+            vortex_err!("Encoding not found in registry: {}", fb_child.encoding())
+        })?;
 
         encoding.build(
             dtype,

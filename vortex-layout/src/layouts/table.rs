@@ -207,7 +207,7 @@ impl LayoutStrategy for TableStrategy {
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();

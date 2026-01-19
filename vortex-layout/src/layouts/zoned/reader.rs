@@ -393,7 +393,6 @@ mod test {
 
     use rstest::fixture;
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
@@ -401,11 +400,11 @@ mod test {
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::root;
-    use vortex_array::session::ArraySessionExt;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
+    use crate::ArrayContextRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -421,7 +420,7 @@ mod test {
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(

@@ -44,8 +44,8 @@ impl LayoutStrategy for BufferedStrategy {
         &self,
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut stream: SendableSequentialStream,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();

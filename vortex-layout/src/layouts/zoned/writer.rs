@@ -75,7 +75,7 @@ impl LayoutStrategy for ZonedStrategy {
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();

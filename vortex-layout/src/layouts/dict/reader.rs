@@ -242,7 +242,6 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
-    use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::StructArray;
@@ -254,7 +253,6 @@ mod tests {
     use vortex_array::expr::not;
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::FieldName;
@@ -385,7 +383,7 @@ mod tests {
             );
 
             let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -448,7 +446,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -468,7 +466,7 @@ mod tests {
                 .unwrap();
 
             let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
-            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &SESSION)
                 .unwrap()

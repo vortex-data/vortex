@@ -381,7 +381,6 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
-    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -398,7 +397,6 @@ mod tests {
     use vortex_array::expr::pack;
     use vortex_array::expr::root;
     use vortex_array::expr::select;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -409,6 +407,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
+    use crate::ArrayContextRef;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -421,7 +420,7 @@ mod tests {
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -455,7 +454,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(
@@ -490,7 +489,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -532,7 +531,7 @@ mod tests {
     /// |`{"b": {"c": 6 }}`|
     #[fixture]
     fn nested_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(

@@ -48,9 +48,9 @@ impl LayoutStrategy for FlatLayoutStrategy {
         &self,
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
-        stream: SendableSequentialStream,
-        eof: SequencePointer,
-        handle: Handle,
+        mut stream: SendableSequentialStream,
+        _eof: SequencePointer,
+        _handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();

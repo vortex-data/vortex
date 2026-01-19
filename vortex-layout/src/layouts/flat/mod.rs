@@ -125,7 +125,7 @@ impl VTable for FlatVTable {
             row_count,
             dtype.clone(),
             segment_ids[0],
-            ctx,
+            ctx.clone(),
             metadata
                 .array_encoding_tree
                 .as_ref()
@@ -154,7 +154,7 @@ pub struct FlatLayout {
 }
 
 impl FlatLayout {
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: &ArrayContextRef) -> Self {
+    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ArrayContextRef) -> Self {
         Self {
             row_count,
             dtype,
@@ -168,7 +168,7 @@ impl FlatLayout {
         row_count: u64,
         dtype: DType,
         segment_id: SegmentId,
-        ctx: &ArrayContextRef,
+        ctx: ArrayContextRef,
         metadata: Option<ByteBuffer>,
     ) -> Self {
         Self {

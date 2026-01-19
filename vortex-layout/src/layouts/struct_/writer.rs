@@ -66,7 +66,7 @@ impl LayoutStrategy for StructStrategy {
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();

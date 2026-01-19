@@ -45,7 +45,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
@@ -60,6 +60,7 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
 
                 let chunk_strategy = chunk_strategy.clone();
                 let ctx = ctx.clone();
+                let segment_sink = segment_sink.clone();
                 let dtype = dtype2.clone();
 
                 yield handle.spawn_nested(move |handle| async move {

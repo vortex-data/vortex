@@ -9,20 +9,19 @@ use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
 
 use crate::ArrayContextRef;
 use crate::Layout;
 use crate::LayoutContext;
+use crate::LayoutContextRef;
 use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
+use crate::session::LayoutRegistry;
 
 static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
     VerifierOptions {
@@ -45,12 +44,18 @@ static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
-    layout_ctx: &LayoutContext,
+    layout_ctx: &LayoutContextRef,
     ctx: &ArrayContextRef,
+    layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;
-    let (_encoding_id, encoding) = layout_ctx
-        .lookup_encoding(fb_layout.encoding())
+    let encoding_id = layout_ctx
+        .lock()
+        .resolve(fb_layout.encoding())
+        .cloned()
+        .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
+    let encoding = layouts
+        .find(&encoding_id)
         .ok_or_else(|| vortex_err!("Invalid encoding ID: {}", fb_layout.encoding()))?;
 
     // SAFETY: we validate the flatbuffer above in the `root` call, and extract a loc.
@@ -60,6 +65,7 @@ pub fn layout_from_flatbuffer(
             fb_layout._tab.loc(),
             ctx.clone(),
             layout_ctx.clone(),
+            layouts.clone(),
         )
     };
 
@@ -87,32 +93,25 @@ impl dyn Layout + '_ {
     /// Serialize the layout into a [`FlatBufferBuilder`].
     pub fn flatbuffer_writer<'a>(
         &'a self,
-        ctx: &'a LayoutContext,
-    ) -> impl WriteFlatBuffer<Target<'a> = layout::Layout<'a>> + FlatBufferRoot + 'a {
+        ctx: &'a mut LayoutContext,
+    ) -> LayoutFlatBufferWriter<'a> {
         LayoutFlatBufferWriter { layout: self, ctx }
     }
 }
 
 /// An adapter struct for writing a layout to a FlatBuffer.
-struct LayoutFlatBufferWriter<'a> {
+pub struct LayoutFlatBufferWriter<'a> {
     layout: &'a dyn Layout,
-    ctx: &'a LayoutContext,
+    ctx: &'a mut LayoutContext,
 }
 
-impl FlatBufferRoot for LayoutFlatBufferWriter<'_> {}
-
-impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
-    type Target<'t> = layout::Layout<'t>;
-
-    fn write_flatbuffer<'fb>(
-        &self,
+impl LayoutFlatBufferWriter<'_> {
+    pub fn try_write_flatbuffer<'fb>(
+        &mut self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<layout::Layout<'fb>>> {
         // First we recurse into the children and write them out
-        let child_layouts = self
-            .layout
-            .children()
-            .vortex_expect("Failed to load layout children");
+        let child_layouts = self.layout.children()?;
         let children = child_layouts
             .iter()
             .map(|layout| {
@@ -120,9 +119,9 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                     layout: layout.as_ref(),
                     ctx: self.ctx,
                 }
-                .write_flatbuffer(fbb)
+                .try_write_flatbuffer(fbb)
             })
-            .collect::<Vec<_>>();
+            .collect::<VortexResult<Vec<_>>>()?;
         let children = (!children.is_empty()).then(|| fbb.create_vector(&children));
 
         // Next we write out the metadata if it's non-empty.
@@ -138,9 +137,14 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let segments = (!segments.is_empty()).then(|| fbb.create_vector(&segments));
 
         // Dictionary-encode the layout ID
-        let encoding = self.ctx.encoding_idx(&self.layout.encoding_id());
+        let encoding = self.ctx.intern(&self.layout.encoding_id()).ok_or_else(|| {
+            vortex_err!(
+                "Failed to intern layout encoding ID: {}",
+                self.layout.encoding_id()
+            )
+        })?;
 
-        layout::Layout::create(
+        Ok(layout::Layout::create(
             fbb,
             &layout::LayoutArgs {
                 encoding,
@@ -149,6 +153,6 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 children,
                 segments,
             },
-        )
+        ))
     }
 }

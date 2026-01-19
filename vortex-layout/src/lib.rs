@@ -3,12 +3,15 @@
 
 pub mod layouts;
 
+use std::sync::Arc;
+
 pub use children::*;
 pub use encoding::*;
 pub use flatbuffers::*;
 #[cfg(gpu_unstable)]
 pub use gpu::*;
 pub use layout::*;
+use parking_lot::Mutex;
 pub use reader::*;
 pub use strategy::*;
 use vortex_session::registry::Context;
@@ -31,3 +34,4 @@ mod test;
 pub mod vtable;
 
 pub type LayoutContext = Context<LayoutEncodingRef>;
+pub type LayoutContextRef = Arc<Mutex<Context<LayoutEncodingRef>>>;

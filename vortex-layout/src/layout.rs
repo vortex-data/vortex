@@ -489,7 +489,6 @@ mod tests {
 
     #[test]
     fn test_struct_layout_display() {
-        use vortex_array::ArrayContext;
         use vortex_dtype::Nullability::NonNullable;
         use vortex_dtype::PType;
         use vortex_dtype::StructFields;

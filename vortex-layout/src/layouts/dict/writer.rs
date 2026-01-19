@@ -128,7 +128,7 @@ impl LayoutStrategy for DictStrategy {
         ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        eof: SequencePointer,
+        mut eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         // Fallback if dtype is not supported
