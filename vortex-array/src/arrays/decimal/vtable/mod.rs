@@ -178,7 +178,7 @@ mod tests {
     use crate::arrays::DecimalVTable;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::session::ArrayRegistry;
+    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     #[test]
@@ -190,11 +190,10 @@ mod tests {
         );
         let dtype = array.dtype().clone();
 
-        let registry = ArrayRegistry::empty().with(DecimalVTable::ID, DecimalVTable);
-        let ctx = ArrayContext::from_registry_sorted(&registry);
+        let mut ctx = ArrayContext::new();
         let out = array
             .into_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&mut ctx, &SerializeOptions::default())
             .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();
@@ -204,9 +203,10 @@ mod tests {
 
         let concat = concat.freeze();
 
-        let parts = ArrayParts::try_from(concat).unwrap();
+        let session = ArraySession::default();
 
-        let decoded = parts.decode(&ctx, &dtype, 5).unwrap();
+        let parts = ArrayParts::try_from(concat).unwrap();
+        let decoded = parts.decode(&dtype, 5, &ctx, session.registry()).unwrap();
         assert!(decoded.is::<DecimalVTable>());
     }
 }

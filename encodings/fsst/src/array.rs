@@ -238,7 +238,7 @@ impl Debug for FSSTArray {
 pub struct FSSTVTable;
 
 impl FSSTVTable {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.FSST");
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
 }
 
 impl FSSTArray {

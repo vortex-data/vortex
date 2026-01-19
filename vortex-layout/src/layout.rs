@@ -344,10 +344,9 @@ mod private {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::session::ArraySessionExt;
 
     use super::*;
-    use crate::test::SESSION;
+    use crate::ArrayContextRef;
 
     #[test]
     fn test_layout_child_type_name() {
@@ -502,7 +501,7 @@ mod tests {
         use crate::layouts::struct_::StructLayout;
         use crate::segments::SegmentId;
 
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
 
         // Create a flat layout for dict values (utf8 strings)
         let dict_values =

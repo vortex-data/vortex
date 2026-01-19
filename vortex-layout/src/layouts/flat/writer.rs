@@ -4,7 +4,6 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
@@ -14,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 
+use crate::ArrayContextRef;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -46,11 +46,11 @@ impl Default for FlatLayoutStrategy {
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        _eof: SequencePointer,
-        _handle: Handle,
+        stream: SendableSequentialStream,
+        eof: SequencePointer,
+        handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let ctx = ctx.clone();
         let options = self.clone();
@@ -123,9 +123,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
-        // TODO(os): spawn serialization
         let buffers = chunk.serialize(
-            &ctx,
+            &mut ctx.lock(),
             &SerializeOptions {
                 offset: 0,
                 include_padding: options.include_padding,
@@ -161,7 +160,6 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::Array;
-    use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -175,7 +173,6 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -187,6 +184,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
+    use crate::ArrayContextRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
@@ -200,7 +198,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
@@ -237,7 +235,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let mut builder =
@@ -315,7 +313,7 @@ mod tests {
             )
             .unwrap();
 
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
 
             // Write the array into a byte buffer.
             let (layout, segments) = {

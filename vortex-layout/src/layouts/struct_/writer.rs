@@ -12,7 +12,6 @@ use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
 use vortex_array::Array;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -26,6 +25,7 @@ use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ArrayContextRef;
 use crate::IntoLayout as _;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -63,10 +63,10 @@ impl StructStrategy {
 impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
@@ -217,12 +217,10 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::ArrayContext;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::arrays::StructArray;
-    use vortex_array::session::ArraySessionExt;
     use vortex_array::validity::Validity;
     use vortex_dtype::DType;
     use vortex_dtype::FieldNames;
@@ -230,13 +228,13 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
+    use crate::ArrayContextRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
 
     #[test]
     #[should_panic]
@@ -244,7 +242,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
 
         let segments = Arc::new(TestSegments::default());
         block_on(|handle| {
@@ -275,7 +273,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+        let ctx = ArrayContextRef::default();
 
         let segments = Arc::new(TestSegments::default());
         let res = block_on(|handle| {

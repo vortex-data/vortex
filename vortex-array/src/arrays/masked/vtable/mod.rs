@@ -208,13 +208,13 @@ mod tests {
     use vortex_buffer::ByteBufferMut;
 
     use crate::ArrayContext;
+    use crate::ArraySession;
     use crate::IntoArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::MaskedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::session::ArrayRegistry;
     use crate::validity::Validity;
 
     #[rstest]
@@ -239,12 +239,11 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let registry = ArrayRegistry::empty().with(MaskedVTable::ID, MaskedVTable);
-        let ctx = ArrayContext::from_registry_sorted(&registry);
 
+        let mut ctx = ArrayContext::new();
         let serialized = array
             .to_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&mut ctx, &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.
@@ -254,8 +253,10 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let session = ArraySession::default();
+
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&ctx, &dtype, len).unwrap();
+        let decoded = parts.decode(&dtype, len, &ctx, session.registry()).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(

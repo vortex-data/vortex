@@ -262,6 +262,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_io::runtime::single::block_on;
 
+    use crate::ArrayContextRef;
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -301,7 +302,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::empty(SESSION.arrays().registry().clone());
+            let ctx = ArrayContextRef::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy

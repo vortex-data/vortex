@@ -6,12 +6,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
-use vortex_array::ArrayContext;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::ArrayContextRef;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -72,10 +72,10 @@ impl ZonedStrategy {
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let stats = self.options.stats.clone();

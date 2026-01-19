@@ -222,6 +222,7 @@ mod tests {
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
@@ -468,9 +469,9 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::empty(Registry::empty().with(RLEVTable::ID, RLEVTable));
+        let mut ctx = ArrayInterner::new();
         let serialized = sliced
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&mut ctx, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();

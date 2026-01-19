@@ -8,11 +8,11 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
-use vortex_array::ArrayContext;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::ArrayContextRef;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -42,10 +42,10 @@ impl ChunkedLayoutStrategy {
 impl LayoutStrategy for ChunkedLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();
@@ -60,7 +60,6 @@ impl LayoutStrategy for ChunkedLayoutStrategy {
 
                 let chunk_strategy = chunk_strategy.clone();
                 let ctx = ctx.clone();
-                let segment_sink = segment_sink.clone();
                 let dtype = dtype2.clone();
 
                 yield handle.spawn_nested(move |handle| async move {

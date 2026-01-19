@@ -25,7 +25,7 @@ use crate::footer::segment::SegmentSpec;
 /// which describes the structure of the data in the file.
 pub(crate) struct FooterFlatBufferWriter {
     /// The array context containing encodings used in the file.
-    pub(crate) ctx: ArrayContext,
+    pub(crate) ctx: &ArrayContextRef,
     /// The layout context containing the layouts used in the file.
     pub(crate) layout_ctx: LayoutContext,
     /// Specifications for all segments in the file.

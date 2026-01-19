@@ -7,7 +7,6 @@ pub mod writer;
 use std::env;
 use std::sync::Arc;
 
-use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_buffer::ByteBuffer;
@@ -17,6 +16,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
+use crate::ArrayContextRef;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
@@ -116,7 +116,7 @@ impl VTable for FlatVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContextRef,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -149,12 +149,12 @@ pub struct FlatLayout {
     row_count: u64,
     dtype: DType,
     segment_id: SegmentId,
-    ctx: ArrayContext,
+    ctx: ArrayContextRef,
     array_tree: Option<ByteBuffer>,
 }
 
 impl FlatLayout {
-    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: ArrayContext) -> Self {
+    pub fn new(row_count: u64, dtype: DType, segment_id: SegmentId, ctx: &ArrayContextRef) -> Self {
         Self {
             row_count,
             dtype,
@@ -168,7 +168,7 @@ impl FlatLayout {
         row_count: u64,
         dtype: DType,
         segment_id: SegmentId,
-        ctx: ArrayContext,
+        ctx: &ArrayContextRef,
         metadata: Option<ByteBuffer>,
     ) -> Self {
         Self {
@@ -186,7 +186,7 @@ impl FlatLayout {
     }
 
     #[inline]
-    pub fn array_ctx(&self) -> &ArrayContext {
+    pub fn array_ctx(&self) -> &ArrayContextRef {
         &self.ctx
     }
 

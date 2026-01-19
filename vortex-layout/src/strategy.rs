@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
@@ -10,6 +13,8 @@ use crate::LayoutRef;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
 use crate::sequence::SequencePointer;
+
+pub type ArrayContextRef = Arc<Mutex<ArrayContext>>;
 
 // [layout writer]
 #[async_trait]
@@ -48,7 +53,7 @@ pub trait LayoutStrategy: 'static + Send + Sync {
     /// of data, or serializing very large messages to flatbuffers.
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,

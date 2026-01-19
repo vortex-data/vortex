@@ -12,7 +12,6 @@ use futures::TryStreamExt;
 use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
-use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -30,6 +29,7 @@ use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ArrayContextRef;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -204,10 +204,10 @@ impl TableStrategy {
 impl LayoutStrategy for TableStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();

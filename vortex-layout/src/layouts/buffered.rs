@@ -9,10 +9,10 @@ use std::sync::atomic::Ordering;
 use async_stream::try_stream;
 use async_trait::async_trait;
 use futures::StreamExt as _;
-use vortex_array::ArrayContext;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
+use crate::ArrayContextRef;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;
@@ -42,10 +42,10 @@ impl BufferedStrategy {
 impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContext,
+        ctx: ArrayContextRef,
         segment_sink: SegmentSinkRef,
-        mut stream: SendableSequentialStream,
-        mut eof: SequencePointer,
+        stream: SendableSequentialStream,
+        eof: SequencePointer,
         handle: Handle,
     ) -> VortexResult<LayoutRef> {
         let dtype = stream.dtype().clone();

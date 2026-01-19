@@ -49,7 +49,7 @@ pub struct Footer {
     segments: Arc<[SegmentSpec]>,
     statistics: Option<FileStatistics>,
     // The specific arrays used within the file, in the order they were registered.
-    array_ctx: ArrayContext,
+    array_ctx: &ArrayContextRef,
 }
 
 impl Footer {
@@ -57,7 +57,7 @@ impl Footer {
         root_layout: LayoutRef,
         segments: Arc<[SegmentSpec]>,
         statistics: Option<FileStatistics>,
-        array_ctx: ArrayContext,
+        array_ctx: &ArrayContextRef,
     ) -> Self {
         Self {
             root_layout,
