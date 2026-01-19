@@ -12,7 +12,6 @@ use vortex::io::session::RuntimeSessionExt;
 use vortex::session::VortexSession;
 
 /// Factory to create [`VortexReadAt`] instances to read the target file.
-
 pub trait VortexReaderFactory: Debug + Send + Sync + 'static {
     /// Create a reader for a target object.
     fn create_reader(&self, path: &str, session: &VortexSession)
