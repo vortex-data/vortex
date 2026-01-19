@@ -2,21 +2,25 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 
+use std::ops::Range;
+
 use prost::Message;
-use rand_distr::Exp;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_proto::expr as pb;
+use vortex_error::vortex_bail;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::expr::Expression;
 use crate::expr::proto::ExprSerializeProtoExt;
-use crate::expr::proto::deserialize_expr_proto;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
@@ -61,20 +65,24 @@ impl ExpressionArray {
     }
 }
 
+#[derive(Debug)]
+pub struct ExpressionArrayMetadata {
+    expression: Expression,
+    scope_dtype: DType,
+}
+
 /// VTable for the expression array.
 #[derive(Debug)]
 pub struct ExpressionVTable;
 
 impl VTable for ExpressionVTable {
     type Array = ExpressionArray;
-    type Metadata = Expression;
+    type Metadata = ExpressionArrayMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::from("vortex.expression")
@@ -84,18 +92,22 @@ impl VTable for ExpressionVTable {
         ExpressionVTable.as_vtable()
     }
 
-    fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
-        todo!()
+    fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
+        Ok(ExpressionArrayMetadata {
+            expression: array.expression.clone(),
+            scope_dtype: array.input.dtype().clone(),
+        })
     }
 
-    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize_proto()?.encode_to_vec()))
+    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
         // TODO(ngates): do we pass the VortexSession into the deserialize function?
         //  Or do we force the ExpressionVTable to hold the session?
-        deserialize_expr_proto(pb::Expr::decode(bytes)?, &ExprRegistry::default())
+        // deserialize_expr_proto(pb::Expr::decode(bytes)?, &ExprRegistry::default())
+        vortex_bail!("Expression array deserialization not yet implemented")
     }
 
     fn build(
@@ -103,13 +115,43 @@ impl VTable for ExpressionVTable {
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
-        buffers: &[BufferHandle],
+        _buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<Self::Array> {
-        todo!()
+        let input = children.get(0, &metadata.scope_dtype, len)?;
+
+        Ok(ExpressionArray {
+            expression: metadata.expression.clone(),
+            dtype: dtype.clone(),
+            input,
+            stats: ArrayStats::default(),
+        })
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
-        todo!()
+        array.input = children
+            .into_iter()
+            .next()
+            .vortex_expect("Expression array must have exactly one child")?;
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        array
+            .expression
+            .evaluate(&array.input)?
+            .execute::<Canonical>(ctx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ExpressionArray {
+                expression: array.expression.clone(),
+                dtype: array.dtype.clone(),
+                input: array.input.slice(range)?,
+                stats: Default::default(),
+            }
+            .into_array(),
+        ))
     }
 }

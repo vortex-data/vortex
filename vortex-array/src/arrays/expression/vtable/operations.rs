@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::expression::ExpressionArray;
@@ -15,14 +12,6 @@ use crate::arrays::expression::ExpressionVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ExpressionVTable> for ExpressionVTable {
-    fn slice(array: &ExpressionArray, range: Range<usize>) -> ArrayRef {
-        let input = array.input.slice(range.clone());
-        unsafe {
-            ExpressionArray::new_unchecked(array.expression.clone(), array.dtype.clone(), input)
-        }
-        .into_array()
-    }
-
     fn scalar_at(array: &ExpressionArray, index: usize) -> Scalar {
         let scalar = array.input.scalar_at(index);
         let input = ConstantArray::new(scalar, 1).into_array();
