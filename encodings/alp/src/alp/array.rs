@@ -455,7 +455,6 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
     }
 }
 
-
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 

@@ -54,8 +54,6 @@ use vortex_error::vortex_err;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
-use crate::fsst_compress;
-use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
 
 vtable!(FSST);
