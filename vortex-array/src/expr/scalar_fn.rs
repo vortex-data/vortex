@@ -16,12 +16,14 @@ use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
+use crate::builtins::ExprBuiltins;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::IsNull;
+use crate::expr::Not;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
@@ -132,7 +134,11 @@ impl ScalarFn {
                 "expr::VTable::validity is not implemented for {}",
                 self.vtable.id()
             );
-            IsNull.new_expr(EmptyOptions, [expr.clone()])
+            // TODO(ngates): add an IsNotNull expression.
+            Not.new_expr(
+                EmptyOptions,
+                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
+            )
         }))
     }
 

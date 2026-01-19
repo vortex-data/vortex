@@ -14,7 +14,6 @@ use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::dict::DictArray;
-use crate::compute::and;
 use crate::compute::fill_null;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
@@ -40,7 +39,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
                             .into_array(),
                     )
                 }
-                (Validity::Array(codes_validity), Validity::Array(values_validity)) => {
+                (Validity::Array(_codes_validity), Validity::Array(values_validity)) => {
                     // Create a mask representing "is the value at codes[i] valid?"
                     let values_valid_mask =
                         unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
@@ -50,11 +49,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
                         &Scalar::bool(false, Nullability::NonNullable),
                     )?;
 
-                    // AND codes_validity with values_valid_mask:
-                    // position is valid iff the code is valid AND the value it points to is valid
-                    let validity = and(&codes_validity, &values_valid_mask)?;
-
-                    Validity::Array(validity)
+                    Validity::Array(values_valid_mask)
                 }
             },
         )
