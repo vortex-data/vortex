@@ -431,6 +431,7 @@ jobs:
         run: |
           cargo run --bin datafusion-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
           cargo run --bin duckdb-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
+          rm -rf vortex-bench/data/
       - name: Run FFI Example
         if: ${{ matrix.suite == 'ffi' }}
         run: |
@@ -457,6 +458,11 @@ jobs:
           disable_search: true
           flags: ${{ matrix.suite }}
           use_oidc: true
+      - name: Cleanup coverage file
+        shell: bash
+        run: |
+          du -sh target/coverage/
+          rm -rf target/coverage/
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
