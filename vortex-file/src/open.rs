@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -165,7 +164,8 @@ impl VortexOpenOptions {
     ///
     /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
     async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
+        let read = Arc::new(read);
+        // let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
 
         let footer = if let Some(footer) = self.footer {
             footer
