@@ -73,7 +73,6 @@ impl VTable for ScalarFnVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         self.vtable.id()

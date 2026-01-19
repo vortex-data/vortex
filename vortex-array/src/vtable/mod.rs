@@ -7,7 +7,6 @@ mod array;
 mod canonical;
 mod compute;
 mod dyn_;
-mod encode;
 mod operations;
 mod validity;
 mod visitor;
@@ -20,7 +19,6 @@ pub use array::*;
 pub use canonical::*;
 pub use compute::*;
 pub use dyn_::*;
-pub use encode::*;
 pub use operations::*;
 pub use validity::*;
 pub use visitor::*;
@@ -40,7 +38,7 @@ use crate::serde::ArrayChildren;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// Some of these vtables are optional, such as the [`ComputeVTable`] and [`EncodeVTable`],
+/// Some of these vtables are optional, such as the [`ComputeVTable`],
 /// which can be disabled by assigning to the [`NotSupported`] type.
 ///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
@@ -64,10 +62,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable implementing dynamic compute dispatch for this encoding.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type ComputeVTable: ComputeVTable<Self>;
-    /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
-    /// compression.
-    /// Can be disabled by assigning to the [`NotSupported`] type.
-    type EncodeVTable: EncodeVTable<Self>;
 
     /// Returns the ID of the encoding.
     fn id(&self) -> ArrayId;

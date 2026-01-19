@@ -59,7 +59,6 @@ impl VTable for SliceVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::from("vortex.slice")

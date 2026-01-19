@@ -40,7 +40,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -99,7 +98,6 @@ impl VTable for PcoVTable {
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.pco")
@@ -536,18 +534,6 @@ impl CanonicalVTable<PcoVTable> for PcoVTable {
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<PcoVTable> for PcoVTable {
-    fn encode(
-        _vtable: &PcoVTable,
-        canonical: &Canonical,
-        _like: Option<&PcoArray>,
-    ) -> VortexResult<Option<PcoArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))
     }
 }
 

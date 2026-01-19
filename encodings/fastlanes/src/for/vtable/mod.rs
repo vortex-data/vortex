@@ -30,7 +30,6 @@ use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod array;
 mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -49,7 +48,6 @@ impl VTable for FoRVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.for")

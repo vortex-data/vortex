@@ -32,7 +32,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -78,7 +77,6 @@ impl VTable for ALPRDVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.alprd")
@@ -462,36 +460,6 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
         };
 
         Ok(Canonical::Primitive(decoded_array))
-    }
-}
-
-impl EncodeVTable<ALPRDVTable> for ALPRDVTable {
-    fn encode(
-        _vtable: &ALPRDVTable,
-        canonical: &Canonical,
-        like: Option<&ALPRDArray>,
-    ) -> VortexResult<Option<ALPRDArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        let alprd_array = match like {
-            None => {
-                let encoder = match parray.ptype() {
-                    PType::F32 => crate::alp_rd::RDEncoder::new(parray.as_slice::<f32>()),
-                    PType::F64 => crate::alp_rd::RDEncoder::new(parray.as_slice::<f64>()),
-                    ptype => vortex_bail!("cannot ALPRD compress ptype {ptype}"),
-                };
-                encoder.encode(&parray)
-            }
-            Some(like) => {
-                let encoder = crate::alp_rd::RDEncoder::from_parts(
-                    like.right_bit_width(),
-                    like.left_parts_dictionary().to_vec(),
-                );
-                encoder.encode(&parray)
-            }
-        };
-
-        Ok(Some(alprd_array))
     }
 }
 

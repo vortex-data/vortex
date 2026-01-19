@@ -54,7 +54,6 @@ impl VTable for ChunkedVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.chunked")

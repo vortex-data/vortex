@@ -38,7 +38,6 @@ use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
 
 mod array;
 mod canonical;
-mod encode;
 mod kernels;
 mod operations;
 mod validity;
@@ -67,7 +66,6 @@ impl VTable for BitPackedVTable {
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.bitpacked")

@@ -27,7 +27,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -87,7 +86,6 @@ impl VTable for DateTimePartsVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.datetimeparts")
@@ -305,19 +303,6 @@ impl BaseArrayVTable<DateTimePartsVTable> for DateTimePartsVTable {
 impl ValidityChild<DateTimePartsVTable> for DateTimePartsVTable {
     fn validity_child(array: &DateTimePartsArray) -> &ArrayRef {
         array.days()
-    }
-}
-
-impl EncodeVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn encode(
-        _vtable: &DateTimePartsVTable,
-        canonical: &Canonical,
-        _like: Option<&DateTimePartsArray>,
-    ) -> VortexResult<Option<DateTimePartsArray>> {
-        let ext_array = canonical.clone().into_extension();
-        let temporal = TemporalArray::try_from(ext_array)?;
-
-        Ok(Some(DateTimePartsArray::try_from(temporal)?))
     }
 }
 

@@ -72,7 +72,6 @@ impl VTable for DecimalBytePartsVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.decimal_byte_parts")

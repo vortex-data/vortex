@@ -25,7 +25,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -44,7 +43,6 @@ use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
 use crate::zigzag_decode;
-use crate::zigzag_encode;
 
 vtable!(ZigZag);
 
@@ -59,7 +57,6 @@ impl VTable for ZigZagVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.zigzag")
@@ -215,26 +212,6 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
     }
 }
 
-impl EncodeVTable<ZigZagVTable> for ZigZagVTable {
-    fn encode(
-        encoding: &ZigZagVTable,
-        canonical: &Canonical,
-        _like: Option<&ZigZagArray>,
-    ) -> VortexResult<Option<ZigZagArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        if !parray.ptype().is_signed_int() {
-            vortex_bail!(
-                "only signed integers can be encoded into {}, got {}",
-                encoding.id(),
-                parray.ptype()
-            )
-        }
-
-        Ok(Some(zigzag_encode(parray)?))
-    }
-}
-
 impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
     fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
@@ -250,16 +227,14 @@ mod test {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::zigzag_encode;
 
     #[test]
     fn test_compute_statistics() -> VortexResult<()> {
-        let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
-        let canonical = array.to_canonical()?;
-        let zigzag = ZigZagVTable
-            .as_vtable()
-            .encode(&canonical, None)
-            .unwrap()
-            .unwrap();
+        let array = buffer![1i32, -5i32, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+            .into_array()
+            .to_primitive();
+        let zigzag = zigzag_encode(array.clone())?;
 
         assert_eq!(
             zigzag.statistics().compute_max::<i32>(),

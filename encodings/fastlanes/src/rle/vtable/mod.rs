@@ -26,7 +26,6 @@ use crate::rle::kernel::PARENT_KERNELS;
 
 mod array;
 mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -61,7 +60,6 @@ impl VTable for RLEVTable {
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.rle")

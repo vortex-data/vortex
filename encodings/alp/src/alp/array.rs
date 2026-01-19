@@ -30,7 +30,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -64,7 +63,6 @@ impl VTable for ALPVTable {
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.alp")
@@ -462,20 +460,6 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 impl CanonicalVTable<ALPVTable> for ALPVTable {
     fn canonicalize(array: &ALPArray) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(decompress_into_array(array.clone())))
-    }
-}
-
-impl EncodeVTable<ALPVTable> for ALPVTable {
-    fn encode(
-        _vtable: &ALPVTable,
-        canonical: &Canonical,
-        like: Option<&ALPArray>,
-    ) -> VortexResult<Option<ALPArray>> {
-        let parray = canonical.clone().into_primitive();
-        let exponents = like.map(|a| a.exponents());
-        let alp = alp_encode(&parray, exponents)?;
-
-        Ok(Some(alp))
     }
 }
 

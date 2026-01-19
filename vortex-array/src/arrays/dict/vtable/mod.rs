@@ -37,7 +37,6 @@ use crate::vtable::VTable;
 
 mod array;
 mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -59,7 +58,6 @@ impl VTable for DictVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.dict")

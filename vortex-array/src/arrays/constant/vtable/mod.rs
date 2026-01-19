@@ -27,7 +27,6 @@ use crate::vtable::VTable;
 
 mod array;
 mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -50,7 +49,6 @@ impl VTable for ConstantVTable {
     type VisitorVTable = Self;
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.constant")

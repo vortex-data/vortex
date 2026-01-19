@@ -15,9 +15,7 @@ use arcref::ArcRef;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayAdapter;
@@ -27,7 +25,6 @@ use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::vtable::EncodeVTable;
 use crate::vtable::VTable;
 
 /// ArrayId is a globally unique name for the array's vtable.
@@ -51,8 +48,6 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         children: &dyn ArrayChildren,
     ) -> VortexResult<ArrayRef>;
     fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
-    fn encode(&self, input: &Canonical, like: Option<&dyn Array>)
-    -> VortexResult<Option<ArrayRef>>;
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>>;
     fn reduce_parent(
@@ -114,48 +109,6 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         let mut array = array.as_::<V>().clone();
         V::with_children(&mut array, children)?;
         Ok(array.to_array())
-    }
-
-    fn encode(
-        &self,
-        input: &Canonical,
-        like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let downcast_like = like
-            .map(|like| {
-                like.as_opt::<V>().ok_or_else(|| {
-                    vortex_err!(
-                        "Like array {} does not match requested encoding {}",
-                        like.encoding_id(),
-                        self.id()
-                    )
-                })
-            })
-            .transpose()?;
-
-        let Some(array) =
-            <V::EncodeVTable as EncodeVTable<V>>::encode(&self.0, input, downcast_like)?
-        else {
-            return Ok(None);
-        };
-
-        let input = input.as_ref();
-        if array.len() != input.len() {
-            vortex_bail!(
-                "Array length mismatch after encoding: {} != {}",
-                array.len(),
-                input.len()
-            );
-        }
-        if array.dtype() != input.dtype() {
-            vortex_bail!(
-                "Array dtype mismatch after encoding: {} != {}",
-                array.dtype(),
-                input.dtype()
-            );
-        }
-
-        Ok(Some(array.into_array()))
     }
 
     fn reduce(&self, array: &ArrayRef) -> VortexResult<Option<ArrayRef>> {
@@ -331,15 +284,6 @@ impl ArrayVTable {
     /// Returns whether this vtable is of a given type.
     pub fn is<V: VTable>(&self) -> bool {
         self.0.as_any().is::<V>()
-    }
-
-    /// Encode the canonical array like the given array.
-    pub fn encode(
-        &self,
-        input: &Canonical,
-        like: Option<&dyn Array>,
-    ) -> VortexResult<Option<ArrayRef>> {
-        self.as_dyn().encode(input, like)
     }
 
     /// Slice the array using the VTable's slice implementation.

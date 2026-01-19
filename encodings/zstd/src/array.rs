@@ -34,7 +34,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -97,7 +96,6 @@ impl VTable for ZstdVTable {
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.zstd")
@@ -783,16 +781,6 @@ impl CanonicalVTable<ZstdVTable> for ZstdVTable {
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<ZstdVTable> for ZstdVTable {
-    fn encode(
-        _vtable: &ZstdVTable,
-        canonical: &Canonical,
-        _like: Option<&ZstdArray>,
-    ) -> VortexResult<Option<ZstdArray>> {
-        ZstdArray::from_canonical(canonical, 3, 0)
     }
 }
 

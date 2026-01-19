@@ -55,7 +55,6 @@ impl VTable for DeltaVTable {
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("fastlanes.delta")

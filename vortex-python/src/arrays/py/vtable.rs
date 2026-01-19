@@ -27,7 +27,6 @@ use vortex::array::vtable::ArrayVTable;
 use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::CanonicalVTable;
 use vortex::array::vtable::ComputeVTable;
-use vortex::array::vtable::EncodeVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
@@ -91,7 +90,6 @@ impl VTable for PythonVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         self.id.clone()
@@ -227,16 +225,6 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
         _compute_fn: &ComputeFn,
         _args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
-        todo!()
-    }
-}
-
-impl EncodeVTable<PythonVTable> for PythonVTable {
-    fn encode(
-        _vtable: &PythonVTable,
-        _canonical: &Canonical,
-        _like: Option<&PythonArray>,
-    ) -> VortexResult<Option<PythonArray>> {
         todo!()
     }
 }

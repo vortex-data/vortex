@@ -28,7 +28,6 @@ use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -202,7 +201,6 @@ impl VTable for SequenceVTable {
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.sequence")
@@ -443,17 +441,6 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 
 #[derive(Debug)]
 pub struct SequenceVTable;
-
-impl EncodeVTable<SequenceVTable> for SequenceVTable {
-    fn encode(
-        _vtable: &SequenceVTable,
-        _canonical: &Canonical,
-        _like: Option<&SequenceArray>,
-    ) -> VortexResult<Option<SequenceArray>> {
-        // TODO(joe): hook up compressor
-        Ok(None)
-    }
-}
 
 #[cfg(test)]
 mod tests {
