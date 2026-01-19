@@ -116,7 +116,7 @@ impl VTable for SliceVTable {
             array.dtype()
         );
         // TODO(joe): this is a downcast not a execute.
-        result.to_canonical()
+        result.execute::<Canonical>(ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

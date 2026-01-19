@@ -8,10 +8,13 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
@@ -115,7 +118,7 @@ fn test_empty_listview() {
 }
 
 #[test]
-fn test_from_list_array() {
+fn test_from_list_array() -> VortexResult<()> {
     // Test conversion from ListArray to ListViewArray.
     // Logical lists: [[1,2], null, [5,6,7]]
     let offsets = buffer![0i64, 2, 4, 7].into_array();
@@ -123,7 +126,8 @@ fn test_from_list_array() {
     let validity = Validity::from_iter([true, false, true]);
 
     let list_array = ListArray::try_new(elements, offsets, validity).unwrap();
-    let list_view = list_view_from_list(list_array);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let list_view = list_view_from_list(list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
 
@@ -143,6 +147,7 @@ fn test_from_list_array() {
         list_view.list_elements_at(2),
         PrimitiveArray::from_iter([5i32, 6, 7])
     );
+    Ok(())
 }
 
 // Parameterized tests for ConstantArray scenarios.

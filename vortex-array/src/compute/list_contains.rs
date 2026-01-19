@@ -438,23 +438,17 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::list_view_from_list;
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        list_view_from_list(
-            ListArray::from_iter_slow::<u64, _>(
-                values,
-                Arc::new(DType::Utf8(Nullability::NonNullable)),
-            )
+        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
             .as_::<ListVTable>()
-            .clone(),
-        )
-        .into_array()
+            .to_listview()
+            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -473,7 +467,9 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        list_view_from_list(ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap())
+        ListArray::try_new(elements, offsets, Validity::NonNullable)
+            .unwrap()
+            .to_listview()
             .into_array()
     }
 
