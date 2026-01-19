@@ -27,7 +27,7 @@ vortex-mask = { workspace = true }
 criterion = { version = "0.7", features = ["html_reports"] }
 rand = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 vortex-gpu-kernels = { workspace = true }

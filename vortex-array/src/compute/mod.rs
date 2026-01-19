@@ -53,7 +53,7 @@ mod between;
 mod boolean;
 mod cast;
 mod compare;
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 pub mod conformance;
 mod fill_null;
 mod filter;

@@ -3,16 +3,16 @@
 
 //! All the built-in encoding schemes and arrays.
 
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 mod assertions;
 
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 pub use assertions::format_indices;
 
 #[cfg(test)]
 mod validation_tests;
 
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 pub mod dict_test;
 
 mod bool;

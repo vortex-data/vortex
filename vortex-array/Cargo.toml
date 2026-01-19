@@ -78,7 +78,7 @@ arbitrary = [
 ]
 canonical_counter = []
 table-display = ["dep:tabled"]
-test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
+_test-harness = ["dep:goldenfile", "dep:rstest", "dep:rstest_reuse"]
 serde = [
     "dep:serde",
     "vortex-buffer/serde",
@@ -94,7 +94,7 @@ futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { path = ".", features = ["test-harness", "table-display"] }
+vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]
 name = "search_sorted"
@@ -132,17 +132,17 @@ harness = false
 [[bench]]
 name = "chunked_dict_builder"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]
 
 [[bench]]
 name = "dict_compress"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]
 
 [[bench]]
 name = "dict_compare"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]
 
 [[bench]]
 name = "dict_mask"
