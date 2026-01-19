@@ -63,6 +63,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -75,6 +76,8 @@ jobs:
         run: uvx ruff check .
       # PyRight needs the project for type information, so use uv run
       - name: Python Lint - PyRight
+        env:
+          MATURIN_PEP517_ARGS: "--profile dev"
         run: uv run basedpyright vortex-python
 
   python-test:
@@ -89,6 +92,7 @@ jobs:
     timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile dev"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -97,6 +101,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
