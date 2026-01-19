@@ -13,6 +13,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -31,7 +32,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -72,7 +72,6 @@ impl VTable for ALPRDVTable {
     type Metadata = ProstMetadata<ALPRDMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -244,6 +243,40 @@ impl VTable for ALPRDVTable {
         }
 
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().to_primitive();
+        let right_parts = array.right_parts().to_primitive();
+
+        // Decode the left_parts using our builtin dictionary.
+        let left_parts_dict = array.left_parts_dictionary();
+
+        let decoded_array = if array.is_f32() {
+            PrimitiveArray::new(
+                alp_rd_decode::<f32>(
+                    left_parts.into_buffer::<u16>(),
+                    left_parts_dict,
+                    array.right_bit_width,
+                    right_parts.into_buffer_mut::<u32>(),
+                    array.left_parts_patches(),
+                ),
+                Validity::copy_from_array(array.as_ref()),
+            )
+        } else {
+            PrimitiveArray::new(
+                alp_rd_decode::<f64>(
+                    left_parts.into_buffer::<u16>(),
+                    left_parts_dict,
+                    array.right_bit_width,
+                    right_parts.into_buffer_mut::<u64>(),
+                    array.left_parts_patches(),
+                ),
+                Validity::copy_from_array(array.as_ref()),
+            )
+        };
+
+        Ok(Canonical::Primitive(decoded_array))
     }
 }
 
@@ -427,41 +460,6 @@ impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
     }
 }
 
-impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
-    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().to_primitive();
-        let right_parts = array.right_parts().to_primitive();
-
-        // Decode the left_parts using our builtin dictionary.
-        let left_parts_dict = array.left_parts_dictionary();
-
-        let decoded_array = if array.is_f32() {
-            PrimitiveArray::new(
-                alp_rd_decode::<f32>(
-                    left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
-                    right_parts.into_buffer_mut::<u32>(),
-                    array.left_parts_patches(),
-                ),
-                Validity::copy_from_array(array.as_ref()),
-            )
-        } else {
-            PrimitiveArray::new(
-                alp_rd_decode::<f64>(
-                    left_parts.into_buffer::<u16>(),
-                    left_parts_dict,
-                    array.right_bit_width,
-                    right_parts.into_buffer_mut::<u64>(),
-                    array.left_parts_patches(),
-                ),
-                Validity::copy_from_array(array.as_ref()),
-            )
-        };
-
-        Ok(Canonical::Primitive(decoded_array))
-    }
-}
 
 impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
     fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}

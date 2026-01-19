@@ -23,9 +23,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::VortexSessionExecute;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -38,7 +36,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -54,7 +51,6 @@ impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
@@ -160,12 +156,6 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
 
     fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.range == other.range
-    }
-}
-
-impl CanonicalVTable<SliceVTable> for SliceVTable {
-    fn canonicalize(array: &SliceArray) -> VortexResult<Canonical> {
-        SliceVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
     }
 }
 

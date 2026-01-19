@@ -22,7 +22,6 @@ use vortex_array::builders::ListViewBuilder;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -53,68 +52,65 @@ use vortex_scalar::StructScalar;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::SparseArray;
-use crate::SparseVTable;
 
-impl CanonicalVTable<SparseVTable> for SparseVTable {
-    fn canonicalize(array: &SparseArray) -> VortexResult<Canonical> {
-        if array.patches().num_patches() == 0 {
-            return ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical();
-        }
-
-        Ok(match array.dtype() {
-            DType::Null => {
-                assert!(array.fill_scalar().is_null());
-                Canonical::Null(NullArray::new(array.len()))
-            }
-            DType::Bool(..) => {
-                let resolved_patches = array.resolved_patches();
-                canonicalize_sparse_bools(&resolved_patches, array.fill_scalar())
-            }
-            DType::Primitive(ptype, ..) => {
-                let resolved_patches = array.resolved_patches();
-                match_each_native_ptype!(ptype, |P| {
-                    canonicalize_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())
-                })
-            }
-            DType::Struct(struct_fields, ..) => canonicalize_sparse_struct(
-                struct_fields,
-                array.fill_scalar().as_struct(),
-                array.dtype(),
-                array.patches(),
-                array.len(),
-            ),
-            DType::Decimal(decimal_dtype, nullability) => {
-                let canonical_decimal_value_type =
-                    DecimalType::smallest_decimal_value_type(decimal_dtype);
-                let fill_value = array.fill_scalar().as_decimal();
-                match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
-                    canonicalize_sparse_decimal::<D>(
-                        *decimal_dtype,
-                        *nullability,
-                        fill_value,
-                        array.patches(),
-                        array.len(),
-                    )
-                })
-            }
-            dtype @ DType::Utf8(..) => {
-                let fill_value = array.fill_scalar().as_utf8().value();
-                let fill_value = fill_value.map(BufferString::into_inner);
-                canonicalize_varbin(array, dtype.clone(), fill_value)
-            }
-            dtype @ DType::Binary(..) => {
-                let fill_value = array.fill_scalar().as_binary().value();
-                canonicalize_varbin(array, dtype.clone(), fill_value)
-            }
-            DType::List(values_dtype, nullability) => {
-                canonicalize_sparse_lists(array, values_dtype.clone(), *nullability)
-            }
-            DType::FixedSizeList(.., nullability) => {
-                canonicalize_sparse_fixed_size_list(array, *nullability)
-            }
-            DType::Extension(_ext_dtype) => todo!(),
-        })
+pub(super) fn canonicalize_sparse(array: &SparseArray) -> VortexResult<Canonical> {
+    if array.patches().num_patches() == 0 {
+        return ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical();
     }
+
+    Ok(match array.dtype() {
+        DType::Null => {
+            assert!(array.fill_scalar().is_null());
+            Canonical::Null(NullArray::new(array.len()))
+        }
+        DType::Bool(..) => {
+            let resolved_patches = array.resolved_patches();
+            canonicalize_sparse_bools(&resolved_patches, array.fill_scalar())
+        }
+        DType::Primitive(ptype, ..) => {
+            let resolved_patches = array.resolved_patches();
+            match_each_native_ptype!(ptype, |P| {
+                canonicalize_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())
+            })
+        }
+        DType::Struct(struct_fields, ..) => canonicalize_sparse_struct(
+            struct_fields,
+            array.fill_scalar().as_struct(),
+            array.dtype(),
+            array.patches(),
+            array.len(),
+        ),
+        DType::Decimal(decimal_dtype, nullability) => {
+            let canonical_decimal_value_type =
+                DecimalType::smallest_decimal_value_type(decimal_dtype);
+            let fill_value = array.fill_scalar().as_decimal();
+            match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
+                canonicalize_sparse_decimal::<D>(
+                    *decimal_dtype,
+                    *nullability,
+                    fill_value,
+                    array.patches(),
+                    array.len(),
+                )
+            })
+        }
+        dtype @ DType::Utf8(..) => {
+            let fill_value = array.fill_scalar().as_utf8().value();
+            let fill_value = fill_value.map(BufferString::into_inner);
+            canonicalize_varbin(array, dtype.clone(), fill_value)
+        }
+        dtype @ DType::Binary(..) => {
+            let fill_value = array.fill_scalar().as_binary().value();
+            canonicalize_varbin(array, dtype.clone(), fill_value)
+        }
+        DType::List(values_dtype, nullability) => {
+            canonicalize_sparse_lists(array, values_dtype.clone(), *nullability)
+        }
+        DType::FixedSizeList(.., nullability) => {
+            canonicalize_sparse_fixed_size_list(array, *nullability)
+        }
+        DType::Extension(_ext_dtype) => todo!(),
+    })
 }
 
 #[expect(

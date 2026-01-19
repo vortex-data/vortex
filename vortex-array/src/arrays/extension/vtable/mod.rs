@@ -17,7 +17,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::vtable::rules::PARENT_RULES;
@@ -39,7 +41,6 @@ impl VTable for ExtensionVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -94,6 +95,10 @@ impl VTable for ExtensionVTable {
             .next()
             .vortex_expect("children length already validated");
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array.clone()))
     }
 
     fn reduce_parent(

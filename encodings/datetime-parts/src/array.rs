@@ -12,6 +12,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -39,6 +40,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::canonical::decode_to_temporal;
 use crate::compute::rules::PARENT_RULES;
 
 vtable!(DateTimeParts);
@@ -79,7 +81,6 @@ impl VTable for DateTimePartsVTable {
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -158,6 +159,10 @@ impl VTable for DateTimePartsVTable {
         array.subseconds = children_iter.next().vortex_expect("checked");
 
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(array).into()))
     }
 
     fn reduce_parent(

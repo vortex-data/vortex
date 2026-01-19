@@ -27,6 +27,8 @@ use vortex_array::SerializeMetadata;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -50,6 +52,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
+use crate::canonical::canonicalize_fsst;
+use crate::canonical::fsst_decode_views;
+use crate::fsst_compress;
+use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
 
 vtable!(FSST);
@@ -73,7 +79,6 @@ impl VTable for FSSTVTable {
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -178,6 +183,24 @@ impl VTable for FSSTVTable {
         array.uncompressed_lengths = uncompressed_lengths;
 
         Ok(())
+    }
+
+    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+            builder.extend_from_array(&array.to_canonical()?.into_array());
+            return Ok(());
+        };
+
+        // Decompress the whole block of data into a new buffer, and create some views
+        // from it instead.
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+
+        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_fsst(array)
     }
 
     fn execute_parent(
