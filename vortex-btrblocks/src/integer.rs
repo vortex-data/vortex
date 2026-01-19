@@ -64,7 +64,7 @@ impl Compressor for IntCompressor {
             &RunEndScheme,
             &SequenceScheme,
             &RLE_INTEGER_SCHEME,
-            // &DeltaScheme, // DISABLED FOR COMPARISON
+            &DeltaScheme,
         ]
     }
 
@@ -1203,31 +1203,5 @@ mod scheme_selection_tests {
             "Expected DeltaVTable but got {}",
             compressed.display_tree()
         );
-    }
-
-    /// Prints detailed compression comparison - run with `cargo test -p vortex-btrblocks -- --nocapture delta_comparison`
-    #[test]
-    fn delta_comparison_print() {
-        use vortex_array::Array;
-
-        println!("\n=== Delta Encoding Comparison ===\n");
-
-        // Test: Monotonically increasing data (delta-friendly)
-        let values: Vec<u64> = (0..100_000)
-            .map(|i| 1_000_000_000_u64 + i * 2 + (i % 3))
-            .collect();
-        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let original_size = array.nbytes();
-
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
-
-        println!("Monotonically increasing u64 (100K values):");
-        println!("  Original:   {} bytes", original_size);
-        println!("  Compressed: {} bytes", compressed.nbytes());
-        println!(
-            "  Ratio:      {:.2}x",
-            original_size as f64 / compressed.nbytes() as f64
-        );
-        println!("  Tree:\n{}", compressed.display_tree());
     }
 }
