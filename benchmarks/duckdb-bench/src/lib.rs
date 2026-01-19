@@ -96,7 +96,7 @@ impl DuckClient {
             connection.query(&format!("SET vortex_max_threads = {}", thread_count))?;
         }
 
-        connection.query("SET autoinstall_known_extensions=1; SET autoload_known_extensions=1;")?;
+        connection.query("INSTALL httpfs; LOAD httpfs;")?;
 
         Ok((db, connection))
     }
