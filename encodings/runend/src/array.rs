@@ -222,9 +222,7 @@ impl RunEndArray {
         let last_run_end: usize = ends.scalar_at(ends.len() - 1).as_ref().try_into()?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
-            vortex_bail!(
-                "Last run end {last_run_end} must be >= offset+length {min_required_end}"
-            );
+            vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
         }
 
         Ok(())
