@@ -305,11 +305,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            2,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(&arr, &ConversionCache::default())?.export(0, 2, &mut chunk.get_vector(0))?;
         chunk.set_len(2);
 
         assert_eq!(
@@ -379,11 +375,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            3,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(&arr, &ConversionCache::default())?.export(0, 3, &mut chunk.get_vector(0))?;
         chunk.set_len(3);
 
         // some-invalid codes cannot be exported as a dictionary.
@@ -426,11 +418,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(&arr, &ConversionCache::default())?.export(
-            0,
-            0,
-            &mut chunk.get_vector(0),
-        )?;
+        new_exporter(&arr, &ConversionCache::default())?.export(0, 0, &mut chunk.get_vector(0))?;
         chunk.set_len(0);
 
         assert_eq!(
