@@ -44,6 +44,7 @@ use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_smallest_offset_type;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::DecimalScalar;
 use vortex_scalar::ListScalar;
@@ -55,12 +56,12 @@ use crate::SparseArray;
 use crate::SparseVTable;
 
 impl CanonicalVTable<SparseVTable> for SparseVTable {
-    fn canonicalize(array: &SparseArray) -> Canonical {
+    fn canonicalize(array: &SparseArray) -> VortexResult<Canonical> {
         if array.patches().num_patches() == 0 {
             return ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical();
         }
 
-        match array.dtype() {
+        Ok(match array.dtype() {
             DType::Null => {
                 assert!(array.fill_scalar().is_null());
                 Canonical::Null(NullArray::new(array.len()))
@@ -112,7 +113,7 @@ impl CanonicalVTable<SparseVTable> for SparseVTable {
                 canonicalize_sparse_fixed_size_list(array, *nullability)
             }
             DType::Extension(_ext_dtype) => todo!(),
-        }
+        })
     }
 }
 
@@ -523,6 +524,8 @@ mod test {
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
@@ -943,7 +946,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_list_null_fill() {
+    fn test_sparse_list_null_fill() -> VortexResult<()> {
         // Use ListViewArray consistently
         let elements = buffer![1i32, 2, 1, 2].into_array();
         // Create ListView with offsets and sizes
@@ -965,7 +968,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -994,6 +997,8 @@ mod test {
 
         let list5_offset = result_listview.offset_at(5);
         assert_eq!(elements_slice[list5_offset], 2);
+
+        Ok(())
     }
 
     #[test]
@@ -1017,7 +1022,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical().vortex_expect("no fail").into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -1043,7 +1048,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_list_non_null_fill() {
+    fn test_sparse_list_non_null_fill() -> VortexResult<()> {
         // Create ListViewArray with 4 single-element lists
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u32, 1, 2, 3].into_array();
@@ -1060,7 +1065,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
         let result_listview = actual.to_listview();
 
         // Check the structure
@@ -1109,6 +1114,7 @@ mod test {
         // List 5: [2]
         let list5_offset = result_listview.offset_at(5) as usize;
         assert_eq!(elements_slice[list5_offset], 2);
+        Ok(())
     }
 
     #[test]
@@ -1153,7 +1159,7 @@ mod test {
     }
 
     #[test]
-    fn test_sparse_fixed_size_list_null_fill() {
+    fn test_sparse_fixed_size_list_null_fill() -> VortexResult<()> {
         // Create a FixedSizeListArray with 3 lists of size 3.
         let elements = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
         let fsl = FixedSizeListArray::try_new(elements, 3, Validity::AllValid, 3)
@@ -1170,7 +1176,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
 
         // Expected: [1,2,3], null, [4,5,6], [7,8,9], null.
         let expected_elements =
@@ -1185,10 +1191,11 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_fixed_size_list_non_null_fill() {
+    fn test_sparse_fixed_size_list_non_null_fill() -> VortexResult<()> {
         let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
         let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 3)
             .unwrap()
@@ -1207,7 +1214,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
 
         // Expected: [1,2], [99,88], [3,4], [99,88], [5,6], [99,88].
         let expected_elements = buffer![1i32, 2, 99, 88, 3, 4, 99, 88, 5, 6, 99, 88].into_array();
@@ -1216,10 +1223,11 @@ mod test {
             .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_fixed_size_list_with_validity() {
+    fn test_sparse_fixed_size_list_with_validity() -> VortexResult<()> {
         // Create FSL values with some nulls.
         let elements = buffer![10i32, 20, 30, 40, 50, 60].into_array();
         let fsl = FixedSizeListArray::try_new(
@@ -1244,7 +1252,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
 
         // Expected validity: [true, true, true, false, true, true].
         // Expected elements: [7,8], [10,20], [7,8], [30,40], [50,60], [7,8].
@@ -1261,10 +1269,11 @@ mod test {
         .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_fixed_size_list_truly_sparse() {
+    fn test_sparse_fixed_size_list_truly_sparse() -> VortexResult<()> {
         // Test with a truly sparse array where most values are the fill value.
         // This demonstrates the compression benefit of sparse encoding.
 
@@ -1291,7 +1300,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
 
         // Build expected: 97 copies of [99,99] with patches at positions 5, 50, 95.
         let mut expected_elements_vec = Vec::with_capacity(200);
@@ -1324,10 +1333,11 @@ mod test {
                 .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_fixed_size_list_single_element() {
+    fn test_sparse_fixed_size_list_single_element() -> VortexResult<()> {
         // Test with a single element FSL array.
         let elements = buffer![42i32, 43].into_array();
         let fsl = FixedSizeListArray::try_new(elements, 2, Validity::AllValid, 1)
@@ -1347,7 +1357,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
 
         // Expected: just [42, 43].
         let expected_elements = buffer![42i32, 43].into_array();
@@ -1356,10 +1366,11 @@ mod test {
             .into_array();
 
         assert_arrays_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_list_grows_offset_type() {
+    fn test_sparse_list_grows_offset_type() -> VortexResult<()> {
         let elements = buffer![1i32, 2, 1, 2].into_array();
         let offsets = buffer![0u8, 1, 2, 3, 4].into_array();
         let lists = ListArray::try_new(elements, offsets, Validity::AllValid)
@@ -1372,7 +1383,7 @@ mod test {
             .unwrap()
             .into_array();
 
-        let actual = sparse.to_canonical().into_array();
+        let actual = sparse.to_canonical()?.into_array();
         let mut expected_elements = buffer_mut![1, 2, 1, 2];
         expected_elements.extend(buffer![42i32; 252]);
         let expected = ListArray::try_new(
@@ -1395,10 +1406,11 @@ mod test {
         let expected = expected.into_arrow(&arrow_dtype).unwrap();
 
         assert_eq!(actual.data_type(), expected.data_type());
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_listview_null_fill_with_gaps() {
+    fn test_sparse_listview_null_fill_with_gaps() -> VortexResult<()> {
         // This test specifically catches the bug where the old implementation
         // incorrectly tracked `last_valid_offset` as the START of the last list
         // instead of properly handling ListView's offset/size pairs.
@@ -1438,7 +1450,7 @@ mod test {
         .unwrap();
 
         // Convert to canonical form - this triggers the function we're testing
-        let canonical = sparse.to_canonical().into_array();
+        let canonical = sparse.to_canonical()?.into_array();
         let result_listview = canonical.to_listview();
 
         // Verify the structure
@@ -1470,10 +1482,11 @@ mod test {
         assert_eq!(get_list_values(7), vec![30, 31, 32, 33]); // sparse index 2
         assert_eq!(get_list_values(8), empty); // null
         assert_eq!(get_list_values(9), empty); // null
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_listview_sliced_values_null_fill() {
+    fn test_sparse_listview_sliced_values_null_fill() -> VortexResult<()> {
         // This test uses sliced ListView values to ensure proper handling
         // of non-zero starting offsets in the source data.
 
@@ -1516,7 +1529,7 @@ mod test {
         let sparse =
             SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 
-        let canonical = sparse.to_canonical().into_array();
+        let canonical = sparse.to_canonical()?.into_array();
         let result_listview = canonical.to_listview();
 
         assert_eq!(result_listview.len(), 5);
@@ -1548,5 +1561,6 @@ mod test {
         // The bug in the old implementation would have incorrectly used
         // offsets[sparse_index] for filling nulls, which would be wrong
         // when dealing with sliced arrays that have non-zero starting offsets.
+        Ok(())
     }
 }

@@ -427,7 +427,7 @@ impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
 }
 
 impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
-    fn canonicalize(array: &ALPRDArray) -> Canonical {
+    fn canonicalize(array: &ALPRDArray) -> VortexResult<Canonical> {
         let left_parts = array.left_parts().to_primitive();
         let right_parts = array.right_parts().to_primitive();
 
@@ -458,7 +458,7 @@ impl CanonicalVTable<ALPRDVTable> for ALPRDVTable {
             )
         };
 
-        Canonical::Primitive(decoded_array)
+        Ok(Canonical::Primitive(decoded_array))
     }
 }
 

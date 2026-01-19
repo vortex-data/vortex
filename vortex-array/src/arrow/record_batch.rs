@@ -20,7 +20,7 @@ impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
 
     fn try_from(value: &dyn Array) -> VortexResult<Self> {
-        let Canonical::Struct(struct_array) = value.to_canonical() else {
+        let Canonical::Struct(struct_array) = value.to_canonical()? else {
             vortex_bail!("RecordBatch can only be constructed from ")
         };
 

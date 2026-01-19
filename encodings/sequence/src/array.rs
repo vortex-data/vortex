@@ -380,7 +380,7 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> Canonical {
+    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -391,7 +391,7 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Canonical::Primitive(prim)
+        Ok(Canonical::Primitive(prim))
     }
 }
 

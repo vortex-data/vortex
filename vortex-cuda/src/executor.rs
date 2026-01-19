@@ -260,7 +260,7 @@ pub trait CudaArrayExt: Array {
 impl CudaArrayExt for ArrayRef {
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
         if self.is_canonical() {
-            return Ok(self.to_canonical());
+            return self.to_canonical();
         }
 
         let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {

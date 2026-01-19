@@ -776,6 +776,7 @@ impl RewritingViewAdjustment {
 mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::arrays::VarBinViewArray;
@@ -839,7 +840,7 @@ mod tests {
     }
 
     #[test]
-    fn test_buffer_deduplication() {
+    fn test_buffer_deduplication() -> VortexResult<()> {
         let array = {
             let mut builder =
                 VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 10);
@@ -852,11 +853,11 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        array.append_to_builder(&mut builder);
+        array.append_to_builder(&mut builder)?;
         assert_eq!(builder.completed_block_count(), 1);
 
-        array.slice(1..2).append_to_builder(&mut builder);
-        array.slice(0..1).append_to_builder(&mut builder);
+        array.slice(1..2).append_to_builder(&mut builder)?;
+        array.slice(0..1).append_to_builder(&mut builder)?;
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -866,12 +867,13 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        array2.append_to_builder(&mut builder);
+        array2.append_to_builder(&mut builder)?;
         assert_eq!(builder.completed_block_count(), 2);
 
-        array.slice(0..1).append_to_builder(&mut builder);
-        array2.slice(0..1).append_to_builder(&mut builder);
+        array.slice(0..1).append_to_builder(&mut builder)?;
+        array2.slice(0..1).append_to_builder(&mut builder)?;
         assert_eq!(builder.completed_block_count(), 2);
+        Ok(())
     }
 
     #[test]

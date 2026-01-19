@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::vortex_panic;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Canonical;
 use crate::builders::ArrayBuilder;
@@ -15,21 +16,22 @@ pub trait CanonicalVTable<V: VTable> {
     /// - The length is equal to that of the input array.
     /// - The [`vortex_dtype::DType`] is equal to that of the input array.
     // TODO(ngates): rename to `decode`
-    fn canonicalize(array: &V::Array) -> Canonical;
+    fn canonicalize(array: &V::Array) -> VortexResult<Canonical>;
 
     /// Writes the array into a canonical builder.
     ///
     /// ## Post-conditions
     /// - The length of the builder is incremented by the length of the input array.
-    fn append_to_builder(array: &V::Array, builder: &mut dyn ArrayBuilder) {
-        let canonical = Self::canonicalize(array);
-        builder.extend_from_array(canonical.as_ref())
+    fn append_to_builder(array: &V::Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let canonical = Self::canonicalize(array)?;
+        builder.extend_from_array(canonical.as_ref());
+        Ok(())
     }
 }
 
 impl<V: VTable> CanonicalVTable<V> for NotSupported {
-    fn canonicalize(array: &V::Array) -> Canonical {
-        vortex_panic!(
+    fn canonicalize(array: &V::Array) -> VortexResult<Canonical> {
+        vortex_bail!(
             "Legacy canonicalize is not supported for {} arrays",
             array.encoding_id()
         )

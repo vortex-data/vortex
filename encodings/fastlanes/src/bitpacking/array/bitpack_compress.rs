@@ -365,7 +365,7 @@ fn bytes_per_exception(ptype: PType) -> usize {
     ptype.byte_width() + 4
 }
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use rand::Rng as _;
     use rand::rngs::StdRng;
@@ -463,7 +463,7 @@ mod test {
     }
 
     #[test]
-    fn canonicalize_chunked_of_bitpacked() {
+    fn canonicalize_chunked_of_bitpacked() -> VortexResult<()> {
         let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
@@ -474,7 +474,7 @@ mod test {
         let into_ca = chunked.clone().to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.clone().append_to_builder(&mut primitive_builder);
+        chunked.clone().append_to_builder(&mut primitive_builder)?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);
@@ -485,6 +485,8 @@ mod test {
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);
+
+        Ok(())
     }
 
     #[test]

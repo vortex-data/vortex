@@ -58,7 +58,7 @@ mod test {
     ].into_array())]
     fn test_filter_alp_conformance(#[case] array: ArrayRef) {
         let alp = ALPVTable::vtable()
-            .encode(&array.to_canonical(), None)
+            .encode(&array.to_canonical().unwrap(), None)
             .unwrap()
             .unwrap();
         test_filter_conformance(alp.as_ref());

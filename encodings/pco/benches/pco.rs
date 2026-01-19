@@ -56,5 +56,7 @@ pub fn pco_canonical(bencher: Bencher, (size, selectivity): (usize, f64)) {
     bencher
         // Be sure to reconstruct the mask to avoid cached set_indices
         .with_inputs(|| (&pco_array, Mask::from_buffer(mask.clone())))
-        .bench_refs(|(pco_array, mask)| filter(pco_array.to_canonical().as_ref(), mask).unwrap());
+        .bench_refs(|(pco_array, mask)| {
+            filter(pco_array.to_canonical().unwrap().as_ref(), mask).unwrap()
+        });
 }

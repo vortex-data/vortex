@@ -3,16 +3,17 @@
 
 //! CUDA support for Vortex arrays.
 
-mod executor;
+pub mod executor;
 mod for_;
 mod kernel;
 mod session;
 
 use std::process::Command;
 
+pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use for_::ForExecutor;
-use session::CudaSession;
+pub use session::CudaSession;
 
 /// Check if the NVIDIA CUDA Compiler is available.
 pub fn has_nvcc() -> bool {

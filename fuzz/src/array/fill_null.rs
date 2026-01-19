@@ -272,7 +272,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), None, Some(5)]);
         let fill_value = Scalar::from(42i32);
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 42, 3, 42, 5]);
         assert_arrays_eq!(expected, result);
@@ -285,7 +285,7 @@ mod tests {
         let array = BoolArray::from_bit_buffer(data_buffer, Validity::from(validity_buffer));
         let fill_value = Scalar::from(true);
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = BoolArray::from(BitBuffer::from(vec![true, true, false, true]));
         assert_arrays_eq!(expected, result);
@@ -299,7 +299,7 @@ mod tests {
         );
         let fill_value = Scalar::utf8("default", Nullability::NonNullable);
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = VarBinViewArray::from_iter_str(["hello", "default", "world"]);
         assert_arrays_eq!(expected, result);
@@ -310,7 +310,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
         let fill_value = Scalar::from(100i32);
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = PrimitiveArray::from_iter([100i32, 100, 100]);
         assert_arrays_eq!(expected, result);
@@ -321,7 +321,7 @@ mod tests {
         let array = PrimitiveArray::from_iter([1i32, 2, 3]);
         let fill_value = Scalar::from(42i32);
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
         assert_arrays_eq!(expected, result);
@@ -333,7 +333,7 @@ mod tests {
         let array = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3)]);
         let fill_value = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value);
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value);
 
         assert!(result.is_err());
         assert!(
@@ -356,7 +356,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = DecimalArray::from_iter(
             [100i32, 999i32, 300i32, 999i32, 500i32],
@@ -377,7 +377,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected =
             DecimalArray::from_iter([1000i64, 9999i64, 3000i64], DecimalDType::new(15, 3));
@@ -396,7 +396,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = DecimalArray::from_iter(
             [10000i128, 99999i128, 30000i128, 99999i128],
@@ -415,7 +415,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = cast(
             &DecimalArray::from_option_iter(
@@ -441,7 +441,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = fill_null_canonical_array(array.to_canonical(), &fill_value).unwrap();
+        let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
         let expected = cast(
             &DecimalArray::from_option_iter(

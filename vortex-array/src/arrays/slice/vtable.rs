@@ -118,7 +118,7 @@ impl VTable for SliceVTable {
             array.dtype()
         );
         // TODO(joe): this is a downcast not a execute.
-        Ok(result.to_canonical())
+        result.to_canonical()
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -162,9 +162,8 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
 }
 
 impl CanonicalVTable<SliceVTable> for SliceVTable {
-    fn canonicalize(array: &SliceArray) -> Canonical {
+    fn canonicalize(array: &SliceArray) -> VortexResult<Canonical> {
         SliceVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Canonicalize should be fallible")
     }
 }
 

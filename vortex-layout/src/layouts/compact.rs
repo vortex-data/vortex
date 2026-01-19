@@ -68,7 +68,7 @@ impl CompactCompressor {
     }
 
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
-        self.compress_canonical(array.to_canonical())
+        self.compress_canonical(array.to_canonical()?)
     }
 
     /// Compress a single array using the compact strategy

@@ -240,7 +240,7 @@ impl Scheme for ALPScheme {
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
         let alp_encoded = ALPVTable::vtable()
-            .encode(&stats.source().to_canonical(), None)?
+            .encode(&stats.source().to_canonical()?, None)?
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
         let alp_ints = alp.encoded().to_primitive();

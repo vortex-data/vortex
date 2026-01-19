@@ -68,7 +68,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                     0,
                 );
                 vec.append_nulls(selection.true_count());
-                return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()));
+                return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()?));
             }
             Validity::Array(a) => a
                 .filter(parent.filter_mask().clone())?
@@ -123,7 +123,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                 )
             }
             .into_array(array.dtype())
-            .to_canonical(),
+            .to_canonical()?,
         ))
     }
 }

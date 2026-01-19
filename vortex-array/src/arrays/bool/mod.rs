@@ -12,5 +12,5 @@ mod vtable;
 pub use vtable::BoolMaskedValidityRule;
 pub use vtable::BoolVTable;
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 mod test_harness;
