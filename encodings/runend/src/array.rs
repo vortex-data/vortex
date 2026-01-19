@@ -262,9 +262,6 @@ impl RunEndArray {
     /// The `ends` must be non-nullable unsigned integers. The values may be `Bool` or `Primitive`
     /// types.
     ///
-    /// All `ends` must be strictly monotonic. A run cannot be empty, therefore there can be no
-    /// duplicates in the `ends`.
-    ///
     /// # Examples
     ///
     /// ```
@@ -272,13 +269,6 @@ impl RunEndArray {
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// # use vortex_runend::RunEndArray;
-    ///
-    /// // Error to provide duplicate ends!
-    /// let result = RunEndArray::try_new(
-    ///     buffer![1u8, 1u8, 2u8].into_array(),
-    ///     buffer![100i32, 200i32, 300i32].into_array(),
-    /// );
-    /// assert!(result.is_err());
     ///
     /// // Error to provide incorrectly-typed values!
     /// let result = RunEndArray::try_new(
