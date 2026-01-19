@@ -50,8 +50,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::fsst_compress;
-use crate::fsst_train_compressor;
 use crate::kernel::PARENT_KERNELS;
 
 vtable!(FSST);

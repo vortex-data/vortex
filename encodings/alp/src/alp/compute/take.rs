@@ -42,10 +42,8 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
-    use crate::ALPVTable;
     use crate::alp_encode;
 
     #[rstest]

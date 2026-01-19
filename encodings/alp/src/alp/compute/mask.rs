@@ -36,17 +36,13 @@ register_kernel!(MaskKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {
-    use std::env::args;
-
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
 
-    use crate::ALPVTable;
     use crate::alp_encode;
 
     #[rstest]

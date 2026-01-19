@@ -56,7 +56,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -64,7 +63,6 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
-    use crate::ALPVTable;
     use crate::alp_encode;
 
     #[test]

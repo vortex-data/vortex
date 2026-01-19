@@ -15,7 +15,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
