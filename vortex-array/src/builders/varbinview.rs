@@ -294,22 +294,44 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .iter()
                     .map(|view| adjustment.adjust_view(view)),
             ),
-            ViewAdjustment::Rewriting(adjustment) => {
-                for (idx, &view) in array.views().iter().enumerate() {
-                    let new_view = if !array.is_valid(idx) {
-                        BinaryView::empty_view()
-                    } else if view.is_inlined() {
-                        view
-                    } else if let Some(adjusted) = adjustment.adjust_view(&view) {
-                        adjusted
-                    } else {
-                        let bytes = array.bytes_at(idx);
-                        let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
-                        BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
-                    };
-                    self.views_builder.push(new_view)
+            ViewAdjustment::Rewriting(adjustment) => match array.validity_mask() {
+                Mask::AllTrue(_) => {
+                    for (idx, &view) in array.views().iter().enumerate() {
+                        let new_view = if view.is_inlined() {
+                            view
+                        } else if let Some(adjusted) = adjustment.adjust_view(&view) {
+                            adjusted
+                        } else {
+                            let bytes = array.bytes_at(idx);
+                            let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
+                            BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
+                        };
+                        self.views_builder.push(new_view);
+                    }
                 }
-            }
+                Mask::AllFalse(_) => {
+                    self.views_builder
+                        .push_n(BinaryView::empty_view(), array.len());
+                }
+                Mask::Values(v) => {
+                    for (idx, (&view, is_valid)) in
+                        array.views().iter().zip(v.bit_buffer().iter()).enumerate()
+                    {
+                        let new_view = if !is_valid {
+                            BinaryView::empty_view()
+                        } else if view.is_inlined() {
+                            view
+                        } else if let Some(adjusted) = adjustment.adjust_view(&view) {
+                            adjusted
+                        } else {
+                            let bytes = array.bytes_at(idx);
+                            let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
+                            BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
+                        };
+                        self.views_builder.push(new_view);
+                    }
+                }
+            },
         }
     }
 
