@@ -11,6 +11,7 @@ from vortex.ray.datasource import VortexDatasource, partition
 
 from .test_file import record
 
+
 @pytest.fixture(scope="module")
 def ray_init():
     # https://github.com/ray-project/ray/issues/53848#issuecomment-3056271943
