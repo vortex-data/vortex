@@ -80,7 +80,7 @@ impl FlatReader {
                 ArrayParts::try_from(segment)?
             };
             parts
-                .decode(&dtype, row_count, &ctx, &registry)
+                .decode(&dtype, row_count, &ctx.lock(), &registry)
                 .map_err(Arc::new)
         }
         .boxed()
@@ -298,7 +298,7 @@ mod test {
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
             let layout = FlatLayoutStrategy::default()
                 .write_stream(
-                    &ctx,
+                    ctx,
                     segments.clone(),
                     array.to_array_stream().sequenced(ptr),
                     eof,

@@ -34,12 +34,13 @@ pin_project! {
         #[pin]
         reader: AsyncMessageReader<R>,
         dtype: DType,
+        registry: ArrayRegistry,
     }
 }
 
 impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
     pub async fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
-        let mut reader = AsyncMessageReader::new(read, registry);
+        let mut reader = AsyncMessageReader::new(read);
 
         let dtype = match reader.next().await.transpose()? {
             Some(msg) => match msg {
@@ -51,7 +52,11 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
             None => vortex_bail!("Expected DType message, got EOF"),
         };
 
-        Ok(AsyncIPCReader { reader, dtype })
+        Ok(AsyncIPCReader {
+            reader,
+            dtype,
+            registry,
+        })
     }
 }
 
@@ -75,7 +80,7 @@ impl<R: AsyncRead> Stream for AsyncIPCReader<R> {
             Some(msg) => match msg {
                 Ok(DecoderMessage::Array((array_parts, ctx, row_count))) => Poll::Ready(Some(
                     array_parts
-                        .decode(&ctx, this.dtype, row_count)
+                        .decode(this.dtype, row_count, &ctx, &this.registry)
                         .and_then(|array| {
                             if array.dtype() != this.dtype {
                                 Err(vortex_err!(

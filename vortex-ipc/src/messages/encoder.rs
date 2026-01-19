@@ -7,7 +7,6 @@ use flatbuffers::FlatBufferBuilder;
 use vortex_array::Array;
 use vortex_array::ArrayContext;
 use vortex_array::serde::SerializeOptions;
-use vortex_array::session::ArrayRegistry;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -57,14 +56,10 @@ impl MessageEncoder {
             EncoderMessage::Array(array) => {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
-                // NOTE(ngates): we should use an ArrayInterner for writing since we don't actually
-                //  care that the encodings exist in the registry. Alternatively, ArrayContext
-                //  could check that the encoding exists, and we use it as a way to avoid
-                //  accidentally serializing things we don't want to.
-                let ctx = ArrayContext::empty(ArrayRegistry::empty());
+                let mut ctx = ArrayContext::default();
 
                 let array_buffers = array
-                    .serialize(&ctx, &SerializeOptions::default())
+                    .serialize(&mut ctx, &SerializeOptions::default())
                     // TODO(ngates): we should propagate this somehow
                     .vortex_expect("Array serialization failed");
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();

@@ -240,7 +240,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let mut ctx = ArrayContext::new();
+        let mut ctx = ArrayContext::default();
         let serialized = array
             .to_array()
             .serialize(&mut ctx, &SerializeOptions::default())

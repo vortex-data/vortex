@@ -82,8 +82,11 @@ impl<T> Default for Context<T> {
 }
 
 impl<T: Clone> Context<T> {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(ids: Vec<Id>) -> Self {
+        Self {
+            ids,
+            registry: None,
+        }
     }
 
     /// Configure a registry to restrict the permissible set of interned items.
