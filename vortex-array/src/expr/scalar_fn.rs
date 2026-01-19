@@ -16,7 +16,6 @@ use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
-use crate::builtins::ExprBuiltins;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
