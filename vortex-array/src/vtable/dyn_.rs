@@ -21,7 +21,6 @@ use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
