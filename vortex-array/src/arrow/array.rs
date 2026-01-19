@@ -22,6 +22,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::BoolArray;
@@ -36,7 +37,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -51,7 +51,6 @@ impl VTable for ArrowVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
@@ -95,6 +94,10 @@ impl VTable for ArrowVTable {
             children.len()
         );
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
     }
 }
 
@@ -146,12 +149,6 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
 
     fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
         array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
-    }
-}
-
-impl CanonicalVTable<ArrowVTable> for ArrowVTable {
-    fn canonicalize(array: &ArrowArray) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
     }
 }
 

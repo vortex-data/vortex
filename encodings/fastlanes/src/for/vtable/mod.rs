@@ -6,7 +6,9 @@ use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -26,10 +28,10 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::FoRArray;
+use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod array;
-mod canonical;
 mod operations;
 mod rules;
 mod validity;
@@ -43,7 +45,6 @@ impl VTable for FoRVTable {
     type Metadata = ScalarValueMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -124,6 +125,10 @@ impl VTable for FoRVTable {
             )
             .into_array()
         }))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(decompress(array)))
     }
 }
 

@@ -12,6 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ToCanonical;
@@ -24,7 +25,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -52,7 +52,6 @@ impl VTable for ZigZagVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -111,6 +110,12 @@ impl VTable for ZigZagVTable {
         Ok(Some(
             ZigZagArray::new(array.encoded().slice(range)).into_array(),
         ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(zigzag_decode(
+            array.encoded().to_primitive(),
+        )))
     }
 }
 
@@ -174,14 +179,6 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 
     fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
         array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
-    }
-}
-
-impl CanonicalVTable<ZigZagVTable> for ZigZagVTable {
-    fn canonicalize(array: &ZigZagArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().to_primitive(),
-        )))
     }
 }
 

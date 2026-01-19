@@ -19,6 +19,7 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
@@ -34,7 +35,6 @@ use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod kernel;
 mod operations;
 mod validity;
@@ -56,7 +56,6 @@ impl VTable for ListVTable {
     type Metadata = ProstMetadata<ListMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
@@ -156,6 +155,10 @@ impl VTable for ListVTable {
         let new_array = ListArray::try_new(elements, offsets, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(list_view_from_list(array.clone())))
     }
 
     fn execute_parent(

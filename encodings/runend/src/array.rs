@@ -29,7 +29,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -68,7 +67,6 @@ impl VTable for RunEndVTable {
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
@@ -151,6 +149,10 @@ impl VTable for RunEndVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        run_end_canonicalize(array)
     }
 }
 
@@ -473,31 +475,29 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
     }
 }
 
-impl CanonicalVTable<RunEndVTable> for RunEndVTable {
-    fn canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
-        let pends = array.ends().to_primitive();
-        Ok(match array.dtype() {
-            DType::Bool(_) => {
-                let bools = array.values().to_bool();
-                Canonical::Bool(runend_decode_bools(
-                    pends,
-                    bools,
-                    array.offset(),
-                    array.len(),
-                ))
-            }
-            DType::Primitive(..) => {
-                let pvalues = array.values().to_primitive();
-                Canonical::Primitive(runend_decode_primitive(
-                    pends,
-                    pvalues,
-                    array.offset(),
-                    array.len(),
-                ))
-            }
-            _ => vortex_panic!("Only Primitive and Bool values are supported"),
-        })
-    }
+pub(super) fn run_end_canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
+    let pends = array.ends().to_primitive();
+    Ok(match array.dtype() {
+        DType::Bool(_) => {
+            let bools = array.values().to_bool();
+            Canonical::Bool(runend_decode_bools(
+                pends,
+                bools,
+                array.offset(),
+                array.len(),
+            ))
+        }
+        DType::Primitive(..) => {
+            let pvalues = array.values().to_primitive();
+            Canonical::Primitive(runend_decode_primitive(
+                pends,
+                pvalues,
+                array.offset(),
+                array.len(),
+            ))
+        }
+        _ => vortex_panic!("Only Primitive and Bool values are supported"),
+    })
 }
 
 #[cfg(test)]

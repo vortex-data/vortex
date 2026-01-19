@@ -12,6 +12,7 @@ use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
 use vortex_array::serde::ArrayChildren;
@@ -26,18 +27,21 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::BitPackedArray;
+use crate::bitpack_decompress::unpack_array;
+use crate::bitpack_decompress::unpack_into_primitive_builder;
 use crate::bitpacking::rules::RULES;
 use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
 
 mod array;
-mod canonical;
 mod kernels;
 mod operations;
 mod validity;
@@ -61,7 +65,6 @@ impl VTable for BitPackedVTable {
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
@@ -245,6 +248,26 @@ impl VTable for BitPackedVTable {
                 )
             })?,
         )
+    }
+
+    fn append_to_builder(
+        array: &BitPackedArray,
+        builder: &mut dyn ArrayBuilder,
+    ) -> VortexResult<()> {
+        match_each_integer_ptype!(array.ptype(), |T| {
+            unpack_into_primitive_builder::<T>(
+                array,
+                builder
+                    .as_any_mut()
+                    .downcast_mut()
+                    .vortex_expect("bit packed array must canonicalize into a primitive array"),
+            )
+        });
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(unpack_array(array)))
     }
 
     fn execute_parent(

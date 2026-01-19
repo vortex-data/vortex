@@ -12,7 +12,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -35,6 +37,8 @@ mod operations;
 mod validity;
 mod visitor;
 
+use canonical::varbin_to_canonical;
+
 vtable!(VarBin);
 
 #[derive(Clone, prost::Message)]
@@ -49,7 +53,6 @@ impl VTable for VarBinVTable {
     type Metadata = ProstMetadata<VarBinMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
@@ -144,6 +147,10 @@ impl VTable for VarBinVTable {
             )
             .into_array()
         }))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        varbin_to_canonical(array)
     }
 }
 
