@@ -7,7 +7,6 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
-    
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::MaskedArray;
