@@ -8,6 +8,8 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
@@ -32,8 +34,11 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Validity::AllValid => None,
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
+            ends.statistics()
+                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
             return (
-                PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable),
+                ends,
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             );
         }
@@ -66,6 +71,9 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         .narrow()
         .vortex_expect("Ends must succeed downcasting")
         .to_primitive();
+
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
 
     (ends, values)
 }

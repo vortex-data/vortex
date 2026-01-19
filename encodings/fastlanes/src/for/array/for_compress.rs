@@ -6,6 +6,7 @@ use num_traits::WrappingSub;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
+use vortex_array::stats::ArrayStats;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -15,6 +16,7 @@ use crate::FoRArray;
 
 impl FoRArray {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
+        let stats = ArrayStats::from(array.statistics().to_owned());
         let min = array
             .statistics()
             .compute_stat(Stat::Min)?
@@ -23,7 +25,12 @@ impl FoRArray {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
-        FoRArray::try_new(encoded, min)
+        let for_array = FoRArray::try_new(encoded, min)?;
+        for_array
+            .stats_set()
+            .to_ref(for_array.as_ref())
+            .inherit_from(stats.to_ref(for_array.as_ref()));
+        Ok(for_array)
     }
 }
 
