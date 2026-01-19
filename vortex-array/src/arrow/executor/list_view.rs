@@ -44,7 +44,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
 ) -> VortexResult<arrow_array::ArrayRef> {
     let (elements, offsets, sizes, validity) = array.into_parts();
 
-    let elements = elements.execute_arrow(elements_field.data_type(), ctx)?;
+    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Elements field is non-nullable but elements array contains nulls"

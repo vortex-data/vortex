@@ -47,7 +47,7 @@ fn list_to_list(
     let elements = array
         .elements()
         .clone()
-        .execute_arrow(elements_field.data_type(), ctx)?;
+        .execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"

@@ -34,7 +34,7 @@ impl TryFrom<&dyn Array> for RecordBatch {
         let data_type = struct_array.dtype().to_arrow_dtype()?;
         let array_ref = struct_array
             .into_array()
-            .execute_arrow(&data_type, &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }
@@ -47,7 +47,7 @@ impl StructArray {
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
         let array_ref = self
             .to_array()
-            .execute_arrow(&data_type, &mut LEGACY_SESSION.create_execution_ctx())?;
+            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

@@ -21,14 +21,20 @@ use arrow_array::RecordBatch;
 use arrow_array::cast::AsArray;
 use arrow_array::types::*;
 use arrow_schema::DataType;
+use arrow_schema::Field;
+use arrow_schema::FieldRef;
 use arrow_schema::Schema;
 use itertools::Itertools;
+use vortex_dtype::DType;
+use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::arrays::ListVTable;
+use crate::arrays::VarBinVTable;
 use crate::arrow::executor::bool::to_arrow_bool;
 use crate::arrow::executor::byte::to_arrow_byte_array;
 use crate::arrow::executor::byte_view::to_arrow_byte_view;
@@ -49,9 +55,10 @@ pub trait ArrowArrayExecutor: Sized {
     /// Execute the array to produce an Arrow array.
     ///
     /// If a [`DataType`] is given, the array will be converted to the desired Arrow type.
+    /// If `None`, the array's preferred (cheapest) Arrow type will be used.
     fn execute_arrow(
         self,
-        data_type: &DataType,
+        data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef>;
 
@@ -61,7 +68,7 @@ pub trait ArrowArrayExecutor: Sized {
         schema: &Schema,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<RecordBatch> {
-        let array = self.execute_arrow(&DataType::Struct(schema.fields.clone()), ctx)?;
+        let array = self.execute_arrow(Some(&DataType::Struct(schema.fields.clone())), ctx)?;
         Ok(RecordBatch::from(array.as_struct()))
     }
 
@@ -76,12 +83,19 @@ pub trait ArrowArrayExecutor: Sized {
 impl ArrowArrayExecutor for ArrayRef {
     fn execute_arrow(
         self,
-        data_type: &DataType,
+        data_type: Option<&DataType>,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrowArrayRef> {
         let len = self.len();
 
-        let arrow = match data_type {
+        // Resolve the DataType if it is a leave type
+        // we should likely make this extensible.
+        let resolved_type: DataType = match data_type {
+            Some(dt) => dt.clone(),
+            None => preferred_arrow_type(&self)?,
+        };
+
+        let arrow = match &resolved_type {
             DataType::Null => to_arrow_null(self, ctx),
             DataType::Boolean => to_arrow_bool(self, ctx),
             DataType::Int8 => to_arrow_primitive::<Int8Type>(self, ctx),
@@ -99,7 +113,7 @@ impl ArrowArrayExecutor for ArrayRef {
             | DataType::Date32
             | DataType::Date64
             | DataType::Time32(_)
-            | DataType::Time64(_) => to_arrow_temporal(self, data_type, ctx),
+            | DataType::Time64(_) => to_arrow_temporal(self, &resolved_type, ctx),
             DataType::Binary => to_arrow_byte_array::<BinaryType>(self, ctx),
             DataType::LargeBinary => to_arrow_byte_array::<LargeBinaryType>(self, ctx),
             DataType::Utf8 => to_arrow_byte_array::<Utf8Type>(self, ctx),
@@ -133,7 +147,7 @@ impl ArrowArrayExecutor for ArrayRef {
             | DataType::Duration(_)
             | DataType::Interval(_)
             | DataType::Union(..) => {
-                vortex_bail!("Conversion to Arrow type {data_type} is not supported");
+                vortex_bail!("Conversion to Arrow type {resolved_type} is not supported");
             }
         }?;
 
@@ -155,4 +169,47 @@ impl ArrowArrayExecutor for ArrayRef {
             .map(|a| a?.execute_record_batch(schema, ctx))
             .try_collect()
     }
+}
+
+/// Determine the preferred (cheapest) Arrow type for an array.
+///
+/// For most arrays, this returns the canonical Arrow type from `dtype.to_arrow_dtype()`.
+/// However, some encodings have cheaper Arrow representations:
+/// - `VarBinArray`: Uses `Utf8`/`Binary` (offset-based) instead of `Utf8View`/`BinaryView`
+/// - `ListArray`: Uses `List` instead of `ListView`
+fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
+    // VarBinArray: use offset-based Binary/Utf8 instead of View types
+    if let Some(varbin) = array.as_opt::<VarBinVTable>() {
+        let offsets_ptype = PType::try_from(varbin.offsets().dtype())?;
+        let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
+
+        return Ok(match (varbin.dtype(), use_large) {
+            (DType::Utf8(_), false) => DataType::Utf8,
+            (DType::Utf8(_), true) => DataType::LargeUtf8,
+            (DType::Binary(_), false) => DataType::Binary,
+            (DType::Binary(_), true) => DataType::LargeBinary,
+            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype"),
+        });
+    }
+
+    // ListArray: use List with appropriate offset size
+    if let Some(list) = array.as_opt::<ListVTable>() {
+        let offsets_ptype = PType::try_from(list.offsets().dtype())?;
+        let use_large = matches!(offsets_ptype, PType::I64 | PType::U64);
+        // Recursively get the preferred type for elements
+        let elem_dtype = preferred_arrow_type(list.elements())?;
+        let field = FieldRef::new(Field::new_list_field(
+            elem_dtype,
+            list.elements().dtype().is_nullable(),
+        ));
+
+        return Ok(if use_large {
+            DataType::LargeList(field)
+        } else {
+            DataType::List(field)
+        });
+    }
+
+    // Everything else: use canonical dtype conversion
+    array.dtype().to_arrow_dtype()
 }

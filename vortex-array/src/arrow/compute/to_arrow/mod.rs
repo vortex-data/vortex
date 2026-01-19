@@ -31,7 +31,7 @@ pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
 pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowArrayRef> {
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
-    array.to_array().execute_arrow(arrow_type, &mut ctx)
+    array.to_array().execute_arrow(Some(arrow_type), &mut ctx)
 }
 
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]

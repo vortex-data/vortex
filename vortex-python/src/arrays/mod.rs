@@ -591,7 +591,7 @@ impl PyArray {
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringViewArray object at ...>
+    /// <pyarrow.lib.StringArray object at ...>
     /// [
     ///   "a",
     ///   "c"
@@ -604,7 +604,7 @@ impl PyArray {
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 1, 1, 0])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringViewArray object at ...>
+    /// <pyarrow.lib.StringArray object at ...>
     /// [
     ///   "a",
     ///   "b",

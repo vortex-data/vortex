@@ -171,8 +171,8 @@ fn test_serde() -> VortexResult<()> {
     )?;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data_type = data.dtype().to_arrow_dtype()?;
-    let pco_arrow = pco.execute_arrow(&data_type, &mut ctx)?;
-    let decoded_arrow = decoded.execute_arrow(&data_type, &mut ctx)?;
+    let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
+    let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;
     assert!(pco_arrow == decoded_arrow);
     Ok(())
 }

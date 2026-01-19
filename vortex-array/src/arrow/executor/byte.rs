@@ -122,7 +122,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arrow = vortex_array
             .into_array()
-            .execute_arrow(&target_dtype, &mut ctx)
+            .execute_arrow(Some(&target_dtype), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);
@@ -169,7 +169,7 @@ mod tests {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let arrow = vortex_array
             .into_array()
-            .execute_arrow(&target_dtype, &mut ctx)
+            .execute_arrow(Some(&target_dtype), &mut ctx)
             .unwrap();
 
         assert_eq!(arrow.data_type(), &target_dtype);

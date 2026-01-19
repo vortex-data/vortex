@@ -221,7 +221,7 @@ mod tests {
             Validity::NonNullable,
         );
         let arrow = decimal_vortex.into_array().execute_arrow(
-            &DataType::Decimal128(19, 2),
+            Some(&DataType::Decimal128(19, 2)),
             &mut LEGACY_SESSION.create_execution_ctx(),
         )?;
         assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));

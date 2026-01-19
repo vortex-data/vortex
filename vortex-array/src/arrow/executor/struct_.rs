@@ -97,7 +97,7 @@ fn create_from_fields(
 
     let mut arrow_fields = Vec::with_capacity(vortex_fields.len());
     for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
-        let arrow_field = vx_field.execute_arrow(field.data_type(), ctx)?;
+        let arrow_field = vx_field.execute_arrow(Some(field.data_type()), ctx)?;
         vortex_ensure!(
             field.is_nullable() || arrow_field.null_count() == 0,
             "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -233,9 +233,10 @@ mod tests {
 
         let arrow_dtype = array.dtype().to_arrow_dtype()?;
         assert_eq!(
-            &array
-                .into_array()
-                .execute_arrow(&arrow_dtype, &mut LEGACY_SESSION.create_execution_ctx())?,
+            &array.into_array().execute_arrow(
+                Some(&arrow_dtype),
+                &mut LEGACY_SESSION.create_execution_ctx()
+            )?,
             &arrow_array
         );
         Ok(())

@@ -36,13 +36,12 @@ pub trait IntoArrowArray {
 
 impl IntoArrowArray for crate::ArrayRef {
     /// Convert this [`crate::ArrayRef`] into an Arrow [`crate::ArrayRef`] by using the array's
-    /// preferred Arrow [`DataType`].
+    /// preferred (cheapest) Arrow [`DataType`].
     fn into_arrow_preferred(self) -> VortexResult<ArrowArrayRef> {
-        let data_type = self.dtype().to_arrow_dtype()?;
-        self.execute_arrow(&data_type, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_arrow(None, &mut LEGACY_SESSION.create_execution_ctx())
     }
 
     fn into_arrow(self, data_type: &DataType) -> VortexResult<ArrowArrayRef> {
-        self.execute_arrow(data_type, &mut LEGACY_SESSION.create_execution_ctx())
+        self.execute_arrow(Some(data_type), &mut LEGACY_SESSION.create_execution_ctx())
     }
 }

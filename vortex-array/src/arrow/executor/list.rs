@@ -91,7 +91,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
     let elements = array
         .elements()
         .clone()
-        .execute_arrow(elements_field.data_type(), ctx)?;
+        .execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -148,7 +148,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     });
 
     // Extract the elements array.
-    let elements = elements.execute_arrow(elements_field.data_type(), ctx)?;
+    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
@@ -206,7 +206,7 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
     let elements =
         elements.take(PrimitiveArray::new(take_indices, Validity::NonNullable).into_array())?;
 
-    let elements = elements.execute_arrow(elements_field.data_type(), ctx)?;
+    let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert to non-nullable Arrow array with null elements"
