@@ -84,7 +84,7 @@ pub fn layout_from_flatbuffer(
             .map(SegmentId::from)
             .collect(),
         &viewed_children,
-        &ctx,
+        ctx,
     )?;
 
     Ok(layout)

@@ -22,5 +22,6 @@ workspace = true
 [dependencies]
 arcref = { workspace = true }
 dashmap = { workspace = true }
+parking_lot = { workspace = true }
 vortex-error = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }

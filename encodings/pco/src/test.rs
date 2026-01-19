@@ -137,11 +137,11 @@ fn test_serde() {
     let session = ArraySession::default();
     session.registry().register(PcoVTable::ID, PcoVTable);
 
-    let mut context = ArrayContext::default();
+    let context = ArrayContext::default();
 
     let bytes = pco
         .serialize(
-            &mut context,
+            &context,
             &SerializeOptions {
                 offset: 0,
                 include_padding: true,

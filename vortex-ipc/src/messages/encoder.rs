@@ -56,10 +56,10 @@ impl MessageEncoder {
             EncoderMessage::Array(array) => {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
-                let mut ctx = ArrayContext::default();
+                let ctx = ArrayContext::default();
 
                 let array_buffers = array
-                    .serialize(&mut ctx, &SerializeOptions::default())
+                    .serialize(&ctx, &SerializeOptions::default())
                     // TODO(ngates): we should propagate this somehow
                     .vortex_expect("Array serialization failed");
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();

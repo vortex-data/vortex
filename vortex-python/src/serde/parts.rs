@@ -12,8 +12,8 @@ use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::serde::ArrayParts;
+use vortex::array::session::ArraySessionExt;
 use vortex::buffer::ByteBuffer;
-use vortex_array::session::ArraySessionExt;
 
 use crate::SESSION;
 use crate::arrays::PyArrayRef;

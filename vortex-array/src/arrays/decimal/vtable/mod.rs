@@ -190,10 +190,10 @@ mod tests {
         );
         let dtype = array.dtype().clone();
 
-        let mut ctx = ArrayContext::default();
+        let ctx = ArrayContext::default();
         let out = array
             .into_array()
-            .serialize(&mut ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
         // Concat into a single buffer
         let mut concat = ByteBufferMut::empty();

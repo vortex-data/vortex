@@ -7,9 +7,9 @@
 use std::fmt::Debug;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::sync::Mutex;
 
 use arcref::ArcRef;
+use parking_lot::Mutex;
 use vortex_error::VortexExpect;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -110,7 +110,7 @@ impl<T: Clone> Context<T> {
             return None;
         }
 
-        let mut ids = self.ids.lock().vortex_expect("poisoned");
+        let mut ids = self.ids.lock();
         if let Some(idx) = ids.iter().position(|e| e == id) {
             return Some(u16::try_from(idx).vortex_expect("Cannot have more than u16::MAX items"));
         }
@@ -126,15 +126,11 @@ impl<T: Clone> Context<T> {
 
     /// Resolve an interned ID by its index.
     pub fn resolve(&self, idx: u16) -> Option<Id> {
-        self.ids
-            .lock()
-            .vortex_expect("poisoned")
-            .get(idx as usize)
-            .cloned()
+        self.ids.lock().get(idx as usize).cloned()
     }
 
     /// Get the list of interned IDs.
     pub fn to_ids(&self) -> Vec<Id> {
-        self.ids.lock().vortex_expect("poisoned").clone()
+        self.ids.lock().clone()
     }
 }

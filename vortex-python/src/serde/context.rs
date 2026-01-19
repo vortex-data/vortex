@@ -7,9 +7,6 @@ use itertools::Itertools;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::ArrayContext;
-use vortex::array::session::ArraySessionExt;
-
-use crate::SESSION;
 
 /// An ArrayContext captures an ordered set of encodings.
 ///

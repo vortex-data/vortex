@@ -227,10 +227,10 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let mut ctx = ArrayContext::default();
+        let ctx = ArrayContext::default();
         let serialized = array
             .to_array()
-            .serialize(&mut ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
         // Concat into a single buffer.

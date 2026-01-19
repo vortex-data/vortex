@@ -438,10 +438,10 @@ mod tests {
 
         let original_data = rle_array.to_primitive();
 
-        let mut ctx = ArrayContext::default();
+        let ctx = ArrayContext::default();
         let serialized = rle_array
             .to_array()
-            .serialize(&mut ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -473,9 +473,9 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let mut ctx = ArrayContext::default();
+        let ctx = ArrayContext::default();
         let serialized = sliced
-            .serialize(&mut ctx, &SerializeOptions::default())
+            .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
