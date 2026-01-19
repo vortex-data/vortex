@@ -221,6 +221,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::Buffer;
@@ -436,10 +437,10 @@ mod tests {
 
         let original_data = rle_array.to_primitive();
 
-        let ctx = ArrayContext::empty(Registry::empty().with(RLEVTable::ID, RLEVTable));
+        let mut ctx = ArrayContext::default();
         let serialized = rle_array
             .to_array()
-            .serialize(&ctx, &SerializeOptions::default())
+            .serialize(&mut ctx, &SerializeOptions::default())
             .unwrap();
 
         let mut concat = ByteBufferMut::empty();
@@ -448,12 +449,14 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let registry = ArraySession::default().registry().clone();
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
             .decode(
-                &ctx,
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
                 2048,
+                &ctx,
+                &registry,
             )
             .unwrap();
 
@@ -469,7 +472,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let mut ctx = ArrayInterner::new();
+        let mut ctx = ArrayContext::default();
         let serialized = sliced
             .serialize(&mut ctx, &SerializeOptions::default())
             .unwrap();
@@ -480,8 +483,11 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let registry = ArraySession::default().registry().clone();
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&ctx, sliced.dtype(), sliced.len()).unwrap();
+        let decoded = parts
+            .decode(sliced.dtype(), sliced.len(), &ctx, &registry)
+            .unwrap();
 
         let original_data = sliced.to_primitive();
         let decoded_data = decoded.to_primitive();

@@ -137,7 +137,7 @@ fn test_serde() {
     let session = ArraySession::default();
     session.registry().register(PcoVTable::ID, PcoVTable);
 
-    let context = ArrayContext::from_registry_sorted(session.registry());
+    let context = ArrayContext::default();
 
     let bytes = pco
         .serialize(
@@ -156,9 +156,10 @@ fn test_serde() {
     let parts = ArrayParts::try_from(bytes).unwrap();
     let decoded = parts
         .decode(
-            &context,
             &DType::Primitive(PType::I32, Nullability::NonNullable),
             1_000_000,
+            &context,
+            session.registry(),
         )
         .unwrap();
     assert_eq!(
