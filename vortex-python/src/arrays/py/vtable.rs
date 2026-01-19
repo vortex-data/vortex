@@ -12,6 +12,7 @@ use vortex::array::ArrayBufferVisitor;
 use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -22,9 +23,7 @@ use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::BaseArrayVTable;
-use vortex::array::vtable::CanonicalVTable;
 use vortex::array::vtable::ComputeVTable;
-use vortex::array::vtable::EncodeVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
@@ -54,12 +53,10 @@ impl VTable for PythonVTable {
     type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
@@ -110,6 +107,10 @@ impl VTable for PythonVTable {
         );
         Ok(())
     }
+
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        todo!()
+    }
 }
 
 impl BaseArrayVTable<PythonVTable> for PythonVTable {
@@ -140,12 +141,6 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
     }
 }
 
-impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> VortexResult<Canonical> {
-        todo!()
-    }
-}
-
 impl OperationsVTable<PythonVTable> for PythonVTable {
     fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
         todo!()
@@ -153,18 +148,6 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 }
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
-    fn is_valid(_array: &PythonArray, _index: usize) -> bool {
-        todo!()
-    }
-
-    fn all_valid(_array: &PythonArray) -> bool {
-        todo!()
-    }
-
-    fn all_invalid(_array: &PythonArray) -> bool {
-        todo!()
-    }
-
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
         todo!()
     }
@@ -190,15 +173,6 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
         _compute_fn: &ComputeFn,
         _args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
-        todo!()
-    }
-}
-
-impl EncodeVTable<PythonVTable> for PythonVTable {
-    fn encode(
-        _canonical: &Canonical,
-        _like: Option<&PythonArray>,
-    ) -> VortexResult<Option<PythonArray>> {
         todo!()
     }
 }

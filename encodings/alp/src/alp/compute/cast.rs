@@ -51,11 +51,11 @@ register_kernel!(CastKernelAdapter(ALPVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -63,14 +63,12 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
-    use crate::ALPVTable;
+    use crate::alp_encode;
 
     #[test]
     fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = ALPVTable::vtable()
-            .encode(&values.to_canonical()?, None)?
-            .vortex_expect("must encode");
+        let alp = alp_encode(&values.to_primitive(), None)?;
 
         let casted = cast(
             alp.as_ref(),
@@ -93,9 +91,7 @@ mod tests {
     #[test]
     fn test_cast_alp_to_int() -> VortexResult<()> {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = ALPVTable::vtable()
-            .encode(&values.to_canonical()?, None)?
-            .vortex_expect("must encode");
+        let alp = alp_encode(&values.to_primitive(), None)?;
 
         let casted = cast(
             alp.as_ref(),
@@ -120,9 +116,7 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let alp = ALPVTable::vtable()
-            .encode(&array.to_canonical()?, None)?
-            .vortex_expect("cannot fail");
+        let alp = alp_encode(&array.to_primitive(), None).vortex_expect("cannot fail");
         test_cast_conformance(alp.as_ref());
 
         Ok(())

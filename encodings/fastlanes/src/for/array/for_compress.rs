@@ -6,6 +6,7 @@ use num_traits::WrappingSub;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
+use vortex_array::stats::ArrayStats;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
@@ -15,6 +16,7 @@ use crate::FoRArray;
 
 impl FoRArray {
     pub fn encode(array: PrimitiveArray) -> VortexResult<FoRArray> {
+        let stats = ArrayStats::from(array.statistics().to_owned());
         let min = array
             .statistics()
             .compute_stat(Stat::Min)?
@@ -23,7 +25,12 @@ impl FoRArray {
         let encoded = match_each_integer_ptype!(array.ptype(), |T| {
             compress_primitive::<T>(array, T::try_from(&min)?)?.into_array()
         });
-        FoRArray::try_new(encoded, min)
+        let for_array = FoRArray::try_new(encoded, min)?;
+        for_array
+            .stats_set()
+            .to_ref(for_array.as_ref())
+            .inherit_from(stats.to_ref(for_array.as_ref()));
+        Ok(for_array)
     }
 }
 
@@ -45,6 +52,7 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::Array;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::StatsProvider;
@@ -97,8 +105,8 @@ mod test {
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
 
-        let constant = compressed.encoded().as_constant().unwrap();
-        assert_eq!(constant, Scalar::from(0i32));
+        let encoded = compressed.encoded().scalar_at(0);
+        assert_eq!(encoded, Scalar::from(0i32));
     }
 
     #[test]

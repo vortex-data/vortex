@@ -12,7 +12,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -29,7 +31,6 @@ use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod rules;
 mod validity;
@@ -60,12 +61,10 @@ impl VTable for ListViewVTable {
     type Metadata = ProstMetadata<ListViewMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -182,6 +181,10 @@ impl VTable for ListViewVTable {
         let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array.clone()))
     }
 
     fn reduce_parent(

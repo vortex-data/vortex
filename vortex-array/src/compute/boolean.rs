@@ -16,6 +16,7 @@ use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::compute::ComputeFn;
@@ -126,10 +127,10 @@ impl ComputeFnVTable for Boolean {
     ) -> VortexResult<Output> {
         let BooleanArgs { lhs, rhs, operator } = BooleanArgs::try_from(args)?;
 
-        let rhs_is_constant = rhs.is_constant();
+        let rhs_is_constant = rhs.is::<ConstantVTable>();
 
         // If LHS is constant, then we make sure it's on the RHS.
-        if lhs.is_constant() && !rhs_is_constant {
+        if lhs.is::<ConstantVTable>() && !rhs_is_constant {
             return Ok(boolean(rhs, lhs, operator)?.into());
         }
 

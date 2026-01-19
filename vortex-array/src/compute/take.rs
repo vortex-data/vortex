@@ -16,6 +16,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
@@ -93,7 +94,7 @@ impl ComputeFnVTable for Take {
 
         // We know that constant array don't need stats propagation, so we can avoid the overhead of
         // computing derived stats and merging them in.
-        if !taken_array.is_constant() {
+        if !taken_array.is::<ConstantVTable>() {
             propagate_take_stats(array, &taken_array, indices)?;
         }
 

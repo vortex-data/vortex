@@ -34,8 +34,6 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -56,12 +54,10 @@ impl VTable for DictVTable {
     type Metadata = ProstMetadata<DictMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -173,7 +169,7 @@ impl VTable for DictVTable {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        let canonical = take_canonical(values, &codes);
+        let canonical = take_canonical(values, &codes)?;
 
         let result_dtype = array
             .dtype()

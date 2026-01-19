@@ -23,9 +23,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -37,7 +35,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -57,12 +54,10 @@ impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -194,12 +189,6 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
     }
 }
 
-impl CanonicalVTable<FilterVTable> for FilterVTable {
-    fn canonicalize(array: &FilterArray) -> VortexResult<Canonical> {
-        FilterVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-    }
-}
-
 impl OperationsVTable<FilterVTable> for FilterVTable {
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
         let rank_idx = array.mask.rank(index);
@@ -208,21 +197,6 @@ impl OperationsVTable<FilterVTable> for FilterVTable {
 }
 
 impl ValidityVTable<FilterVTable> for FilterVTable {
-    fn is_valid(array: &FilterArray, index: usize) -> bool {
-        let rank_idx = array.mask.rank(index);
-        array.child.is_valid(rank_idx)
-    }
-
-    fn all_valid(array: &FilterArray) -> bool {
-        // An over-approximation: if the child is all valid, then the filtered array is all valid.
-        array.child.all_valid()
-    }
-
-    fn all_invalid(array: &FilterArray) -> bool {
-        // An over-approximation: if the child is all invalid, then the filtered array is all invalid.
-        array.child.all_invalid()
-    }
-
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
     }

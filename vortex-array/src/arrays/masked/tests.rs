@@ -11,6 +11,7 @@ use crate::Array;
 use crate::IntoArray;
 use crate::ToCanonical as _;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::validity::Validity;
 
 #[rstest]
@@ -55,8 +56,7 @@ fn test_masked_child_with_validity() {
     let array =
         MaskedArray::try_new(child, Validity::from_iter([true, false, true, false, true])).unwrap();
 
-    let masked = array.masked_child().unwrap();
-    let prim = masked.to_primitive();
+    let prim = array.to_primitive();
 
     // Positions where validity is false should be null in masked_child.
     assert_eq!(prim.valid_count(), 3);
@@ -65,25 +65,19 @@ fn test_masked_child_with_validity() {
     assert!(prim.is_valid(2));
     assert!(!prim.is_valid(3));
     assert!(prim.is_valid(4));
-
-    assert_eq!(
-        array.as_ref().display_values().to_string(),
-        masked.display_values().to_string()
-    );
 }
 
 #[test]
 fn test_masked_child_all_valid() {
     // When validity is AllValid, masked_child should invert to AllInvalid.
     let child = PrimitiveArray::from_iter([10i32, 20, 30]).into_array();
-    let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
+    let array = MaskedArray::try_new(child.clone(), Validity::AllValid).unwrap();
 
-    let masked = array.masked_child().unwrap();
-    assert_eq!(masked.len(), 3);
-    assert_eq!(masked.valid_count(), 3);
-    assert_eq!(
-        array.as_ref().display_values().to_string(),
-        masked.display_values().to_string()
+    assert_eq!(array.len(), 3);
+    assert_eq!(array.valid_count(), 3);
+    assert_arrays_eq!(
+        PrimitiveArray::from_option_iter([10i32, 20, 30].map(Some)),
+        array
     );
 }
 
@@ -102,11 +96,6 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     let child = PrimitiveArray::from_iter(0..len as i32).into_array();
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 
-    let masked = array.masked_child().unwrap();
-    assert_eq!(masked.len(), len);
-    assert_eq!(masked.validity_mask(), validity.to_mask(len));
-    assert_eq!(
-        array.as_ref().display_values().to_string(),
-        masked.display_values().to_string()
-    );
+    assert_eq!(array.len(), len);
+    assert_eq!(array.validity_mask(), validity.to_mask(len));
 }

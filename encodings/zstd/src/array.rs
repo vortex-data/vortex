@@ -14,6 +14,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -31,8 +32,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -90,12 +89,10 @@ impl VTable for ZstdVTable {
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -173,6 +170,10 @@ impl VTable for ZstdVTable {
         };
 
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        array.decompress().to_canonical()
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -771,21 +772,9 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
     }
 }
 
-impl CanonicalVTable<ZstdVTable> for ZstdVTable {
-    fn canonicalize(array: &ZstdArray) -> VortexResult<Canonical> {
-        array.decompress().to_canonical()
-    }
-}
-
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<ZstdVTable> for ZstdVTable {
-    fn encode(canonical: &Canonical, _like: Option<&ZstdArray>) -> VortexResult<Option<ZstdArray>> {
-        ZstdArray::from_canonical(canonical, 3, 0)
     }
 }
 

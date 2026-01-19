@@ -83,7 +83,7 @@ fn make_for_array_u64(len: usize) -> FoRArray {
 /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
 fn launch_for_kernel_timed_u8(
     for_array: &FoRArray,
-    device_data: cudarc::driver::CudaSlice<u8>,
+    device_data: &cudarc::driver::CudaSlice<u8>,
     reference: u8,
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> vortex_error::VortexResult<Duration> {
@@ -93,7 +93,7 @@ fn launch_for_kernel_timed_u8(
         execution_ctx: cuda_ctx,
         module: "for",
         ptypes: &[for_array.ptype()],
-        launch_args: [device_data, reference, array_len_u64],
+        launch_args: [*device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
@@ -109,7 +109,7 @@ fn launch_for_kernel_timed_u8(
 /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
 fn launch_for_kernel_timed_u16(
     for_array: &FoRArray,
-    device_data: cudarc::driver::CudaSlice<u16>,
+    device_data: &cudarc::driver::CudaSlice<u16>,
     reference: u16,
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> vortex_error::VortexResult<Duration> {
@@ -119,7 +119,7 @@ fn launch_for_kernel_timed_u16(
         execution_ctx: cuda_ctx,
         module: "for",
         ptypes: &[for_array.ptype()],
-        launch_args: [device_data, reference, array_len_u64],
+        launch_args: [*device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
@@ -135,7 +135,7 @@ fn launch_for_kernel_timed_u16(
 /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
 fn launch_for_kernel_timed_u32(
     for_array: &FoRArray,
-    device_data: cudarc::driver::CudaSlice<u32>,
+    device_data: &cudarc::driver::CudaSlice<u32>,
     reference: u32,
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> vortex_error::VortexResult<Duration> {
@@ -145,7 +145,7 @@ fn launch_for_kernel_timed_u32(
         execution_ctx: cuda_ctx,
         module: "for",
         ptypes: &[for_array.ptype()],
-        launch_args: [device_data, reference, array_len_u64],
+        launch_args: [*device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
@@ -161,7 +161,7 @@ fn launch_for_kernel_timed_u32(
 /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
 fn launch_for_kernel_timed_u64(
     for_array: &FoRArray,
-    device_data: cudarc::driver::CudaSlice<u64>,
+    device_data: &cudarc::driver::CudaSlice<u64>,
     reference: u64,
     cuda_ctx: &mut CudaExecutionCtx,
 ) -> vortex_error::VortexResult<Duration> {
@@ -171,7 +171,7 @@ fn launch_for_kernel_timed_u64(
         execution_ctx: cuda_ctx,
         module: "for",
         ptypes: &[for_array.ptype()],
-        launch_args: [device_data, reference, array_len_u64],
+        launch_args: [*device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
     );
@@ -210,12 +210,12 @@ fn benchmark_for_u8(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .to_device(unpacked_slice)
+                            .copy_buffer_to_device(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u8(
                             for_array,
-                            device_data,
+                            device_data.cuda_slice(),
                             reference,
                             &mut cuda_ctx,
                         )
@@ -259,12 +259,12 @@ fn benchmark_for_u16(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .to_device(unpacked_slice)
+                            .copy_buffer_to_device(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u16(
                             for_array,
-                            device_data,
+                            device_data.cuda_slice(),
                             reference,
                             &mut cuda_ctx,
                         )
@@ -308,12 +308,12 @@ fn benchmark_for_u32(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .to_device(unpacked_slice)
+                            .copy_buffer_to_device(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u32(
                             for_array,
-                            device_data,
+                            device_data.cuda_slice(),
                             reference,
                             &mut cuda_ctx,
                         )
@@ -357,12 +357,12 @@ fn benchmark_for_u64(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .to_device(unpacked_slice)
+                            .copy_buffer_to_device(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u64(
                             for_array,
-                            device_data,
+                            device_data.cuda_slice(),
                             reference,
                             &mut cuda_ctx,
                         )

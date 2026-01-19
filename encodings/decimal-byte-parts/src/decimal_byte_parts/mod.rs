@@ -15,6 +15,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -28,7 +29,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -65,12 +65,10 @@ impl VTable for DecimalBytePartsVTable {
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -138,6 +136,10 @@ impl VTable for DecimalBytePartsVTable {
             DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
                 .into_array()
         }))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        to_canonical_decimal(array)
     }
 }
 
@@ -231,25 +233,24 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 }
 
-impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn canonicalize(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
-        // TODO(joe): support parts len != 1
-        let prim = array.msp.to_primitive();
-        // Depending on the decimal type and the min/max of the primitive array we can choose
-        // the correct buffer size
+/// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
+fn to_canonical_decimal(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
+    // TODO(joe): support parts len != 1
+    let prim = array.msp.to_primitive();
+    // Depending on the decimal type and the min/max of the primitive array we can choose
+    // the correct buffer size
 
-        Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
-            // SAFETY: The primitive array's buffer is already validated with correct type.
-            // The decimal dtype matches the array's dtype, and validity is preserved.
-            Canonical::Decimal(unsafe {
-                DecimalArray::new_unchecked(
-                    prim.to_buffer::<P>(),
-                    *array.decimal_dtype(),
-                    prim.validity().clone(),
-                )
-            })
-        }))
-    }
+    Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
+        // SAFETY: The primitive array's buffer is already validated with correct type.
+        // The decimal dtype matches the array's dtype, and validity is preserved.
+        Canonical::Decimal(unsafe {
+            DecimalArray::new_unchecked(
+                prim.to_buffer::<P>(),
+                *array.decimal_dtype(),
+                prim.validity().clone(),
+            )
+        })
+    }))
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {

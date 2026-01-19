@@ -22,6 +22,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -37,8 +38,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -92,12 +91,10 @@ impl VTable for PcoVTable {
     type Metadata = ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -178,6 +175,10 @@ impl VTable for PcoVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(array._slice(range.start, range.end).into_array()))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(array.decompress()))
     }
 }
 
@@ -524,23 +525,9 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
     }
 }
 
-impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> VortexResult<Canonical> {
-        array.decompress().to_canonical()
-    }
-}
-
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<PcoVTable> for PcoVTable {
-    fn encode(canonical: &Canonical, _like: Option<&PcoArray>) -> VortexResult<Option<PcoArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))
     }
 }
 

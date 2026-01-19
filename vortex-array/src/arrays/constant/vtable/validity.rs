@@ -10,18 +10,6 @@ use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ConstantVTable> for ConstantVTable {
-    fn is_valid(array: &ConstantArray, _index: usize) -> bool {
-        !array.scalar().is_null()
-    }
-
-    fn all_valid(array: &ConstantArray) -> bool {
-        !array.scalar().is_null()
-    }
-
-    fn all_invalid(array: &ConstantArray) -> bool {
-        array.scalar().is_null()
-    }
-
     fn validity(array: &ConstantArray) -> VortexResult<Validity> {
         Ok(if array.scalar().is_null() {
             Validity::AllInvalid

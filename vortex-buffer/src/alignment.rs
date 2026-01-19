@@ -6,6 +6,9 @@ use std::ops::Deref;
 
 use vortex_error::VortexExpect;
 
+/// Default alignment for device-to-host buffer copies.
+pub const ALIGNMENT_TO_HOST_COPY: Alignment = Alignment::new(256);
+
 /// The alignment of a buffer.
 ///
 /// This type is a wrapper around `usize` that ensures the alignment is a power of 2 and fits into

@@ -4,6 +4,7 @@
 use vortex_array::compute::IsConstantKernel;
 use vortex_array::compute::IsConstantKernelAdapter;
 use vortex_array::compute::IsConstantOpts;
+use vortex_array::compute::is_constant_opts;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 
@@ -14,13 +15,30 @@ impl IsConstantKernel for DateTimePartsVTable {
     fn is_constant(
         &self,
         array: &DateTimePartsArray,
-        _opts: &IsConstantOpts,
+        opts: &IsConstantOpts,
     ) -> VortexResult<Option<bool>> {
-        Ok(Some(
-            array.days().is_constant()
-                && array.seconds().is_constant()
-                && array.subseconds().is_constant(),
-        ))
+        let Some(days) = is_constant_opts(array.days().as_ref(), opts)? else {
+            return Ok(None);
+        };
+        if !days {
+            return Ok(Some(false));
+        }
+
+        let Some(seconds) = is_constant_opts(array.seconds().as_ref(), opts)? else {
+            return Ok(None);
+        };
+        if !seconds {
+            return Ok(Some(false));
+        }
+
+        let Some(subseconds) = is_constant_opts(array.subseconds().as_ref(), opts)? else {
+            return Ok(None);
+        };
+        if !subseconds {
+            return Ok(Some(false));
+        }
+
+        Ok(Some(true))
     }
 }
 

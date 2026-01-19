@@ -46,6 +46,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
 use vortex_array::compute::Cost;
+use vortex_array::compute::IsConstantOpts;
+use vortex_array::compute::is_constant_opts;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
@@ -483,7 +485,14 @@ impl BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
-                    if temporal_array.as_ref().is_constant_opts(Cost::Canonicalize) {
+                    if is_constant_opts(
+                        temporal_array.as_ref(),
+                        &IsConstantOpts {
+                            cost: Cost::Canonicalize,
+                        },
+                    )?
+                    .unwrap_or_default()
+                    {
                         return Ok(ConstantArray::new(
                             temporal_array.as_ref().scalar_at(0),
                             ext_array.len(),

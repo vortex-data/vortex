@@ -12,9 +12,12 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::arrays::constant::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -25,7 +28,6 @@ use crate::vtable::VTable;
 
 mod array;
 mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -46,13 +48,11 @@ impl VTable for ConstantVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     // TODO(ngates): implement a compute kernel for elementwise operations
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -107,5 +107,9 @@ impl VTable for ConstantVTable {
         Ok(Some(
             ConstantArray::new(array.scalar.clone(), range.len()).into_array(),
         ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        constant_canonicalize(array)
     }
 }

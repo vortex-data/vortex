@@ -3,6 +3,7 @@
 
 //! CUDA support for Vortex arrays.
 
+mod device_buffer;
 pub mod executor;
 mod for_;
 mod kernel;
@@ -10,6 +11,7 @@ mod session;
 
 use std::process::Command;
 
+pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use for_::ForExecutor;

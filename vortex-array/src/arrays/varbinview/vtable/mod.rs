@@ -14,7 +14,9 @@ use vortex_error::vortex_err;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::buffer::BufferHandle;
@@ -28,7 +30,6 @@ use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -48,12 +49,10 @@ impl VTable for VarBinViewVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -132,5 +131,9 @@ impl VTable for VarBinViewVTable {
             )
             .into_array(),
         ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::VarBinView(array.clone()))
     }
 }

@@ -7,6 +7,8 @@ use std::ops::Range;
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -24,9 +26,9 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::DeltaArray;
+use crate::delta::array::delta_decompress::delta_decompress;
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -48,12 +50,10 @@ impl VTable for DeltaVTable {
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -141,7 +141,9 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    // TODO(joe): impl execute without canonical
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(delta_decompress(array)))
+    }
 }
 
 #[derive(Debug)]

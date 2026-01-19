@@ -16,14 +16,18 @@ use vortex_utils::debug_with::DebugWith;
 use vortex_vector::Datum;
 
 use crate::ArrayRef;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
+use crate::expr::IsNull;
+use crate::expr::Not;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
 
@@ -119,6 +123,18 @@ impl ScalarFn {
     ///  into an ExprArray.
     pub fn evaluate(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
         self.vtable.as_dyn().evaluate(expr, scope)
+    }
+
+    /// Transforms the expression into one representing the validity of this expression.
+    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
+        Ok(self.vtable.as_dyn().validity(expr)?.unwrap_or_else(|| {
+            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
+            // TODO(ngates): add an IsNotNull expression.
+            Not.new_expr(
+                EmptyOptions,
+                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
+            )
+        }))
     }
 
     /// Execute the expression given the input arguments.

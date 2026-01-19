@@ -15,47 +15,37 @@ use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
-    fn is_valid(array: &ChunkedArray, index: usize) -> bool {
-        if !array.dtype.is_nullable() {
-            return true;
-        }
-        let (chunk, offset_in_chunk) = array.find_chunk_idx(index);
-        array.chunk(chunk).is_valid(offset_in_chunk)
-    }
-
-    fn all_valid(array: &ChunkedArray) -> bool {
-        if !array.dtype().is_nullable() {
-            return true;
-        }
-        for chunk in array.non_empty_chunks() {
-            if !chunk.all_valid() {
-                return false;
-            }
-        }
-        true
-    }
-
-    fn all_invalid(array: &ChunkedArray) -> bool {
-        if !array.dtype().is_nullable() {
-            return false;
-        }
-        for chunk in array.non_empty_chunks() {
-            if !chunk.all_invalid() {
-                return false;
-            }
-        }
-        true
-    }
-
     fn validity(array: &ChunkedArray) -> VortexResult<Validity> {
+        let validities: Vec<Validity> =
+            array.chunks().iter().map(|c| c.validity()).try_collect()?;
+
+        match validities.first() {
+            // If there are no chunks, return the array's dtype nullability
+            None => return Ok(array.dtype().nullability().into()),
+            // If all chunks have the same non-array validity, return that validity directly
+            // We skip Validity::Array since equality is very expensive.
+            Some(first) if !matches!(first, Validity::Array(_)) => {
+                let target = std::mem::discriminant(first);
+                if validities
+                    .iter()
+                    .all(|v| std::mem::discriminant(v) == target)
+                {
+                    return Ok(first.clone());
+                }
+            }
+            _ => {
+                // Array validity or mixed validities, proceed to build the validity array
+            }
+        }
+
         Ok(Validity::Array(
             unsafe {
                 ChunkedArray::new_unchecked(
-                    array
-                        .chunks()
-                        .iter()
-                        .map(|chunk| chunk.validity().map(|v| v.to_array(chunk.len())))
-                        .try_collect()?,
+                    validities
+                        .into_iter()
+                        .zip(array.chunks())
+                        .map(|(v, chunk)| v.to_array(chunk.len()))
+                        .collect(),
                     DType::Bool(Nullability::NonNullable),
                 )
             }

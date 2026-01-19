@@ -15,54 +15,42 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::compute::cast;
 use crate::validity::Validity;
-use crate::vtable::CanonicalVTable;
 
-impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
-    fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
-        if array.nchunks() == 0 {
-            return Ok(Canonical::empty(array.dtype()));
-        }
-        if array.nchunks() == 1 {
-            return array.chunks()[0].to_canonical();
-        }
+pub(super) fn _canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
+    if array.nchunks() == 0 {
+        return Ok(Canonical::empty(array.dtype()));
+    }
+    if array.nchunks() == 1 {
+        return array.chunks()[0].to_canonical();
+    }
 
-        Ok(match array.dtype() {
-            DType::Struct(struct_dtype, _) => {
-                let struct_array = pack_struct_chunks(
-                    array.chunks(),
-                    Validity::copy_from_array(array.as_ref()),
-                    struct_dtype,
-                );
-                Canonical::Struct(struct_array)
-            }
-            DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+    Ok(match array.dtype() {
+        DType::Struct(struct_dtype, _) => {
+            let struct_array = pack_struct_chunks(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref()),
-                elem_dtype,
-            )?),
-            _ => {
-                let mut builder = builder_with_capacity(array.dtype(), array.len());
-                array.append_to_builder(builder.as_mut())?;
-                builder.finish_into_canonical()
-            }
-        })
-    }
-
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        for chunk in array.chunks() {
-            chunk.append_to_builder(builder)?;
+                struct_dtype,
+            );
+            Canonical::Struct(struct_array)
         }
-        Ok(())
-    }
+        DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+            array.chunks(),
+            Validity::copy_from_array(array.as_ref()),
+            elem_dtype,
+        )?),
+        _ => {
+            let mut builder = builder_with_capacity(array.dtype(), array.len());
+            array.append_to_builder(builder.as_mut())?;
+            builder.finish_into_canonical()
+        }
+    })
 }
 
 /// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each

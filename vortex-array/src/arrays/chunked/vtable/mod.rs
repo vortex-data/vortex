@@ -15,17 +15,19 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::vtable::canonical::_canonicalize;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
@@ -51,12 +53,10 @@ impl VTable for ChunkedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -158,6 +158,17 @@ impl VTable for ChunkedVTable {
             .map_err(|_| vortex_err!("total length {} exceeds usize range", total_len))?;
 
         Ok(())
+    }
+
+    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        for chunk in array.chunks() {
+            chunk.append_to_builder(builder)?;
+        }
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        _canonicalize(array)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

@@ -7,7 +7,6 @@ mod array;
 mod canonical;
 mod compute;
 mod dyn_;
-mod encode;
 mod operations;
 mod validity;
 mod visitor;
@@ -20,7 +19,6 @@ pub use array::*;
 pub use canonical::*;
 pub use compute::*;
 pub use dyn_::*;
-pub use encode::*;
 pub use operations::*;
 pub use validity::*;
 pub use visitor::*;
@@ -31,7 +29,10 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 
@@ -40,7 +41,7 @@ use crate::serde::ArrayChildren;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// Some of these vtables are optional, such as the [`ComputeVTable`] and [`EncodeVTable`],
+/// Some of these vtables are optional, such as the [`ComputeVTable`],
 /// which can be disabled by assigning to the [`NotSupported`] type.
 ///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
@@ -56,7 +57,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Metadata: Debug;
 
     type ArrayVTable: BaseArrayVTable<Self>;
-    type CanonicalVTable: CanonicalVTable<Self>;
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
@@ -64,10 +64,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Optionally enable implementing dynamic compute dispatch for this encoding.
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type ComputeVTable: ComputeVTable<Self>;
-    /// Optionally enable the [`EncodeVTable`] for this encoding. This allows it to partake in
-    /// compression.
-    /// Can be disabled by assigning to the [`NotSupported`] type.
-    type EncodeVTable: EncodeVTable<Self>;
 
     /// Returns the ID of the array.
     fn id(array: &Self::Array) -> ArrayId;
@@ -86,6 +82,16 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
 
     /// Deserialize metadata from a byte buffer.
     fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata>;
+
+    /// Writes the array into a canonical builder.
+    ///
+    /// ## Post-conditions
+    /// - The length of the builder is incremented by the length of the input array.
+    fn append_to_builder(array: &Self::Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let canonical = Self::execute(array, &mut LEGACY_SESSION.create_execution_ctx())?;
+        builder.extend_from_array(canonical.as_ref());
+        Ok(())
+    }
 
     /// Build an array from components.
     ///
@@ -139,10 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        // TODO(ngates): convert arrays to canonicalize over vectors, so remove default impl.
-        Self::CanonicalVTable::canonicalize(array)
-    }
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// Attempt to execute the parent of this array to produce a [`Canonical`].
     ///

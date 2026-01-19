@@ -25,8 +25,6 @@ use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -195,12 +193,10 @@ impl VTable for SequenceVTable {
     type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -277,7 +273,19 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    // TODO(joe): impl execute without to_canonical
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let prim = match_each_native_ptype!(array.ptype(), |P| {
+            let base = array.base().cast::<P>();
+            let multiplier = array.multiplier().cast::<P>();
+            let values = BufferMut::from_iter(
+                (0..array.len())
+                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+            );
+            PrimitiveArray::new(values, array.dtype.nullability().into())
+        });
+
+        Ok(Canonical::Primitive(prim))
+    }
 
     // TODO(joe): remove via vector.
     fn execute_parent(
@@ -379,22 +387,6 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
     }
 }
 
-impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
-        let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>();
-            let multiplier = array.multiplier().cast::<P>();
-            let values = BufferMut::from_iter(
-                (0..array.len())
-                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            );
-            PrimitiveArray::new(values, array.dtype.nullability().into())
-        });
-
-        Ok(Canonical::Primitive(prim))
-    }
-}
-
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
         Scalar::new(
@@ -405,18 +397,6 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
-        true
-    }
-
-    fn all_valid(_array: &SequenceArray) -> bool {
-        true
-    }
-
-    fn all_invalid(_array: &SequenceArray) -> bool {
-        false
-    }
-
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
@@ -439,16 +419,6 @@ pub struct SequenceVTable;
 
 impl SequenceVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
-}
-
-impl EncodeVTable<SequenceVTable> for SequenceVTable {
-    fn encode(
-        _canonical: &Canonical,
-        _like: Option<&SequenceArray>,
-    ) -> VortexResult<Option<SequenceArray>> {
-        // TODO(joe): hook up compressor
-        Ok(None)
-    }
 }
 
 #[cfg(test)]

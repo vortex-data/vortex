@@ -12,6 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
@@ -23,7 +24,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -48,12 +48,10 @@ impl VTable for ByteBoolVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -119,6 +117,15 @@ impl VTable for ByteBoolVTable {
             )
             .into_array(),
         ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let boolean_buffer = BitBuffer::from(array.as_slice());
+        let validity = array.validity().clone();
+        Ok(Canonical::Bool(BoolArray::from_bit_buffer(
+            boolean_buffer,
+            validity,
+        )))
     }
 }
 
@@ -208,17 +215,6 @@ impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
-    }
-}
-
-impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn canonicalize(array: &ByteBoolArray) -> VortexResult<Canonical> {
-        let boolean_buffer = BitBuffer::from(array.as_slice());
-        let validity = array.validity().clone();
-        Ok(Canonical::Bool(BoolArray::from_bit_buffer(
-            boolean_buffer,
-            validity,
-        )))
     }
 }
 

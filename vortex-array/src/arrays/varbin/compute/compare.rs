@@ -81,7 +81,8 @@ impl CompareKernel for VarBinVTable {
 
             let lhs = Datum::try_new(lhs.as_ref())?;
 
-            // TODO(robert): Handle LargeString/Binary arrays
+            // Use StringViewArray/BinaryViewArray to match the Utf8View/BinaryView types
+            // produced by Datum::try_new (which uses into_arrow_preferred())
             let arrow_rhs: &dyn arrow_array::Datum = match rhs_const.dtype() {
                 DType::Utf8(_) => &rhs_const
                     .as_utf8()

@@ -28,6 +28,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::compute::BinaryArgs;
@@ -255,7 +256,7 @@ fn list_contains_scalar(
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
-    if array.len() > 1 && array.is_constant() {
+    if array.len() > 1 && array.is::<ConstantVTable>() {
         let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
         return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
     }
@@ -533,6 +534,37 @@ mod tests {
         #[case] value: Option<&str>,
         #[case] expected: BoolArray,
     ) {
+        let element_nullability = list_array
+            .dtype()
+            .as_list_element_opt()
+            .unwrap()
+            .nullability();
+        let scalar = match value {
+            None => Scalar::null(DType::Utf8(Nullability::Nullable)),
+            Some(v) => Scalar::utf8(v, element_nullability),
+        };
+        let elem = ConstantArray::new(scalar, list_array.len());
+        let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
+        let bool_result = result.to_bool();
+        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
+        assert_eq!(bool_result.validity(), expected.validity());
+    }
+
+    #[test]
+    // Cast 3: valid scalar search over nullable list, with some nulls not matched (return no nulls)
+    // #[case(
+    //     null_strings(vec![vec![], vec![Some("a"), None], vec![Some("b"), None, None]]),
+    //     Some("a"),
+    //     bool_array(vec![false, true, false], Validity::AllValid)
+    // )]
+    fn test_contains_nullable22() {
+        let list_array = null_strings(vec![
+            vec![],
+            vec![Some("a"), None],
+            vec![Some("b"), None, None],
+        ]);
+        let value = Some("a");
+        let expected = bool_array(vec![false, true, false], Validity::AllValid);
         let element_nullability = list_array
             .dtype()
             .as_list_element_opt()

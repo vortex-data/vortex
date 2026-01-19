@@ -20,11 +20,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::RLEArray;
+use crate::rle::array::rle_decompress::rle_decompress;
 use crate::rle::kernel::PARENT_KERNELS;
 
 mod array;
-mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -54,12 +53,10 @@ impl VTable for RLEVTable {
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -189,6 +186,10 @@ impl VTable for RLEVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(rle_decompress(array)))
     }
 
     fn reduce_parent(

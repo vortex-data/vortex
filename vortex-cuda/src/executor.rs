@@ -17,14 +17,12 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::VortexSessionExecute;
-use vortex_buffer::Alignment;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::CudaDeviceBuffer;
 use crate::CudaSession;
 use crate::session::CudaSessionExt;
 
@@ -161,53 +159,6 @@ impl CudaExecutionCtx {
         }
     }
 
-    /// Copies data from host to device.
-    pub fn to_device<T: DeviceRepr>(&self, data: &[T]) -> VortexResult<CudaSlice<T>> {
-        // TODO(0ax1): Make the memcopy to device async. Even though `memcpy_htod`
-        // uses into `memcpy_htod_async`, it implicitly calls synchronize on the
-        // stream when dropping the `SyncOnDrop` `_record_dst` event at the end
-        // of the function.
-        self.stream
-            .clone_htod(data)
-            .map_err(|e| vortex_err!("Failed to copy to device: {}", e))
-    }
-
-    /// Copies data from device to host.
-    ///
-    /// Returns a `Buffer<T>` with the specified alignment.
-    pub fn to_host<T: DeviceRepr>(
-        &self,
-        buffer: &CudaSlice<T>,
-        alignment: Alignment,
-    ) -> VortexResult<Buffer<T>> {
-        let len = buffer.len();
-        let mut host_buffer = BufferMut::<T>::with_capacity_aligned(len, alignment);
-
-        // TODO(0ax1): Make the memcopy to host async. Even though `memcpy_dtoh`
-        // uses into `memcpy_dtoh_async`, it implicitly calls synchronize on the
-        // stream when dropping the `SyncOnDrop` `_record_dst` event at the end
-        // of the function.
-        self.stream
-            .memcpy_dtoh(buffer, unsafe {
-                // SAFETY: We allocated with sufficient capacity and fill the entire buffer.
-                host_buffer.set_len(len);
-                host_buffer.as_mut_slice()
-            })
-            .map_err(|e| vortex_err!("Failed to copy from device: {}", e))?;
-
-        Ok(host_buffer.freeze())
-    }
-
-    /// Synchronizes the stream
-    ///
-    /// On `synchronize` the host waits for all pending operations of the stream to complete.
-    #[cfg(test)]
-    pub fn synchronize(&self) -> VortexResult<()> {
-        self.stream
-            .synchronize()
-            .map_err(|e| vortex_err!("Failed to synchronize device: {}", e))
-    }
-
     /// Loads a CUDA kernel function by module name and ptype(s).
     ///
     /// # Arguments
@@ -231,6 +182,20 @@ impl CudaExecutionCtx {
     /// * `func` - CUDA kernel function to launch
     pub fn launch_builder<'a>(&'a self, func: &'a CudaFunction) -> LaunchArgs<'a> {
         self.stream.launch_builder(func)
+    }
+
+    /// Copies host data to the device, returning a [`CudaDeviceBuffer`].
+    ///
+    /// This is the primary way to get data onto the GPU for kernel execution.
+    pub fn copy_buffer_to_device<T: DeviceRepr + Clone + Send + Sync + 'static>(
+        &self,
+        data: &[T],
+    ) -> VortexResult<CudaDeviceBuffer<T>> {
+        let cuda_slice = self
+            .stream
+            .clone_htod(data)
+            .map_err(|e| vortex_err!("Failed to copy to device: {}", e))?;
+        Ok(CudaDeviceBuffer::new(cuda_slice))
     }
 }
 

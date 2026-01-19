@@ -12,9 +12,11 @@ use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::Canonical;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::array::IntoArray;
 use crate::arrays::StructArray;
-use crate::arrow::compute::to_arrow;
-use crate::arrow::compute::to_arrow_preferred;
+use crate::arrow::ArrowArrayExecutor;
 
 impl TryFrom<&dyn Array> for RecordBatch {
     type Error = VortexError;
@@ -29,7 +31,10 @@ impl TryFrom<&dyn Array> for RecordBatch {
             "RecordBatch can only be constructed from StructArray with no nulls"
         );
 
-        let array_ref = to_arrow_preferred(struct_array.as_ref())?;
+        let data_type = struct_array.dtype().to_arrow_dtype()?;
+        let array_ref = struct_array
+            .into_array()
+            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }
@@ -40,7 +45,9 @@ impl StructArray {
         schema: impl AsRef<Schema>,
     ) -> VortexResult<RecordBatch> {
         let data_type = DataType::Struct(schema.as_ref().fields.clone());
-        let array_ref = to_arrow(self.as_ref(), &data_type)?;
+        let array_ref = self
+            .to_array()
+            .execute_arrow(Some(&data_type), &mut LEGACY_SESSION.create_execution_ctx())?;
         Ok(RecordBatch::from(array_ref.as_struct()))
     }
 }

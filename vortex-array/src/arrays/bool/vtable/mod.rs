@@ -11,7 +11,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -52,12 +54,10 @@ impl VTable for BoolVTable {
     type Metadata = ProstMetadata<BoolMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -120,6 +120,10 @@ impl VTable for BoolVTable {
         };
 
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array.clone()))
     }
 
     fn reduce_parent(
