@@ -7,6 +7,8 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -53,7 +55,7 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// # Errors
     ///
     /// This operation may fail, depending on the device implementation and the underlying hardware.
-    fn copy_to_host(&self) -> VortexResult<ByteBuffer>;
+    fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
@@ -89,6 +91,16 @@ impl BufferHandle {
 }
 
 impl BufferHandle {
+    /// Returns `true` if this buffer resides on the device (GPU).
+    pub fn is_on_device(&self) -> bool {
+        matches!(&self.0, Inner::Device(_))
+    }
+
+    /// Returns `true` if this buffer resides on the host (CPU).
+    pub fn is_on_host(&self) -> bool {
+        matches!(&self.0, Inner::Host(_))
+    }
+
     /// Gets the size of the buffer, in bytes.
     pub fn len(&self) -> usize {
         match &self.0 {
@@ -226,7 +238,7 @@ impl BufferHandle {
     pub fn try_to_host(&self) -> VortexResult<ByteBuffer> {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
-            Inner::Device(device) => device.copy_to_host(),
+            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
@@ -236,7 +248,7 @@ impl BufferHandle {
     pub fn try_into_host(self) -> VortexResult<ByteBuffer> {
         match self.0 {
             Inner::Host(b) => Ok(b),
-            Inner::Device(device) => device.copy_to_host(),
+            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
         }
     }
 }

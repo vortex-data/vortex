@@ -9,7 +9,9 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::DeviceBuffer;
 use vortex_array::validity::Validity::NonNullable;
+use vortex_buffer::Alignment;
 use vortex_dtype::FromPrimitiveOrF16;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
@@ -72,14 +74,14 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
     let unpacked_slice = unpacked_array.as_slice::<P>();
 
     // TODO(0ax1): Check whether buffer is already on device.
-    let device_data = ctx.to_device(unpacked_slice)?;
+    let device_data = ctx.copy_buffer_to_device(unpacked_slice)?;
 
     let array_len = array.len() as u64;
     let _kernel_events = launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "for",
         ptypes: &[array.ptype()],
-        launch_args: [device_data, reference, array_len],
+        launch_args: [*device_data.cuda_slice(), reference, array_len],
         // CUDA events are submitted before and after the kernel launch. This
         // enables waiting for a single kernel to finish without doing a global
         // synchronize on the stream. Timing is disabled to keep the overhead low.
@@ -87,14 +89,9 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
         array_len: array.len()
     );
 
-    let result = ctx.to_host(
-        // TODO: Don't copy back after the end of each run.
-        &device_data,
-        // TODO: Proper alignment
-        vortex_buffer::Alignment::of::<P>(),
-    )?;
-
-    let primitive = PrimitiveArray::new(result, NonNullable).reinterpret_cast(array.ptype());
+    // TODO: Don't copy back after the end of each run.
+    let host_bytes = device_data.copy_to_host(Alignment::of::<P>())?;
+    let primitive = PrimitiveArray::from_byte_buffer(host_bytes, array.ptype(), NonNullable);
 
     Ok(Canonical::Primitive(primitive))
 }
