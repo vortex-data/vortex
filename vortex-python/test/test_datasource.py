@@ -22,7 +22,7 @@ def ray_init():
         }
     )
     yield None
-    ray.shutdown()
+    ray.shutdown()  # pyright: ignore[reportUnknownMemberType]
 
 
 def test_partition():
@@ -39,7 +39,7 @@ def test_partition():
     assert partition(3, list(range(11))) == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10]]
 
 
-def test_vortex_datasource(ray_init, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
+def test_vortex_datasource(ray_init, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportUnusedParameter]
     folder = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     arr1 = vx.array([record(x) for x in range(5)])
