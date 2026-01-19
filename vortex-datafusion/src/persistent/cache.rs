@@ -9,7 +9,6 @@ use chrono::Utc;
 use datafusion_common::ScalarValue;
 use moka::future::Cache;
 use object_store::ObjectMeta;
-use object_store::ObjectStore;
 use object_store::path::Path;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -22,6 +21,7 @@ use vortex::file::Footer;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
+use vortex::io::VortexReadAt;
 use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
 use vortex::metrics::MetricsSessionExt;
@@ -100,7 +100,7 @@ impl VortexFileCache {
     pub async fn try_get(
         &self,
         object: &ObjectMeta,
-        object_store: Arc<dyn ObjectStore>,
+        reader: Arc<dyn VortexReadAt>,
     ) -> VortexResult<VortexFile> {
         let file_key = FileKey::from(object);
         self.file_cache
@@ -119,7 +119,7 @@ impl VortexFileCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
                     }))
-                    .open_object_store(&object_store, object.location.as_ref()),
+                    .open(reader),
             )
             .await
             .map_err(|e: Arc<VortexError>| {
