@@ -16,28 +16,32 @@ use crate::vtable::ValidityVTable;
 
 impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
     fn validity(array: &ChunkedArray) -> VortexResult<Validity> {
-        let validites: Vec<Validity> = array.chunks().iter().map(|c| c.validity()).try_collect()?;
+        let validities: Vec<Validity> =
+            array.chunks().iter().map(|c| c.validity()).try_collect()?;
 
-        match validites.iter().all_equal_value() {
-            Ok(validity) => {
-                // If all chunks have the same validity, return that validity directly
-                if !matches!(validity, Validity::Array(_)) {
-                    return Ok(validity.clone());
+        match validities.first() {
+            // If there are no chunks, return the array's dtype nullability
+            None => return Ok(array.dtype().nullability().into()),
+            // If all chunks have the same non-array validity, return that validity directly
+            // We skip Validity::Array since equality is very expensive.
+            Some(first) if !matches!(first, Validity::Array(_)) => {
+                let target = std::mem::discriminant(first);
+                if validities
+                    .iter()
+                    .all(|v| std::mem::discriminant(v) == target)
+                {
+                    return Ok(first.clone());
                 }
             }
-            Err(None) => {
-                // If there are no chunks...
-                return Ok(array.dtype().nullability().into());
-            }
-            Err(_) => {
-                // Mixed validities, proceed to build the validity array
+            _ => {
+                // Array validity or mixed validities, proceed to build the validity array
             }
         }
 
         Ok(Validity::Array(
             unsafe {
                 ChunkedArray::new_unchecked(
-                    validites
+                    validities
                         .into_iter()
                         .zip(array.chunks())
                         .map(|(v, chunk)| v.to_array(chunk.len()))
