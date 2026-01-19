@@ -3,7 +3,6 @@
 
 use num_traits::PrimInt;
 use num_traits::WrappingSub;
-use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::stats::Stat;
