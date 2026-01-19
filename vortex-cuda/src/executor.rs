@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::mem::size_of;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -17,6 +18,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::VortexSessionExecute;
+use vortex_array::buffer::BufferHandle;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -70,7 +72,6 @@ macro_rules! launch_cuda_kernel {
         let cuda_function = $ctx.load_function($module, $ptypes)?;
         let mut launch_builder = $ctx.launch_builder(&cuda_function);
 
-        // Unroll launch builder arguments.
         $(
             launch_builder.arg(&$arg);
         )*
@@ -185,9 +186,7 @@ impl CudaExecutionCtx {
     }
 
     /// Copies host data to the device, returning a [`CudaDeviceBuffer`].
-    ///
-    /// This is the primary way to get data onto the GPU for kernel execution.
-    pub fn copy_buffer_to_device<T: DeviceRepr + Clone + Send + Sync + 'static>(
+    pub fn copy_buffer_to_device<T: DeviceRepr>(
         &self,
         data: &[T],
     ) -> VortexResult<CudaDeviceBuffer<T>> {
@@ -196,6 +195,32 @@ impl CudaExecutionCtx {
             .clone_htod(data)
             .map_err(|e| vortex_err!("Failed to copy to device: {}", e))?;
         Ok(CudaDeviceBuffer::new(cuda_slice))
+    }
+
+    /// Ensures the buffer is on the CUDA device.
+    ///
+    /// Copies the data from host to device if the input buffer is on the host.
+    pub fn ensure_on_device<T: DeviceRepr + Send + Sync + 'static>(
+        &self,
+        handle: &BufferHandle,
+    ) -> VortexResult<BufferHandle> {
+        if handle.is_on_device() {
+            return Ok(handle.clone());
+        }
+
+        let host_buffer = handle
+            .as_host_opt()
+            .ok_or_else(|| vortex_err!("Buffer is neither on host nor device"))?;
+
+        let typed_slice: &[T] = unsafe {
+            std::slice::from_raw_parts(
+                host_buffer.as_ptr().cast(),
+                host_buffer.len() / size_of::<T>(),
+            )
+        };
+
+        let cuda_buf = self.copy_buffer_to_device(typed_slice)?;
+        Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
     }
 }
 

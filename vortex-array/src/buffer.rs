@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -60,6 +61,9 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+
+    /// Returns a reference as `Any` to enable downcasting.
+    fn as_any(&self) -> &dyn Any;
 }
 
 impl Hash for dyn DeviceBuffer {

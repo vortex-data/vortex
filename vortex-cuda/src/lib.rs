@@ -11,6 +11,7 @@ mod session;
 
 use std::process::Command;
 
+pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
