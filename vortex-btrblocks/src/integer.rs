@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
+use vortex_array::Array;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
@@ -320,7 +321,12 @@ impl Scheme for FORScheme {
         //  as well.
         let compressed = BitPackingScheme.compress(&biased_stats, is_sample, 0, excludes)?;
 
-        Ok(FoRArray::try_new(compressed, for_array.reference_scalar().clone())?.into_array())
+        let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
+        for_compressed
+            .as_ref()
+            .statistics()
+            .inherit_from(for_array.as_ref().statistics());
+        Ok(for_compressed.into_array())
     }
 }
 
