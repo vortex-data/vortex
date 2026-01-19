@@ -111,8 +111,8 @@ mod tests {
 
         // Both futures should resolve to the same data
         let (result1, result2) = futures::join!(future1, future2);
-        assert_eq!(*result1.unwrap().bytes(), data);
-        assert_eq!(*result2.unwrap().bytes(), data);
+        assert_eq!(result1.unwrap().unwrap_host(), data);
+        assert_eq!(result2.unwrap().unwrap_host(), data);
 
         // The inner source should have been called only once
         assert_eq!(source.request_count.load(Ordering::Relaxed), 1);
@@ -142,7 +142,7 @@ mod tests {
 
         // A new request should still work correctly
         let result = shared_source.request(id).await;
-        assert_eq!(*result.unwrap().bytes(), data);
+        assert_eq!(result.unwrap().unwrap_host(), data);
 
         // Should have made 2 requests since the first was dropped before completion
         assert_eq!(source.request_count.load(Ordering::Relaxed), 2);

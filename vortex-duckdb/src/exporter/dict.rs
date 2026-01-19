@@ -85,7 +85,7 @@ pub(crate) fn new_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
-                let canonical = values.to_canonical();
+                let canonical = values.to_canonical()?;
                 cache
                     .canonical_cache
                     .insert(values_key, (values.clone(), canonical.clone()));
@@ -209,7 +209,7 @@ pub(crate) fn new_operator_exporter_with_flatten(
         let canonical = match canonical {
             Some(c) => c,
             None => {
-                let canonical = values.to_canonical();
+                let canonical = values.to_canonical()?;
                 cache
                     .canonical_cache
                     .insert(values_key, (values.clone(), canonical.clone()));
@@ -275,6 +275,7 @@ mod tests {
     use vortex::array::arrays::DictArray;
     use vortex::array::arrays::PrimitiveArray;
     use vortex::buffer::Buffer;
+    use vortex::error::VortexExpect;
     use vortex::error::VortexResult;
     use vortex::session::VortexSession;
 
@@ -391,10 +392,15 @@ mod tests {
         let mut flat_chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_array_exporter(arr.to_canonical().as_ref(), &ConversionCache::default())
-            .unwrap()
-            .export(0, 3, &mut flat_chunk.get_vector(0))
-            .unwrap();
+        new_array_exporter(
+            arr.to_canonical()
+                .vortex_expect("to_canonical failed")
+                .as_ref(),
+            &ConversionCache::default(),
+        )
+        .unwrap()
+        .export(0, 3, &mut flat_chunk.get_vector(0))
+        .unwrap();
         flat_chunk.set_len(3);
 
         assert_eq!(

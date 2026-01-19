@@ -104,7 +104,7 @@ mod tests {
         assert_eq!(ext_result.ext_dtype().as_ref(), ext_dtype.as_ref());
 
         // Check the storage values
-        let storage_result: &[i64] = &ext_result.storage().to_primitive().buffer::<i64>();
+        let storage_result: &[i64] = &ext_result.storage().to_primitive().to_buffer::<i64>();
         assert_eq!(storage_result, &[1, 3, 5]);
     }
 

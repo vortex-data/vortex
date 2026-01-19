@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::BitBuffer;
@@ -23,6 +22,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::BoolArray;
@@ -37,7 +37,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -52,12 +51,10 @@ impl VTable for ArrowVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.arrow")
@@ -97,6 +94,10 @@ impl VTable for ArrowVTable {
             children.len()
         );
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
     }
 }
 
@@ -151,23 +152,7 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
     }
 }
 
-impl CanonicalVTable<ArrowVTable> for ArrowVTable {
-    fn canonicalize(array: &ArrowArray) -> Canonical {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
-    }
-}
-
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, range: Range<usize>) -> ArrayRef {
-        let inner = array.inner.slice(range.start, range.len());
-        let new_array = ArrowArray {
-            inner,
-            dtype: array.dtype.clone(),
-            stats_set: Default::default(),
-        };
-        new_array.into_array()
-    }
-
     fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
         vortex_panic!("Not supported")
     }

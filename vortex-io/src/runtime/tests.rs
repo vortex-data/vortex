@@ -9,9 +9,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt;
-use futures::StreamExt;
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
 use tempfile::NamedTempFile;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -19,11 +17,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
-use crate::file::IntoReadSource;
-use crate::file::IoRequest;
-use crate::file::ReadSource;
-use crate::file::ReadSourceRef;
-use crate::runtime::Handle;
+use crate::file::std_file::FileReadAdapter;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
 
@@ -38,10 +32,9 @@ const TEST_LEN: usize = 5;
 
 #[test]
 fn test_file_read_with_single_thread_runtime() {
-    let result = block_on(|handle| {
+    let result = block_on(|_handle| {
         async move {
-            let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-            let file_read = handle.open_read(buffer, Default::default()).unwrap();
+            let file_read: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
             // Read a slice
             let result = file_read
@@ -69,9 +62,7 @@ fn test_file_read_with_single_thread_runtime() {
 
 #[tokio::test]
 async fn test_file_read_with_tokio_runtime() {
-    let handle = TokioRuntime::current();
-    let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer, Default::default()).unwrap();
+    let file_read: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Read a slice
     let result = file_read
@@ -107,9 +98,8 @@ fn test_file_read_with_real_file_single_thread() {
             temp_file.flush().unwrap();
 
             // Open and read the file
-            let file_read = handle
-                .open_read(temp_file.path(), Default::default())
-                .unwrap();
+            let file_read: Arc<dyn VortexReadAt> =
+                Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
 
             // Read a slice
             let result = file_read
@@ -145,9 +135,8 @@ async fn test_file_read_with_real_file_tokio() {
     temp_file.flush().unwrap();
 
     let handle = TokioRuntime::current();
-    let file_read = handle
-        .open_read(temp_file.path(), Default::default())
-        .unwrap();
+    let file_read: Arc<dyn VortexReadAt> =
+        Arc::new(FileReadAdapter::open(temp_file.path(), handle.clone()).unwrap());
 
     // Read a slice
     let result = file_read
@@ -173,16 +162,14 @@ async fn test_file_read_with_real_file_tokio() {
 
 #[tokio::test]
 async fn test_concurrent_reads() {
-    let handle = TokioRuntime::current();
-    let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer, Default::default()).unwrap();
+    let read_at: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Issue multiple concurrent reads
     let futures = vec![
-        file_read.read_at(0, 5, Alignment::new(1)),
-        file_read.read_at(5, 5, Alignment::new(1)),
-        file_read.read_at(10, 5, Alignment::new(1)),
-        file_read.read_at(15, 5, Alignment::new(1)),
+        read_at.read_at(0, 5, Alignment::new(1)),
+        read_at.read_at(5, 5, Alignment::new(1)),
+        read_at.read_at(10, 5, Alignment::new(1)),
+        read_at.read_at(15, 5, Alignment::new(1)),
     ];
 
     let results = futures::future::join_all(futures).await;
@@ -226,22 +213,16 @@ async fn test_handle_spawn_cpu() {
 }
 
 // ============================================================================
-// Test custom IoSource implementation
+// Test custom VortexRead implementation
 // ============================================================================
 
-struct CountingIoSource {
+struct CountingReadAt {
     data: ByteBuffer,
     read_count: Arc<AtomicUsize>,
 }
 
-impl ReadSource for CountingIoSource {
-    fn uri(&self) -> &Arc<str> {
-        static URI: std::sync::LazyLock<Arc<str>> =
-            std::sync::LazyLock::new(|| Arc::from("counting://test"));
-        &URI
-    }
-
-    fn coalesce_window(&self) -> Option<crate::file::CoalesceWindow> {
+impl VortexReadAt for CountingReadAt {
+    fn uri(&self) -> Option<&Arc<str>> {
         None
     }
 
@@ -250,58 +231,49 @@ impl ReadSource for CountingIoSource {
         async move { Ok(len) }.boxed()
     }
 
-    fn drive_send(
-        self: Arc<Self>,
-        mut requests: BoxStream<'static, IoRequest>,
-    ) -> BoxFuture<'static, ()> {
+    fn concurrency(&self) -> usize {
+        16
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.read_count.fetch_add(1, Ordering::SeqCst);
+        let data = self.data.clone();
         async move {
-            while let Some(req) = requests.next().await {
-                self.read_count.fetch_add(1, Ordering::SeqCst);
-
-                let offset = req.offset() as usize;
-                let len = req.len();
-
-                let result = if offset + len > self.data.len() {
-                    Err(vortex_error::vortex_err!("Read out of bounds"))
-                } else {
-                    let mut buffer = ByteBufferMut::with_capacity_aligned(len, req.alignment());
-                    unsafe { buffer.set_len(len) };
-                    buffer
-                        .as_mut_slice()
-                        .copy_from_slice(&self.data.as_slice()[offset..offset + len]);
-                    Ok(buffer.freeze())
-                };
-                req.resolve(result);
+            let start = offset as usize;
+            if start + length > data.len() {
+                return Err(vortex_error::vortex_err!("Read out of bounds"));
             }
+            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+            unsafe { buffer.set_len(length) };
+            buffer
+                .as_mut_slice()
+                .copy_from_slice(&data.as_slice()[start..start + length]);
+            Ok(buffer.freeze())
         }
         .boxed()
     }
 }
 
-impl IntoReadSource for CountingIoSource {
-    fn into_read_source(self, _handle: Handle) -> VortexResult<ReadSourceRef> {
-        Ok(Arc::new(self))
-    }
-}
-
 #[tokio::test]
-async fn test_custom_io_source() {
-    let handle = TokioRuntime::current();
+async fn test_custom_vortex_read() {
     let read_count = Arc::new(AtomicUsize::new(0));
 
-    let source = CountingIoSource {
+    let read_at: Arc<dyn VortexReadAt> = Arc::new(CountingReadAt {
         data: ByteBuffer::from(TEST_DATA.to_vec()),
         read_count: read_count.clone(),
-    };
-
-    let file_read = handle.open_read(source, Default::default()).unwrap();
+    });
 
     // Perform several reads
-    file_read.read_at(0, 5, Alignment::new(1)).await.unwrap();
-    file_read.read_at(5, 5, Alignment::new(1)).await.unwrap();
-    file_read.read_at(10, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(0, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(5, 5, Alignment::new(1)).await.unwrap();
+    read_at.read_at(10, 5, Alignment::new(1)).await.unwrap();
 
-    // Check that our custom IoSource was called 3 times
+    // Check that our custom VortexRead was called 3 times
     assert_eq!(read_count.load(Ordering::SeqCst), 3);
 }
 
@@ -311,16 +283,14 @@ async fn test_custom_io_source() {
 
 #[tokio::test]
 async fn test_read_out_of_bounds() {
-    let handle = TokioRuntime::current();
-    let buffer = ByteBuffer::from(TEST_DATA.to_vec());
-    let file_read = handle.open_read(buffer, Default::default()).unwrap();
+    let reader: Arc<dyn VortexReadAt> = Arc::new(ByteBuffer::from(TEST_DATA.to_vec()));
 
     // Try to read beyond the buffer
-    let result = file_read.read_at(100, 10, Alignment::new(1)).await;
+    let result = reader.read_at(100, 10, Alignment::new(1)).await;
     assert!(result.is_err());
 
     // Try to read with length that exceeds buffer
-    let result = file_read.read_at(40, 20, Alignment::new(1)).await;
+    let result = reader.read_at(40, 20, Alignment::new(1)).await;
     assert!(result.is_err());
 }
 

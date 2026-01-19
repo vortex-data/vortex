@@ -10,6 +10,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -28,7 +29,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -46,6 +46,7 @@ use vortex_scalar::PValue;
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
+use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
 vtable!(RunEnd);
@@ -66,12 +67,10 @@ impl VTable for RunEndVTable {
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.runend")
@@ -142,6 +141,19 @@ impl VTable for RunEndVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        run_end_canonicalize(array)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -191,12 +203,13 @@ impl RunEndArray {
             return Ok(());
         }
 
-        // Verify that the ends are strictly monotonic.
-        if let Some(is_sorted) = ends.statistics().compute_is_strict_sorted() {
-            vortex_ensure!(is_sorted, "run ends must be monotonic");
-        } else {
-            // TODO(aduffy): fallback to slow scalar scanning if computefn impl not available?
-            vortex_bail!("run ends must report IsStrictSorted");
+        // Avoid building a non-empty array with zero logical length.
+        if length == 0 {
+            vortex_ensure!(
+                ends.is_empty(),
+                "run ends must be empty when length is zero"
+            );
+            return Ok(());
         }
 
         // Validate the offset and length are valid for the given ends and values
@@ -205,6 +218,12 @@ impl RunEndArray {
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
+        }
+
+        let last_run_end: usize = ends.scalar_at(ends.len() - 1).as_ref().try_into()?;
+        let min_required_end = offset + length;
+        if last_run_end < min_required_end {
+            vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
         }
 
         Ok(())
@@ -244,9 +263,6 @@ impl RunEndArray {
     /// The `ends` must be non-nullable unsigned integers. The values may be `Bool` or `Primitive`
     /// types.
     ///
-    /// All `ends` must be strictly monotonic. A run cannot be empty, therefore there can be no
-    /// duplicates in the `ends`.
-    ///
     /// # Examples
     ///
     /// ```
@@ -254,13 +270,6 @@ impl RunEndArray {
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
     /// # use vortex_runend::RunEndArray;
-    ///
-    /// // Error to provide duplicate ends!
-    /// let result = RunEndArray::try_new(
-    ///     buffer![1u8, 1u8, 2u8].into_array(),
-    ///     buffer![100i32, 200i32, 300i32].into_array(),
-    /// );
-    /// assert!(result.is_err());
     ///
     /// // Error to provide incorrectly-typed values!
     /// let result = RunEndArray::try_new(
@@ -466,31 +475,29 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
     }
 }
 
-impl CanonicalVTable<RunEndVTable> for RunEndVTable {
-    fn canonicalize(array: &RunEndArray) -> Canonical {
-        let pends = array.ends().to_primitive();
-        match array.dtype() {
-            DType::Bool(_) => {
-                let bools = array.values().to_bool();
-                Canonical::Bool(runend_decode_bools(
-                    pends,
-                    bools,
-                    array.offset(),
-                    array.len(),
-                ))
-            }
-            DType::Primitive(..) => {
-                let pvalues = array.values().to_primitive();
-                Canonical::Primitive(runend_decode_primitive(
-                    pends,
-                    pvalues,
-                    array.offset(),
-                    array.len(),
-                ))
-            }
-            _ => vortex_panic!("Only Primitive and Bool values are supported"),
+pub(super) fn run_end_canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
+    let pends = array.ends().to_primitive();
+    Ok(match array.dtype() {
+        DType::Bool(_) => {
+            let bools = array.values().to_bool();
+            Canonical::Bool(runend_decode_bools(
+                pends,
+                bools,
+                array.offset(),
+                array.len(),
+            ))
         }
-    }
+        DType::Primitive(..) => {
+            let pvalues = array.values().to_primitive();
+            Canonical::Primitive(runend_decode_primitive(
+                pends,
+                pvalues,
+                array.offset(),
+                array.len(),
+            ))
+        }
+        _ => vortex_panic!("Only Primitive and Bool values are supported"),
+    })
 }
 
 #[cfg(test)]

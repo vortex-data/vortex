@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -13,7 +15,10 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::DecimalArray;
@@ -24,10 +29,10 @@ use crate::vtable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 pub mod rules;
 mod validity;
@@ -54,12 +59,10 @@ impl VTable for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.decimal")
@@ -95,7 +98,7 @@ impl VTable for DecimalVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_bytes()?;
+        let buffer = buffers[0].clone().try_to_host()?;
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -142,12 +145,27 @@ impl VTable for DecimalVTable {
         Ok(())
     }
 
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Decimal(array.clone()))
+    }
+
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let result = match_each_decimal_value_type!(array.values_type(), |D| {
+            let sliced = array.buffer::<D>().slice(range.clone());
+            let validity = array.validity().clone().slice(range);
+            // SAFETY: Slicing preserves all DecimalArray invariants
+            unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
+                .into_array()
+        });
+        Ok(Some(result))
     }
 }
 

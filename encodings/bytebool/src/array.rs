@@ -12,6 +12,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
@@ -25,7 +26,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -50,12 +50,10 @@ impl VTable for ByteBoolVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.bytebool")
@@ -97,7 +95,7 @@ impl VTable for ByteBoolVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_bytes()?;
+        let buffer = buffers[0].clone().try_to_host()?;
 
         Ok(ByteBoolArray::new(buffer, validity))
     }
@@ -116,6 +114,25 @@ impl VTable for ByteBoolVTable {
         };
 
         Ok(())
+    }
+
+    fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ByteBoolArray::new(
+                array.buffer().slice(range.clone()),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let boolean_buffer = BitBuffer::from(array.as_slice());
+        let validity = array.validity().clone();
+        Ok(Canonical::Bool(BoolArray::from_bit_buffer(
+            boolean_buffer,
+            validity,
+        )))
     }
 }
 
@@ -204,23 +221,7 @@ impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
     }
 }
 
-impl CanonicalVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn canonicalize(array: &ByteBoolArray) -> Canonical {
-        let boolean_buffer = BitBuffer::from(array.as_slice());
-        let validity = array.validity().clone();
-        Canonical::Bool(BoolArray::from_bit_buffer(boolean_buffer, validity))
-    }
-}
-
 impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn slice(array: &ByteBoolArray, range: Range<usize>) -> ArrayRef {
-        ByteBoolArray::new(
-            array.buffer().slice(range.clone()),
-            array.validity().slice(range),
-        )
-        .into_array()
-    }
-
     fn scalar_at(array: &ByteBoolArray, index: usize) -> Scalar {
         Scalar::bool(array.buffer()[index] == 1, array.dtype().nullability())
     }

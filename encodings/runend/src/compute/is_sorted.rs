@@ -17,7 +17,7 @@ impl IsSortedKernel for RunEndVTable {
     }
 
     fn is_strict_sorted(&self, array: &RunEndArray) -> VortexResult<Option<bool>> {
-        is_strict_sorted(array.to_canonical().as_ref())
+        is_strict_sorted(array.to_canonical()?.as_ref())
     }
 }
 

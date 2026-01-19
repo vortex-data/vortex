@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -19,12 +20,15 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builders::ArrayBuilder;
+use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -33,7 +37,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -43,13 +46,14 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::fsst_compress;
-use crate::fsst_train_compressor;
+use crate::canonical::canonicalize_fsst;
+use crate::canonical::fsst_decode_views;
 use crate::kernel::PARENT_KERNELS;
 
 vtable!(FSST);
@@ -73,12 +77,10 @@ impl VTable for FSSTVTable {
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.fsst")
@@ -116,8 +118,8 @@ impl VTable for FSSTVTable {
         if buffers.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
         }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_bytes()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_bytes()?);
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host()?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host()?);
 
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -181,6 +183,24 @@ impl VTable for FSSTVTable {
         Ok(())
     }
 
+    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
+            builder.extend_from_array(&array.to_canonical()?.into_array());
+            return Ok(());
+        };
+
+        // Decompress the whole block of data into a new buffer, and create some views
+        // from it instead.
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+
+        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_fsst(array)
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -188,6 +208,25 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing the `codes` leaves the symbol table intact
+        Ok(Some(
+            unsafe {
+                FSSTArray::new_unchecked(
+                    array.dtype().clone(),
+                    array.symbols().clone(),
+                    array.symbol_lengths().clone(),
+                    VarBinVTable::slice(array.codes().as_::<VarBinVTable>(), range.clone())?
+                        .vortex_expect("varbin slice cannot fail")
+                        .as_::<VarBinVTable>()
+                        .clone(),
+                    array.uncompressed_lengths().slice(range),
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 
@@ -382,23 +421,6 @@ impl BaseArrayVTable<FSSTVTable> for FSSTVTable {
 impl ValidityChild<FSSTVTable> for FSSTVTable {
     fn validity_child(array: &FSSTArray) -> &ArrayRef {
         &array.codes_array
-    }
-}
-
-impl EncodeVTable<FSSTVTable> for FSSTVTable {
-    fn encode(
-        _vtable: &FSSTVTable,
-        canonical: &Canonical,
-        like: Option<&FSSTArray>,
-    ) -> VortexResult<Option<FSSTArray>> {
-        let array = canonical.clone().into_varbinview();
-
-        let compressor = match like {
-            Some(like) => Compressor::rebuild_from(like.symbols(), like.symbol_lengths()),
-            None => fsst_train_compressor(&array),
-        };
-
-        Ok(Some(fsst_compress(array, &compressor)))
     }
 }
 

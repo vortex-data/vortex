@@ -120,10 +120,18 @@ impl DecimalArray {
         decimal_dtype: DecimalDType,
         validity: Validity,
     ) -> VortexResult<Self> {
-        Self::validate(&buffer, &validity)?;
+        let byte_buffer = buffer.into_byte_buffer();
+        Self::validate(&byte_buffer, T::DECIMAL_TYPE, &validity)?;
 
-        // SAFETY: validate ensures all invariants are met.
-        Ok(unsafe { Self::new_unchecked(buffer, decimal_dtype, validity) })
+        // SAFETY: validate_byte_buffer ensures all invariants are met.
+        Ok(unsafe {
+            Self::new_unchecked_from_byte_buffer(
+                byte_buffer,
+                T::DECIMAL_TYPE,
+                decimal_dtype,
+                validity,
+            )
+        })
     }
 
     /// Creates a new [`DecimalArray`] without validation from these components:
@@ -145,8 +153,12 @@ impl DecimalArray {
         validity: Validity,
     ) -> Self {
         #[cfg(debug_assertions)]
-        Self::validate(&buffer, &validity)
-            .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
+        Self::validate(
+            &buffer.clone().into_byte_buffer(),
+            T::DECIMAL_TYPE,
+            &validity,
+        )
+        .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
 
         Self {
             values: buffer.into_byte_buffer(),
@@ -157,23 +169,56 @@ impl DecimalArray {
         }
     }
 
-    /// Validates the components that would be used to create a [`DecimalArray`].
+    /// Validates the components that would be used to create a [`DecimalArray`] from a byte buffer.
     ///
-    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`].
-    pub fn validate<T: NativeDecimalType>(
-        buffer: &Buffer<T>,
+    /// This function checks all the invariants required by [`DecimalArray::new_unchecked`] and
+    /// [`DecimalArray::new_unchecked_from_byte_buffer`].
+    fn validate(
+        byte_buffer: &ByteBuffer,
+        values_type: DecimalType,
         validity: &Validity,
     ) -> VortexResult<()> {
-        if let Some(len) = validity.maybe_len() {
+        if let Some(validity_len) = validity.maybe_len() {
+            let expected_len = values_type.byte_width() * validity_len;
             vortex_ensure!(
-                buffer.len() == len,
-                "Buffer and validity length mismatch: buffer={}, validity={}",
-                buffer.len(),
-                len,
+                expected_len == byte_buffer.len(),
+                "Buffer and validity length mismatch: expected {} bytes (byte_width={} * len={}), got {} bytes",
+                expected_len,
+                values_type.byte_width(),
+                validity_len,
+                byte_buffer.len(),
             );
         }
 
         Ok(())
+    }
+
+    /// Creates a new [`DecimalArray`] from a raw byte buffer without validation.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure:
+    /// - The `byte_buffer` contains valid data for the specified `values_type`
+    /// - The buffer length is compatible with the `values_type` (i.e., divisible by the type size)
+    /// - All non-null values are representable within the specified precision
+    /// - If `validity` is [`Validity::Array`], its length must equal the number of elements
+    pub unsafe fn new_unchecked_from_byte_buffer(
+        byte_buffer: ByteBuffer,
+        values_type: DecimalType,
+        decimal_dtype: DecimalDType,
+        validity: Validity,
+    ) -> Self {
+        #[cfg(debug_assertions)]
+        Self::validate(&byte_buffer, values_type, &validity)
+            .vortex_expect("[Debug Assertion]: Invalid `DecimalArray` parameters");
+
+        Self {
+            dtype: DType::Decimal(decimal_dtype, validity.nullability()),
+            values: byte_buffer,
+            values_type,
+            validity,
+            stats_set: Default::default(),
+        }
     }
 
     /// Returns the underlying [`ByteBuffer`] of the array.

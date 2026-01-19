@@ -445,6 +445,12 @@ where
     // SAFETY: all elements have been initialized.
     unsafe { buffer.set_len(indices_len) };
 
+    // Reset the buffer alignment to the Value type
+    // NOTE: if we don't do this, we pass back a Buffer which is over-aligned to the
+    //  SIMD register width. The caller expects that this memory should be aligned to the value
+    //  type so that we can slice it at value boundaries.
+    buffer = buffer.aligned(Alignment::of::<Value>());
+
     buffer.freeze()
 }
 

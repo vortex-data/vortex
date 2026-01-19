@@ -465,7 +465,7 @@ impl ArrayParts {
         segment: BufferHandle,
     ) -> VortexResult<Self> {
         // TODO: this can also work with device buffers.
-        let segment = segment.try_to_bytes()?;
+        let segment = segment.try_to_host()?;
         // We align each buffer individually, so we remove alignment requirements on the buffer.
         let segment = segment.aligned(Alignment::none());
 
@@ -494,7 +494,7 @@ impl ArrayParts {
                         .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
 
                     offset += buffer_len;
-                    BufferHandle::Host(buffer)
+                    BufferHandle::new_host(buffer)
                 })
                 .collect();
 
@@ -565,13 +565,15 @@ impl TryFrom<ByteBuffer> for ArrayParts {
                     .aligned(Alignment::from_exponent(fb_buffer.alignment_exponent()));
 
                 offset += buffer_len;
-                BufferHandle::Host(buffer)
+                BufferHandle::new_host(buffer)
             })
             .collect();
 
+        let flatbuffer_loc = fb_root._tab.loc();
+
         Ok(ArrayParts {
-            flatbuffer: fb_buffer.clone(),
-            flatbuffer_loc: fb_root._tab.loc(),
+            flatbuffer: fb_buffer,
+            flatbuffer_loc,
             buffers,
         })
     }
@@ -581,6 +583,6 @@ impl TryFrom<BufferHandle> for ArrayParts {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
-        Self::try_from(value.try_to_bytes()?)
+        Self::try_from(value.try_to_host()?)
     }
 }

@@ -67,7 +67,7 @@ mod test {
     use vortex_layout::sequence::SequentialArrayStreamExt;
 
     use super::*;
-    use crate::test::SESSION;
+    use crate::test::SCAN_SESSION;
 
     fn reader() -> LayoutReaderRef {
         let ctx = ArrayContext::empty();
@@ -89,7 +89,9 @@ mod test {
         })
         .unwrap();
 
-        layout.new_reader("".into(), segments, &SESSION).unwrap()
+        layout
+            .new_reader("".into(), segments, &SCAN_SESSION)
+            .unwrap()
     }
 
     #[test]

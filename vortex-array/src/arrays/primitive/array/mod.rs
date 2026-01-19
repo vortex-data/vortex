@@ -31,6 +31,8 @@ mod top_value;
 pub use patch::chunk_range;
 pub use patch::patch_chunk;
 
+use crate::buffer::BufferHandle;
+
 /// A primitive array that stores [native types][vortex_dtype::NativePType] in a contiguous buffer
 /// of memory, along with an optional validity child.
 ///
@@ -65,13 +67,32 @@ pub use patch::patch_chunk;
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
     pub(super) dtype: DType,
-    pub(super) buffer: ByteBuffer,
+    pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveArray {
+    /// Create a new array from a buffer handle.
+    ///
+    /// # Safety
+    ///
+    /// Should ensure that the provided BufferHandle points at sufficiently large region of aligned
+    /// memory to hold the `ptype` values.
+    pub unsafe fn new_unchecked_from_handle(
+        handle: BufferHandle,
+        ptype: PType,
+        validity: Validity,
+    ) -> Self {
+        Self {
+            buffer: handle,
+            dtype: DType::Primitive(ptype, validity.nullability()),
+            validity,
+            stats_set: ArrayStats::default(),
+        }
+    }
+
     /// Creates a new [`PrimitiveArray`].
     ///
     /// # Panics
@@ -119,7 +140,7 @@ impl PrimitiveArray {
 
         Self {
             dtype: DType::Primitive(T::PTYPE, validity.nullability()),
-            buffer: buffer.into_byte_buffer(),
+            buffer: BufferHandle::new_host(buffer.into_byte_buffer()),
             validity,
             stats_set: Default::default(),
         }
@@ -145,17 +166,33 @@ impl PrimitiveArray {
     pub fn empty<T: NativePType>(nullability: Nullability) -> Self {
         Self::new(Buffer::<T>::empty(), nullability.into())
     }
+}
 
+impl PrimitiveArray {
+    /// Consume the primitive array and returns its component parts.
+    pub fn into_parts(self) -> (DType, BufferHandle, Validity, ArrayStats) {
+        (self.dtype, self.buffer, self.validity, self.stats_set)
+    }
+}
+
+impl PrimitiveArray {
     pub fn ptype(&self) -> PType {
         self.dtype().as_ptype()
     }
 
-    pub fn byte_buffer(&self) -> &ByteBuffer {
+    /// Get access to the buffer handle backing the array.
+    pub fn buffer_handle(&self) -> &BufferHandle {
         &self.buffer
     }
 
-    pub fn into_byte_buffer(self) -> ByteBuffer {
-        self.buffer
+    pub fn from_buffer_handle(handle: BufferHandle, ptype: PType, validity: Validity) -> Self {
+        let dtype = DType::Primitive(ptype, validity.nullability());
+        Self {
+            buffer: handle,
+            dtype,
+            validity,
+            stats_set: ArrayStats::default(),
+        }
     }
 
     pub fn from_byte_buffer(buffer: ByteBuffer, ptype: PType, validity: Validity) -> Self {
@@ -206,7 +243,7 @@ impl PrimitiveArray {
         let validity = self.validity().clone();
         let buffer = match self.try_into_buffer_mut() {
             Ok(buffer_mut) => buffer_mut.map_each_in_place(f),
-            Err(parray) => BufferMut::<R>::from_iter(parray.buffer::<T>().iter().copied().map(f)),
+            Err(buffer) => BufferMut::from_iter(buffer.iter().copied().map(f)),
         };
         PrimitiveArray::new(buffer.freeze(), validity)
     }
@@ -223,7 +260,7 @@ impl PrimitiveArray {
     {
         let validity = self.validity();
 
-        let buf_iter = self.buffer::<T>().into_iter();
+        let buf_iter = self.to_buffer::<T>().into_iter();
 
         let buffer = match &validity {
             Validity::NonNullable | Validity::AllValid => {

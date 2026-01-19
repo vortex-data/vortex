@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -13,19 +15,21 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::chunked::vtable::canonical::_canonicalize;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
+use crate::builders::ArrayBuilder;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
@@ -47,12 +51,10 @@ impl VTable for ChunkedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.chunked")
@@ -98,7 +100,7 @@ impl VTable for ChunkedVTable {
             )?
             .to_primitive();
 
-        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
+        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         // The remaining children contain the actual data of the chunks
         let chunks = chunk_offsets_buf
@@ -139,7 +141,7 @@ impl VTable for ChunkedVTable {
 
         let nchunks = children.len() - 1;
         let chunk_offsets_array = children[0].to_primitive();
-        let chunk_offsets_buf = chunk_offsets_array.buffer::<u64>();
+        let chunk_offsets_buf = chunk_offsets_array.to_buffer::<u64>();
 
         vortex_ensure!(
             chunk_offsets_buf.len() == nchunks + 1,
@@ -161,6 +163,17 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
+    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+        for chunk in array.chunks() {
+            chunk.append_to_builder(builder)?;
+        }
+        Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        _canonicalize(array)
+    }
+
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         Ok(match array.chunks.len() {
             0 => Some(Canonical::empty(array.dtype()).into_array()),
@@ -175,5 +188,52 @@ impl VTable for ChunkedVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        assert!(
+            !array.is_empty() || (range.start > 0 && range.end > 0),
+            "Empty chunked array can't be sliced from {} to {}",
+            range.start,
+            range.end
+        );
+
+        if array.is_empty() {
+            // SAFETY: empty chunked array trivially satisfies all validations
+            unsafe {
+                return Ok(Some(
+                    ChunkedArray::new_unchecked(vec![], array.dtype().clone()).into_array(),
+                ));
+            }
+        }
+
+        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start);
+        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end);
+
+        if length_chunk == offset_chunk {
+            let chunk = array.chunk(offset_chunk);
+            return Ok(Some(
+                chunk.slice(offset_in_first_chunk..length_in_last_chunk),
+            ));
+        }
+
+        let mut chunks = (offset_chunk..length_chunk + 1)
+            .map(|i| array.chunk(i).clone())
+            .collect_vec();
+        if let Some(c) = chunks.first_mut() {
+            *c = c.slice(offset_in_first_chunk..c.len());
+        }
+
+        if length_in_last_chunk == 0 {
+            chunks.pop();
+        } else if let Some(c) = chunks.last_mut() {
+            *c = c.slice(0..length_in_last_chunk);
+        }
+
+        // SAFETY: chunks are slices of the original valid chunks, preserving their dtype.
+        // All chunks maintain the same dtype as the original array.
+        Ok(Some(unsafe {
+            ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()
+        }))
     }
 }

@@ -8,6 +8,16 @@ project(vortex-examples)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
+find_program(SCCACHE_PROGRAM sccache)
+if (SCCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${SCCACHE_PROGRAM}")
+    message(STATUS "Sccache found: ${SCCACHE_PROGRAM}")
+else ()
+    message(STATUS "Sccache not found")
+endif ()
+
 include(FetchContent)
 FetchContent_Declare(
     vortex
@@ -22,13 +32,6 @@ if(APPLE)
     set(APPLE_LINK_FLAGS "-framework CoreFoundation -framework Security")
 endif()
 
+
 target_link_libraries(hello-vortex PRIVATE vortex ${APPLE_LINK_FLAGS})
 
-add_custom_target(convert-parquet
-    COMMAND cargo run -p vortex-tui convert ${CMAKE_CURRENT_SOURCE_DIR}/goldenfiles/example.parquet
-    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    COMMENT "Converting example.parquet using vortex-tui"
-    VERBATIM
-)
-
-add_dependencies(hello-vortex convert-parquet)

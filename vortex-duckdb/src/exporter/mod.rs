@@ -147,7 +147,7 @@ fn new_array_exporter_with_flatten(
     }
 
     // Otherwise, we fall back to canonical
-    match array.to_canonical() {
+    match array.to_canonical()? {
         Canonical::Null(_) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
         Canonical::Bool(array) => bool::new_exporter(array),
         Canonical::Primitive(array) => primitive::new_exporter(array),

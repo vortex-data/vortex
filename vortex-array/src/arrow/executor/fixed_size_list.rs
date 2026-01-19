@@ -4,11 +4,8 @@
 use std::sync::Arc;
 
 use arrow_schema::FieldRef;
-use vortex_compute::arrow::IntoArrow;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_vector::Vector;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -30,18 +27,8 @@ pub(super) fn to_arrow_fixed_list(
     }
 
     // Otherwise, we execute the array to become a FixedSizeListArray.
-    let vector = array
-        .execute::<Vector>(ctx)?
-        .into_fixed_size_list_opt()
-        .ok_or_else(|| vortex_err!("Failed to convert array to FixedSizeListArray"))?;
-    vortex_ensure!(
-        Ok(list_size) == i32::try_from(vector.list_size()),
-        "Cannot convert FixedSizeList with list size {} to Arrow array with list size {}",
-        vector.list_size(),
-        list_size
-    );
-
-    Ok(Arc::new(vector.into_arrow()?))
+    let fixed_size_list = array.execute::<FixedSizeListArray>(ctx)?;
+    list_to_list(&fixed_size_list, elements_field, list_size, ctx)
 }
 
 fn list_to_list(
@@ -60,7 +47,7 @@ fn list_to_list(
     let elements = array
         .elements()
         .clone()
-        .execute_arrow(elements_field.data_type(), ctx)?;
+        .execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
         elements_field.is_nullable() || elements.null_count() == 0,
         "Cannot convert FixedSizeListArray to non-nullable Arrow array when elements are nullable"

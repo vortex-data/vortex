@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -8,7 +10,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -19,10 +24,10 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -38,15 +43,33 @@ impl VTable for FixedSizeListVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.fixed_size_list")
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let new_len = range.len();
+        let list_size = array.list_size() as usize;
+
+        // SAFETY: Slicing preserves FixedSizeListArray invariants
+        Ok(Some(
+            unsafe {
+                FixedSizeListArray::new_unchecked(
+                    array
+                        .elements()
+                        .slice(range.start * list_size..range.end * list_size),
+                    array.list_size(),
+                    array.validity().slice(range),
+                    new_len,
+                )
+            }
+            .into_array(),
+        ))
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
@@ -126,5 +149,9 @@ impl VTable for FixedSizeListVTable {
             FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::FixedSizeList(array.clone()))
     }
 }

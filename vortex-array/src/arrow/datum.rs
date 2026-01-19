@@ -12,6 +12,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 
@@ -25,7 +26,7 @@ pub struct Datum {
 impl Datum {
     /// Create a new [`Datum`] from an [`ArrayRef`], which can then be passed to Arrow compute.
     pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
-        if array.is_constant() {
+        if array.is::<ConstantVTable>() {
             Ok(Self {
                 array: array.slice(0..1).into_arrow_preferred()?,
                 is_scalar: true,
@@ -51,7 +52,7 @@ impl Datum {
         array: &dyn Array,
         target_datatype: &DataType,
     ) -> VortexResult<Self> {
-        if array.is_constant() {
+        if array.is::<ConstantVTable>() {
             Ok(Self {
                 array: array.slice(0..1).into_arrow(target_datatype)?,
                 is_scalar: true,

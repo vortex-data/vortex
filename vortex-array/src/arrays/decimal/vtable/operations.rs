@@ -1,34 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
-use vortex_buffer::Buffer;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
-use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::validity::Validity;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn slice(array: &DecimalArray, range: Range<usize>) -> ArrayRef {
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            slice_typed(
-                array.buffer::<D>(),
-                range,
-                array.decimal_dtype(),
-                array.validity.clone(),
-            )
-        })
-    }
-
     fn scalar_at(array: &DecimalArray, index: usize) -> Scalar {
         match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(
@@ -38,21 +19,6 @@ impl OperationsVTable<DecimalVTable> for DecimalVTable {
             )
         })
     }
-}
-
-fn slice_typed<T: NativeDecimalType>(
-    values: Buffer<T>,
-    range: Range<usize>,
-    decimal_dtype: DecimalDType,
-    validity: Validity,
-) -> ArrayRef {
-    let sliced = values.slice(range.clone());
-    let validity = validity.slice(range);
-    // SAFETY: Slicing preserves all DecimalArray invariants:
-    // - Buffer is correctly typed and sized from the slice operation.
-    // - Decimal dtype is preserved from the parent array.
-    // - Validity is correctly sliced to match the new length.
-    unsafe { DecimalArray::new_unchecked(sliced, decimal_dtype, validity) }.into_array()
 }
 
 #[cfg(test)]

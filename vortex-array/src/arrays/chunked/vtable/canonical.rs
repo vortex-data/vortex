@@ -7,6 +7,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -14,53 +15,42 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::compute::cast;
 use crate::validity::Validity;
-use crate::vtable::CanonicalVTable;
 
-impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
-    fn canonicalize(array: &ChunkedArray) -> Canonical {
-        if array.nchunks() == 0 {
-            return Canonical::empty(array.dtype());
-        }
-        if array.nchunks() == 1 {
-            return array.chunks()[0].to_canonical();
-        }
+pub(super) fn _canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
+    if array.nchunks() == 0 {
+        return Ok(Canonical::empty(array.dtype()));
+    }
+    if array.nchunks() == 1 {
+        return array.chunks()[0].to_canonical();
+    }
 
-        match array.dtype() {
-            DType::Struct(struct_dtype, _) => {
-                let struct_array = pack_struct_chunks(
-                    array.chunks(),
-                    Validity::copy_from_array(array.as_ref()),
-                    struct_dtype,
-                );
-                Canonical::Struct(struct_array)
-            }
-            DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+    Ok(match array.dtype() {
+        DType::Struct(struct_dtype, _) => {
+            let struct_array = pack_struct_chunks(
                 array.chunks(),
                 Validity::copy_from_array(array.as_ref()),
-                elem_dtype,
-            )),
-            _ => {
-                let mut builder = builder_with_capacity(array.dtype(), array.len());
-                array.append_to_builder(builder.as_mut());
-                builder.finish_into_canonical()
-            }
+                struct_dtype,
+            );
+            Canonical::Struct(struct_array)
         }
-    }
-
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) {
-        for chunk in array.chunks() {
-            chunk.append_to_builder(builder);
+        DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+            array.chunks(),
+            Validity::copy_from_array(array.as_ref()),
+            elem_dtype,
+        )?),
+        _ => {
+            let mut builder = builder_with_capacity(array.dtype(), array.len());
+            array.append_to_builder(builder.as_mut())?;
+            builder.finish_into_canonical()
         }
-    }
+    })
 }
 
 /// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
@@ -107,7 +97,7 @@ fn swizzle_list_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     elem_dtype: &DType,
-) -> ListViewArray {
+) -> VortexResult<ListViewArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
     assert_eq!(
@@ -136,7 +126,7 @@ fn swizzle_list_chunks(
         let chunk_array = chunk.to_listview();
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
-        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact);
+        let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact)?;
 
         // Add the `elements` of the current array as a new chunk.
         list_elements_chunks.push(chunk_array.elements().clone());
@@ -181,10 +171,10 @@ fn swizzle_list_chunks(
     // - Validity came from the outer chunked array so it must have the same length
     // - Since we made sure that all chunks were zero-copyable to a list above, we know that the
     //   final concatenated output is also zero-copyable to a list.
-    unsafe {
+    Ok(unsafe {
         ListViewArray::new_unchecked(chunked_elements, offsets, sizes, validity)
             .with_zero_copy_to_list(true)
-    }
+    })
 }
 
 #[cfg(test)]

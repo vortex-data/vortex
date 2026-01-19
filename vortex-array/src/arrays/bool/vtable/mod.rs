@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -9,7 +11,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
@@ -20,6 +25,7 @@ use crate::vtable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -50,12 +56,10 @@ impl VTable for BoolVTable {
     type Metadata = ProstMetadata<BoolMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.bool")
@@ -103,7 +107,7 @@ impl VTable for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let buffer = buffers[0].clone().try_to_bytes()?;
+        let buffer = buffers[0].clone().try_to_host()?;
         let bits = BitBuffer::new_with_offset(buffer, len, metadata.offset as usize);
 
         BoolArray::try_new(bits, validity)
@@ -125,12 +129,26 @@ impl VTable for BoolVTable {
         Ok(())
     }
 
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Bool(array.clone()))
+    }
+
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            BoolArray::from_bit_buffer(
+                array.bit_buffer().slice(range.clone()),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
     }
 }
 

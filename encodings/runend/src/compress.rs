@@ -8,6 +8,8 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::expr::stats::Precision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BitBuffer;
@@ -32,8 +34,11 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         Validity::AllValid => None,
         Validity::AllInvalid => {
             // We can trivially return an all-null REE array
+            let ends = PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable);
+            ends.statistics()
+                .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
             return (
-                PrimitiveArray::new(buffer![array.len() as u64], Validity::NonNullable),
+                ends,
                 ConstantArray::new(Scalar::null(array.dtype().clone()), 1).into_array(),
             );
         }
@@ -66,6 +71,9 @@ pub fn runend_encode(array: &PrimitiveArray) -> (PrimitiveArray, ArrayRef) {
         .narrow()
         .vortex_expect("Ends must succeed downcasting")
         .to_primitive();
+
+    ends.statistics()
+        .set(Stat::IsStrictSorted, Precision::Exact(true.into()));
 
     (ends, values)
 }
@@ -204,6 +212,11 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
         Mask::AllTrue(_) => {
             let mut decoded: BufferMut<T> = BufferMut::with_capacity(length);
             for (end, value) in run_ends.zip_eq(values) {
+                assert!(
+                    end >= decoded.len(),
+                    "Runend ends must be monotonic, got {end} after {}",
+                    decoded.len()
+                );
                 assert!(end <= length, "Runend end must be less than overall length");
                 // SAFETY:
                 // We preallocate enough capacity because we know the total length
@@ -221,6 +234,11 @@ pub fn runend_decode_typed_primitive<T: NativePType>(
                     .zip(mask.bit_buffer().iter())
                     .map(|(&v, is_valid)| is_valid.then_some(v)),
             ) {
+                assert!(
+                    end >= decoded.len(),
+                    "Runend ends must be monotonic, got {end} after {}",
+                    decoded.len()
+                );
                 assert!(end <= length, "Runend end must be less than overall length");
                 match value {
                     None => {

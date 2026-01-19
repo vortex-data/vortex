@@ -53,7 +53,9 @@ runs:
       uses: Swatinem/rust-cache@v2
       with:
         save-if: ${{ github.ref_name == 'develop' }}
-        shared-key: "rust-cache-${{ runner.os }}-${{ runner.arch }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
+        # os and arch by default
+        shared-key: "rust-cache-${{ github.job }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
+        env-vars: "RUSTFLAGS"
 
     - name: Rust Compile Cache
       uses: mozilla-actions/sccache-action@v0.0.9

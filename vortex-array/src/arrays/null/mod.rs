@@ -15,6 +15,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::buffer::BufferHandle;
@@ -27,7 +28,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -44,12 +44,10 @@ impl VTable for NullVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.null")
@@ -89,6 +87,14 @@ impl VTable for NullVTable {
             children.len()
         );
         Ok(())
+    }
+
+    fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(NullArray::new(range.len()).into_array()))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(array.clone()))
     }
 }
 
@@ -162,17 +168,7 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
 }
 
-impl CanonicalVTable<NullVTable> for NullVTable {
-    fn canonicalize(array: &NullArray) -> Canonical {
-        Canonical::Null(array.clone())
-    }
-}
-
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, range: Range<usize>) -> ArrayRef {
-        NullArray::new(range.len()).into_array()
-    }
-
     fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {
         Scalar::null(DType::Null)
     }

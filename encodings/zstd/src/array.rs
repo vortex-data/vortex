@@ -14,6 +14,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -33,8 +34,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -92,12 +91,10 @@ impl VTable for ZstdVTable {
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.zstd")
@@ -142,16 +139,16 @@ impl VTable for ZstdVTable {
                 None,
                 buffers
                     .iter()
-                    .map(|b| b.clone().try_to_bytes())
+                    .map(|b| b.clone().try_to_host())
                     .collect::<VortexResult<Vec<_>>>()?,
             )
         } else {
             // with dictionary
             (
-                Some(buffers[0].clone().try_to_bytes()?),
+                Some(buffers[0].clone().try_to_host()?),
                 buffers[1..]
                     .iter()
-                    .map(|b| b.clone().try_to_bytes())
+                    .map(|b| b.clone().try_to_host())
                     .collect::<VortexResult<Vec<_>>>()?,
             )
         };
@@ -180,6 +177,14 @@ impl VTable for ZstdVTable {
         };
 
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        array.decompress().to_canonical()
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(array._slice(range.start, range.end).into_array()))
     }
 }
 
@@ -366,7 +371,7 @@ impl ZstdArray {
             n_values
         };
 
-        let value_bytes = values.byte_buffer();
+        let value_bytes = values.buffer_handle().try_to_host()?;
         // Align frames to buffer alignment. This is necessary for overaligned buffers.
         let alignment = *value_bytes.alignment();
         let step_width = (values_per_frame * byte_width).div_ceil(alignment) * alignment;
@@ -379,7 +384,7 @@ impl ZstdArray {
             frames,
             frame_metas,
         } = Self::compress_values(
-            value_bytes,
+            &value_bytes,
             &frame_byte_starts,
             level,
             values_per_frame,
@@ -479,7 +484,7 @@ impl ZstdArray {
     }
 
     pub fn from_array(array: ArrayRef, level: i32, values_per_frame: usize) -> VortexResult<Self> {
-        Self::from_canonical(&array.to_canonical(), level, values_per_frame)?
+        Self::from_canonical(&array.to_canonical()?, level, values_per_frame)?
             .ok_or_else(|| vortex_err!("Zstd can only encode Primitive and VarBinView arrays"))
     }
 
@@ -770,29 +775,9 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
     }
 }
 
-impl CanonicalVTable<ZstdVTable> for ZstdVTable {
-    fn canonicalize(array: &ZstdArray) -> Canonical {
-        array.decompress().to_canonical()
-    }
-}
-
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn slice(array: &ZstdArray, range: Range<usize>) -> ArrayRef {
-        array._slice(range.start, range.end).into_array()
-    }
-
     fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<ZstdVTable> for ZstdVTable {
-    fn encode(
-        _vtable: &ZstdVTable,
-        canonical: &Canonical,
-        _like: Option<&ZstdArray>,
-    ) -> VortexResult<Option<ZstdArray>> {
-        ZstdArray::from_canonical(canonical, 3, 0)
     }
 }
 

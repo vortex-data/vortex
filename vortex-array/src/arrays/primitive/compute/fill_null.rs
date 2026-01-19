@@ -27,7 +27,7 @@ impl FillNullKernel for PrimitiveVTable {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
-                    let mut buffer = array.buffer::<T>().into_mut();
+                    let mut buffer = array.to_buffer::<T>().into_mut();
                     let fill_value = fill_value
                         .as_primitive()
                         .typed_value::<T>()

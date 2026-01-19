@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::ops::Range;
 
 use itertools::Itertools as _;
 use num_traits::AsPrimitive;
@@ -14,6 +15,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -36,7 +38,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
@@ -57,6 +58,8 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
+use crate::canonical::canonicalize_sparse;
+
 mod canonical;
 mod compute;
 mod ops;
@@ -76,12 +79,10 @@ impl VTable for SparseVTable {
     type Metadata = ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.sparse")
@@ -137,7 +138,7 @@ impl VTable for SparseVTable {
         }
         let fill_value = Scalar::new(
             dtype.clone(),
-            ScalarValue::from_protobytes(&buffers[0].clone().try_to_bytes()?)?,
+            ScalarValue::from_protobytes(&buffers[0].clone().try_to_host()?)?,
         );
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
@@ -163,6 +164,34 @@ impl VTable for SparseVTable {
         );
 
         Ok(())
+    }
+
+    fn slice(array: &SparseArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let new_patches = array.patches().slice(range.clone());
+
+        let Some(new_patches) = new_patches else {
+            return Ok(Some(
+                ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array(),
+            ));
+        };
+
+        // If the number of values in the sparse array matches the array length, then all
+        // values are in fact patches, since patches are sorted this is the correct values.
+        if new_patches.array_len() == new_patches.values().len() {
+            return Ok(Some(new_patches.into_values()));
+        }
+
+        // SAFETY:
+        // patches slice will ensure that dtype of patches is unchanged and the indices and
+        // values match
+        Ok(Some(
+            unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()) }
+                .into_array(),
+        ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_sparse(array)
     }
 }
 
@@ -487,22 +516,6 @@ fn patch_validity<I: NativePType + AsPrimitive<usize>>(
                 is_valid_buffer.set_to(index, is_valid);
             }
         }
-    }
-}
-
-impl EncodeVTable<SparseVTable> for SparseVTable {
-    fn encode(
-        _vtable: &SparseVTable,
-        input: &Canonical,
-        like: Option<&SparseArray>,
-    ) -> VortexResult<Option<SparseArray>> {
-        // Try and cast the "like" fill value into the array's type. This is useful for cases where we narrow the arrays type.
-        let fill_value = like.and_then(|arr| arr.fill_scalar().cast(input.as_ref().dtype()).ok());
-
-        // TODO(ngates): encode should only handle arrays that _can_ be made sparse.
-        Ok(SparseArray::encode(input.as_ref(), fill_value)?
-            .as_opt::<SparseVTable>()
-            .cloned())
     }
 }
 

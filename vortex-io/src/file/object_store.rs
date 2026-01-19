@@ -8,87 +8,91 @@ use async_compat::Compat;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::future::BoxFuture;
-use futures::stream::BoxStream;
-use tracing::Instrument;
+use object_store::GetOptions;
+use object_store::GetRange;
+use object_store::GetResultPayload;
+use object_store::ObjectStore;
+use object_store::path::Path as ObjectPath;
+use vortex_buffer::Alignment;
+use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::file::IoRequest;
-use crate::file::read::CoalesceWindow;
-use crate::file::read::IntoReadSource;
-use crate::file::read::ReadSource;
-use crate::file::read::ReadSourceRef;
+use crate::CoalesceConfig;
+use crate::VortexReadAt;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
 
-const COALESCING_WINDOW: CoalesceWindow = CoalesceWindow {
+const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
     distance: 1024 * 1024,      // 1 MB
     max_size: 16 * 1024 * 1024, // 16 MB
 };
-const CONCURRENCY: usize = 192; // Number of concurrent requests to allow.
 
-pub struct ObjectStoreReadSource {
-    store: Arc<dyn object_store::ObjectStore>,
-    path: object_store::path::Path,
+/// Default number of concurrent requests to allow.
+const DEFAULT_CONCURRENCY: usize = 192;
+
+/// An object store backed I/O source.
+pub struct ObjectStoreSource {
+    store: Arc<dyn ObjectStore>,
+    path: ObjectPath,
     uri: Arc<str>,
+    handle: Handle,
     concurrency: usize,
-    coalesce_window: Option<CoalesceWindow>,
+    coalesce_config: Option<CoalesceConfig>,
 }
 
-impl ObjectStoreReadSource {
-    pub fn new(store: Arc<dyn object_store::ObjectStore>, path: object_store::path::Path) -> Self {
+impl ObjectStoreSource {
+    /// Create a new object store source.
+    pub fn new(store: Arc<dyn ObjectStore>, path: ObjectPath, handle: Handle) -> Self {
         let uri = Arc::from(path.to_string());
         Self {
             store,
             path,
             uri,
-            concurrency: CONCURRENCY,
-            coalesce_window: Some(COALESCING_WINDOW),
+            handle,
+            concurrency: DEFAULT_CONCURRENCY,
+            coalesce_config: Some(DEFAULT_COALESCING_CONFIG),
         }
     }
 
+    /// Set the concurrency for this source.
     pub fn with_concurrency(mut self, concurrency: usize) -> Self {
         self.concurrency = concurrency;
         self
     }
 
-    pub fn with_coalesce_window(mut self, window: CoalesceWindow) -> Self {
-        self.coalesce_window = Some(window);
+    /// Set the coalesce config for this source.
+    pub fn with_coalesce_config(mut self, config: CoalesceConfig) -> Self {
+        self.coalesce_config = Some(config);
         self
     }
 
-    pub fn with_some_coalesce_window(mut self, window: Option<CoalesceWindow>) -> Self {
-        self.coalesce_window = window;
+    /// Set an optional coalesce config for this source.
+    pub fn with_some_coalesce_config(mut self, config: Option<CoalesceConfig>) -> Self {
+        self.coalesce_config = config;
         self
     }
 }
 
-impl IntoReadSource for ObjectStoreReadSource {
-    fn into_read_source(self, handle: Handle) -> VortexResult<ReadSourceRef> {
-        Ok(Arc::new(ObjectStoreIoSource { io: self, handle }))
-    }
-}
-
-struct ObjectStoreIoSource {
-    io: ObjectStoreReadSource,
-    handle: Handle,
-}
-
-impl ReadSource for ObjectStoreIoSource {
-    fn uri(&self) -> &Arc<str> {
-        &self.io.uri
+impl VortexReadAt for ObjectStoreSource {
+    fn uri(&self) -> Option<&Arc<str>> {
+        Some(&self.uri)
     }
 
-    fn coalesce_window(&self) -> Option<CoalesceWindow> {
-        self.io.coalesce_window
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.coalesce_config
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
     }
 
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        let store = self.io.store.clone();
-        let path = self.io.path.clone();
+        let store = self.store.clone();
+        let path = self.path.clone();
         Compat::new(async move {
             store
                 .head(&path)
@@ -99,79 +103,66 @@ impl ReadSource for ObjectStoreIoSource {
         .boxed()
     }
 
-    fn drive_send(
-        self: Arc<Self>,
-        requests: BoxStream<'static, IoRequest>,
-    ) -> BoxFuture<'static, ()> {
-        let self2 = self.clone();
-        let concurrency = self.io.concurrency;
-        requests
-            .map(move |req| {
-                let handle = self.handle.clone();
-                let store = self.io.store.clone();
-                let path = self.io.path.clone();
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        let store = self.store.clone();
+        let path = self.path.clone();
+        let handle = self.handle.clone();
+        let range = offset..(offset + length as u64);
 
-                let len = req.len();
-                let range = req.range();
-                let alignment = req.alignment();
+        Compat::new(async move {
+            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
 
-                let read = async move {
-                    // Instead of calling `ObjectStore::get_range`, we expand the implementation and run it
-                    // ourselves to avoid a second copy to align the buffer. Instead, we can write directly
-                    // into the aligned buffer.
-                    let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+            let response = store
+                .get_opts(
+                    &path,
+                    GetOptions {
+                        range: Some(GetRange::Bounded(range.clone())),
+                        ..Default::default()
+                    },
+                )
+                .await?;
 
-                    let response = store
-                        .get_opts(
-                            &path,
-                            object_store::GetOptions {
-                                range: Some(object_store::GetRange::Bounded(range.clone())),
-                                ..Default::default()
-                            },
-                        )
-                        .await?;
+            let buffer = match response.payload {
+                #[cfg(not(target_arch = "wasm32"))]
+                GetResultPayload::File(file, _) => {
+                    unsafe { buffer.set_len(length) };
 
-                    let buffer = match response.payload {
-                        object_store::GetResultPayload::File(file, _) => {
-                            // SAFETY: We're setting the length to the exact size we're about to read.
-                            // The read_exact_at call will either fill the entire buffer or return an error,
-                            // ensuring no uninitialized memory is exposed.
-                            unsafe { buffer.set_len(len) };
-
-                            handle
-                                .spawn_blocking(move || {
-                                    read_exact_at(&file, &mut buffer, range.start)?;
-                                    Ok::<_, io::Error>(buffer)
-                                })
-                                .await
-                                .map_err(io::Error::other)?
-                        }
-                        object_store::GetResultPayload::Stream(mut byte_stream) => {
-                            while let Some(bytes) = byte_stream.next().await {
-                                buffer.extend_from_slice(&bytes?);
-                            }
-
-                            vortex_ensure!(
-                                buffer.len() == len,
-                                "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
-                                buffer.len(),
-                                len,
-                                range
-                            );
-
-                            buffer
-                        }
-                    };
-
-                    Ok(buffer.freeze())
+                    handle
+                        .spawn_blocking(move || {
+                            read_exact_at(&file, &mut buffer, range.start)?;
+                            Ok::<_, io::Error>(buffer)
+                        })
+                        .await
+                        .map_err(io::Error::other)?
                 }
-                .in_current_span();
+                #[cfg(target_arch = "wasm32")]
+                GetResultPayload::File(..) => {
+                    unreachable!("File payload not supported on wasm32")
+                }
+                GetResultPayload::Stream(mut byte_stream) => {
+                    while let Some(bytes) = byte_stream.next().await {
+                        buffer.extend_from_slice(&bytes?);
+                    }
 
-                async move { req.resolve(Compat::new(read).await) }
-            })
-            .map(move |f| self2.handle.spawn(f))
-            .buffer_unordered(concurrency)
-            .collect::<()>()
-            .boxed()
+                    vortex_ensure!(
+                        buffer.len() == length,
+                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                        buffer.len(),
+                        length,
+                        range
+                    );
+
+                    buffer
+                }
+            };
+
+            Ok(buffer.freeze())
+        })
+        .boxed()
     }
 }

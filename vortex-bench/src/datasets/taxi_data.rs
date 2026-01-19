@@ -48,7 +48,7 @@ pub async fn fetch_taxi_data() -> Result<ArrayRef> {
     let vortex_data = taxi_data_vortex().await?;
     Ok(SESSION
         .open_options()
-        .open(vortex_data)
+        .open_path(vortex_data)
         .await?
         .scan()?
         .into_array_stream()?

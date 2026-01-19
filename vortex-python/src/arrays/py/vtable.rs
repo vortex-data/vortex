@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 use std::sync::Arc;
 
 use pyo3::Python;
@@ -15,6 +14,7 @@ use vortex::array::ArrayBufferVisitor;
 use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
 use vortex::array::SerializeMetadata;
@@ -26,9 +26,7 @@ use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::ArrayVTable;
 use vortex::array::vtable::BaseArrayVTable;
-use vortex::array::vtable::CanonicalVTable;
 use vortex::array::vtable::ComputeVTable;
-use vortex::array::vtable::EncodeVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
@@ -87,12 +85,10 @@ impl VTable for PythonVTable {
     type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
-    type EncodeVTable = Self;
 
     fn id(&self) -> ArrayId {
         self.id.clone()
@@ -148,6 +144,10 @@ impl VTable for PythonVTable {
         );
         Ok(())
     }
+
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        todo!()
+    }
 }
 
 impl BaseArrayVTable<PythonVTable> for PythonVTable {
@@ -178,17 +178,7 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
     }
 }
 
-impl CanonicalVTable<PythonVTable> for PythonVTable {
-    fn canonicalize(_array: &PythonArray) -> Canonical {
-        todo!()
-    }
-}
-
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn slice(_array: &PythonArray, _range: Range<usize>) -> ArrayRef {
-        todo!()
-    }
-
     fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
         todo!()
     }
@@ -232,16 +222,6 @@ impl ComputeVTable<PythonVTable> for PythonVTable {
         _compute_fn: &ComputeFn,
         _args: &InvocationArgs,
     ) -> VortexResult<Option<Output>> {
-        todo!()
-    }
-}
-
-impl EncodeVTable<PythonVTable> for PythonVTable {
-    fn encode(
-        _vtable: &PythonVTable,
-        _canonical: &Canonical,
-        _like: Option<&PythonArray>,
-    ) -> VortexResult<Option<PythonArray>> {
         todo!()
     }
 }

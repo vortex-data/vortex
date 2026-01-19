@@ -15,8 +15,10 @@ use vortex_error::VortexResult;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
+use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::arrow::null_buffer::to_null_buffer;
 use crate::builtins::ArrayBuiltins;
+use crate::vtable::ValidityHelper;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
 pub fn canonical_varbinview_to_arrow<T: ByteViewType>(array: &VarBinViewArray) -> ArrowArrayRef {
@@ -31,6 +33,25 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(array: &VarBinViewArray) -
 
     // SAFETY: our own VarBinView array is considered safe.
     Arc::new(unsafe { GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls) })
+}
+
+pub fn execute_varbinview_to_arrow<T: ByteViewType>(
+    array: &VarBinViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrowArrayRef> {
+    let views =
+        ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
+    let buffers: Vec<_> = array
+        .buffers()
+        .iter()
+        .map(|buffer| buffer.clone().into_arrow_buffer())
+        .collect();
+    let nulls = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+
+    // SAFETY: our own VarBinView array is considered safe.
+    Ok(Arc::new(unsafe {
+        GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls)
+    }))
 }
 
 pub(super) fn to_arrow_byte_view<T: ByteViewType>(

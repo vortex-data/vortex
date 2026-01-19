@@ -56,6 +56,7 @@ class VortexDatasource(Datasource):
         batch_size: int | None = None,
         meta_provider: BaseFileMetadataProvider = DefaultFileMetadataProvider(),  # pyright: ignore[reportCallInDefaultInitializer]
     ):
+        super().__init__()
         self._columns = columns
         self._filter = filter
 

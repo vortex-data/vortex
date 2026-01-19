@@ -8,6 +8,7 @@ use crate::arrays::ListViewVTable;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;
+use crate::compute::is_constant_opts;
 use crate::register_kernel;
 
 impl IsConstantKernel for ListViewVTable {
@@ -21,7 +22,7 @@ impl IsConstantKernel for ListViewVTable {
         // - All elements are valid (no nulls)
 
         // First check if all list sizes are constant.
-        if !array.sizes().is_constant_opts(opts.cost) {
+        if !is_constant_opts(array.sizes().as_ref(), opts)?.unwrap_or_default() {
             return Ok(Some(false));
         }
 

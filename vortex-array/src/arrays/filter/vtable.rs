@@ -4,7 +4,6 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
-use std::ops::Range;
 
 use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
@@ -24,9 +23,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::rules::PARENT_RULES;
@@ -40,7 +37,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -56,12 +52,10 @@ impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::from("vortex.filter")
@@ -198,18 +192,7 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
     }
 }
 
-impl CanonicalVTable<FilterVTable> for FilterVTable {
-    fn canonicalize(array: &FilterArray) -> Canonical {
-        FilterVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-            .vortex_expect("Canonicalize should be fallible")
-    }
-}
-
 impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn slice(array: &FilterArray, range: Range<usize>) -> ArrayRef {
-        FilterArray::new(array.child.slice(range.clone()), array.mask.slice(range)).into_array()
-    }
-
     fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)

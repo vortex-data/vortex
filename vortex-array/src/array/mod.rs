@@ -29,6 +29,8 @@ use crate::ArrayHash;
 use crate::Canonical;
 use crate::DynArrayEq;
 use crate::DynArrayHash;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
@@ -39,16 +41,14 @@ use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
 use crate::compute::ComputeFn;
-use crate::compute::Cost;
 use crate::compute::InvocationArgs;
-use crate::compute::IsConstantOpts;
 use crate::compute::Output;
-use crate::compute::is_constant_opts;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -59,7 +59,6 @@ use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::ComputeVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -168,12 +167,12 @@ pub trait Array:
     fn validity_mask(&self) -> Mask;
 
     /// Returns the canonical representation of the array.
-    fn to_canonical(&self) -> Canonical;
+    fn to_canonical(&self) -> VortexResult<Canonical>;
 
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder);
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -295,11 +294,11 @@ impl Array for Arc<dyn Array> {
         self.as_ref().validity_mask()
     }
 
-    fn to_canonical(&self) -> Canonical {
+    fn to_canonical(&self) -> VortexResult<Canonical> {
         self.as_ref().to_canonical()
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         self.as_ref().append_to_builder(builder)
     }
 
@@ -367,28 +366,8 @@ impl dyn Array + '_ {
         self.as_opt::<V>().is_some()
     }
 
-    pub fn is_constant(&self) -> bool {
-        let opts = IsConstantOpts {
-            cost: Cost::Specialized,
-        };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
-    pub fn is_constant_opts(&self, cost: Cost) -> bool {
-        let opts = IsConstantOpts { cost };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
-    }
-
     pub fn as_constant(&self) -> Option<Scalar> {
-        self.is_constant().then(|| self.scalar_at(0))
+        self.as_opt::<ConstantVTable>().map(|a| a.scalar().clone())
     }
 
     /// Total size of the array in bytes, including all children and buffers.
@@ -499,7 +478,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Canonical::empty(self.dtype()).into_array();
         }
 
-        let sliced = <V::OperationsVTable as OperationsVTable<V>>::slice(&self.0, range);
+        let sliced = V::slice(&self.0, range.clone())
+            .vortex_expect("cannot fail")
+            .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
+            .optimize()
+            .vortex_expect("cannot fail for now");
 
         assert_eq!(
             sliced.len(),
@@ -624,8 +607,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         mask
     }
 
-    fn to_canonical(&self) -> Canonical {
-        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0);
+    fn to_canonical(&self) -> VortexResult<Canonical> {
+        let canonical = V::execute(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         assert_eq!(
             self.len(),
@@ -647,10 +630,10 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             .as_ref()
             .statistics()
             .inherit_from(self.statistics());
-        canonical
+        Ok(canonical)
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) {
+    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
         if builder.dtype() != self.dtype() {
             vortex_panic!(
                 "Builder dtype mismatch: expected {}, got {}",
@@ -660,13 +643,15 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
         let len = builder.len();
 
-        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder);
+        V::append_to_builder(&self.0, builder)?;
+
         assert_eq!(
             len + self.len(),
             builder.len(),
             "Builder length mismatch after writing array for encoding {}",
             self.encoding_id(),
         );
+        Ok(())
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {

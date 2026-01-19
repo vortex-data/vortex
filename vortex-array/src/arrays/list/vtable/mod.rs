@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -13,9 +15,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
@@ -27,10 +31,10 @@ use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod kernel;
 mod operations;
 mod validity;
@@ -52,15 +56,24 @@ impl VTable for ListVTable {
     type Metadata = ProstMetadata<ListMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::new_ref("vortex.list")
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ListArray::new(
+                array.elements().clone(),
+                array.offsets().slice(range.start..range.end + 1),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
     }
 
     fn encoding(_array: &Self::Array) -> ArrayVTable {
@@ -142,6 +155,10 @@ impl VTable for ListVTable {
         let new_array = ListArray::try_new(elements, offsets, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(list_view_from_list(array.clone())))
     }
 
     fn execute_parent(
