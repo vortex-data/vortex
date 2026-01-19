@@ -542,7 +542,6 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: runs-on/action@v2
-        if: matrix.os == 'linux-arm64'
         with:
           sccache: s3
       - uses: actions/checkout@v5
