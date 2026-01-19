@@ -10,6 +10,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -46,6 +47,7 @@ use vortex_scalar::PValue;
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
 use crate::compress::runend_encode;
+use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
 
 vtable!(RunEnd);
@@ -141,6 +143,15 @@ impl VTable for RunEndVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
@@ -467,9 +478,9 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
 }
 
 impl CanonicalVTable<RunEndVTable> for RunEndVTable {
-    fn canonicalize(array: &RunEndArray) -> Canonical {
+    fn canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
         let pends = array.ends().to_primitive();
-        match array.dtype() {
+        Ok(match array.dtype() {
             DType::Bool(_) => {
                 let bools = array.values().to_bool();
                 Canonical::Bool(runend_decode_bools(
@@ -489,7 +500,7 @@ impl CanonicalVTable<RunEndVTable> for RunEndVTable {
                 ))
             }
             _ => vortex_panic!("Only Primitive and Bool values are supported"),
-        }
+        })
     }
 }
 

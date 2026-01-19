@@ -281,7 +281,7 @@ mod test {
         // [read]
         let array = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .with_filter(gt(root(), lit(2u64)))
@@ -323,7 +323,7 @@ mod test {
         // [compact read]
         let recovered_array = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .into_array_stream()?
@@ -373,7 +373,7 @@ mod test {
         // Read the file back, but project down to just the "value" column.
         let projected = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .with_projection(select(["value"], root()))

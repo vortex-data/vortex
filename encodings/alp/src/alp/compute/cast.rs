@@ -60,56 +60,58 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use crate::ALPVTable;
 
     #[test]
-    fn test_cast_alp_f32_to_f64() {
+    fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
         let alp = ALPVTable
             .as_vtable()
-            .encode(&values.to_canonical(), None)
-            .unwrap()
-            .unwrap();
+            .encode(&values.to_canonical()?, None)?
+            .vortex_expect("must encode");
 
         let casted = cast(
             alp.as_ref(),
             &DType::Primitive(PType::F64, Nullability::NonNullable),
-        )
-        .unwrap();
+        )?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical().into_primitive();
+        let decoded = casted.to_canonical()?.into_primitive();
         let values = decoded.as_slice::<f64>();
         assert_eq!(values.len(), 4);
         assert!((values[0] - 1.5).abs() < f64::EPSILON);
         assert!((values[1] - 2.5).abs() < f64::EPSILON);
+
+        Ok(())
     }
 
     #[test]
-    fn test_cast_alp_to_int() {
+    fn test_cast_alp_to_int() -> VortexResult<()> {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
         let alp = ALPVTable
             .as_vtable()
-            .encode(&values.to_canonical(), None)
-            .unwrap()
-            .unwrap();
+            .encode(&values.to_canonical()?, None)?
+            .vortex_expect("must encode");
 
         let casted = cast(
             alp.as_ref(),
             &DType::Primitive(PType::I32, Nullability::NonNullable),
-        )
-        .unwrap();
+        )?;
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I32, Nullability::NonNullable)
         );
 
-        let decoded = casted.to_canonical().into_primitive();
+        let decoded = casted.to_canonical()?.into_primitive();
         assert_arrays_eq!(decoded, PrimitiveArray::from_iter([1i32, 2, 3, 4]));
+
+        Ok(())
     }
 
     #[rstest]
@@ -118,12 +120,13 @@ mod tests {
     #[case(PrimitiveArray::from_option_iter([Some(1.1f32), None, Some(2.2), Some(3.3), None]).into_array())]
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
-    fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) {
+    fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
         let alp = ALPVTable
             .as_vtable()
-            .encode(&array.to_canonical(), None)
-            .unwrap()
-            .unwrap();
+            .encode(&array.to_canonical()?, None)?
+            .vortex_expect("cannot fail");
         test_cast_conformance(alp.as_ref());
+
+        Ok(())
     }
 }

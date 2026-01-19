@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
+use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
@@ -24,6 +25,8 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
 use crate::vtable::VTable;
+
+static NAMES: LazyLock<FieldNames> = LazyLock::new(|| FieldNames::from(["min", "max"]));
 
 static MIN_MAX_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
     let compute = ComputeFn::new("min_max".into(), ArcRef::new_ref(&MinMax));
@@ -120,7 +123,7 @@ impl ComputeFnVTable for MinMax {
         // that the array is all null or empty.
         Ok(DType::Struct(
             StructFields::new(
-                ["min", "max"].into(),
+                NAMES.clone(),
                 vec![
                     array.dtype().as_nonnullable(),
                     array.dtype().as_nonnullable(),
@@ -182,7 +185,7 @@ fn min_max_impl(
     }
 
     if !array.is_canonical() {
-        let array = array.to_canonical();
+        let array = array.to_canonical()?;
         return min_max(array.as_ref());
     }
 
@@ -216,7 +219,7 @@ impl<V: VTable + MinMaxKernel> Kernel for MinMaxKernelAdapter<V> {
         let non_nullable_dtype = array.dtype().as_nonnullable();
         let dtype = DType::Struct(
             StructFields::new(
-                ["min", "max"].into(),
+                NAMES.clone(),
                 vec![non_nullable_dtype.clone(), non_nullable_dtype],
             ),
             Nullability::Nullable,

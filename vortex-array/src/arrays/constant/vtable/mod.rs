@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -12,6 +13,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
@@ -102,5 +104,11 @@ impl VTable for ConstantVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ConstantArray::new(array.scalar.clone(), range.len()).into_array(),
+        ))
     }
 }

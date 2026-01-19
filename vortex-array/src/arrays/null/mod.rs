@@ -90,6 +90,10 @@ impl VTable for NullVTable {
         );
         Ok(())
     }
+
+    fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(NullArray::new(range.len()).into_array()))
+    }
 }
 
 /// A array where all values are null.
@@ -163,16 +167,12 @@ impl VisitorVTable<NullVTable> for NullVTable {
 }
 
 impl CanonicalVTable<NullVTable> for NullVTable {
-    fn canonicalize(array: &NullArray) -> Canonical {
-        Canonical::Null(array.clone())
+    fn canonicalize(array: &NullArray) -> VortexResult<Canonical> {
+        Ok(Canonical::Null(array.clone()))
     }
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
-    fn slice(_array: &NullArray, range: Range<usize>) -> ArrayRef {
-        NullArray::new(range.len()).into_array()
-    }
-
     fn scalar_at(_array: &NullArray, _index: usize) -> Scalar {
         Scalar::null(DType::Null)
     }

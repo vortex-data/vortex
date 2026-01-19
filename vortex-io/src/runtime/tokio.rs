@@ -5,14 +5,12 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 use futures::future::BoxFuture;
-use tracing::Instrument;
 
 use crate::runtime::AbortHandle;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::BlockingRuntime;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
-use crate::runtime::IoTask;
 
 /// A Vortex runtime that drives all work the enclosed Tokio runtime handle.
 pub struct TokioRuntime(Arc<tokio::runtime::Handle>);
@@ -55,10 +53,6 @@ impl Executor for tokio::runtime::Handle {
     fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         Box::new(tokio::runtime::Handle::spawn_blocking(self, task).abort_handle())
     }
-
-    fn spawn_io(&self, task: IoTask) {
-        tokio::runtime::Handle::spawn(self, task.source.drive_send(task.stream).in_current_span());
-    }
 }
 
 /// A runtime implementation that grabs the current Tokio runtime handle on each call.
@@ -83,11 +77,6 @@ impl Executor for CurrentTokioRuntime {
                 .spawn_blocking(task)
                 .abort_handle(),
         )
-    }
-
-    fn spawn_io(&self, task: IoTask) {
-        tokio::runtime::Handle::current()
-            .spawn(task.source.drive_send(task.stream).in_current_span());
     }
 }
 

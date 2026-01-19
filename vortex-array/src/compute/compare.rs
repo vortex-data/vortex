@@ -3,6 +3,7 @@
 
 use core::fmt;
 use std::any::Any;
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::LazyLock;
@@ -319,6 +320,37 @@ where
     lengths.map(cmp_fn).collect()
 }
 
+/// Compare two Arrow arrays element-wise using [`make_comparator`].
+///
+/// This function is required for nested types (Struct, List, FixedSizeList) because Arrow's
+/// vectorized comparison kernels ([`cmp::eq`], [`cmp::neq`], etc.) do not support them.
+///
+/// The vectorized kernels are faster but only work on primitive types, so for non-nested types,
+/// prefer using the vectorized kernels directly for better performance.
+pub(crate) fn compare_nested_arrow_arrays(
+    lhs: &dyn arrow_array::Array,
+    rhs: &dyn arrow_array::Array,
+    operator: Operator,
+) -> VortexResult<BooleanArray> {
+    let compare_arrays_at = make_comparator(lhs, rhs, SortOptions::default())?;
+
+    let cmp_fn = match operator {
+        Operator::Eq => Ordering::is_eq,
+        Operator::NotEq => Ordering::is_ne,
+        Operator::Gt => Ordering::is_gt,
+        Operator::Gte => Ordering::is_ge,
+        Operator::Lt => Ordering::is_lt,
+        Operator::Lte => Ordering::is_le,
+    };
+
+    let values = (0..lhs.len())
+        .map(|i| cmp_fn(compare_arrays_at(i, i)))
+        .collect();
+    let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
+
+    Ok(BooleanArray::new(values, nulls))
+}
+
 /// Implementation of `CompareFn` using the Arrow crate.
 fn arrow_compare(
     left: &dyn Array,
@@ -329,6 +361,9 @@ fn arrow_compare(
 
     let nullable = left.dtype().is_nullable() || right.dtype().is_nullable();
 
+    // Arrow's vectorized comparison kernels (`cmp::eq`, etc.) are faster but don't support nested
+    // types. For nested types, we fall back to `make_comparator` which does element-wise
+    // comparison.
     let array = if left.dtype().is_nested() || right.dtype().is_nested() {
         let rhs = right.to_array().into_arrow_preferred()?;
         let lhs = left.to_array().into_arrow(rhs.data_type())?;
@@ -340,24 +375,9 @@ fn arrow_compare(
             rhs.data_type()
         );
 
-        let cmp = make_comparator(lhs.as_ref(), rhs.as_ref(), SortOptions::default())?;
-        let len = left.len();
-        let values = (0..len)
-            .map(|i| {
-                let cmp = cmp(i, i);
-                match operator {
-                    Operator::Eq => cmp.is_eq(),
-                    Operator::NotEq => cmp.is_ne(),
-                    Operator::Gt => cmp.is_gt(),
-                    Operator::Gte => cmp.is_gt() || cmp.is_eq(),
-                    Operator::Lt => cmp.is_lt(),
-                    Operator::Lte => cmp.is_lt() || cmp.is_eq(),
-                }
-            })
-            .collect();
-        let nulls = NullBuffer::union(lhs.nulls(), rhs.nulls());
-        BooleanArray::new(values, nulls)
+        compare_nested_arrow_arrays(lhs.as_ref(), rhs.as_ref(), operator)?
     } else {
+        // Fast path: use vectorized kernels for primitive types.
         let lhs = Datum::try_new(left)?;
         let rhs = Datum::try_new_with_target_datatype(right, lhs.data_type())?;
 

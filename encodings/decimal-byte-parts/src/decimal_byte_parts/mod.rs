@@ -138,6 +138,14 @@ impl VTable for DecimalBytePartsVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing encoded MSP does not change the encoded values
+        Ok(Some(unsafe {
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+                .into_array()
+        }))
+    }
 }
 
 /// This array encodes decimals as between 1-4 columns of primitive typed children.
@@ -227,13 +235,13 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn canonicalize(array: &DecimalBytePartsArray) -> Canonical {
+    fn canonicalize(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
         // TODO(joe): support parts len != 1
         let prim = array.msp.to_primitive();
         // Depending on the decimal type and the min/max of the primitive array we can choose
         // the correct buffer size
 
-        match_each_signed_integer_ptype!(prim.ptype(), |P| {
+        Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
             // SAFETY: The primitive array's buffer is already validated with correct type.
             // The decimal dtype matches the array's dtype, and validity is preserved.
             Canonical::Decimal(unsafe {
@@ -243,19 +251,11 @@ impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
                     prim.validity().clone(),
                 )
             })
-        })
+        }))
     }
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
-                .into_array()
-        }
-    }
-
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index);

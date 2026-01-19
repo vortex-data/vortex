@@ -259,6 +259,7 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutId;
@@ -479,7 +480,13 @@ mod tests {
                 .await
                 .unwrap();
             let expected = array.validity_mask().into_array();
-            assert_arrays_eq!(actual.to_canonical().into_array(), expected);
+            assert_arrays_eq!(
+                actual
+                    .to_canonical()
+                    .vortex_expect("to_canonical failed")
+                    .into_array(),
+                expected
+            );
         })
     }
 }

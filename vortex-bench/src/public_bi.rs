@@ -467,7 +467,7 @@ impl Dataset for PBIBenchmark {
 
         Ok(SESSION
             .open_options()
-            .open(path.as_path())
+            .open_path(path.as_path())
             .await?
             .scan()?
             .into_array_stream()?

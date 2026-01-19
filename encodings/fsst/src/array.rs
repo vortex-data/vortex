@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hash;
+use std::ops::Range;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
@@ -19,6 +20,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -43,6 +45,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -188,6 +191,25 @@ impl VTable for FSSTVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<Canonical>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing the `codes` leaves the symbol table intact
+        Ok(Some(
+            unsafe {
+                FSSTArray::new_unchecked(
+                    array.dtype().clone(),
+                    array.symbols().clone(),
+                    array.symbol_lengths().clone(),
+                    VarBinVTable::slice(array.codes().as_::<VarBinVTable>(), range.clone())?
+                        .vortex_expect("varbin slice cannot fail")
+                        .as_::<VarBinVTable>()
+                        .clone(),
+                    array.uncompressed_lengths().slice(range),
+                )
+            }
+            .into_array(),
+        ))
     }
 }
 

@@ -86,7 +86,9 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
         ))
     } else {
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
-        Ok(decompress_unchunked_core(encoded, exponents, None, dtype))
+        Ok(decompress_unchunked_core(
+            encoded, exponents, patches, dtype,
+        ))
     }
 }
 

@@ -135,7 +135,7 @@ impl ComputeFnVTable for Filter {
         tracing::debug!("No filter implementation found for {}", array.encoding_id(),);
 
         if !array.is_canonical() {
-            let canonical = array.to_canonical().into_array();
+            let canonical = array.to_canonical()?.into_array();
             return filter(&canonical, mask).map(Into::into);
         };
 

@@ -69,7 +69,7 @@ impl FilterKernel for ListViewVTable {
         // right now, so we will just rebuild every time (similar to `ListArray`).
 
         Ok(new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
             .into_array())
     }
 }

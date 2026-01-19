@@ -314,6 +314,27 @@ impl VTable for SequenceVTable {
         }
         .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
+
+    fn reduce_parent(
+        _array: &SequenceArray,
+        _parent: &ArrayRef,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        Ok(None)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            SequenceArray::unchecked_new(
+                array.index_value(range.start),
+                array.multiplier,
+                array.ptype(),
+                array.dtype().nullability(),
+                range.len(),
+            )
+            .to_array(),
+        ))
+    }
 }
 
 fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
@@ -366,7 +387,7 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> Canonical {
+    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -377,22 +398,11 @@ impl CanonicalVTable<SequenceVTable> for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Canonical::Primitive(prim)
+        Ok(Canonical::Primitive(prim))
     }
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn slice(array: &SequenceArray, range: Range<usize>) -> ArrayRef {
-        SequenceArray::unchecked_new(
-            array.index_value(range.start),
-            array.multiplier,
-            array.ptype(),
-            array.dtype().nullability(),
-            range.len(),
-        )
-        .to_array()
-    }
-
     fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
         Scalar::new(
             array.dtype().clone(),

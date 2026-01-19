@@ -116,7 +116,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             _ => unreachable!("Not a supported FSST DType"),
         };
 
-        Ok(Some(canonical))
+        canonical.map(Some)
     }
 }
 

@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 }
 
 /// Simulates application activity with various log levels and spans
-#[expect(clippy::cognitive_complexity)]
+#[allow(clippy::cognitive_complexity)]
 async fn simulate_application_activity(user_id: u32) {
     // Simulate HTTP request handling
     let request_span = span!(
@@ -422,7 +422,7 @@ async fn read_trace_files(
             file_count += 1;
 
             // Read the file
-            let reader = session.open_options().open(path.clone()).await?;
+            let reader = session.open_options().open_path(path.clone()).await?;
             let array = reader.scan()?.into_array_stream()?.read_all().await?;
 
             total_events += array.len();

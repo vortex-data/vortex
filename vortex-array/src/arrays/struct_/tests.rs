@@ -7,6 +7,7 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::IntoArray;
@@ -132,7 +133,7 @@ fn test_duplicate_field_names() {
 }
 
 #[test]
-fn test_uncompressed_size_in_bytes() {
+fn test_uncompressed_size_in_bytes() -> VortexResult<()> {
     let struct_array = StructArray::new(
         FieldNames::from(["integers"]),
         vec![ConstantArray::new(5, 1000).into_array()],
@@ -140,11 +141,12 @@ fn test_uncompressed_size_in_bytes() {
         Validity::NonNullable,
     );
 
-    let canonical_size = struct_array.to_canonical().into_array().nbytes();
+    let canonical_size = struct_array.to_canonical()?.into_array().nbytes();
     let uncompressed_size = struct_array
         .statistics()
         .compute_uncompressed_size_in_bytes();
 
     assert_eq!(canonical_size, 2);
     assert_eq!(uncompressed_size, Some(4000));
+    Ok(())
 }

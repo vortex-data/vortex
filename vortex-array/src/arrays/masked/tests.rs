@@ -4,6 +4,7 @@
 use rstest::rstest;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexResult;
 
 use super::*;
 use crate::Array;
@@ -37,13 +38,14 @@ fn test_dtype_nullability_with_nullable_child() {
 }
 
 #[test]
-fn test_canonical_dtype_matches_array_dtype() {
+fn test_canonical_dtype_matches_array_dtype() -> VortexResult<()> {
     // The canonical form should have the same nullability as the array's dtype.
     let child = PrimitiveArray::from_iter([1i32, 2, 3]).into_array();
     let array = MaskedArray::try_new(child, Validity::AllValid).unwrap();
 
-    let canonical = array.to_canonical();
+    let canonical = array.to_canonical()?;
     assert_eq!(canonical.as_ref().dtype(), array.dtype());
+    Ok(())
 }
 
 #[test]

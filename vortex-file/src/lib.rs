@@ -95,6 +95,7 @@ mod file;
 mod footer;
 mod open;
 mod pruning;
+mod read;
 pub mod segments;
 mod strategy;
 #[cfg(test)]

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use num_traits::AsPrimitive;
+use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
@@ -14,6 +15,7 @@ use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::varbin::builder::VarBinBuilder;
 use crate::stats::ArrayStats;
@@ -304,6 +306,58 @@ impl VarBinArray {
     /// the `offsets` array, and the `validity`.
     pub fn into_parts(self) -> (DType, ByteBuffer, ArrayRef, Validity) {
         (self.dtype, self.bytes, self.offsets, self.validity)
+    }
+}
+
+impl VarBinArray {
+    /// Return an array containing the same data, but where the internal `offsets` start at zero
+    /// and all wasted space in the bytes child has been clipped.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use vortex_array::arrays::VarBinArray;
+    /// # use vortex_array::arrays::VarBinVTable;
+    /// # use vortex_dtype::DType;
+    /// # use vortex_dtype::Nullability::NonNullable;
+    /// let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
+    /// let sliced = items.slice(1..3).as_::<VarBinVTable>().clone();
+    ///
+    /// // After slicing, there is some unused data at the front of the bytes.
+    /// assert_eq!(sliced.offset_at(0), 3);
+    ///
+    /// // But after zeroing the offsets, the extraneous data is gone.
+    /// let truncated = sliced.zero_offsets();
+    /// assert_eq!(truncated.offset_at(0), 0);
+    /// assert_eq!(truncated.len(), 2);
+    /// ```
+    #[doc(hidden)]
+    pub fn zero_offsets(self) -> Self {
+        if self.is_empty() {
+            return self;
+        }
+
+        let first = self.offset_at(0);
+
+        let bytes = self.sliced_bytes();
+        let dtype = self.dtype;
+        let validity = self.validity;
+        let offsets = self.offsets;
+
+        let offsets = if first == 0 {
+            offsets
+        } else {
+            let offsets = offsets.to_primitive();
+            match_each_integer_ptype!(offsets.ptype(), |P| {
+                let offsets = offsets.as_slice::<P>();
+                let buffer: Buffer<P> = offsets.iter().map(|index| index - offsets[0]).collect();
+                buffer.into_array()
+            })
+        };
+
+        // SAFETY: we make the first offset start at zero, and slice the bytes accordingly,
+        //  so all offsets stay valid.
+        unsafe { Self::new_unchecked(offsets, bytes, dtype, validity) }
     }
 }
 

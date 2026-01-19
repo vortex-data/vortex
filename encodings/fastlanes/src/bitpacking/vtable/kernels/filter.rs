@@ -127,7 +127,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             primitive_vector
                 .freeze()
                 .into_array(parent.dtype())
-                .to_canonical(),
+                .to_canonical()?,
         ))
     }
 }

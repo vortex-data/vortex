@@ -193,15 +193,7 @@ def test_fragment_to_batch_size(ds: vx.dataset.VortexDataset, batch_size: int):
 def test_fragment_to_table(ds: vx.dataset.VortexDataset):
     fragments = list(ds.get_fragments())
 
-    # The first fragment contains none of the matching records
-    tbl = fragments[0].to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
-    assert len(tbl.slice(0, 10)) == 0
-
-    # From the second fragment onwards all records match
-    tbl = fragments[1].to_table(columns=["bool", "float"], filter=pc.field("float") > 100)
-    assert tbl.slice(0, 10) == pa.Table.from_struct_array(
-        pa.array([record(x, columns={"float", "bool"}) for x in range(10001, 10011)])
-    )
+    frag_row_count = 0
 
     for f in fragments:
         assert f.to_table(columns=["bool", "string"]).schema == pa.schema(
@@ -211,9 +203,13 @@ def test_fragment_to_table(ds: vx.dataset.VortexDataset):
             [("string", pa.string_view()), ("bool", pa.bool_())]
         )
 
+        frag_row_count += len(f.to_table(columns=["bool", "float"], filter=pc.field("float") > 100))
+
+    assert frag_row_count == 989_999
+
 
 def test_get_fragments(ds: vx.dataset.VortexDataset):
-    assert len(list(ds.get_fragments())) == 123
+    assert len(list(ds.get_fragments())) == 26
 
     assert ds.count_rows() == sum(f.count_rows() for f in ds.get_fragments())
 

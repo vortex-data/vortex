@@ -5,6 +5,7 @@ mod array;
 pub use array::RLEArray;
 
 mod compute;
+mod kernel;
 
 mod vtable;
 pub use vtable::RLEVTable;

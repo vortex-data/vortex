@@ -59,7 +59,7 @@ pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyV
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
-            options.open(path).await
+            options.open_path(path).await
         })
     })?;
 

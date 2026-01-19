@@ -93,7 +93,7 @@ pub async fn exec_tree(session: &VortexSession, args: TreeArgs) -> VortexResult<
 async fn exec_array_tree(session: &VortexSession, file: &Path, _json: bool) -> VortexResult<()> {
     let full = session
         .open_options()
-        .open(file)
+        .open_path(file)
         .await?
         .scan()?
         .into_array_stream()?
@@ -111,7 +111,7 @@ async fn exec_layout_tree(
     verbose: bool,
     json: bool,
 ) -> VortexResult<()> {
-    let vxf = session.open_options().open(file).await?;
+    let vxf = session.open_options().open_path(file).await?;
     let footer = vxf.footer();
 
     if json {

@@ -134,7 +134,7 @@ impl RandomAccessor for ParquetRandomAccessor {
 async fn take_vortex(reader: impl AsRef<Path>, indices: Buffer<u64>) -> anyhow::Result<ArrayRef> {
     let array = SESSION
         .open_options()
-        .open(reader.as_ref())
+        .open_path(reader.as_ref())
         .await?
         .scan()?
         .with_row_indices(indices)

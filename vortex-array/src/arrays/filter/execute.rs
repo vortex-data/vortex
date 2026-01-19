@@ -138,6 +138,7 @@ fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
         .as_::<ListViewVTable>()
         .clone()
         .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
+        .vortex_expect("rebuild listview array")
 }
 
 fn filter_fixed_size_list(array: &FixedSizeListArray, mask: &Mask) -> FixedSizeListArray {
