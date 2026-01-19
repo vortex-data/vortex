@@ -129,10 +129,6 @@ impl ScalarFn {
     pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
         Ok(self.vtable.as_dyn().validity(expr)?.unwrap_or_else(|| {
             // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
-            tracing::warn!(
-                "expr::VTable::validity is not implemented for {}",
-                self.vtable.id()
-            );
             // TODO(ngates): add an IsNotNull expression.
             Not.new_expr(
                 EmptyOptions,
