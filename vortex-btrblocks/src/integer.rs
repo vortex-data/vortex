@@ -8,6 +8,7 @@ use std::fmt::Debug;
 use std::hash::Hash;
 
 pub use stats::IntegerStats;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -22,7 +23,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
-use vortex_array::Array;
 use vortex_fastlanes::bitpack_compress::bit_width_histogram;
 use vortex_fastlanes::bitpack_compress::bitpack_encode;
 use vortex_fastlanes::bitpack_compress::find_best_bit_width;
