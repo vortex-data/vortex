@@ -383,7 +383,7 @@ impl BtrBlocksCompressor {
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical()?;
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
@@ -429,7 +429,7 @@ impl BtrBlocksCompressor {
             Canonical::List(list_view_array) => {
                 // TODO(joe): We might want to write list views in the future and chose between
                 // list and list view.
-                let list_array = list_from_list_view(list_view_array);
+                let list_array = list_from_list_view(list_view_array)?;
 
                 // Reset the offsets to remove garbage data that might prevent us from narrowing our
                 // offsets (there could be a large amount of trailing garbage data that the current

@@ -528,7 +528,7 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> Canonical {
+    fn canonicalize(array: &PcoArray) -> VortexResult<Canonical> {
         array.decompress().to_canonical()
     }
 }

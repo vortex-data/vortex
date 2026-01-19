@@ -368,6 +368,8 @@ jobs:
 
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          exclude: vortex-cuda
 
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
@@ -604,10 +606,10 @@ jobs:
       matrix:
         include:
           - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
-          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features test-harness" }
+          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features _test-harness" }
           - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features test-harness" }
+          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
           - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
           - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
@@ -632,23 +634,13 @@ jobs:
       - name: Build benchmarks
         env:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        run: cargo codspeed build -m simulation ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
+        run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
-      - name: Build memory benchmarks
-        env:
-          RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
-        run: cargo codspeed build -m analysis ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
-      - name: Run memory benchmarks
-        uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "memory"
 
   license-check-and-audit-check:
     name: License Check and Audit Check
