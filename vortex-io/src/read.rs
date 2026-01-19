@@ -143,6 +143,8 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
     // }
 }
 
+const DEFAULT_IN_MEMORY_CONCURRENCY: usize = 16;
+
 impl VortexReadAt for ByteBuffer {
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
         let length = self.len() as u64;
@@ -150,7 +152,7 @@ impl VortexReadAt for ByteBuffer {
     }
 
     fn concurrency(&self) -> usize {
-        16
+        DEFAULT_IN_MEMORY_CONCURRENCY
     }
 
     fn read_at(
@@ -175,6 +177,56 @@ impl VortexReadAt for ByteBuffer {
             Ok(buffer.slice_unaligned(start..end).aligned(alignment))
         }
         .boxed()
+    }
+}
+
+/// An in-memory read source with a configurable concurrency limit.
+#[derive(Clone, Debug)]
+pub struct InMemoryReadAt {
+    buffer: ByteBuffer,
+    concurrency: usize,
+}
+
+impl InMemoryReadAt {
+    pub fn new(buffer: ByteBuffer) -> Self {
+        Self {
+            buffer,
+            concurrency: DEFAULT_IN_MEMORY_CONCURRENCY,
+        }
+    }
+
+    pub fn with_concurrency(mut self, concurrency: usize) -> Self {
+        self.concurrency = concurrency;
+        self
+    }
+
+    pub fn into_inner(self) -> ByteBuffer {
+        self.buffer
+    }
+}
+
+impl From<ByteBuffer> for InMemoryReadAt {
+    fn from(buffer: ByteBuffer) -> Self {
+        Self::new(buffer)
+    }
+}
+
+impl VortexReadAt for InMemoryReadAt {
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.buffer.size()
+    }
+
+    fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    fn read_at(
+        &self,
+        offset: u64,
+        length: usize,
+        alignment: Alignment,
+    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        self.buffer.read_at(offset, length, alignment)
     }
 }
 
@@ -300,6 +352,18 @@ mod tests {
 
         let result = data.read_at(1, 9, Alignment::none()).await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_in_memory_read_at_default_concurrency() {
+        let read = InMemoryReadAt::new(ByteBuffer::from(vec![1, 2, 3]));
+        assert_eq!(read.concurrency(), 16);
+    }
+
+    #[test]
+    fn test_in_memory_read_at_custom_concurrency() {
+        let read = InMemoryReadAt::new(ByteBuffer::from(vec![1, 2, 3])).with_concurrency(4);
+        assert_eq!(read.concurrency(), 4);
     }
 
     #[tokio::test]
