@@ -29,6 +29,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::compute::is_constant;
 
     #[rstest]
     #[case(vec![true], true)]
@@ -40,6 +41,6 @@ mod tests {
     }, false)]
     fn test_is_constant(#[case] input: Vec<bool>, #[case] expected: bool) {
         let array = BoolArray::from_iter(input);
-        assert_eq!(array.is_constant(), expected);
+        assert_eq!(is_constant(array.as_ref()).unwrap(), Some(expected));
     }
 }

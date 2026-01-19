@@ -4,6 +4,7 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantVTable;
 use vortex_array::compute::BetweenKernel;
 use vortex_array::compute::BetweenKernelAdapter;
 use vortex_array::compute::BetweenOptions;
@@ -22,7 +23,7 @@ impl BetweenKernel for BitPackedVTable {
         upper: &dyn Array,
         options: &BetweenOptions,
     ) -> VortexResult<Option<ArrayRef>> {
-        if !lower.is_constant() || !upper.is_constant() {
+        if !lower.is::<ConstantVTable>() || !upper.is::<ConstantVTable>() {
             return Ok(None);
         };
 

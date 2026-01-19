@@ -45,6 +45,7 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 #[cfg(test)]
 mod test {
     use itertools::Itertools;
+    use vortex_array::Array;
     use vortex_array::ToCanonical;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::StatsProvider;
@@ -97,8 +98,8 @@ mod test {
         assert!(compressed.reference_scalar().dtype().is_signed_int());
         assert!(compressed.encoded().dtype().is_signed_int());
 
-        let constant = compressed.encoded().as_constant().unwrap();
-        assert_eq!(constant, Scalar::from(0i32));
+        let encoded = compressed.encoded().scalar_at(0);
+        assert_eq!(encoded, Scalar::from(0i32));
     }
 
     #[test]

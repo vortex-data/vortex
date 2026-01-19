@@ -45,11 +45,8 @@ use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
 use crate::compute::ComputeFn;
-use crate::compute::Cost;
 use crate::compute::InvocationArgs;
-use crate::compute::IsConstantOpts;
 use crate::compute::Output;
-use crate::compute::is_constant_opts;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -366,20 +363,6 @@ impl dyn Array + '_ {
     /// Is self an array with encoding from vtable `V`.
     pub fn is<V: VTable>(&self) -> bool {
         self.as_opt::<V>().is_some()
-    }
-
-    pub fn is_constant(&self) -> bool {
-        self.is::<ConstantVTable>()
-    }
-
-    // TODO(ngates): we should deprecate this and have callers use the compute function directly.
-    pub fn is_constant_opts(&self, cost: Cost) -> bool {
-        let opts = IsConstantOpts { cost };
-        is_constant_opts(self, &opts)
-            .inspect_err(|e| tracing::warn!("Failed to compute IsConstant: {e}"))
-            .ok()
-            .flatten()
-            .unwrap_or_default()
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
