@@ -38,7 +38,7 @@ sketches-ddsketch = { workspace = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
-vortex-layout = { workspace = true, features = ["test-harness"] }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
 
 [features]
 default = []

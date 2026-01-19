@@ -365,7 +365,7 @@ fn bytes_per_exception(ptype: PType) -> usize {
     ptype.byte_width() + 4
 }
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use rand::Rng as _;
     use rand::rngs::StdRng;

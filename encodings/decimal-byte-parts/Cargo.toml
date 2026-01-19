@@ -28,4 +28,4 @@ vortex-scalar = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
-vortex-array = { path = "../../vortex-array", features = ["test-harness"] }
+vortex-array = { path = "../../vortex-array", features = ["_test-harness"] }

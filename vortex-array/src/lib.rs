@@ -57,7 +57,7 @@ pub mod serde;
 pub mod session;
 pub mod stats;
 pub mod stream;
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 pub mod test_harness;
 pub mod validity;
 pub mod variants;
