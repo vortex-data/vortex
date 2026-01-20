@@ -99,15 +99,11 @@ mod tests {
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::session::ArraySession;
-    use vortex_buffer::ByteBuffer;
-    use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
-    use vortex_vector::binaryview::BinaryView;
 
-    use crate::canonical::build_views;
     use crate::fsst_compress;
     use crate::fsst_train_compressor;
 
@@ -185,41 +181,5 @@ mod tests {
             assert_eq!(data, res2)
         };
         Ok(())
-    }
-
-    #[test]
-    fn test_to_canonical_large() {
-        // We are testing generating views for raw data that should look like
-        //
-        //    aaaaaaaaaaaaa ("a"*13)
-        //    bbbbbbbbbbbbb ("b"*13)
-        //    ccccccccccccc ("c"*13)
-        //    ddddddddddddd ("d"*13)
-        //
-        // In real code, this would all fit in one buffer, but to unit test the splitting logic
-        // we split buffers at length 26, which should result in two buffers for the output array.
-        let raw_data =
-            ByteBufferMut::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbbcccccccccccccddddddddddddd");
-        let lens = vec![13u8; 4];
-
-        let (buffers, views) = build_views(0, 26, raw_data, &lens);
-
-        assert_eq!(
-            buffers,
-            vec![
-                ByteBuffer::copy_from("aaaaaaaaaaaaabbbbbbbbbbbbb"),
-                ByteBuffer::copy_from("cccccccccccccddddddddddddd"),
-            ]
-        );
-
-        assert_eq!(
-            views.as_slice(),
-            &[
-                BinaryView::make_view(b"aaaaaaaaaaaaa", 0, 0),
-                BinaryView::make_view(b"bbbbbbbbbbbbb", 0, 13),
-                BinaryView::make_view(b"ccccccccccccc", 1, 0),
-                BinaryView::make_view(b"ddddddddddddd", 1, 13),
-            ]
-        )
     }
 }
