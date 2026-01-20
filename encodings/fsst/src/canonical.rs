@@ -7,9 +7,10 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::MAX_BUFFER_LEN;
+use vortex_array::arrays::build_views::build_views;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::match_each_integer_ptype;
@@ -22,28 +23,24 @@ pub(super) fn canonicalize_fsst(
     array: &FSSTArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let (buffer, views) = fsst_decode_views(array, 0, ctx)?;
+    let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
         Canonical::VarBinView(VarBinViewArray::new_unchecked(
             views,
-            Arc::new([buffer]),
+            Arc::from(buffers),
             array.dtype().clone(),
             array.codes().validity().clone(),
         ))
     })
 }
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "truncation is intentional for buffer index"
-)]
-pub(super) fn fsst_decode_views(
+pub(crate) fn fsst_decode_views(
     fsst_array: &FSSTArray,
-    buf_index: u32,
+    start_buf_index: u32,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<(ByteBuffer, Buffer<BinaryView>)> {
+) -> VortexResult<(Vec<ByteBuffer>, Buffer<BinaryView>)> {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
@@ -58,7 +55,6 @@ pub(super) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
@@ -76,24 +72,14 @@ pub(super) fn fsst_decode_views(
     unsafe { uncompressed_bytes.set_len(len) };
 
     // Directly create the binary views.
-    let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens_array.len());
-
     match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
-        let mut offset = 0;
-        for len in uncompressed_lens_array.as_slice::<P>() {
-            let len = *len as usize;
-            let view = BinaryView::make_view(
-                &uncompressed_bytes[offset..][..len],
-                buf_index,
-                offset as u32,
-            );
-            // SAFETY: we reserved the right capacity beforehand
-            unsafe { views.push_unchecked(view) };
-            offset += len;
-        }
-    });
-
-    Ok((uncompressed_bytes.freeze(), views.freeze()))
+        Ok(build_views(
+            start_buf_index,
+            MAX_BUFFER_LEN,
+            uncompressed_bytes,
+            uncompressed_lens_array.as_slice::<P>(),
+        ))
+    })
 }
 
 #[cfg(test)]
