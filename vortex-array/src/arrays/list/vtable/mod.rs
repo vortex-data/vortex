@@ -150,8 +150,8 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::List(list_view_from_list(array.clone())))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
     }
 
     fn execute_parent(

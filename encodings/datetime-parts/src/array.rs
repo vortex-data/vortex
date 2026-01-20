@@ -155,8 +155,8 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(array).into()))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(decode_to_temporal(array, ctx)?.into()))
     }
 
     fn reduce_parent(

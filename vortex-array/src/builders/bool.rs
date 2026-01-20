@@ -151,6 +151,8 @@ mod tests {
 
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
@@ -185,7 +187,9 @@ mod tests {
         let chunk = make_opt_bool_chunks(len, chunk_count);
 
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.clone().append_to_builder(builder.as_mut())?;
+        chunk
+            .clone()
+            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let canon_into = builder.finish().to_bool();
         let into_canon = chunk.to_bool();

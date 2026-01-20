@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::session::ArraySession;
 use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_fsst::test_utils::gen_dict_fsst_test_data;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
@@ -25,6 +30,9 @@ const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 100, 100),
     (1000, 1000, 100),
 ];
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn make_dict_fsst_chunks<T: NativePType>(
     len: usize,
@@ -47,7 +55,7 @@ fn chunked_dict_fsst_canonical_into(
     bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
         chunk
-            .append_to_builder(builder.as_mut())
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
             .vortex_expect("append failed");
         builder.finish()
     })

@@ -141,7 +141,7 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &validity_mask)?;
+        let canonical = mask_validity_canonical(child, &validity_mask, ctx)?;
 
         vortex_ensure!(
             canonical.as_ref().dtype() == array.dtype(),

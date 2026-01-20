@@ -11,19 +11,23 @@ use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
-use crate::ToCanonical;
+use crate::ExecutionCtx;
+use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
 ///
 /// This is a shared helper used by both `canonicalize` and `execute`.
-pub(crate) fn varbin_to_canonical(array: &VarBinArray) -> VortexResult<Canonical> {
+pub(crate) fn varbin_to_canonical(
+    array: &VarBinArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
     // Zero the offsets first to ensure the bytes buffer starts at 0
     let array = array.clone().zero_offsets();
     let (dtype, bytes, offsets, validity) = array.into_parts();
 
-    let offsets = offsets.to_primitive();
+    let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
 
     // Build views directly from offsets
     #[expect(clippy::cast_possible_truncation, reason = "BinaryView offset is u32")]

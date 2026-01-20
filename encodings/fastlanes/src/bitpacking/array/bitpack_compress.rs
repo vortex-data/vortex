@@ -418,18 +418,26 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::bitpack_compress::test_harness::make_array;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_best_bit_width() {
@@ -484,7 +492,9 @@ mod test {
         let into_ca = chunked.clone().to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.clone().append_to_builder(&mut primitive_builder)?;
+        chunked
+            .clone()
+            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);

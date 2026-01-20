@@ -21,6 +21,7 @@ use crate::arrays::NullArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -32,6 +33,7 @@ use crate::vtable::ValidityHelper;
 pub fn mask_validity_canonical(
     canonical: Canonical,
     validity_mask: &Mask,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
     Ok(match canonical {
         Canonical::Null(a) => Canonical::Null(mask_validity_null(a, validity_mask)),
@@ -46,7 +48,9 @@ pub fn mask_validity_canonical(
             Canonical::FixedSizeList(mask_validity_fixed_size_list(a, validity_mask))
         }
         Canonical::Struct(a) => Canonical::Struct(mask_validity_struct(a, validity_mask)),
-        Canonical::Extension(a) => Canonical::Extension(mask_validity_extension(a, validity_mask)?),
+        Canonical::Extension(a) => {
+            Canonical::Extension(mask_validity_extension(a, validity_mask, ctx)?)
+        }
     })
 }
 
@@ -141,10 +145,14 @@ fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
     unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) }
 }
 
-fn mask_validity_extension(array: ExtensionArray, mask: &Mask) -> VortexResult<ExtensionArray> {
+fn mask_validity_extension(
+    array: ExtensionArray,
+    mask: &Mask,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ExtensionArray> {
     // For extension arrays, we need to mask the underlying storage
-    let storage = array.storage().to_canonical()?;
-    let masked_storage = mask_validity_canonical(storage, mask)?;
+    let storage = array.storage().clone().execute::<Canonical>(ctx)?;
+    let masked_storage = mask_validity_canonical(storage, mask, ctx)?;
     Ok(ExtensionArray::new(
         array.ext_dtype().clone(),
         masked_storage.into_array(),

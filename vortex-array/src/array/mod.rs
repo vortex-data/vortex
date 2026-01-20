@@ -29,6 +29,7 @@ use crate::ArrayHash;
 use crate::Canonical;
 use crate::DynArrayEq;
 use crate::DynArrayHash;
+use crate::ExecutionCtx;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
@@ -147,7 +148,11 @@ pub trait Array:
     /// Writes the array into the canonical builder.
     ///
     /// The [`DType`] of the builder must match that of the array.
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()>;
+    fn append_to_builder(
+        &self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()>;
 
     /// Returns the statistics of the array.
     // TODO(ngates): change how this works. It's weird.
@@ -272,8 +277,12 @@ impl Array for Arc<dyn Array> {
         self.as_ref().to_canonical()
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        self.as_ref().append_to_builder(builder)
+    fn append_to_builder(
+        &self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        self.as_ref().append_to_builder(builder, ctx)
     }
 
     fn statistics(&self) -> StatsSetRef<'_> {
@@ -661,7 +670,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         Ok(canonical)
     }
 
-    fn append_to_builder(&self, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(
+        &self,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         if builder.dtype() != self.dtype() {
             vortex_panic!(
                 "Builder dtype mismatch: expected {}, got {}",
@@ -671,7 +684,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
         let len = builder.len();
 
-        V::append_to_builder(&self.0, builder)?;
+        V::append_to_builder(&self.0, builder, ctx)?;
 
         assert_eq!(
             len + self.len(),
