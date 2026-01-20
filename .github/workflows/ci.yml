@@ -560,7 +560,15 @@ jobs:
       - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          $env:Path
+          Get-ChildItem -Path "C:\Program Files (x86)\Microsoft Visual Studio\"
+
+          $path = "$(${env:CommonProgramFiles(x86)})\Microsoft Visual Studio\Installer\vswhere.exe" 
+          $args = "-latest", "-requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property installationPath"
+
+          if ($path) {
+            Start-Process $path -ArgumentList $args
+          }
+
           choco install visualstudio2022buildtools --package-parameters `
             "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
       - name: Setup Python (Windows)
