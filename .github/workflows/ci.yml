@@ -504,14 +504,14 @@ jobs:
           # Build with full debug info first (helps with caching)
           cargo +nightly build --locked --all-features  \
             --target x86_64-unknown-linux-gnu \
-            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
             --all-features \
             --no-fail-fast \
-            --target --target x86_64-unknown-linux-gnu \
-            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp
+            --target x86_64-unknown-linux-gnu \
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
