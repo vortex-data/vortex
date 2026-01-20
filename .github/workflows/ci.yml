@@ -556,6 +556,10 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+      - name: Disable MS Defender
+        if: matrix.os == 'windows-x64'
+        run: |
+          Get-PsDrive -PsProvider FileSystem
       - uses: actions/checkout@v5
       - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
