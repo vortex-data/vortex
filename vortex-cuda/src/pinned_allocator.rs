@@ -12,9 +12,9 @@ use vortex_io::BufferAllocator;
 use vortex_io::WriteTarget;
 use vortex_session::VortexSession;
 
-use crate::device_buffer::CudaDeviceBuffer;
 use crate::PinnedByteBufferPool;
 use crate::PooledPinnedBuffer;
+use crate::device_buffer::CudaDeviceBuffer;
 use crate::session::CudaSessionExt;
 
 /// Allocator that sources buffers from a CUDA pinned pool.

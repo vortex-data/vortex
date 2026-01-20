@@ -33,10 +33,23 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros"] }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+vortex-file = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true }
+vortex-metrics = { workspace = true }
+vortex-scan = { workspace = true }
 
 [build-dependencies]
 
 [[bench]]
 name = "for_cuda"
+harness = false
+
+[[bench]]
+name = "h2d_pinned"
+harness = false
+
+[[bench]]
+name = "pinned_scan"
 harness = false

@@ -232,12 +232,13 @@ impl VortexReadAt for ByteBuffer {
                     buffer.len()
                 );
             }
-            target.as_mut_slice().copy_from_slice(&buffer.as_ref()[start..end]);
+            target
+                .as_mut_slice()
+                .copy_from_slice(&buffer.as_ref()[start..end]);
             target.into_handle()
         }
         .boxed()
     }
-
 }
 
 /// A wrapper that instruments a [`VortexReadAt`] with metrics.

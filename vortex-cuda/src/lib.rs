@@ -3,8 +3,8 @@
 
 //! CUDA support for Vortex arrays.
 
-pub mod executor;
 mod device_buffer;
+pub mod executor;
 mod for_;
 mod kernel;
 pub mod pinned;
@@ -15,14 +15,14 @@ use std::process::Command;
 
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
+use for_::ForExecutor;
 pub use pinned::PinnedByteBuffer;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PooledPinnedBuffer;
 pub use pinned_allocator::PinnedBufferAllocator;
 pub use pinned_allocator::PinnedDeviceAllocator;
-pub use session::CudaSessionExt;
-use for_::ForExecutor;
 pub use session::CudaSession;
+pub use session::CudaSessionExt;
 
 /// Check if the NVIDIA CUDA Compiler is available.
 pub fn has_nvcc() -> bool {

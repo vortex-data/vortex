@@ -240,7 +240,10 @@ pub fn collect_segment_ids(layout: &LayoutRef) -> VortexResult<Vec<SegmentId>> {
     Ok(segment_ids)
 }
 
-fn collect_segments_to_fetch(layout: &LayoutRef, segment_ids: &mut Vec<SegmentId>) -> VortexResult<()> {
+fn collect_segments_to_fetch(
+    layout: &LayoutRef,
+    segment_ids: &mut Vec<SegmentId>,
+) -> VortexResult<()> {
     if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
         if flat_layout.array_tree().is_none() {
             segment_ids.push(flat_layout.segment_id());

@@ -99,9 +99,7 @@ impl Drop for CudaDeviceBuffer {
 
 impl PartialEq for CudaDeviceBuffer {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.data, &other.data)
-            && self.offset == other.offset
-            && self.len == other.len
+        Arc::ptr_eq(&self.data, &other.data) && self.offset == other.offset && self.len == other.len
     }
 }
 

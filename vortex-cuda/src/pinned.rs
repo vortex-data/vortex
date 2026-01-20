@@ -92,9 +92,7 @@ impl HostSlice<u8> for PinnedByteBuffer {
         &'a self,
         stream: &'a CudaStream,
     ) -> (&'a [u8], SyncOnDrop<'a>) {
-        unsafe {
-            <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream)
-        }
+        unsafe { <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream) }
     }
 
     unsafe fn stream_synced_mut_slice<'a>(

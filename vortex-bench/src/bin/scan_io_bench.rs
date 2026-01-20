@@ -3,6 +3,8 @@
 
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 
 use anyhow::Result;
@@ -16,6 +18,8 @@ use object_store::aws::AmazonS3Builder;
 use object_store::http::HttpBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::path::Path as ObjectStorePath;
+use parking_lot::Mutex;
+use tracing_subscriber::EnvFilter;
 use url::Url;
 use vortex::array::Array;
 use vortex::array::MaskFuture;
@@ -35,22 +39,21 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::BufferAllocator;
-use vortex::layout::collect_segment_ids;
 use vortex::layout::LayoutReader;
+use vortex::layout::collect_segment_ids;
 use vortex::mask::Mask;
 use vortex::metrics::VortexMetrics;
-use parking_lot::Mutex;
 use vortex_bench::SESSION;
 use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
-use tracing_subscriber::EnvFilter;
 use vortex_scan::ScanBuilder;
 
 #[derive(Parser, Debug)]
-#[command(version, about = "Benchmark Vortex scans over local files vs object stores")]
+#[command(
+    version,
+    about = "Benchmark Vortex scans over local files vs object stores"
+)]
 struct Args {
     /// File path, directory, or object store URL (e.g. file:/..., s3://bucket/path, https://host/path)
     #[arg(long)]
@@ -142,7 +145,11 @@ async fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let mode = if args.io_only { ScanMode::Io } else { args.mode.clone() };
+    let mode = if args.io_only {
+        ScanMode::Io
+    } else {
+        args.mode.clone()
+    };
 
     let (projection, filter) = build_scan_exprs(&args)?;
     let metrics = VortexMetrics::new_with_tags([("bench", "scan-io")]);
@@ -153,8 +160,7 @@ async fn main() -> Result<()> {
         let cuda_session = SESSION.cuda_session();
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
         Some(std::sync::Arc::new(PinnedDeviceAllocator::from_session(
-            pool,
-            &SESSION,
+            pool, &SESSION,
         )?))
     } else {
         None
@@ -168,8 +174,13 @@ async fn main() -> Result<()> {
         None
     } else {
         Some(std::sync::Arc::new(
-            open_all_targets(&targets, metrics.clone(), args.file_concurrency, allocator.clone())
-                .await?,
+            open_all_targets(
+                &targets,
+                metrics.clone(),
+                args.file_concurrency,
+                allocator.clone(),
+            )
+            .await?,
         ))
     };
     read_bytes.clear();
@@ -183,101 +194,99 @@ async fn main() -> Result<()> {
     let rows = futures::stream::iter(0..args.iterations)
         .flat_map(|_| futures::stream::iter(targets.clone().into_iter().enumerate()))
         .map(|(idx, target)| {
-                let cached_files = cached_files.clone();
-                let projection = projection.clone();
-                let filter = filter.clone();
-                let metrics = metrics.clone();
-                let read_bytes = read_bytes.clone();
-                let first_seen = first_seen.clone();
-                let first_info = first_info.clone();
-                let mode = mode.clone();
-                let allocator = allocator.clone();
-                async move {
-                    let file = match &cached_files {
-                        Some(files) => files[idx].clone(),
-                        None => {
-                            open_vortex_file_for_target(
-                                &target,
-                                metrics.clone(),
-                                allocator,
-                            )
-                            .await?
-                        }
-                    };
-
-                    if args.prune_segments
-                        && let Some(filter) = filter.as_ref()
-                        && file.can_prune(filter)?
-                    {
-                        return Ok::<_, anyhow::Error>(0);
+            let cached_files = cached_files.clone();
+            let projection = projection.clone();
+            let filter = filter.clone();
+            let metrics = metrics.clone();
+            let read_bytes = read_bytes.clone();
+            let first_seen = first_seen.clone();
+            let first_info = first_info.clone();
+            let mode = mode.clone();
+            let allocator = allocator.clone();
+            async move {
+                let file = match &cached_files {
+                    Some(files) => files[idx].clone(),
+                    None => {
+                        open_vortex_file_for_target(&target, metrics.clone(), allocator).await?
                     }
+                };
 
-                    if matches!(mode, ScanMode::Io) {
-                        read_all_segments(&file, args.concurrency).await?;
-                        if !first_seen.load(Ordering::Relaxed)
-                            && !first_seen.swap(true, Ordering::Relaxed)
-                        {
-                            let latency = start.elapsed().as_secs_f64();
-                            let bytes = read_bytes.count() - bytes_before;
-                            *first_info.lock() = Some((latency, bytes));
-                        }
-                        let file_rows = usize::try_from(file.row_count())
-                            .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
-                        drop(file);
-                        return Ok::<_, anyhow::Error>(file_rows);
-                    }
-
-                    let (scan_projection, scan_filter, bypass_filter) = match mode {
-                        ScanMode::Decode => {
-                            let scan_filter = if args.prune_segments {
-                                filter.clone()
-                            } else {
-                                None
-                            };
-                            (root(), scan_filter, true)
-                        }
-                        ScanMode::Full => (projection.clone(), filter.clone(), false),
-                        ScanMode::Io => unreachable!("io-only handled above"),
-                    };
-
-                    let layout_reader = file.layout_reader()?;
-                    let layout_reader = if args.prune_segments || bypass_filter {
-                        std::sync::Arc::new(BenchLayoutReader::new(
-                            layout_reader,
-                            args.prune_segments,
-                            bypass_filter,
-                        )) as std::sync::Arc<dyn LayoutReader>
-                    } else {
-                        layout_reader
-                    };
-
-                    let scan = ScanBuilder::new(SESSION.clone(), layout_reader)
-                        .with_metrics(metrics.clone())
-                        .with_projection(scan_projection)
-                        .with_some_filter(scan_filter)
-                        .with_concurrency(args.concurrency)
-                        .map(|array| Ok(array.len()));
-
-                    let mut stream = scan.into_stream()?;
-                    let mut file_rows = 0usize;
-                    while let Some(rows) = stream.try_next().await? {
-                        if !first_seen.load(Ordering::Relaxed)
-                            && !first_seen.swap(true, Ordering::Relaxed)
-                        {
-                            let latency = start.elapsed().as_secs_f64();
-                            let bytes = read_bytes.count() - bytes_before;
-                            *first_info.lock() = Some((latency, bytes));
-                        }
-                        file_rows += rows;
-                    }
-
-                    drop(file);
-                    Ok::<_, anyhow::Error>(file_rows)
+                if args.prune_segments
+                    && let Some(filter) = filter.as_ref()
+                    && file.can_prune(filter)?
+                {
+                    return Ok::<_, anyhow::Error>(0);
                 }
-            })
-            .buffer_unordered(args.file_concurrency.max(1))
-            .try_fold(0usize, |rows, file_rows| async move { Ok(rows + file_rows) })
-            .await?;
+
+                if matches!(mode, ScanMode::Io) {
+                    read_all_segments(&file, args.concurrency).await?;
+                    if !first_seen.load(Ordering::Relaxed)
+                        && !first_seen.swap(true, Ordering::Relaxed)
+                    {
+                        let latency = start.elapsed().as_secs_f64();
+                        let bytes = read_bytes.count() - bytes_before;
+                        *first_info.lock() = Some((latency, bytes));
+                    }
+                    let file_rows = usize::try_from(file.row_count())
+                        .map_err(|_| anyhow::anyhow!("row_count exceeds usize"))?;
+                    drop(file);
+                    return Ok::<_, anyhow::Error>(file_rows);
+                }
+
+                let (scan_projection, scan_filter, bypass_filter) = match mode {
+                    ScanMode::Decode => {
+                        let scan_filter = if args.prune_segments {
+                            filter.clone()
+                        } else {
+                            None
+                        };
+                        (root(), scan_filter, true)
+                    }
+                    ScanMode::Full => (projection.clone(), filter.clone(), false),
+                    ScanMode::Io => unreachable!("io-only handled above"),
+                };
+
+                let layout_reader = file.layout_reader()?;
+                let layout_reader = if args.prune_segments || bypass_filter {
+                    std::sync::Arc::new(BenchLayoutReader::new(
+                        layout_reader,
+                        args.prune_segments,
+                        bypass_filter,
+                    )) as std::sync::Arc<dyn LayoutReader>
+                } else {
+                    layout_reader
+                };
+
+                let scan = ScanBuilder::new(SESSION.clone(), layout_reader)
+                    .with_metrics(metrics.clone())
+                    .with_projection(scan_projection)
+                    .with_some_filter(scan_filter)
+                    .with_concurrency(args.concurrency)
+                    .map(|array| Ok(array.len()));
+
+                let mut stream = scan.into_stream()?;
+                let mut file_rows = 0usize;
+                while let Some(rows) = stream.try_next().await? {
+                    if !first_seen.load(Ordering::Relaxed)
+                        && !first_seen.swap(true, Ordering::Relaxed)
+                    {
+                        let latency = start.elapsed().as_secs_f64();
+                        let bytes = read_bytes.count() - bytes_before;
+                        *first_info.lock() = Some((latency, bytes));
+                    }
+                    file_rows += rows;
+                }
+
+                drop(file);
+                Ok::<_, anyhow::Error>(file_rows)
+            }
+        })
+        .buffer_unordered(args.file_concurrency.max(1))
+        .try_fold(
+            0usize,
+            |rows, file_rows| async move { Ok(rows + file_rows) },
+        )
+        .await?;
 
     let elapsed = start.elapsed().as_secs_f64();
     let gpu_sync_ms = if let Some(allocator) = gpu_allocator {
@@ -288,8 +297,9 @@ async fn main() -> Result<()> {
         0.0
     };
     let bytes = read_bytes.count();
-    let (first_latency, first_bytes) =
-        first_info.lock().unwrap_or((elapsed, read_bytes.count() - bytes_before));
+    let (first_latency, first_bytes) = first_info
+        .lock()
+        .unwrap_or((elapsed, read_bytes.count() - bytes_before));
 
     let avg_elapsed = elapsed / args.iterations as f64;
     let avg_bytes = bytes as f64 / args.iterations as f64;
@@ -339,12 +349,10 @@ fn build_scan_exprs(args: &Args) -> VortexResult<(Expression, Option<Expression>
         (Some(col_name), Some(op), Some(value)) => {
             let lhs = col(col_name.as_str());
             let rhs = match args.filter_type {
-                LiteralType::I16 => lit(
-                    i16::try_from(value).map_err(|_| vortex_err!("filter_value does not fit in i16"))?,
-                ),
-                LiteralType::I32 => lit(
-                    i32::try_from(value).map_err(|_| vortex_err!("filter_value does not fit in i32"))?,
-                ),
+                LiteralType::I16 => lit(i16::try_from(value)
+                    .map_err(|_| vortex_err!("filter_value does not fit in i16"))?),
+                LiteralType::I32 => lit(i32::try_from(value)
+                    .map_err(|_| vortex_err!("filter_value does not fit in i32"))?),
                 LiteralType::I64 => lit(value),
             };
             Some(apply_filter_op(op.clone(), lhs, rhs))
@@ -412,10 +420,7 @@ async fn resolve_targets(args: &Args) -> Result<Vec<ScanTarget>> {
             return Ok(targets);
         }
 
-        return Ok(vec![ScanTarget::ObjectStore {
-            store,
-            path,
-        }]);
+        return Ok(vec![ScanTarget::ObjectStore { store, path }]);
     }
 
     let path = PathBuf::from(source);
@@ -500,7 +505,11 @@ async fn open_all_targets(
 
 fn object_store_from_url(
     url_str: &str,
-) -> Result<(ObjectStoreScheme, std::sync::Arc<dyn ObjectStore>, ObjectStorePath)> {
+) -> Result<(
+    ObjectStoreScheme,
+    std::sync::Arc<dyn ObjectStore>,
+    ObjectStorePath,
+)> {
     let url = Url::parse(url_str)?;
     let (scheme, path) = ObjectStoreScheme::parse(&url).map_err(object_store::Error::from)?;
     let store: std::sync::Arc<dyn ObjectStore> = match scheme {
@@ -519,10 +528,7 @@ fn object_store_from_url(
     Ok((scheme, store, path))
 }
 
-async fn read_all_segments(
-    file: &vortex::file::VortexFile,
-    concurrency: usize,
-) -> Result<()> {
+async fn read_all_segments(file: &vortex::file::VortexFile, concurrency: usize) -> Result<()> {
     let layout = file.footer().layout().clone();
     let segment_ids = collect_segment_ids(&layout)?;
     let segment_source = file.segment_source();

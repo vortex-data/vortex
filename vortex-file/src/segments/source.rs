@@ -166,7 +166,11 @@ impl SegmentSource for FileSegmentSource {
             .boxed()
         });
 
-        async move { maybe_fut.ok_or_else(|| vortex_err!("Missing segment: {}", id))?.await }
+        async move {
+            maybe_fut
+                .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
+                .await
+        }
         .boxed()
     }
 }
