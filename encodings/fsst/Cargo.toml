@@ -27,16 +27,17 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
 vortex-vector = { workspace = true }
 
 [features]
-test-harness = ["dep:rand", "vortex-array/test-harness"]
+_test-harness = ["dep:rand", "vortex-array/_test-harness"]
 
 [dev-dependencies]
 divan = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
-vortex-array = { workspace = true, features = ["test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [[bench]]
 name = "fsst_compress"
@@ -45,7 +46,7 @@ harness = false
 [[bench]]
 name = "chunked_dict_fsst_builder"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]
 
 [package.metadata.cargo-machete]
 ignored = ["fsst-rs"]

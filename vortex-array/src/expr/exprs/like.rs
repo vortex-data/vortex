@@ -24,6 +24,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::and;
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -136,6 +137,17 @@ impl VTable for Like {
         }
 
         Ok(Datum::Vector(array.into_vector()?.into()))
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        tracing::warn!("Computing validity for LIKE expression");
+        let child_validity = expression.child(0).validity()?;
+        let pattern_validity = expression.child(1).validity()?;
+        Ok(Some(and(child_validity, pattern_validity)))
     }
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {

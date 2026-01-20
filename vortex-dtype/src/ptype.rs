@@ -895,7 +895,7 @@ macro_rules! try_from_bytes {
             fn to_le_bytes(&self) -> &[u8] {
                 // NOTE(ngates): this assumes the platform is little-endian. Currently enforced
                 //  with a flag cfg(target_endian = "little")
-                let raw_ptr = self as *const $T as *const u8;
+                let raw_ptr = (self as *const $T).cast::<u8>();
                 unsafe { std::slice::from_raw_parts(raw_ptr, std::mem::size_of::<$T>()) }
             }
         }

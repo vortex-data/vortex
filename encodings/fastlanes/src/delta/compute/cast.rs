@@ -50,7 +50,6 @@ register_kernel!(CastKernelAdapter(DeltaVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -81,8 +80,7 @@ mod tests {
         );
 
         // Verify by decoding
-        let decoded = casted.to_primitive();
-        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
+        assert_arrays_eq!(casted, PrimitiveArray::from_iter([10u32, 20, 30, 40, 50]));
     }
 
     #[test]

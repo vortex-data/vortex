@@ -2,13 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
 
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
+use std::ops::Range;
+use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -16,14 +21,11 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_vector::Datum;
-use vortex_vector::Vector;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -31,50 +33,36 @@ use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::expr;
-use crate::expr::ExecutionArgs;
-use crate::expr::ExprVTable;
+use crate::expr::Arity;
+use crate::expr::ChildName;
+use crate::expr::ExprId;
+use crate::expr::Expression;
 use crate::expr::ScalarFn;
-use crate::matchers::MatchKey;
+use crate::expr::VTableExt;
+use crate::expr::lit;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
-use crate::vectors::VectorIntoArray;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 vtable!(ScalarFn);
 
 #[derive(Clone, Debug)]
-pub struct ScalarFnVTable {
-    vtable: ExprVTable,
-}
-
-impl ScalarFnVTable {
-    pub fn new(vtable: ExprVTable) -> Self {
-        Self { vtable }
-    }
-}
+pub struct ScalarFnVTable;
 
 impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
-    type OperationsVTable = NotSupported;
+    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        self.vtable.id()
-    }
-
-    fn encoding(array: &Self::Array) -> ArrayVTable {
-        array.vtable.clone()
+    fn id(array: &Self::Array) -> ArrayId {
+        array.scalar_fn.id()
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -95,7 +83,6 @@ impl VTable for ScalarFnVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &ScalarFnMetadata,
@@ -120,7 +107,6 @@ impl VTable for ScalarFnVTable {
 
         Ok(ScalarFnArray {
             // This requires a new Arc, but we plan to remove this later anyway.
-            vtable: self.to_vtable(),
             scalar_fn: metadata.scalar_fn.clone(),
             dtype: dtype.clone(),
             len,
@@ -141,30 +127,30 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        // NOTE: we don't use iterators here to make the profiles easier to read!
-        let mut datums = Vec::with_capacity(array.children.len());
-        let mut input_dtypes = Vec::with_capacity(array.children.len());
-        for child in array.children.iter() {
-            match child.as_opt::<ConstantVTable>() {
-                None => datums.push(Datum::Vector(child.clone().execute::<Vector>(ctx)?)),
-                Some(constant) => datums.push(Datum::Scalar(constant.scalar().to_vector_scalar())),
-            }
-            input_dtypes.push(child.dtype().clone());
-        }
+        let inputs: Arc<[_]> = array
+            .children
+            .iter()
+            .map(|child| {
+                if let Some(scalar) = child.as_constant() {
+                    return Ok(lit(scalar));
+                }
+                Expression::try_new(
+                    ScalarFn::new(
+                        ArrayExpr,
+                        FakeEq(child.clone().execute::<Canonical>(ctx)?.into_array()),
+                    ),
+                    [],
+                )
+            })
+            .collect::<VortexResult<_>>()?;
 
-        let args = ExecutionArgs {
-            datums,
-            dtypes: input_dtypes,
-            row_count: array.len,
-            return_dtype: array.dtype.clone(),
-        };
-
-        // TODO(joe): should this go via Vector or canonical?
-        Ok(array
+        array
             .scalar_fn
-            .execute(args)?
-            .unwrap_into_vector(array.len)
-            .into_array(array.dtype()))
+            .evaluate(
+                &Expression::try_new(array.scalar_fn.clone(), inputs)?,
+                &array.to_array(),
+            )?
+            .execute::<Canonical>(ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -177,6 +163,25 @@ impl VTable for ScalarFnVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let children: Vec<_> = array
+            .children()
+            .iter()
+            .map(|c| c.slice(range.clone()))
+            .collect();
+
+        Ok(Some(
+            ScalarFnArray {
+                scalar_fn: array.scalar_fn.clone(),
+                dtype: array.dtype.clone(),
+                len: range.len(),
+                children,
+                stats: Default::default(),
+            }
+            .into_array(),
+        ))
     }
 }
 
@@ -199,13 +204,7 @@ pub trait ScalarFnArrayExt: expr::VTable {
         let child_dtypes = children.iter().map(|c| c.dtype().clone()).collect_vec();
         let dtype = scalar_fn.return_dtype(&child_dtypes)?;
 
-        let array_vtable: ArrayVTable = ScalarFnVTable {
-            vtable: scalar_fn.vtable().clone(),
-        }
-        .into_vtable();
-
         Ok(ScalarFnArray {
-            vtable: array_vtable,
             scalar_fn,
             dtype,
             len,
@@ -222,10 +221,6 @@ impl<V: expr::VTable> ScalarFnArrayExt for V {}
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
     type View<'a> = &'a ScalarFnArray;
-
-    fn key(&self) -> MatchKey {
-        MatchKey::Any
-    }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
         array.as_opt::<ScalarFnVTable>()
@@ -250,10 +245,6 @@ impl<F: expr::VTable> From<&'static F> for ExactScalarFn<F> {
 
 impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     type View<'a> = ScalarFnArrayView<'a, F>;
-
-    fn key(&self) -> MatchKey {
-        MatchKey::Array(self.id.clone())
-    }
 
     fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
         if array.encoding_id() != self.id {
@@ -294,5 +285,76 @@ impl<F: expr::VTable> Deref for ScalarFnArrayView<'_, F> {
 
     fn deref(&self) -> &Self::Target {
         self.array
+    }
+}
+
+// Used only in this method to allow constrained using of Expression evaluate.
+struct ArrayExpr;
+
+#[derive(Clone, Debug)]
+struct FakeEq<T>(T);
+
+impl<T> PartialEq<Self> for FakeEq<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        false
+    }
+}
+
+impl<T> Eq for FakeEq<T> {}
+
+impl<T> Hash for FakeEq<T> {
+    fn hash<H: Hasher>(&self, _state: &mut H) {}
+}
+
+impl Display for FakeEq<ArrayRef> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0.encoding_id())
+    }
+}
+
+impl expr::VTable for ArrayExpr {
+    type Options = FakeEq<ArrayRef>;
+
+    fn id(&self) -> ExprId {
+        ExprId::from("vortex.array")
+    }
+
+    fn arity(&self, _options: &Self::Options) -> Arity {
+        Arity::Exact(0)
+    }
+
+    fn child_name(&self, _options: &Self::Options, _child_idx: usize) -> ChildName {
+        todo!()
+    }
+
+    fn fmt_sql(
+        &self,
+        options: &Self::Options,
+        _expr: &Expression,
+        f: &mut Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "{}", options.0.encoding_id())
+    }
+
+    fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
+        Ok(options.0.dtype().clone())
+    }
+
+    fn evaluate(
+        &self,
+        options: &Self::Options,
+        _expr: &Expression,
+        _scope: &ArrayRef,
+    ) -> VortexResult<ArrayRef> {
+        Ok(options.0.clone())
+    }
+
+    fn validity(
+        &self,
+        options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let validity_array = options.0.validity()?.to_array(options.0.len());
+        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
     }
 }

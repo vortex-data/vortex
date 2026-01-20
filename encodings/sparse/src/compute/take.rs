@@ -121,13 +121,13 @@ mod test {
         let taken_arr = take(&sparse, &buffer![69, 37].into_array()).unwrap();
         let taken = taken_arr.as_::<SparseVTable>();
 
-        assert_eq!(
-            taken.patches().indices().to_primitive().as_slice::<u64>(),
-            [1]
+        assert_arrays_eq!(
+            taken.patches().indices().to_primitive(),
+            PrimitiveArray::from_iter([1u64])
         );
-        assert_eq!(
-            taken.patches().values().to_primitive().as_slice::<f64>(),
-            [0.47f64]
+        assert_arrays_eq!(
+            taken.patches().values().to_primitive(),
+            PrimitiveArray::from_option_iter([Some(0.47f64)])
         );
         assert_eq!(taken.len(), 2);
     }

@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::DecimalArray;
+pub use array::DecimalArrayParts;
 
 mod compute;
 

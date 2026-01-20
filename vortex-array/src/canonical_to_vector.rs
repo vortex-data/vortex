@@ -29,8 +29,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Executable;
 use crate::ExecutionCtx;
+use crate::arrays::ListViewArrayParts;
+use crate::arrays::PrimitiveArray;
 
 impl Executable for Vector {
+    #[expect(deprecated)]
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let canonical = array.execute::<Canonical>(ctx)?;
         canonical.to_vector(ctx)
@@ -43,6 +46,7 @@ impl Canonical {
     /// This is the reverse of `VectorIntoArray` - it takes a fully materialized
     /// canonical array and converts it into the corresponding vector type.
     /// TODO(joe): move over the execute_mask
+    #[deprecated]
     pub fn to_vector(self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
@@ -53,8 +57,8 @@ impl Canonical {
                 let ptype = a.ptype();
                 let validity = a.validity_mask();
                 match_each_native_ptype!(ptype, |T| {
-                    let buffer = a.as_slice::<T>();
-                    Vector::Primitive(PVector::<T>::new(buffer.to_vec().into(), validity).into())
+                    let buffer = a.to_buffer::<T>();
+                    Vector::Primitive(PVector::<T>::new(buffer, validity).into())
                 })
             }
             Canonical::Decimal(a) => {
@@ -115,25 +119,27 @@ impl Canonical {
                 }
             }
             Canonical::List(a) => {
-                let (elements, offsets, sizes, validity) = a.into_parts();
+                let ListViewArrayParts {
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    ..
+                } = a.into_parts();
 
                 let validity = validity.to_array(offsets.len()).execute::<Mask>(ctx)?;
                 let elements_vector = elements.execute::<Vector>(ctx)?;
-                let offsets = offsets.execute::<Canonical>(ctx)?.into_primitive();
-                let sizes = sizes.execute::<Canonical>(ctx)?.into_primitive();
+                let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+                let sizes = sizes.execute::<PrimitiveArray>(ctx)?;
                 let offsets_ptype = offsets.ptype();
                 let sizes_ptype = sizes.ptype();
 
                 match_each_native_ptype!(offsets_ptype, |O| {
                     match_each_native_ptype!(sizes_ptype, |S| {
-                        let offsets_vec = PVector::<O>::new(
-                            offsets.as_slice::<O>().to_vec().into(),
-                            offsets.validity_mask(),
-                        );
-                        let sizes_vec = PVector::<S>::new(
-                            sizes.as_slice::<S>().to_vec().into(),
-                            sizes.validity_mask(),
-                        );
+                        let offsets_vec =
+                            PVector::<O>::new(offsets.to_buffer::<O>(), offsets.validity_mask());
+                        let sizes_vec =
+                            PVector::<S>::new(sizes.to_buffer::<S>(), sizes.validity_mask());
                         Vector::List(unsafe {
                             ListViewVector::new_unchecked(
                                 Arc::new(elements_vector),

@@ -222,7 +222,7 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
             .to_file_path()
             .map_err(|_| vortex_err!("Invalid file URL: {url}"))?;
 
-        options.open(path).await
+        options.open_path(path).await
     }
 }
 

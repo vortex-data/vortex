@@ -148,8 +148,7 @@ mod tests {
         );
         // Verify the values are correct
         let decoded = casted.to_primitive();
-        let u32_values = decoded.as_slice::<u32>();
-        assert_eq!(u32_values, &[20, 30, 40, 50]);
+        assert_arrays_eq!(decoded, PrimitiveArray::from_iter([20u32, 30, 40, 50]));
     }
 
     #[test]

@@ -7,6 +7,7 @@ mod stats;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPVTable;
 use vortex_alp::RDEncoder;
+use vortex_alp::alp_encode;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -14,7 +15,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
@@ -239,9 +239,7 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = ALPVTable
-            .as_vtable()
-            .encode(&stats.source().to_canonical(), None)?
+        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)
             .vortex_expect("Input is a supported floating point array");
         let alp = alp_encoded.as_::<ALPVTable>();
         let alp_ints = alp.encoded().to_primitive();
@@ -475,6 +473,7 @@ impl Scheme for NullDominated {
 
 #[cfg(test)]
 mod tests {
+
     use std::iter;
 
     use vortex_array::Array;
@@ -558,6 +557,64 @@ mod tests {
 
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
 
+        assert!(compressed.is::<SparseVTable>());
+    }
+}
+
+/// Tests to verify that each float compression scheme produces the expected encoding.
+#[cfg(test)]
+mod scheme_selection_tests {
+
+    use vortex_alp::ALPVTable;
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_dtype::Nullability;
+    use vortex_sparse::SparseVTable;
+
+    use crate::Compressor;
+    use crate::float::FloatCompressor;
+
+    #[test]
+    fn test_constant_compressed() {
+        let values: Vec<f64> = vec![42.5; 100];
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<ConstantVTable>());
+    }
+
+    #[test]
+    fn test_alp_compressed() {
+        let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<ALPVTable>());
+    }
+
+    #[test]
+    fn test_dict_compressed() {
+        let distinct_values = [1.1, 2.2, 3.3, 4.4, 5.5];
+        let values: Vec<f64> = (0..1000)
+            .map(|i| distinct_values[i % distinct_values.len()])
+            .collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        assert!(compressed.is::<DictVTable>());
+    }
+
+    #[test]
+    fn test_null_dominated_compressed() {
+        let mut builder = PrimitiveBuilder::<f64>::with_capacity(Nullability::Nullable, 100);
+        for i in 0..5 {
+            builder.append_value(i as f64);
+        }
+        builder.append_nulls(95);
+        let array = builder.finish_into_primitive();
+        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
         assert!(compressed.is::<SparseVTable>());
     }
 }

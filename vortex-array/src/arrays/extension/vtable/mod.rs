@@ -8,6 +8,8 @@ mod rules;
 mod validity;
 mod visitor;
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -15,15 +17,16 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::extension::ExtensionArray;
 use crate::arrays::extension::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
@@ -36,19 +39,13 @@ impl VTable for ExtensionVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.ext")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ExtensionVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -64,7 +61,6 @@ impl VTable for ExtensionVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -94,6 +90,10 @@ impl VTable for ExtensionVTable {
         Ok(())
     }
 
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Extension(array.clone()))
+    }
+
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -101,7 +101,18 @@ impl VTable for ExtensionVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range))
+                .into_array(),
+        ))
+    }
 }
 
 #[derive(Debug)]
 pub struct ExtensionVTable;
+
+impl ExtensionVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
+}

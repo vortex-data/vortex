@@ -52,8 +52,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///     The decoded Vortex array
 #[pyfunction]
 fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyResult<PyArrayRef> {
-    let registry = SESSION.arrays().registry().clone();
-    let mut decoder = MessageDecoder::new(registry);
+    let mut decoder = MessageDecoder::default();
 
     let mut dtype_buf = Bytes::from(dtype_bytes);
     let dtype = match decoder.read_next(&mut dtype_buf)? {
@@ -69,7 +68,7 @@ fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyResult<PyAr
     let mut array_buf = Bytes::from(array_bytes);
     let array = match decoder.read_next(&mut array_buf)? {
         PollRead::Some(DecoderMessage::Array((parts, ctx, row_count))) => {
-            parts.decode(&ctx, &dtype, row_count)?
+            parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
         }
         PollRead::Some(_) => {
             return Err(PyValueError::new_err("Expected Array message"));
@@ -106,8 +105,7 @@ fn decode_ipc_array_buffers<'py>(
 ) -> PyResult<PyArrayRef> {
     use pyo3::buffer::PyBuffer;
 
-    let registry = SESSION.arrays().registry().clone();
-    let mut decoder = MessageDecoder::new(registry);
+    let mut decoder = MessageDecoder::default();
 
     // Concatenate dtype buffers
     // Note: PyBuffer returns &[ReadOnlyCell<u8>] which requires copying to get &[u8]
@@ -150,7 +148,7 @@ fn decode_ipc_array_buffers<'py>(
     // Decode array
     let array = match decoder.read_next(&mut array_buf)? {
         PollRead::Some(DecoderMessage::Array((parts, ctx, row_count))) => {
-            parts.decode(&ctx, &dtype, row_count)?
+            parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
         }
         PollRead::Some(_) => {
             return Err(PyValueError::new_err("Expected Array message"));

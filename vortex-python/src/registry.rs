@@ -6,10 +6,10 @@ use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::prelude::*;
 use vortex::array::session::ArraySessionExt;
-use vortex::array::vtable::ArrayVTableExt;
 
 use crate::SESSION;
 use crate::arrays::py::PythonVTable;
+use crate::arrays::py::id_from_obj;
 use crate::install_module;
 
 /// Register serde functions and classes.
@@ -27,8 +27,10 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///
 /// It's not currently possible to register a layout encoding from Python.
 #[pyfunction]
-pub(crate) fn register(cls: PythonVTable) -> PyResult<()> {
-    let vtable = ArrayVTableExt::into_vtable(cls);
-    SESSION.arrays().register(vtable);
+pub(crate) fn register(cls: &Bound<PyAny>) -> PyResult<()> {
+    let id = id_from_obj(cls)?;
+    // TODO(ngates): we would need to register the Python class object in a PyVortexSession
+    //  to call back into it during deserialize operations.
+    SESSION.arrays().register(id, PythonVTable);
     Ok(())
 }

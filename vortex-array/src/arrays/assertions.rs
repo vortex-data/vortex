@@ -9,6 +9,23 @@ pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display
     indices.into_iter().format(",")
 }
 
+/// Asserts that the scalar at position `$n` in array `$arr` equals `$expected`.
+///
+/// This is a convenience macro for testing that avoids verbose scalar comparison code.
+///
+/// # Example
+/// ```ignore
+/// let arr = PrimitiveArray::from_iter([1, 2, 3]);
+/// assert_nth_scalar!(arr, 0, 1);
+/// assert_nth_scalar!(arr, 1, 2);
+/// ```
+#[macro_export]
+macro_rules! assert_nth_scalar {
+    ($arr:expr, $n:expr, $expected:expr) => {
+        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
+    };
+}
+
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{

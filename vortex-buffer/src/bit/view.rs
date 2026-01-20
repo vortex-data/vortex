@@ -107,7 +107,7 @@ impl<'a, const NB: usize> BitView<'a, NB> {
     /// If the length of the slice is not equal to `NB`.
     pub fn from_slice(bits: &'a [u8]) -> Self {
         assert_eq!(bits.len(), NB);
-        let bits_array = unsafe { &*(bits.as_ptr() as *const [u8; NB]) };
+        let bits_array = unsafe { &*(bits.as_ptr().cast::<[u8; NB]>()) };
         BitView::new(bits_array)
     }
 

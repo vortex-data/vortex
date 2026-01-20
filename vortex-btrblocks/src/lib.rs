@@ -46,6 +46,8 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::list_from_list_view;
 use vortex_array::compute::Cost;
+use vortex_array::compute::IsConstantOpts;
+use vortex_array::compute::is_constant_opts;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
@@ -383,7 +385,7 @@ impl BtrBlocksCompressor {
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
     pub fn compress(&self, array: &dyn Array) -> VortexResult<ArrayRef> {
         // Canonicalize the array
-        let canonical = array.to_canonical();
+        let canonical = array.to_canonical()?;
 
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
@@ -429,7 +431,7 @@ impl BtrBlocksCompressor {
             Canonical::List(list_view_array) => {
                 // TODO(joe): We might want to write list views in the future and chose between
                 // list and list view.
-                let list_array = list_from_list_view(list_view_array);
+                let list_array = list_from_list_view(list_view_array)?;
 
                 // Reset the offsets to remove garbage data that might prevent us from narrowing our
                 // offsets (there could be a large amount of trailing garbage data that the current
@@ -483,7 +485,14 @@ impl BtrBlocksCompressor {
                 if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
                     && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
                 {
-                    if temporal_array.as_ref().is_constant_opts(Cost::Canonicalize) {
+                    if is_constant_opts(
+                        temporal_array.as_ref(),
+                        &IsConstantOpts {
+                            cost: Cost::Canonicalize,
+                        },
+                    )?
+                    .unwrap_or_default()
+                    {
                         return Ok(ConstantArray::new(
                             temporal_array.as_ref().scalar_at(0),
                             ext_array.len(),

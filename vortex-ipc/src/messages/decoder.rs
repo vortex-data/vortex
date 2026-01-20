@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use bytes::Buf;
 use flatbuffers::root;
 use flatbuffers::root_unchecked;
-use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::serde::ArrayParts;
-use vortex_array::session::ArrayRegistry;
+use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -69,21 +69,13 @@ pub enum PollRead {
 //  but it doesn't need to mutate any bytes. So in theory, we should be able to do this zero-copy
 //  over a shared buffer of bytes, instead of requiring a `BytesMut`.
 /// A stateful reader for decoding IPC messages from an arbitrary stream of bytes.
+#[derive(Default)]
 pub struct MessageDecoder {
-    registry: ArrayRegistry,
     /// The current state of the decoder.
     state: State,
 }
 
 impl MessageDecoder {
-    /// Create a new message decoder that can lookup encodings in the given registry.
-    pub fn new(registry: ArrayRegistry) -> Self {
-        Self {
-            registry,
-            state: State::default(),
-        }
-    }
-
     /// Attempt to read the next message from the bytes object.
     ///
     /// If the message is incomplete, the function will return `NeedMore` with the _total_ number
@@ -135,17 +127,14 @@ impl MessageDecoder {
                                 .header_as_array_message()
                                 .vortex_expect("header is array");
 
-                            let encodings: Vec<_> = header
+                            let encoding_ids: Vec<_> = header
                                 .encodings()
                                 .iter()
                                 .flat_map(|e| e.iter())
-                                .map(|id| {
-                                    self.registry.find(id).ok_or_else(|| {
-                                        vortex_err!("unknown array encoding id: {}", id)
-                                    })
-                                })
-                                .try_collect()?;
-                            let ctx = ArrayContext::new(encodings);
+                                .map(|id| ArrayId::new_arc(Arc::from(id.to_string())))
+                                .collect();
+
+                            let ctx = ArrayContext::new(encoding_ids);
                             let row_count = header.row_count() as usize;
 
                             self.state = Default::default();
@@ -205,8 +194,7 @@ mod test {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 
-        let registry = ArraySession::default().registry().clone();
-        let mut decoder = MessageDecoder::new(registry);
+        let mut decoder = MessageDecoder::default();
 
         // Since we provide all bytes up-front, we should never hit a NeedMore.
         let mut buffer = BytesMut::from(ipc_bytes.as_ref());
@@ -216,8 +204,9 @@ mod test {
         };
 
         // Decode the array parts with the context
+        let registry = ArraySession::default().registry().clone();
         let actual = array_parts
-            .decode(&ctx, expected.dtype(), row_count)
+            .decode(expected.dtype(), row_count, &ctx, &registry)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

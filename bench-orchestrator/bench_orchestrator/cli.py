@@ -149,7 +149,7 @@ def run(
                     queries=query_list,
                     exclude_queries=exclude_list,
                     iterations=iterations,
-                    options=options,
+                    options=bench_opts,
                     track_memory=track_memory,
                     samply=samply,
                     on_result=ctx.write_raw_json,

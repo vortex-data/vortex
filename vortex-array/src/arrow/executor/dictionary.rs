@@ -32,7 +32,7 @@ pub(super) fn to_arrow_dictionary(
 
     // Otherwise, we should try and build a dictionary.
     // Arrow hides this functionality inside the cast module!
-    let array = array.execute_arrow(values_type, ctx)?;
+    let array = array.execute_arrow(Some(values_type), ctx)?;
     arrow_cast::cast(
         &array,
         &DataType::Dictionary(Box::new(codes_type.clone()), Box::new(values_type.clone())),
@@ -48,8 +48,8 @@ fn dict_to_dict(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let (codes, values) = array.into_parts();
-    let codes = codes.execute_arrow(codes_type, ctx)?;
-    let values = values.execute_arrow(values_type, ctx)?;
+    let codes = codes.execute_arrow(Some(codes_type), ctx)?;
+    let values = values.execute_arrow(Some(values_type), ctx)?;
 
     Ok(match codes_type {
         DataType::Int8 => Arc::new(unsafe {

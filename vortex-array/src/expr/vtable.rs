@@ -15,6 +15,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_mask::Mask;
 use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
@@ -172,6 +173,21 @@ pub trait VTable: 'static + Sized + Send + Sync {
         None
     }
 
+    /// Returns an expression that evaluates to the validity of the result of this expression.
+    ///
+    /// If a validity expression cannot be constructed, returns `None` and the expression will
+    /// be evaluated as normal before extracting the validity mask from the result.
+    ///
+    /// This is essentially a specialized form of a `reduce_parent`
+    fn validity(
+        &self,
+        options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        _ = (options, expression);
+        Ok(None)
+    }
+
     /// Returns whether this expression itself is null-sensitive. Conservatively default to *true*.
     ///
     /// An expression is null-sensitive if it directly operates on null values,
@@ -300,6 +316,14 @@ pub struct ExecutionArgs {
     pub return_dtype: DType,
 }
 
+/// Arguments for expression validity execution.
+pub struct ValidityExecutionArgs {
+    /// The input masks for the expression, one per child.
+    pub inputs: Vec<Mask>,
+    /// The row count of the execution scope.
+    pub row_count: usize,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EmptyOptions;
 impl Display for EmptyOptions {
@@ -366,6 +390,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
+    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
     fn reduce(
@@ -465,6 +490,14 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
 
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
         V::simplify_untyped(
+            &self.0,
+            downcast::<V>(expression.options().as_any()),
+            expression,
+        )
+    }
+
+    fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>> {
+        V::validity(
             &self.0,
             downcast::<V>(expression.options().as_any()),
             expression,
@@ -730,11 +763,17 @@ mod tests {
         DType::Primitive(vortex_dtype::PType::I64, vortex_dtype::Nullability::NonNullable)
     ))]
     // Between expressions
-    #[case(between(col("a"), lit(10), lit(20), crate::compute::BetweenOptions { lower_strict: crate::compute::StrictComparison::NonStrict, upper_strict: crate::compute::StrictComparison::NonStrict }))]
+    #[case(between(
+        col("a"),
+        lit(10),
+        lit(20),
+        crate::compute::BetweenOptions{ lower_strict: crate::compute::StrictComparison::NonStrict, upper_strict: crate::compute::StrictComparison::NonStrict }
+    ))]
     // List contains expressions
     #[case(list_contains(col("list_col"), lit("item")))]
     // Pack expressions - creating struct from fields
-    #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable))]
+    #[case(pack([("field1", col("a")), ("field2", col("b"))], vortex_dtype::Nullability::NonNullable
+    ))]
     // Merge expressions - merging struct expressions
     #[case(merge([col("struct1"), col("struct2")]))]
     // Complex nested expressions

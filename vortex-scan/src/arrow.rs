@@ -67,7 +67,7 @@ fn to_record_batch(
     data_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    let arrow = chunk.execute_arrow(data_type, ctx)?;
+    let arrow = chunk.execute_arrow(Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
@@ -128,7 +128,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use super::*;
-    use crate::test::SESSION;
+    use crate::test::SCAN_SESSION;
 
     fn create_test_struct_array() -> VortexResult<ArrayRef> {
         // Create Arrow arrays
@@ -166,7 +166,7 @@ mod tests {
         let vortex_array = create_test_struct_array()?;
         let schema = create_arrow_schema();
         let data_type = DataType::Struct(schema.fields().clone());
-        let mut ctx = SESSION.create_execution_ctx();
+        let mut ctx = SCAN_SESSION.create_execution_ctx();
 
         let batch = to_record_batch(vortex_array, &data_type, &mut ctx)?;
         assert_eq!(batch.num_columns(), 2);

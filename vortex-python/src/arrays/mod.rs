@@ -26,9 +26,9 @@ use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
+use vortex::array::compute::take;
 use vortex::compute::Operator;
 use vortex::compute::compare;
-use vortex::compute::take;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -312,6 +312,7 @@ impl PyArray {
     ///   3
     /// ]
     /// ```
+    ///
     fn to_arrow_array<'py>(self_: &'py Bound<'py, Self>) -> PyResult<Bound<'py, PyAny>> {
         // NOTE(ngates): for struct arrays, we could also return a RecordBatchStreamReader.
         let array = PyArrayRef::extract(self_.as_any().as_borrowed())?.into_inner();
@@ -586,6 +587,7 @@ impl PyArray {
     /// Keep only the first and third elements:
     ///
     /// ```python
+    /// >>> import vortex as vx
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
     /// >>> a.take(indices).to_arrow_array()

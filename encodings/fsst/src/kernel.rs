@@ -10,6 +10,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
@@ -46,10 +47,10 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
-    // TODO(joe); remove Vector usage internally?
+    // TODO(joe); remove Vector usage!
     fn execute_parent(
         &self,
         array: &FSSTArray,
@@ -84,9 +85,8 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             .codes()
             .offsets()
             .cast(DType::Primitive(PType::U32, Nullability::NonNullable))?
-            .execute::<Canonical>(ctx)?
-            .into_primitive()
-            .buffer::<u32>();
+            .execute::<PrimitiveArray>(ctx)?
+            .to_buffer::<u32>();
 
         let decompressor = array.decompressor();
 
@@ -97,7 +97,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 &codes_offsets,
                 mask_values,
                 &validity,
-                &uncompressed_lens.buffer::<S>(),
+                &uncompressed_lens.to_buffer::<S>(),
             )
         });
 
@@ -107,12 +107,14 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
                 BinaryVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
             }
             .into_array(array.dtype())
-            .to_canonical(),
+            .to_array()
+            .execute::<Canonical>(ctx)?,
             DType::Utf8(_) => unsafe {
                 StringVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
             }
             .into_array(array.dtype())
-            .to_canonical(),
+            .to_array()
+            .execute::<Canonical>(ctx)?,
             _ => unreachable!("Not a supported FSST DType"),
         };
 

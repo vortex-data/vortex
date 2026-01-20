@@ -4,7 +4,8 @@
 mod array;
 mod patch;
 
-pub use array::*;
+pub use array::BoolArray;
+pub use array::BoolArrayParts;
 
 pub mod compute;
 
@@ -12,5 +13,5 @@ mod vtable;
 pub use vtable::BoolMaskedValidityRule;
 pub use vtable::BoolVTable;
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 mod test_harness;

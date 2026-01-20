@@ -6,6 +6,7 @@ use std::sync::Arc;
 use num_traits::AsPrimitive;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -122,6 +123,24 @@ pub struct ListViewArray {
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
+}
+
+pub struct ListViewArrayParts {
+    pub nullability: Nullability,
+
+    pub elements_dtype: Arc<DType>,
+
+    /// See `ListViewArray::elements`
+    pub elements: ArrayRef,
+
+    /// See `ListViewArray::offsets`
+    pub offsets: ArrayRef,
+
+    /// See `ListViewArray::sizes`
+    pub sizes: ArrayRef,
+
+    /// See `ListViewArray::validity`
+    pub validity: Validity,
 }
 
 impl ListViewArray {
@@ -319,8 +338,17 @@ impl ListViewArray {
         .is_ok()
     }
 
-    pub fn into_parts(self) -> (ArrayRef, ArrayRef, ArrayRef, Validity) {
-        (self.elements, self.offsets, self.sizes, self.validity)
+    pub fn into_parts(self) -> ListViewArrayParts {
+        let nullability = self.dtype.nullability();
+        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
+        ListViewArrayParts {
+            nullability,
+            elements_dtype: dtype,
+            elements: self.elements,
+            offsets: self.offsets,
+            sizes: self.sizes,
+            validity: self.validity,
+        }
     }
 
     /// Returns the offset at the given index.

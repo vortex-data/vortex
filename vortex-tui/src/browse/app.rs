@@ -276,7 +276,7 @@ impl<'a> AppState<'a> {
         session: &'a VortexSession,
         path: impl AsRef<Path>,
     ) -> VortexResult<AppState<'a>> {
-        let vxf = session.open_options().open(path.as_ref()).await?;
+        let vxf = session.open_options().open_path(path.as_ref()).await?;
 
         let cursor = LayoutCursor::new(vxf.footer().clone(), vxf.segment_source());
 

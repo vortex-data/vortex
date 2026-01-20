@@ -22,6 +22,7 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
@@ -36,11 +37,7 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -94,19 +91,13 @@ impl VTable for PcoVTable {
     type Metadata = ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.pco")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        PcoVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -122,7 +113,6 @@ impl VTable for PcoVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -141,11 +131,11 @@ impl VTable for PcoVTable {
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
         let chunk_metas = buffers[..metadata.0.chunks.len()]
             .iter()
-            .map(|b| b.clone().try_to_bytes())
+            .map(|b| b.clone().try_to_host())
             .collect::<VortexResult<Vec<_>>>()?;
         let pages = buffers[metadata.0.chunks.len()..]
             .iter()
-            .map(|b| b.clone().try_to_bytes())
+            .map(|b| b.clone().try_to_host())
             .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
@@ -182,6 +172,14 @@ impl VTable for PcoVTable {
 
         Ok(())
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(array._slice(range.start, range.end).into_array()))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(array.decompress()))
+    }
 }
 
 pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
@@ -216,6 +214,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 
 #[derive(Debug)]
 pub struct PcoVTable;
+
+impl PcoVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
+}
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {
@@ -293,7 +295,7 @@ impl PcoArray {
                 number_type,
                 NumberType<T> => {
                     let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
-                    let values = values.buffer::<T>();
+                    let values = values.to_buffer::<T>();
                     let chunk = &values.as_slice()[chunk_start..chunk_end];
                     fc
                         .chunk_compressor(chunk, &chunk_config)
@@ -523,31 +525,9 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
     }
 }
 
-impl CanonicalVTable<PcoVTable> for PcoVTable {
-    fn canonicalize(array: &PcoArray) -> Canonical {
-        array.decompress().to_canonical()
-    }
-}
-
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn slice(array: &PcoArray, range: Range<usize>) -> ArrayRef {
-        array._slice(range.start, range.end).into_array()
-    }
-
     fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
         array._slice(index, index + 1).decompress().scalar_at(0)
-    }
-}
-
-impl EncodeVTable<PcoVTable> for PcoVTable {
-    fn encode(
-        _vtable: &PcoVTable,
-        canonical: &Canonical,
-        _like: Option<&PcoArray>,
-    ) -> VortexResult<Option<PcoArray>> {
-        let parray = canonical.clone().into_primitive();
-
-        Ok(Some(PcoArray::from_primitive(&parray, 3, 0)?))
     }
 }
 
@@ -569,7 +549,6 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -585,9 +564,8 @@ mod tests {
             Validity::from_iter([false, true, true, true, true, false]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        let decoded = pco.to_primitive();
         assert_arrays_eq!(
-            decoded,
+            pco,
             PrimitiveArray::from_option_iter([
                 None,
                 Some(20u32),
@@ -604,6 +582,5 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();
         assert_arrays_eq!(sliced, expected);
-        assert_arrays_eq!(sliced.to_canonical().into_array(), expected);
     }
 }

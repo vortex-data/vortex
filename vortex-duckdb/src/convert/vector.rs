@@ -62,7 +62,7 @@ impl<'a> DuckString<'a> {
         unsafe {
             let len = duckdb_string_t_length(*self.ptr);
             let c_ptr = duckdb_string_t_data(self.ptr);
-            std::slice::from_raw_parts(c_ptr as *const u8, len as usize)
+            std::slice::from_raw_parts(c_ptr.cast::<u8>(), len as usize)
         }
     }
 }
@@ -379,6 +379,7 @@ mod tests {
     use vortex::array::arrays::PrimitiveVTable;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
+    use vortex_array::assert_arrays_eq;
 
     use super::*;
     use crate::cpp::DUCKDB_TYPE;
@@ -640,12 +641,9 @@ mod tests {
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(
-            vortex_array
-                .list_elements_at(0)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[1, 2, 3, 4]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(0),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
 
@@ -671,12 +669,9 @@ mod tests {
         let vortex_array = result.to_fixed_size_list();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(
-            vortex_array
-                .fixed_size_list_elements_at(0)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[1, 2, 3, 4]
+        assert_arrays_eq!(
+            vortex_array.fixed_size_list_elements_at(0),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
 
@@ -728,13 +723,13 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_eq!(vortex_array.fields().len(), 2);
-        assert_eq!(
-            vortex_array.fields()[0].to_primitive().as_slice::<i32>(),
-            &[1, 2, 3, 4]
+        assert_arrays_eq!(
+            &vortex_array.fields()[0],
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
-        assert_eq!(
-            vortex_array.fields()[1].to_primitive().as_slice::<i32>(),
-            &[5, 6, 7, 8]
+        assert_arrays_eq!(
+            &vortex_array.fields()[1],
+            PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)])
         );
     }
 
@@ -776,12 +771,9 @@ mod tests {
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(
-            vortex_array
-                .list_elements_at(0)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[1, 2, 3, 4]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(0),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_eq!(vortex_array.validity_mask(), Mask::from_indices(2, vec![0]));
     }
@@ -821,19 +813,13 @@ mod tests {
         let vortex_array = result.to_listview();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(
-            vortex_array
-                .list_elements_at(0)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[3, 4]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(0),
+            PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
-        assert_eq!(
-            vortex_array
-                .list_elements_at(1)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[1, 2]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(1),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
     }
 
@@ -884,19 +870,13 @@ mod tests {
         assert_eq!(vortex_array.len(), len);
 
         // Valid entries should work correctly.
-        assert_eq!(
-            vortex_array
-                .list_elements_at(0)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[1, 2]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(0),
+            PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
-        assert_eq!(
-            vortex_array
-                .list_elements_at(2)
-                .to_primitive()
-                .as_slice::<i32>(),
-            &[3, 4]
+        assert_arrays_eq!(
+            vortex_array.list_elements_at(2),
+            PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
 
         // Verify the null entry has sanitized offset/size (offset=2, size=0) rather than garbage.

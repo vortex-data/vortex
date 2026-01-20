@@ -436,10 +436,19 @@ impl<T> BufferMut<T> {
         buf
     }
 
-    /// Return a `BufferMut<T>` with the given alignment. Where possible, this will be zero-copy.
+    /// Return a `BufferMut<T>` with the same data as this one with the given alignment.
+    ///
+    /// If the data is already properly aligned, this is a metadata-only operation.
+    ///
+    /// If the data is not aligned, we copy it into a new allocation.
     pub fn aligned(self, alignment: Alignment) -> Self {
         if self.as_ptr().align_offset(*alignment) == 0 {
-            self
+            Self {
+                bytes: self.bytes,
+                length: self.length,
+                alignment,
+                _marker: std::marker::PhantomData,
+            }
         } else {
             Self::copy_from_aligned(self, alignment)
         }

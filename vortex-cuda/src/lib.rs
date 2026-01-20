@@ -2,31 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! CUDA support for Vortex arrays.
-//!
-//! Provides support for:
-//!
-//! - Registering `CudaSupport` implementations for array encodings
-//! - Intercepting array execution and routing them to GPU kernels if supported by an array
-//! - Handling host/device memory transfers
 
+mod device_buffer;
 pub mod executor;
-pub mod kernel;
-pub mod session;
+mod for_;
+mod kernel;
+mod session;
 
-pub use executor::CudaArrayExt;
-pub use executor::CudaExecute;
-pub use kernel::KernelConfig;
-pub use kernel::KernelRegistry;
+use std::process::Command;
+
+pub use device_buffer::CudaBufferExt;
+pub use device_buffer::CudaDeviceBuffer;
+pub use executor::CudaExecutionCtx;
+pub use executor::CudaKernelEvents;
+use for_::ForExecutor;
 pub use session::CudaSession;
-pub use session::CudaSessionExt;
 
-/// Registers CUDA kernels for a given CUDA session.
-pub fn initialize_cuda(_session: &CudaSession) {
-    tracing::info!("Initializing CUDA support");
+/// Check if the NVIDIA CUDA Compiler is available.
+pub fn has_nvcc() -> bool {
+    Command::new("nvcc")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
 
-    // Register CUDA kernel implementations for supported encodings.
-    // This is only for arrays living in vortex-array.
-    //
-    // session.register(BitPackedVTable::ID, &bitpacking::CUDA_SUPPORT);
-    // session.register(RLEVTable::ID, &rle::CUDA_SUPPORT);
+/// Registers CUDA kernels.
+pub fn initialize_cuda(session: &CudaSession) {
+    tracing::info!("Registering CUDA kernels");
+    session.register_kernel("fastlanes.for".into(), &ForExecutor);
+    // TODO(0ax1): Register additional executors
 }

@@ -286,7 +286,7 @@ mod test {
         // [read]
         let array = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .with_filter(gt(root(), lit(2u64)))
@@ -328,7 +328,7 @@ mod test {
         // [compact read]
         let recovered_array = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .into_array_stream()?
@@ -338,7 +338,10 @@ mod test {
         assert_eq!(recovered_array.len(), array.len());
         let recovered_primitive = recovered_array.to_primitive();
         assert_eq!(recovered_primitive.validity(), array.validity());
-        assert_eq!(recovered_primitive.buffer::<u64>(), array.buffer::<u64>());
+        assert_eq!(
+            recovered_primitive.to_buffer::<u64>(),
+            array.to_buffer::<u64>()
+        );
 
         std::fs::remove_file(&path)?;
 
@@ -375,7 +378,7 @@ mod test {
         // Read the file back, but project down to just the "value" column.
         let projected = session
             .open_options()
-            .open(path.clone())
+            .open_path(path.clone())
             .await?
             .scan()?
             .with_projection(select(["value"], root()))

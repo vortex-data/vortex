@@ -8,7 +8,6 @@ use std::sync::LazyLock;
 
 use futures::StreamExt;
 use futures::pin_mut;
-use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -87,7 +86,7 @@ async fn test_file_roundtrip() {
         .expect("write");
 
     let bytes = ByteBuffer::from(bytes);
-    let vxf = SESSION.open_options().open(bytes).await.expect("open");
+    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
 
     // Read the data back
     let stream = vxf

@@ -6,7 +6,7 @@ mod shared;
 mod sink;
 mod source;
 
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 mod test;
 
 use std::fmt::Display;
@@ -16,7 +16,7 @@ pub use cache::*;
 pub use shared::*;
 pub use sink::*;
 pub use source::*;
-#[cfg(any(test, feature = "test-harness"))]
+#[cfg(any(test, feature = "_test-harness"))]
 pub use test::*;
 use vortex_error::VortexError;
 

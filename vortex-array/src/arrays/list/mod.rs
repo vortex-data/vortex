@@ -3,13 +3,14 @@
 
 mod array;
 pub use array::ListArray;
+pub use array::ListArrayParts;
 
 mod compute;
 
 mod vtable;
 pub use vtable::ListVTable;
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 mod test_harness;
 
 #[cfg(test)]

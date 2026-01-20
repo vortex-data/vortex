@@ -70,7 +70,7 @@ fn compress_sequential_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: Sequential data often compresses well with Delta or FoR encoding");
 
     Ok(())
@@ -98,7 +98,7 @@ fn compress_repetitive_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: RLE (Run-Length Encoding) is ideal for repetitive data");
 
     Ok(())
@@ -130,7 +130,7 @@ fn compress_string_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: Dictionary encoding is excellent for categorical/repetitive strings");
 
     Ok(())
@@ -153,7 +153,7 @@ fn compress_float_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: ALP or PCO encodings are optimized for floating-point data");
 
     Ok(())
@@ -179,7 +179,7 @@ fn compress_sparse_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: Sparse encoding stores only non-zero indices and values");
 
     Ok(())
@@ -229,7 +229,7 @@ fn compress_structured_data() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("    Compressed size: ~{} bytes", compressed_size);
     println!("    Compression ratio: {:.2}x", ratio);
-    println!("    Encoding: {}", compressed.encoding().id());
+    println!("    Encoding: {}", compressed.encoding_id());
     println!("    Note: Each column can be compressed with its optimal strategy");
 
     Ok(())

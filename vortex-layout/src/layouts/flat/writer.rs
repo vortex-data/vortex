@@ -123,7 +123,6 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
-        // TODO(os): spawn serialization
         let buffers = chunk.serialize(
             &ctx,
             &SerializeOptions {

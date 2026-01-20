@@ -660,7 +660,7 @@ mod tests {
 
         let name_len = unsafe { vx_string_len(field_name_ptr) };
         let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-        let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+        let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
         let name_str = str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
@@ -689,7 +689,7 @@ mod tests {
 
             let name_len = unsafe { vx_string_len(field_name_ptr) };
             let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-            let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+            let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
             let name_str = str::from_utf8(name_slice).unwrap();
 
             let expected_name = if i == 0 { "nums" } else { "floats" };

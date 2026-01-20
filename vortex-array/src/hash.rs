@@ -4,7 +4,6 @@
 use std::any::Any;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::sync::Arc;
 
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
@@ -12,7 +11,6 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::buffer::BufferHandle;
 use crate::patches::Patches;
 use crate::validity::Validity;
 
@@ -253,27 +251,5 @@ impl ArrayEq for Patches {
             && self.offset() == other.offset()
             && self.indices().array_eq(other.indices(), precision)
             && self.values().array_eq(other.values(), precision)
-    }
-}
-
-impl ArrayHash for BufferHandle {
-    fn array_hash<H: Hasher>(&self, state: &mut H, precision: Precision) {
-        match self {
-            BufferHandle::Host(b) => b.array_hash(state, precision),
-            BufferHandle::Device(_) => (),
-        }
-    }
-}
-
-impl ArrayEq for BufferHandle {
-    fn array_eq(&self, other: &Self, precision: Precision) -> bool {
-        match (self, other) {
-            (BufferHandle::Host(b), BufferHandle::Host(b2)) => b.array_eq(b2, precision),
-            (BufferHandle::Device(b), BufferHandle::Device(b2)) => match precision {
-                Precision::Ptr => Arc::ptr_eq(b, b2),
-                Precision::Value => b.eq(b2),
-            },
-            _ => false,
-        }
     }
 }

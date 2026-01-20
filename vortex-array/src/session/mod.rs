@@ -19,10 +19,10 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
+use crate::vtable::ArrayId;
+use crate::vtable::DynVTable;
 
-pub type ArrayRegistry = Registry<ArrayVTable>;
+pub type ArrayRegistry = Registry<&'static dyn DynVTable>;
 
 #[derive(Debug)]
 pub struct ArraySession {
@@ -36,13 +36,8 @@ impl ArraySession {
     }
 
     /// Register a new array encoding, replacing any existing encoding with the same ID.
-    pub fn register(&self, encoding: ArrayVTable) {
-        self.registry.register(encoding)
-    }
-
-    /// Register many array encodings, replacing any existing encodings with the same ID.
-    pub fn register_many(&self, encodings: impl IntoIterator<Item = ArrayVTable>) {
-        self.registry.register_many(encodings);
+    pub fn register(&self, id: impl Into<ArrayId>, encoding: impl Into<&'static dyn DynVTable>) {
+        self.registry.register(id.into(), encoding.into())
     }
 }
 
@@ -51,26 +46,22 @@ impl Default for ArraySession {
         let encodings = ArrayRegistry::default();
 
         // Register the canonical encodings.
-        encodings.register_many([
-            NullVTable.as_vtable(),
-            BoolVTable.as_vtable(),
-            PrimitiveVTable.as_vtable(),
-            DecimalVTable.as_vtable(),
-            VarBinViewVTable.as_vtable(),
-            ListViewVTable.as_vtable(),
-            FixedSizeListVTable.as_vtable(),
-            StructVTable.as_vtable(),
-            ExtensionVTable.as_vtable(),
-        ]);
+        encodings.register(NullVTable::ID, NullVTable);
+        encodings.register(BoolVTable::ID, BoolVTable);
+        encodings.register(PrimitiveVTable::ID, PrimitiveVTable);
+        encodings.register(DecimalVTable::ID, DecimalVTable);
+        encodings.register(VarBinViewVTable::ID, VarBinViewVTable);
+        encodings.register(ListViewVTable::ID, ListViewVTable);
+        encodings.register(FixedSizeListVTable::ID, FixedSizeListVTable);
+        encodings.register(StructVTable::ID, StructVTable);
+        encodings.register(ExtensionVTable::ID, ExtensionVTable);
 
         // Register the utility encodings.
-        encodings.register_many([
-            ChunkedVTable.as_vtable(),
-            ConstantVTable.as_vtable(),
-            MaskedVTable.as_vtable(),
-            ListVTable.as_vtable(),
-            VarBinVTable.as_vtable(),
-        ]);
+        encodings.register(ChunkedVTable::ID, ChunkedVTable);
+        encodings.register(ConstantVTable::ID, ConstantVTable);
+        encodings.register(MaskedVTable::ID, MaskedVTable);
+        encodings.register(ListVTable::ID, ListVTable);
+        encodings.register(VarBinVTable::ID, VarBinVTable);
 
         Self {
             registry: encodings,

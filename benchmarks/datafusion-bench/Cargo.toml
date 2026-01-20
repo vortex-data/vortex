@@ -32,6 +32,7 @@ object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry_sdk.workspace = true
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex-bench = { workspace = true }

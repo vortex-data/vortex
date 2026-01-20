@@ -12,8 +12,10 @@ use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::array::serde::ArrayParts;
+use vortex::array::session::ArraySessionExt;
 use vortex::buffer::ByteBuffer;
 
+use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
 use crate::serde::context::PyArrayContext;
@@ -54,7 +56,12 @@ impl PyArrayParts {
     ///
     /// The decoded array.
     fn decode(&self, ctx: &PyArrayContext, dtype: PyDType, len: usize) -> PyResult<PyArrayRef> {
-        Ok(PyArrayRef::from(self.0.decode(ctx, dtype.inner(), len)?))
+        Ok(PyArrayRef::from(self.0.decode(
+            dtype.inner(),
+            len,
+            ctx,
+            SESSION.arrays().registry(),
+        )?))
     }
 
     /// Fetch the serialized metadata of the array.
@@ -81,7 +88,7 @@ impl PyArrayParts {
 
         let mut buffers = Vec::with_capacity(slf.nbuffers());
         for buffer in (0..slf.nbuffers()).map(|i| slf.buffer(i)) {
-            let buffer: ByteBuffer = buffer.map(|b| b.into_bytes())?;
+            let buffer: ByteBuffer = buffer.and_then(|b| b.try_to_host())?;
 
             let addr = buffer.as_ptr() as usize;
             let size = buffer.len();

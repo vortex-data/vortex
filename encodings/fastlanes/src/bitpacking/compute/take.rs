@@ -171,7 +171,7 @@ mod test {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
 
-        let primitive_result = take(bitpacked.as_ref(), &indices).unwrap().to_primitive();
+        let primitive_result = take(bitpacked.as_ref(), &indices).unwrap();
         assert_arrays_eq!(
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
@@ -185,9 +185,7 @@ mod test {
 
         let indices = buffer![0, 2, 4, 6].into_array();
 
-        let primitive_result = take(bitpacked.as_ref(), indices.as_ref())
-            .unwrap()
-            .to_primitive();
+        let primitive_result = take(bitpacked.as_ref(), indices.as_ref()).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([0u32, 2, 4, 6]));
     }
 
@@ -200,7 +198,7 @@ mod test {
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
         let sliced = bitpacked.slice(128..2050);
 
-        let primitive_result = take(&sliced, &indices).unwrap().to_primitive();
+        let primitive_result = take(&sliced, &indices).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
@@ -260,13 +258,12 @@ mod test {
             start.as_ref(),
             PrimitiveArray::from_option_iter([Some(0u64), Some(1), None, Some(3)]).as_ref(),
         )
-        .unwrap()
-        .to_primitive();
+        .unwrap();
         assert_arrays_eq!(
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
-        assert_eq!(taken_primitive.invalid_count(), 1);
+        assert_eq!(taken_primitive.to_primitive().invalid_count(), 1);
     }
 
     #[rstest]

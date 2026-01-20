@@ -94,7 +94,6 @@ class BenchmarkExecutor:
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
                 text=True,
             )
 

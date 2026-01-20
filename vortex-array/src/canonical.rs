@@ -4,6 +4,7 @@
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -80,7 +81,7 @@ use crate::builders::builder_with_capacity;
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update [`Array::is_canonical`],
+/// If you add another variant to this enum, make sure to update `dyn Array::is_canonical`,
 /// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {
@@ -143,7 +144,7 @@ impl Canonical {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
             Canonical::List(array) => Ok(Canonical::List(
-                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList),
+                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?,
             )),
             _ => Ok(self.clone()),
         }
@@ -371,39 +372,57 @@ pub trait ToCanonical {
 // Blanket impl for all Array encodings.
 impl<A: Array + ?Sized> ToCanonical for A {
     fn to_null(&self) -> NullArray {
-        self.to_canonical().into_null()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_null()
     }
 
     fn to_bool(&self) -> BoolArray {
-        self.to_canonical().into_bool()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_bool()
     }
 
     fn to_primitive(&self) -> PrimitiveArray {
-        self.to_canonical().into_primitive()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_primitive()
     }
 
     fn to_decimal(&self) -> DecimalArray {
-        self.to_canonical().into_decimal()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_decimal()
     }
 
     fn to_struct(&self) -> StructArray {
-        self.to_canonical().into_struct()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_struct()
     }
 
     fn to_listview(&self) -> ListViewArray {
-        self.to_canonical().into_listview()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_listview()
     }
 
     fn to_fixed_size_list(&self) -> FixedSizeListArray {
-        self.to_canonical().into_fixed_size_list()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_fixed_size_list()
     }
 
     fn to_varbinview(&self) -> VarBinViewArray {
-        self.to_canonical().into_varbinview()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_varbinview()
     }
 
     fn to_extension(&self) -> ExtensionArray {
-        self.to_canonical().into_extension()
+        self.to_canonical()
+            .vortex_expect("to_canonical failed")
+            .into_extension()
     }
 }
 

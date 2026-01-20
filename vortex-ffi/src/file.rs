@@ -114,7 +114,7 @@ fn extract_expression(
 ) -> VortexResult<Option<Expression>> {
     Ok((!expression.is_null() && expression_len > 0).then_some({
         let bytes =
-            unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
+            unsafe { slice::from_raw_parts(expression.cast::<u8>(), expression_len as usize) };
 
         // Decode the protobuf message.
         deserialize_expr_proto(&Expr::decode(bytes)?, registry)

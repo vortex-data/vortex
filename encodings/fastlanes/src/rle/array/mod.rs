@@ -218,10 +218,11 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::serde::ArrayParts;
     use vortex_array::serde::SerializeOptions;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
     use vortex_dtype::DType;
@@ -312,7 +313,8 @@ mod tests {
         )
         .unwrap();
 
-        let valid_slice = rle_array.slice(0..3);
+        let valid_slice = rle_array.slice(0..3).to_primitive();
+        // TODO(joe): replace with compute null count
         assert!(valid_slice.all_valid());
 
         let mixed_slice = rle_array.slice(1..5);
@@ -348,7 +350,12 @@ mod tests {
         )
         .unwrap();
 
-        let invalid_slice = rle_array.slice(2..5);
+        // TODO(joe): replace with compute null count
+        let invalid_slice = rle_array
+            .slice(2..5)
+            .to_canonical()
+            .unwrap()
+            .into_primitive();
         assert!(invalid_slice.all_invalid());
 
         let mixed_slice = rle_array.slice(1..4);
@@ -431,9 +438,8 @@ mod tests {
         assert_eq!(rle_array.len(), 2048);
 
         let original_data = rle_array.to_primitive();
-        let original_values = original_data.as_slice::<u32>();
 
-        let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
+        let ctx = ArrayContext::empty();
         let serialized = rle_array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -445,19 +451,23 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let registry = ArraySession::default()
+            .registry()
+            .clone()
+            .with(RLEVTable::ID, RLEVTable);
         let parts = ArrayParts::try_from(concat).unwrap();
         let decoded = parts
             .decode(
-                &ctx,
                 &DType::Primitive(PType::U32, Nullability::NonNullable),
                 2048,
+                &ctx,
+                &registry,
             )
             .unwrap();
 
         let decoded_data = decoded.to_primitive();
-        let decoded_values = decoded_data.as_slice::<u32>();
 
-        assert_eq!(original_values, decoded_values);
+        assert_arrays_eq!(original_data, decoded_data);
     }
 
     #[test]
@@ -467,7 +477,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::empty().with(RLEVTable.as_vtable());
+        let ctx = ArrayContext::empty();
         let serialized = sliced
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
@@ -478,15 +488,18 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let registry = ArraySession::default()
+            .registry()
+            .clone()
+            .with(RLEVTable::ID, RLEVTable);
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&ctx, sliced.dtype(), sliced.len()).unwrap();
+        let decoded = parts
+            .decode(sliced.dtype(), sliced.len(), &ctx, &registry)
+            .unwrap();
 
         let original_data = sliced.to_primitive();
         let decoded_data = decoded.to_primitive();
 
-        let original_values = original_data.as_slice::<u32>();
-        let decoded_values = decoded_data.as_slice::<u32>();
-
-        assert_eq!(original_values, decoded_values);
+        assert_arrays_eq!(original_data, decoded_data);
     }
 }
