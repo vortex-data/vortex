@@ -72,7 +72,7 @@ pub trait DataSourceScan: 'static + Send + Sync {
 
     /// Returns the next batch of splits to be processed.
     ///
-    /// This should not return _more_ than the max_batch_size splits, but may return fewer.
+    /// This should not return _more_ than `max_splits` splits, but may return fewer.
     async fn next_splits(&mut self, max_splits: usize) -> VortexResult<Vec<SplitRef>>;
 }
 
