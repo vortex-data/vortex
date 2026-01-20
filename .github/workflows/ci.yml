@@ -63,7 +63,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -101,7 +100,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -506,7 +504,6 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-          cache-suffix: "sanitizer"
           timestamp: "true"
       - name: Install build dependencies
         run: |
@@ -690,7 +687,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           timestamp: "true"
-          cache-suffix: "cxx"
       - name: Build and run C++ unit tests
         run: |
           mkdir -p vortex-cxx/build
