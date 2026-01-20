@@ -5,6 +5,7 @@ use vortex::error::VortexResult;
 
 pub(crate) mod exprs;
 mod scalars;
+pub(crate) mod schema;
 
 /// First-party trait for implementing conversion from DataFusion types to Vortex types.
 pub(crate) trait FromDataFusion<D: ?Sized>: Sized {
