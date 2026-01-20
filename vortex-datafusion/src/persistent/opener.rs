@@ -47,6 +47,7 @@ use crate::VortexAccessPlan;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
+use crate::convert::schema::calculate_physical_schema;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -98,8 +99,7 @@ impl FileOpener for VortexOpener {
         let expr_adapter_factory = self.expr_adapter_factory.clone();
 
         let file_cache = self.file_cache.clone();
-        let table_schema = self.table_schema.clone();
-        let logical_file_schema = table_schema.file_schema().clone();
+        let unified_file_schema = self.table_schema.file_schema().clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
         let metrics = self.metrics.clone();
@@ -110,7 +110,8 @@ impl FileOpener for VortexOpener {
 
         // Replace column access for partition columns with literals
         #[allow(clippy::disallowed_types)]
-        let literal_value_cols = table_schema
+        let literal_value_cols = self
+            .table_schema
             .table_partition_cols()
             .iter()
             .map(|f| f.name())
@@ -142,7 +143,7 @@ impl FileOpener for VortexOpener {
                 .and_then(|predicate| {
                     FilePruner::try_new(
                         predicate.clone(),
-                        &logical_file_schema,
+                        &unified_file_schema,
                         &file,
                         Count::default(),
                     )
@@ -161,18 +162,21 @@ impl FileOpener for VortexOpener {
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
 
-            let physical_file_schema = Arc::new(vxf.dtype().to_arrow_schema().map_err(|e| {
-                exec_datafusion_err!("Failed to convert file schema to arrow: {e}")
-            })?);
+            // This is the expected arrow types of the actual columns in the file, which might have different types
+            // from the unified logical schema or miss
+            let this_file_schema = Arc::new(calculate_physical_schema(
+                vxf.dtype(),
+                &unified_file_schema,
+            )?);
 
-            let projected_physical_schema = projection.project_schema(&logical_file_schema)?;
+            let projected_physical_schema = projection.project_schema(&unified_file_schema)?;
 
             let expr_adapter = expr_adapter_factory.create(
-                Arc::clone(&logical_file_schema),
-                Arc::clone(&physical_file_schema),
+                Arc::clone(&unified_file_schema),
+                Arc::clone(&this_file_schema),
             );
 
-            let simplifier = PhysicalExprSimplifier::new(&physical_file_schema);
+            let simplifier = PhysicalExprSimplifier::new(&this_file_schema);
 
             // The adapter rewrites the expressions to the local file schema, allowing
             // for schema evolution and divergence between the table's schema and individual files.
@@ -191,17 +195,16 @@ impl FileOpener for VortexOpener {
                 leftover_projection,
             } = expr_convertor.split_projection(
                 projection,
-                &physical_file_schema,
+                &this_file_schema,
                 &projected_physical_schema,
             )?;
 
             // The schema of the stream returned from the vortex scan.
+            // We use the physical_file_schema as reference for types that don't roundtrip.
             let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
                 exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
             })?;
-            let stream_schema = scan_dtype.to_arrow_schema().map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the schema for the underlying Vortex scan")
-            })?;
+            let stream_schema = calculate_physical_schema(&scan_dtype, &projected_physical_schema)?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
@@ -264,7 +267,7 @@ impl FileOpener for VortexOpener {
                             .into_iter()
                             .cloned()
                             .partition(|expr| {
-                                expr_convertor.can_be_pushed_down(expr, &physical_file_schema)
+                                expr_convertor.can_be_pushed_down(expr, &this_file_schema)
                             });
 
                     if !unpushed.is_empty() {
@@ -384,11 +387,13 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Fields;
     use arrow_schema::SchemaRef;
+    use datafusion::arrow::array::DictionaryArray;
     use datafusion::arrow::array::RecordBatch;
     use datafusion::arrow::array::StringArray;
     use datafusion::arrow::array::StructArray;
     use datafusion::arrow::datatypes::DataType;
     use datafusion::arrow::datatypes::Schema;
+    use datafusion::arrow::datatypes::UInt32Type;
     use datafusion::arrow::util::display::FormatOptions;
     use datafusion::arrow::util::pretty::pretty_format_batches_with_options;
     use datafusion::common::record_batch;
@@ -1101,6 +1106,54 @@ mod tests {
         +--------+
         ");
 
+        Ok(())
+    }
+
+    /// When a Struct contains Dictionary fields, writing to vortex and reading back
+    /// should preserve the Dictionary type.
+    #[tokio::test]
+    async fn test_struct_with_dictionary_roundtrip() -> anyhow::Result<()> {
+        let object_store = Arc::new(InMemory::new()) as Arc<dyn ObjectStore>;
+
+        let struct_fields = Fields::from(vec![
+            Field::new_dictionary("a", DataType::UInt32, DataType::Utf8, true),
+            Field::new_dictionary("b", DataType::UInt32, DataType::Utf8, true),
+        ]);
+        let struct_array = StructArray::new(
+            struct_fields.clone(),
+            vec![
+                Arc::new(DictionaryArray::<UInt32Type>::from_iter(["x", "y", "x"])),
+                Arc::new(DictionaryArray::<UInt32Type>::from_iter(["p", "p", "q"])),
+            ],
+            None,
+        );
+
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "labels",
+            DataType::Struct(struct_fields.clone()),
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema.clone(), vec![Arc::new(struct_array)])?;
+
+        let file_path = "/test.vortex";
+        let data_size = write_arrow_to_vortex(object_store.clone(), file_path, batch).await?;
+
+        let opener = make_test_opener(
+            object_store.clone(),
+            schema.clone(),
+            ProjectionExprs::from_indices(&[0], &schema),
+        );
+        let data: Vec<_> = opener
+            .open(PartitionedFile::new(file_path.to_string(), data_size))?
+            .await?
+            .try_collect()
+            .await?;
+
+        assert_eq!(
+            data[0].schema().field(0).data_type(),
+            &DataType::Struct(struct_fields),
+            "Struct(Dictionary) type should be preserved"
+        );
         Ok(())
     }
 }
