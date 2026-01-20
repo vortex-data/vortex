@@ -15,9 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Datum;
-use vortex_vector::Scalar as VectorScalar;
-use vortex_vector::bool::BoolScalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -29,6 +26,7 @@ use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -118,26 +116,25 @@ impl VTable for DynamicComparison {
         .into_array())
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
         if let Some(scalar) = data.rhs.scalar() {
-            let [lhs]: [Datum; _] = args
-                .datums
+            let [lhs]: [ArrayRef; _] = args
+                .inputs
                 .try_into()
                 .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
-            let rhs_vector_scalar = scalar.to_vector_scalar();
-            let rhs = Datum::Scalar(rhs_vector_scalar);
+            let rhs = ConstantArray::new(scalar.clone(), args.row_count).into_array();
 
             return Binary.bind(data.operator.into()).execute(ExecutionArgs {
-                datums: vec![lhs, rhs],
-                dtypes: args.dtypes,
+                inputs: vec![lhs, rhs],
                 row_count: args.row_count,
-                return_dtype: args.return_dtype,
+                ctx: args.ctx,
             });
         }
 
-        Ok(Datum::Scalar(VectorScalar::Bool(BoolScalar::new(Some(
-            data.default,
-        )))))
+        Ok(ExecutionResult::Scalar(ConstantArray::new(
+            false,
+            args.row_count,
+        )))
     }
 
     fn stat_falsification(

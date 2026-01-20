@@ -2,18 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Not;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::bool::BoolVector;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -24,6 +17,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -94,13 +88,22 @@ impl VTable for IsNull {
         })
     }
 
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child = args.datums.pop().vortex_expect("Missing input child");
-        Ok(match child {
-            Datum::Scalar(s) => Datum::Scalar(BoolScalar::new(Some(s.is_null())).into()),
-            Datum::Vector(v) => Datum::Vector(
-                BoolVector::new(v.validity().to_bit_buffer().not(), Mask::new_true(v.len())).into(),
-            ),
+    fn execute(
+        &self,
+        _data: &Self::Options,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let child = args.inputs.pop().vortex_expect("Missing input child");
+        if let Some(scalar) = child.as_constant() {
+            return Ok(ExecutionResult::constant(scalar.is_null(), args.row_count));
+        }
+
+        Ok(match child.validity()? {
+            Validity::NonNullable | Validity::AllValid => {
+                ExecutionResult::constant(false, args.row_count)
+            }
+            Validity::AllInvalid => ExecutionResult::constant(true, args.row_count),
+            Validity::Array(a) => a.not()?.execute(args.ctx)?,
         })
     }
 

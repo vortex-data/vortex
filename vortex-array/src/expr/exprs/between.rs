@@ -11,14 +11,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -150,38 +151,35 @@ impl VTable for Between {
         between_compute(&arr, &lower, &upper, options)
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [arr, lower, upper]: [Datum; _] = args
-            .datums
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [arr, lower, upper]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
-        let [arr_dt, lower_dt, upper_dt]: [DType; _] = args
-            .dtypes
-            .try_into()
-            .map_err(|_| vortex_err!("Expected 3 dtypes for Between expression",))?;
 
         let lower_bound = Binary
             .bind(options.lower_strict.to_operator().into())
             .execute(ExecutionArgs {
-                datums: vec![lower, arr.clone()],
-                dtypes: vec![lower_dt, arr_dt.clone()],
+                inputs: vec![lower.clone(), arr.clone()],
                 row_count: args.row_count,
-                return_dtype: args.return_dtype.clone(),
+                ctx: args.ctx,
             })?;
         let upper_bound = Binary
             .bind(options.upper_strict.to_operator().into())
             .execute(ExecutionArgs {
-                datums: vec![arr, upper],
-                dtypes: vec![arr_dt, upper_dt],
+                inputs: vec![arr, upper],
                 row_count: args.row_count,
-                return_dtype: args.return_dtype.clone(),
+                ctx: args.ctx,
             })?;
 
         Binary.bind(Operator::And).execute(ExecutionArgs {
-            datums: vec![lower_bound, upper_bound],
-            dtypes: vec![args.return_dtype.clone(), args.return_dtype.clone()],
+            inputs: vec![lower_bound.into_array(), upper_bound.into_array()],
             row_count: args.row_count,
-            return_dtype: args.return_dtype,
+            ctx: args.ctx,
         })
     }
 

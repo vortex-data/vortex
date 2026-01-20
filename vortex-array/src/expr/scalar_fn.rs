@@ -18,6 +18,7 @@ use vortex_vector::Datum;
 use crate::ArrayRef;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
@@ -138,7 +139,7 @@ impl ScalarFn {
     }
 
     /// Execute the expression given the input arguments.
-    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
+    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<ExecutionResult> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
     }
 

@@ -13,18 +13,17 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -119,26 +118,23 @@ impl VTable for GetItem {
         }
     }
 
-    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let struct_dtype = args.dtypes[0]
-            .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
-        let field_idx = struct_dtype
-            .find(field_name)
-            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
+    fn execute(
+        &self,
+        field_name: &FieldName,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let input = args
+            .inputs
+            .pop()
+            .vortex_expect("missing input for GetItem expression")
+            .execute::<StructArray>(args.ctx)?;
+        let field = input.field_by_name(field_name).cloned()?;
 
-        match args.datums.pop().vortex_expect("missing input") {
-            Datum::Scalar(s) => {
-                let mut field = s.as_struct().field(field_idx);
-                field.mask_validity(s.is_valid());
-                Ok(Datum::Scalar(field))
-            }
-            Datum::Vector(v) => {
-                let mut field = v.as_struct().fields()[field_idx].clone();
-                field.mask_validity(v.validity());
-                Ok(Datum::Vector(field))
-            }
-        }
+        match input.dtype().nullability() {
+            Nullability::NonNullable => Ok(field),
+            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
+        }?
+        .execute(args.ctx)
     }
 
     fn reduce(
