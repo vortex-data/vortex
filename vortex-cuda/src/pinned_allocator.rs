@@ -93,14 +93,13 @@ impl WriteTarget for PinnedDeviceWriteTarget {
         self.buffer.len()
     }
 
-    fn into_handle(mut self: Box<Self>) -> VortexResult<BufferHandle> {
+    fn into_handle(self: Box<Self>) -> VortexResult<BufferHandle> {
         let len = self.buffer.len();
         let mut device = unsafe { self.stream.alloc::<u8>(len) }
             .map_err(|e| vortex_err!("Failed to allocate device memory: {e}"))?;
 
-        let slice: &[u8] = self.buffer.as_mut_slice();
         self.stream
-            .memcpy_htod(slice, &mut device)
+            .memcpy_htod(&self.buffer, &mut device)
             .map_err(|e| vortex_err!("Failed to copy to device: {e}"))?;
 
         let event = self

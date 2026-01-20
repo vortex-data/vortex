@@ -5,7 +5,10 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use cudarc::driver::CudaContext;
+use cudarc::driver::CudaStream;
+use cudarc::driver::HostSlice;
 use cudarc::driver::PinnedHostSlice;
+use cudarc::driver::SyncOnDrop;
 use parking_lot::Mutex;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -21,6 +24,7 @@ pub struct PinnedByteBuffer {
     inner: PinnedHostSlice<u8>,
 }
 
+#[allow(clippy::same_name_method)]
 impl PinnedByteBuffer {
     /// Allocate a pinned host buffer with uninitialized contents.
     ///
@@ -75,6 +79,31 @@ impl PinnedByteBuffer {
     /// Returns the CUDA context that owns this allocation.
     pub fn context(&self) -> &Arc<CudaContext> {
         self.inner.context()
+    }
+}
+
+#[allow(clippy::same_name_method)]
+impl HostSlice<u8> for PinnedByteBuffer {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    unsafe fn stream_synced_slice<'a>(
+        &'a self,
+        stream: &'a CudaStream,
+    ) -> (&'a [u8], SyncOnDrop<'a>) {
+        unsafe {
+            <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream)
+        }
+    }
+
+    unsafe fn stream_synced_mut_slice<'a>(
+        &'a mut self,
+        stream: &'a CudaStream,
+    ) -> (&'a mut [u8], SyncOnDrop<'a>) {
+        unsafe {
+            <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_mut_slice(&mut self.inner, stream)
+        }
     }
 }
 
@@ -200,6 +229,35 @@ impl PooledPinnedBuffer {
         assert_eq!(bytes.len(), len);
 
         ByteBuffer::from(bytes)
+    }
+}
+
+#[allow(clippy::same_name_method)]
+impl HostSlice<u8> for PooledPinnedBuffer {
+    fn len(&self) -> usize {
+        self.len()
+    }
+
+    unsafe fn stream_synced_slice<'a>(
+        &'a self,
+        stream: &'a CudaStream,
+    ) -> (&'a [u8], SyncOnDrop<'a>) {
+        let inner = self
+            .inner
+            .as_ref()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        unsafe { HostSlice::stream_synced_slice(inner, stream) }
+    }
+
+    unsafe fn stream_synced_mut_slice<'a>(
+        &'a mut self,
+        stream: &'a CudaStream,
+    ) -> (&'a mut [u8], SyncOnDrop<'a>) {
+        let inner = self
+            .inner
+            .as_mut()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        unsafe { HostSlice::stream_synced_mut_slice(inner, stream) }
     }
 }
 
