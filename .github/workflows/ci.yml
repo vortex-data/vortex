@@ -560,9 +560,9 @@ jobs:
       - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          $outpath = "$PSScriptRoot/vs_buildtools.exe"
-          Invoke-WebRequest -Verbose -Uri "https://aka.ms/vs/17/release/vs_buildtools.exe" -OutFile $outpath
-          "$outpath" --passive --wait --add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.Component.VC.Runtime.UCRTSDK --add Microsoft.VisualStudio.Component.Windows11SDK.26100
+          $env:Path
+          choco install visualstudio2022buildtools --package-parameters `
+            "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
       - name: Setup Python (Windows)
         if: matrix.os == 'windows-x64'
         uses: actions/setup-python@v5
