@@ -19,6 +19,7 @@ workspace = true
 [dependencies]
 async-trait = { workspace = true }
 cudarc = { workspace = true }
+parking_lot = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

@@ -10268,6 +10268,7 @@ dependencies = [
  "async-trait",
  "criterion",
  "cudarc",
+ "parking_lot",
  "tokio",
  "tracing",
  "vortex-array",
