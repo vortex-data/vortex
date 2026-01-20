@@ -1,15 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
-use crate::ArrayEq;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::Precision;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
 use crate::arrays::ExpressionArray;
@@ -19,19 +16,17 @@ use crate::arrays::ScalarFnArrayView;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::builtins::ExprBuiltins;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
-use crate::expr::Expression;
 use crate::expr::GetItem;
-use crate::expr::Literal;
 use crate::expr::Mask;
+use crate::expr::Pack;
 use crate::expr::Root;
 use crate::expr::annotate_scope_access;
-use crate::expr::col;
 use crate::expr::root;
 use crate::expr::transform::partition;
 use crate::expr::transform::replace;
-use crate::expr::traversal::Node;
 use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -170,7 +165,7 @@ impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
     type Parent = Exact<ExpressionVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&ExpressionVTable)
+        Exact::new()
     }
 
     fn reduce_parent(
@@ -179,45 +174,99 @@ impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
         parent: &ExpressionArray,
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        // We're going to walk the expression tree and apply the expression bottom-up to each field.
-        let applied = evaluate_struct(array, parent.expression())?;
-
-        // If we ended up with the same array, we failed to apply any optimizations.
-        if array.array_eq(applied.as_ref(), Precision::Ptr) {
-            return Ok(None);
+        // If the parent expression is a get_item over root, we can directly return the field.
+        if let Some(field_name) = parent.expression().as_opt::<GetItem>() {
+            if parent.expression().child(0).is::<Root>() {
+                let field_idx = array.struct_fields().find(field_name).ok_or_else(|| {
+                    vortex_err!(
+                        "Field '{}' not found in struct for direct get_item",
+                        field_name
+                    )
+                })?;
+                return Ok(Some(array.masked_field(field_idx)?));
+            }
         }
 
-        Ok(Some(applied))
-    }
-}
+        // Partition the expression into field accesses.
+        let partitioned = partition(
+            parent.expression().clone(),
+            array.dtype(),
+            annotate_scope_access(array.struct_fields()),
+        )?;
 
-fn evaluate_struct(array: &StructArray, expression: &Expression) -> VortexResult<ArrayRef> {
-    if expression.is::<Root>() {
-        // Base case: return the struct array itself.
-        return Ok(array.to_array());
-    }
+        // If there's only one partition, we can return that field directly.
+        if partitioned.partitions.len() == 1 {
+            let field_name = &partitioned.partition_annotations[0];
+            let field_idx = array.struct_fields().find(field_name).ok_or_else(|| {
+                vortex_err!(
+                    "Field '{}' not found in struct for partitioning",
+                    field_name
+                )
+            })?;
+            let field = array.masked_field(field_idx)?;
 
-    if expression.is::<Literal>() {
-        // If it's a literal, create a constant array with the literal value.
-        let scalar = expression
-            .as_opt::<Literal>()
-            .expect("Expected Literal")
-            .clone();
-        return Ok(ConstantArray::new(scalar, array.len()).into_array());
-    }
+            // Replace the field access in the expression with root.
+            let field_expr = replace(
+                parent.expression().clone(),
+                &root().get_item(field_name.clone())?,
+                root(),
+            );
 
-    if let Some(field_name) = expression.as_opt::<GetItem>() {
-        let field_idx = array
-            .struct_fields()
-            .find(field_name)
-            .ok_or_else(|| vortex_err!("Field '{}' not found in struct", field_name))?;
+            // Wrap up the field array in an ExpressionArray.
+            return Ok(Some(
+                ExpressionArray::try_new(field_expr, field)?.into_array(),
+            ));
+        }
 
-        return array.masked_field(field_idx);
-    }
+        // FIXME(ngates): we need a better way to avoid terminating here..
+        //  For now, the partitioner returns Pack expressions for direct field accesses.
+        if partitioned.partitions.iter().all(|p| p.is::<Pack>()) {
+            tracing::warn!(
+                "StructPartitionRule: all partitions are direct field accesses, cannot reduce further: {}",
+                partitioned
+            );
+            return Ok(None);
+        } else {
+            tracing::info!(
+                "StructPartitionRule: partitioned expression into {}",
+                partitioned
+            );
+        }
 
-    // Otherwise, recursively evaluate child expressions.
-    let mut children = Vec::with_capacity(expression.children().len());
-    for child in expression.children() {
-        children.push(evaluate_struct(array, child)?);
+        // Otherwise, we need to handle multiple partitions.
+        let mut partitions = Vec::with_capacity(partitioned.partitions.len());
+        for (idx, partition) in partitioned.partitions.iter().enumerate() {
+            let part_field_name = &partitioned.partition_annotations[idx];
+            let part_field_idx = array.struct_fields().find(part_field_name).ok_or_else(|| {
+                vortex_err!(
+                    "Field '{}' not found in struct for partitioning",
+                    part_field_name
+                )
+            })?;
+            let part_field = array.masked_field(part_field_idx)?;
+
+            let part_expr = replace(
+                partition.clone(),
+                &root().get_item(partitioned.partition_names[idx].clone())?,
+                root(),
+            );
+
+            partitions.push(ExpressionArray::try_new(part_expr, part_field)?.into_array());
+        }
+
+        // Combine the partitioned expressions back into a single expression.
+        let combined = ExpressionArray::try_new(
+            partitioned.root,
+            StructArray::try_new(
+                partitioned.partition_names.clone(),
+                partitions,
+                array.len,
+                Validity::NonNullable,
+            )?
+            .into_array(),
+        )?
+        .into_array();
+
+        Ok(Some(combined))
     }
 }

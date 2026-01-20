@@ -30,7 +30,7 @@ impl ArrayParentReduceRule<RunEndVTable> for RunEndExpressionRule {
     type Parent = Exact<ExpressionVTable>;
 
     fn parent(&self) -> Exact<ExpressionVTable> {
-        Exact::from(&ExpressionVTable)
+        Exact::new()
     }
 
     fn reduce_parent(

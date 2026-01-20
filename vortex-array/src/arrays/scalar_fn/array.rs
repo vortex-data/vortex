@@ -4,6 +4,7 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -22,6 +23,8 @@ pub struct ScalarFnArray {
 impl ScalarFnArray {
     /// Create a new ScalarFnArray from a scalar function and its children.
     pub fn try_new(bound: ScalarFn, children: Vec<ArrayRef>, len: usize) -> VortexResult<Self> {
+        vortex_panic!("NOT SUPPORTED");
+
         let arg_dtypes: Vec<_> = children.iter().map(|c| c.dtype().clone()).collect();
         let dtype = bound.return_dtype(&arg_dtypes)?;
 

@@ -17,8 +17,6 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::ExpressionArray;
-use crate::arrays::ScalarFnArrayExt;
 use crate::arrays::StructArray;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
@@ -29,7 +27,6 @@ use crate::expr::Mask;
 use crate::expr::Not;
 use crate::expr::VTableExt;
 use crate::expr::root;
-use crate::optimizer::ArrayOptimizer;
 use crate::validity::Validity;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.

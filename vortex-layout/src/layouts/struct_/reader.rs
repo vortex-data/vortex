@@ -179,7 +179,11 @@ impl StructReader {
                     // expression by replacing any `$.a` with `$`.
                     return Partitioned::Single(
                         partitioned.partition_names[0].clone(),
-                        replace(expr, &col(partitioned.partition_names[0].clone()), root()),
+                        replace(
+                            expr,
+                            &col(partitioned.partition_annotations[0].clone()),
+                            root(),
+                        ),
                     );
                 }
 
@@ -189,7 +193,7 @@ impl StructReader {
                 partitioned.partitions = partitioned
                     .partitions
                     .iter()
-                    .zip_eq(partitioned.partition_names.iter())
+                    .zip_eq(partitioned.partition_annotations.iter())
                     .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
                     .collect();
 

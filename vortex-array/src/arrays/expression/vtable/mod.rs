@@ -27,8 +27,6 @@ use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -91,6 +89,10 @@ impl Debug for ExpressionArrayMetadata {
 #[derive(Debug)]
 pub struct ExpressionVTable;
 
+impl ExpressionVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.expression");
+}
+
 impl VTable for ExpressionVTable {
     type Array = ExpressionArray;
     type Metadata = ExpressionArrayMetadata;
@@ -100,12 +102,8 @@ impl VTable for ExpressionVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::from("vortex.expression")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ExpressionVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -127,7 +125,6 @@ impl VTable for ExpressionVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
