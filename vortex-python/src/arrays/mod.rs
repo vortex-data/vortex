@@ -36,6 +36,7 @@ use vortex::error::VortexError;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
 use vortex_array::compute::take;
+
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
