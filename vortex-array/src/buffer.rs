@@ -37,7 +37,7 @@ pub struct BufferHandle(Inner);
 enum Inner {
     /// On the host/cpu.
     Host(ByteBuffer),
-    /// On the device.
+    /// On the device/gpu.
     Device(Arc<dyn DeviceBuffer>),
 }
 

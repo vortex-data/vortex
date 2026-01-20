@@ -65,7 +65,13 @@ async fn execute_for_typed<P: DeviceRepr + NativePType>(
 
     let encoded = array.encoded().clone().execute_cuda(ctx).await?;
     let (dtype, buffer_handle, validity, ..) = encoded.into_primitive().into_parts();
-    let device_buffer_handle = ctx.ensure_on_device::<P>(&buffer_handle)?;
+
+    let device_buffer_handle = if buffer_handle.is_on_device() {
+        buffer_handle
+    } else {
+        ctx.copy_buffer_to_device_async::<P>(buffer_handle)?.await?
+    };
+
     let cuda_view = device_buffer_handle.cuda_view::<P>()?;
     let array_len = array.len() as u64;
 

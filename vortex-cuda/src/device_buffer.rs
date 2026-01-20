@@ -59,7 +59,7 @@ impl CudaBufferExt for BufferHandle {
     fn cuda_view<T: DeviceRepr + Send + Sync + 'static>(&self) -> VortexResult<CudaView<'_, T>> {
         let device_buffer = self
             .as_device_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on device, call ensure_on_device first"))?;
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?;
 
         let cuda_buf = device_buffer
             .as_any()

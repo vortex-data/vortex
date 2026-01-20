@@ -10266,6 +10266,8 @@ dependencies = [
  "async-trait",
  "criterion",
  "cudarc",
+ "futures",
+ "kanal",
  "tokio",
  "tracing",
  "vortex-array",
