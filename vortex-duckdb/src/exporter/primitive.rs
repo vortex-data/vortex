@@ -3,12 +3,12 @@
 
 use std::marker::PhantomData;
 
+use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::NativePType;
 use vortex::dtype::match_each_native_ptype;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex_array::ExecutionCtx;
 use vortex_array::vtable::ValidityHelper;
 
 use crate::LogicalType;
