@@ -9,8 +9,10 @@ use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
+use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 use crate::exporter::validity;
 
 struct BoolExporter {
@@ -24,6 +26,11 @@ pub(crate) fn new_exporter(
     let len = array.len();
     let BoolArrayParts { validity, bits, .. } = array.into_parts();
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
+
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));
+    }
+
     Ok(validity::new_exporter(
         validity,
         Box::new(BoolExporter { bit_buffer: bits }),

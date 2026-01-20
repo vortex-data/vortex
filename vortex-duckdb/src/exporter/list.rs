@@ -17,7 +17,9 @@ use vortex::error::vortex_err;
 use vortex::mask::Mask;
 
 use super::ConversionCache;
+use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use crate::LogicalType;
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -47,9 +49,17 @@ pub(crate) fn new_exporter(
         elements,
         offsets,
         validity,
-        ..
+        dtype,
     } = array.into_parts();
     let num_elements = elements.len();
+    let validity = validity.to_array(array_len).execute::<Mask>(ctx)?;
+
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(
+            array_len,
+            &LogicalType::try_from(dtype)?,
+        ));
+    }
 
     let values_key = Arc::as_ptr(&elements).addr();
     // Check if we have a cached vector and extract it if we do.
@@ -84,7 +94,7 @@ pub(crate) fn new_exporter(
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         Box::new(ListExporter {
-            validity: validity.to_mask(array_len),
+            validity,
             duckdb_elements: shared_elements,
             offsets,
             num_elements,

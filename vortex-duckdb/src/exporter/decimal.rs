@@ -4,10 +4,12 @@
 use std::marker::PhantomData;
 
 use num_traits::ToPrimitive;
+use vortex::array::ExecutionCtx;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::DecimalArrayParts;
 use vortex::buffer::Buffer;
 use vortex::dtype::BigCast;
+use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::match_each_decimal_value_type;
@@ -16,15 +18,16 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 use vortex::scalar::DecimalType;
-use vortex_array::ExecutionCtx;
 
+use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
+use crate::exporter::validity;
 
 struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
     values: Buffer<D>,
-    validity: Mask,
     /// The DecimalType of the DuckDB column.
     dest_value_type: PhantomData<N>,
 }
@@ -32,7 +35,6 @@ struct DecimalExporter<D: NativeDecimalType, N: NativeDecimalType> {
 struct DecimalZeroCopyExporter<D: NativeDecimalType> {
     values: Buffer<D>,
     shared_buffer: VectorBuffer,
-    validity: Mask,
 }
 
 pub(crate) fn new_exporter(
@@ -45,31 +47,38 @@ pub(crate) fn new_exporter(
         decimal_dtype,
         values_type,
         values,
-        ..
+        nullability,
     } = array.into_parts();
     let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
     let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
-    if values_type == dest_values_type {
-        match_each_decimal_value_type!(values_type, |D| {
-            let buffer = Buffer::<D>::from_byte_buffer(values);
-            return Ok(Box::new(DecimalZeroCopyExporter {
-                values: buffer.clone(),
-                shared_buffer: VectorBuffer::new(buffer),
-                validity,
-            }));
-        })
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(
+            len,
+            &LogicalType::try_from(DType::Decimal(decimal_dtype, nullability))?,
+        ));
     }
 
-    match_each_decimal_value_type!(values_type, |D| {
-        match_each_decimal_value_type!(dest_values_type, |N| {
-            Ok(Box::new(DecimalExporter {
-                values: Buffer::<D>::from_byte_buffer(values),
-                validity,
-                dest_value_type: PhantomData::<N>,
-            }))
+    let exporter = if values_type == dest_values_type {
+        match_each_decimal_value_type!(values_type, |D| {
+            let buffer = Buffer::<D>::from_byte_buffer(values);
+            Box::new(DecimalZeroCopyExporter {
+                values: buffer.clone(),
+                shared_buffer: VectorBuffer::new(buffer),
+            }) as Box<dyn ColumnExporter>
         })
-    })
+    } else {
+        match_each_decimal_value_type!(values_type, |D| {
+            match_each_decimal_value_type!(dest_values_type, |N| {
+                Box::new(DecimalExporter {
+                    values: Buffer::<D>::from_byte_buffer(values),
+                    dest_value_type: PhantomData::<N>,
+                }) as Box<dyn ColumnExporter>
+            })
+        })
+    };
+
+    Ok(validity::new_exporter(validity, exporter))
 }
 
 impl<D: NativeDecimalType, N: NativeDecimalType> ColumnExporter for DecimalExporter<D, N>
@@ -78,12 +87,6 @@ where
     N: BigCast,
 {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        // Set validity if necessary.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
         // Copy the values from the Vortex array to the DuckDB vector.
         for (src, dst) in self.values[offset..offset + len]
             .iter()
@@ -100,11 +103,6 @@ where
 
 impl<D: NativeDecimalType> ColumnExporter for DecimalZeroCopyExporter<D> {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            // All values are null, so no point copying the data.
-            return Ok(());
-        }
-
         assert!(self.values.len() >= offset + len);
 
         let pos = unsafe { self.values.as_ptr().add(offset) };
@@ -147,11 +145,13 @@ mod tests {
         assert_eq!(array.values_type(), dest_values_type);
         match_each_decimal_value_type!(array.values_type(), |D| {
             let buffer = array.buffer::<D>();
-            Ok(Box::new(DecimalZeroCopyExporter {
-                values: buffer.clone(),
-                shared_buffer: VectorBuffer::new(buffer),
+            Ok(validity::new_exporter(
                 validity,
-            }))
+                Box::new(DecimalZeroCopyExporter {
+                    values: buffer.clone(),
+                    shared_buffer: VectorBuffer::new(buffer),
+                }),
+            ))
         })
     }
 

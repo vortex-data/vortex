@@ -16,18 +16,18 @@ use vortex::mask::Mask;
 use super::ConversionCache;
 use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use super::validity;
 use crate::duckdb::LogicalType;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
 
 /// Exporter for converting Vortex [`FixedSizeListArray`] to DuckDB ARRAY vectors.
 struct FixedSizeListExporter {
-    /// Validity mask indicating which lists/arrays are null.
-    validity: Mask,
     /// Exporter for the underlying elements array.
     elements_exporter: Box<dyn ColumnExporter>,
     /// The fixed number of elements in each list.
     list_size: u32,
+    len: usize,
 }
 
 /// Creates a new exporter for converting a [`FixedSizeListArray`] to DuckDB ARRAY format.
@@ -39,20 +39,24 @@ pub(crate) fn new_exporter(
     let list_size = array.list_size();
     let len = array.len();
     let (elements, validity, dtype) = array.into_parts();
-    let mask = validity.to_mask(len);
+    let mask = validity.to_array(len).execute::<Mask>(ctx)?;
     let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 
-    let ltype: LogicalType = (&dtype).try_into()?;
-
     if mask.all_false() {
-        return Ok(all_invalid::new_exporter(len, &ltype));
+        return Ok(all_invalid::new_exporter(
+            len,
+            &LogicalType::try_from(dtype)?,
+        ));
     }
 
-    Ok(Box::new(FixedSizeListExporter {
-        validity: mask,
-        elements_exporter,
-        list_size,
-    }))
+    Ok(validity::new_exporter(
+        mask,
+        Box::new(FixedSizeListExporter {
+            elements_exporter,
+            list_size,
+            len,
+        }),
+    ))
 }
 
 impl ColumnExporter for FixedSizeListExporter {
@@ -61,22 +65,14 @@ impl ColumnExporter for FixedSizeListExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         // Verify that offset + len doesn't exceed the validity mask length.
         assert!(
-            offset + len <= self.validity.len(),
-            "Export range [{}, {}) exceeds validity mask length {}",
+            offset + len <= self.len,
+            "Export range [{}, {}) exceeds array length {}",
             offset,
             offset + len,
-            self.validity.len()
+            self.len
         );
 
         let list_size = self.list_size as usize;
-
-        // If all values are null, then we don't need to worry about exporting values (similar to
-        // the primitive exporter).
-        // SAFETY: We've asserted that offset + len <= self.validity.len(), which ensures we won't
-        // read past the validity mask bounds.
-        if unsafe { vector.set_validity(&self.validity, offset, len) } {
-            return Ok(());
-        }
 
         // Get the child vector for array elements and export the elements directly.
         let mut elements_vector = vector.array_vector_get_child();

@@ -10,6 +10,7 @@ use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
 use vortex::array::arrays::ListViewArrayParts;
 use vortex::array::arrays::PrimitiveArray;
+use vortex::dtype::DType;
 use vortex::dtype::IntegerPType;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexResult;
@@ -17,7 +18,9 @@ use vortex::error::vortex_err;
 use vortex::mask::Mask;
 
 use super::ConversionCache;
+use super::all_invalid;
 use super::new_array_exporter_with_flatten;
+use crate::LogicalType;
 use crate::cpp;
 use crate::duckdb::Vector;
 use crate::exporter::ColumnExporter;
@@ -50,10 +53,18 @@ pub(crate) fn new_exporter(
         offsets,
         sizes,
         validity,
-        ..
+        nullability,
     } = array.into_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
     let num_elements = elements.len();
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
+
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(
+            len,
+            &LogicalType::try_from(DType::List(elements_dtype, nullability))?,
+        ));
+    }
 
     let values_key = Arc::as_ptr(&elements).addr();
     // Check if we have a cached vector and extract it if we do.
@@ -86,7 +97,6 @@ pub(crate) fn new_exporter(
 
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
     let sizes = sizes.clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {

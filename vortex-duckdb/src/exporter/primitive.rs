@@ -11,9 +11,11 @@ use vortex::mask::Mask;
 use vortex_array::ExecutionCtx;
 use vortex_array::vtable::ValidityHelper;
 
+use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
+use crate::exporter::all_invalid;
 use crate::exporter::validity;
 
 struct PrimitiveExporter<T: NativePType> {
@@ -27,6 +29,18 @@ pub fn new_exporter(
     array: PrimitiveArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let validity = array
+        .validity()
+        .to_array(array.len())
+        .execute::<Mask>(ctx)?;
+
+    if validity.all_false() {
+        return Ok(all_invalid::new_exporter(
+            array.len(),
+            &LogicalType::try_from(array.ptype())?,
+        ));
+    }
+
     match_each_native_ptype!(array.ptype(), |T| {
         let buffer = array.to_buffer::<T>();
         let prim = Box::new(PrimitiveExporter {
@@ -35,13 +49,7 @@ pub fn new_exporter(
             shared_buffer: VectorBuffer::new(buffer),
             _phantom_type: Default::default(),
         });
-        Ok(validity::new_exporter(
-            array
-                .validity()
-                .to_array(array.len())
-                .execute::<Mask>(ctx)?,
-            prim,
-        ))
+        Ok(validity::new_exporter(validity, prim))
     })
 }
 
