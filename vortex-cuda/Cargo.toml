@@ -27,6 +27,7 @@ vortex-buffer = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-io = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 

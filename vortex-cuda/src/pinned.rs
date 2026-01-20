@@ -142,6 +142,7 @@ pub struct PooledPinnedBuffer {
     pool: Arc<PinnedByteBufferPool>,
 }
 
+#[allow(clippy::same_name_method)]
 impl PooledPinnedBuffer {
     /// Create a new pooled buffer.
     pub fn new(inner: PinnedByteBuffer, pool: Arc<PinnedByteBufferPool>) -> Self {

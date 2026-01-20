@@ -7,6 +7,7 @@ pub mod executor;
 mod for_;
 mod kernel;
 pub mod pinned;
+pub mod pinned_allocator;
 mod session;
 
 use std::process::Command;
@@ -16,6 +17,7 @@ pub use executor::CudaKernelEvents;
 pub use pinned::PinnedByteBuffer;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PooledPinnedBuffer;
+pub use pinned_allocator::PinnedBufferAllocator;
 use for_::ForExecutor;
 pub use session::CudaSession;
 

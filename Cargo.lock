@@ -10277,6 +10277,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-io",
  "vortex-session",
  "vortex-utils",
 ]
