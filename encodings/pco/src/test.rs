@@ -143,7 +143,7 @@ fn test_serde() -> VortexResult<()> {
     let session = ArraySession::default();
     session.registry().register(PcoVTable::ID, PcoVTable);
 
-    let context = ArrayContext::default();
+    let context = ArrayContext::empty();
 
     let bytes = pco
         .serialize(

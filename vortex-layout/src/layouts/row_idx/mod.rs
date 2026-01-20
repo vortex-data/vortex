@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();

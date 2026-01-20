@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
+use vortex_array::ArrayContext;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
-use vortex_layout::ArrayContext;
 use vortex_layout::LayoutContext;
 
 use crate::footer::segment::SegmentSpec;

@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let mut builder =
@@ -313,7 +313,7 @@ mod tests {
             )
             .unwrap();
 
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
 
             // Write the array into a byte buffer.
             let (layout, segments) = {

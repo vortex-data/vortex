@@ -193,7 +193,7 @@ mod tests {
         );
         let dtype = array.dtype().clone();
 
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
         let out = array
             .into_array()
             .serialize(&ctx, &SerializeOptions::default())

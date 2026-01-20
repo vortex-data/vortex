@@ -95,11 +95,17 @@ impl<T> Default for Context<T> {
 }
 
 impl<T: Clone> Context<T> {
+    /// Create a context with the given initial IDs.
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
             ids: Arc::new(Mutex::new(ids)),
             registry: None,
         }
+    }
+
+    /// Create an empty context.
+    pub fn empty() -> Self {
+        Self::default()
     }
 
     /// Configure a registry to restrict the permissible set of interned items.

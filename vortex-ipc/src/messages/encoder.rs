@@ -56,7 +56,7 @@ impl MessageEncoder {
             EncoderMessage::Array(array) => {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
-                let ctx = ArrayContext::default();
+                let ctx = ArrayContext::empty();
 
                 let array_buffers = array
                     .serialize(&ctx, &SerializeOptions::default())

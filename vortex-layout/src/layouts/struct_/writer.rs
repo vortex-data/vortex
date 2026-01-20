@@ -242,7 +242,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
 
         let segments = Arc::new(TestSegments::default());
         block_on(|handle| {
@@ -273,7 +273,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
 
         let segments = Arc::new(TestSegments::default());
         let res = block_on(|handle| {

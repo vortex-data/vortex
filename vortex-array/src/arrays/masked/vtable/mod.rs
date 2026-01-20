@@ -225,7 +225,7 @@ mod tests {
         let dtype = array.dtype().clone();
         let len = array.len();
 
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
         let serialized = array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())

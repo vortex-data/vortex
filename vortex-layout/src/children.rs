@@ -101,8 +101,8 @@ impl LayoutChildren for OwnedLayoutChildren {
 pub(crate) struct ViewedLayoutChildren {
     flatbuffer: FlatBuffer,
     flatbuffer_loc: usize,
-    array_ctx: Arc<ArrayContext>,
-    layout_ctx: Arc<LayoutContext>,
+    array_ctx: ArrayContext,
+    layout_ctx: LayoutContext,
     layouts: LayoutRegistry,
 }
 
@@ -115,8 +115,8 @@ impl ViewedLayoutChildren {
     pub(super) unsafe fn new_unchecked(
         flatbuffer: FlatBuffer,
         flatbuffer_loc: usize,
-        array_ctx: Arc<ArrayContext>,
-        layout_ctx: Arc<LayoutContext>,
+        array_ctx: ArrayContext,
+        layout_ctx: LayoutContext,
         layouts: LayoutRegistry,
     ) -> Self {
         Self {

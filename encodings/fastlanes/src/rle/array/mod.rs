@@ -439,7 +439,7 @@ mod tests {
 
         let original_data = rle_array.to_primitive();
 
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
         let serialized = rle_array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -477,7 +477,7 @@ mod tests {
         let sliced = rle_array.slice(100..200);
         assert_eq!(sliced.len(), 100);
 
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
         let serialized = sliced
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();

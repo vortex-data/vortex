@@ -301,7 +301,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -384,7 +384,7 @@ mod tests {
             );
 
             let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -447,7 +447,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContext::default();
+            let ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

@@ -34,7 +34,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::footer as fb;
-use vortex_layout::ArrayContext;
 use vortex_layout::LayoutContext;
 use vortex_layout::LayoutEncodingId;
 use vortex_layout::LayoutRef;

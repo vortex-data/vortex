@@ -500,7 +500,7 @@ mod tests {
         use crate::layouts::struct_::StructLayout;
         use crate::segments::SegmentId;
 
-        let ctx = ArrayContext::default();
+        let ctx = ArrayContext::empty();
 
         // Create a flat layout for dict values (utf8 strings)
         let dict_values =

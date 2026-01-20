@@ -33,7 +33,7 @@ impl Deref for PyArrayContext {
 impl PyArrayContext {
     #[new]
     fn new() -> Self {
-        Self(ArrayContext::default())
+        Self(ArrayContext::empty())
     }
 
     fn __str__(&self) -> String {
