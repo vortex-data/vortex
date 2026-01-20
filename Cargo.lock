@@ -10266,6 +10266,7 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "criterion",
  "cudarc",
  "parking_lot",
@@ -10604,6 +10605,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",

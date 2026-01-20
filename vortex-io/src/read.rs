@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -14,6 +15,8 @@ use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
+
+use crate::WriteTarget;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -81,6 +84,24 @@ pub trait VortexReadAt: Send + Sync + 'static {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
+
+    /// Read into a pre-allocated target buffer.
+    ///
+    /// The default implementation reads into a temporary buffer and copies into the target.
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let len = target.len();
+        let read_fut = self.read_at(offset, len, Alignment::none());
+        async move {
+            let data = read_fut.await?;
+            target.as_mut_slice().copy_from_slice(data.as_ref());
+            Ok(target.into_handle())
+        }
+        .boxed()
+    }
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
@@ -108,6 +129,14 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         self.as_ref().read_at(offset, length, alignment)
     }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.as_ref().read_at_into(offset, target)
+    }
 }
 
 impl<R: VortexReadAt> VortexReadAt for Arc<R> {
@@ -134,6 +163,14 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
         self.as_ref().read_at(offset, length, alignment)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.as_ref().read_at_into(offset, target)
     }
 
     // fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
@@ -173,6 +210,30 @@ impl VortexReadAt for ByteBuffer {
                 );
             }
             Ok(buffer.slice_unaligned(start..end).aligned(alignment))
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let buffer = self.clone();
+        async move {
+            let start = usize::try_from(offset).vortex_expect("start too big for usize");
+            let end = usize::try_from(offset + target.len() as u64)
+                .vortex_expect("end too big for usize");
+            if end > buffer.len() {
+                vortex_bail!(
+                    "Requested range {}..{} out of bounds for buffer of length {}",
+                    start,
+                    end,
+                    buffer.len()
+                );
+            }
+            target.as_mut_slice().copy_from_slice(&buffer.as_ref()[start..end]);
+            Ok(target.into_handle())
         }
         .boxed()
     }

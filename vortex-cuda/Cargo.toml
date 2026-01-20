@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true }
+bytes = { workspace = true }
 cudarc = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }

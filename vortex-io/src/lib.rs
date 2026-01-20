@@ -15,6 +15,7 @@ pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
 pub use read::*;
+pub use write_target::*;
 pub use write::*;
 
 pub mod file;
@@ -24,6 +25,7 @@ mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 mod read;
+mod write_target;
 pub mod runtime;
 pub mod session;
 #[cfg(feature = "tokio")]

@@ -15,6 +15,7 @@ pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 pub use pinned::PinnedByteBuffer;
 pub use pinned::PinnedByteBufferPool;
+pub use pinned::PooledPinnedBuffer;
 use for_::ForExecutor;
 pub use session::CudaSession;
 
