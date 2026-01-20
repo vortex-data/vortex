@@ -541,6 +541,8 @@ jobs:
       - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
         run: |
+          $flags = '-C debuginfo=0'
+          echo "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
           choco install visualstudio2022buildtools --package-parameters `
             "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
       - name: Setup Python (Windows)
@@ -559,8 +561,6 @@ jobs:
           tool: nextest
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
-        env:
-          RUSFLAGS: "-C debuginfo=0"
         run: |
           cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
