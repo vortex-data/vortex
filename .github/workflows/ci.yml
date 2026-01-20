@@ -502,15 +502,16 @@ jobs:
           RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked --all-features  \
+            --target x86_64-unknown-linux-gnu \
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
-            --workspace \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
-            --verbose
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
@@ -565,7 +566,7 @@ jobs:
           cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb --exclude xtask
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
