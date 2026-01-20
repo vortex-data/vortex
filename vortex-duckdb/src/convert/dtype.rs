@@ -230,21 +230,7 @@ impl TryFrom<&DType> for LogicalType {
             DType::Utf8(_) => DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR,
             DType::Binary(_) => DUCKDB_TYPE::DUCKDB_TYPE_BLOB,
             DType::Struct(struct_type, _) => {
-                let child_types: Vec<LogicalType> = struct_type
-                    .fields()
-                    .map(|field_dtype| LogicalType::try_from(&field_dtype))
-                    .collect::<Result<_, _>>()?;
-
-                let child_names: Vec<CString> = struct_type
-                    .names()
-                    .iter()
-                    .map(|field_name| {
-                        CString::new(field_name.as_ref())
-                            .map_err(|e| vortex_err!("Invalid field name '{field_name}': {e}"))
-                    })
-                    .collect::<Result<_, _>>()?;
-
-                return LogicalType::struct_type(child_types, child_names);
+                return LogicalType::try_from(struct_type);
             }
             DType::Decimal(decimal_dtype, _) => {
                 return LogicalType::decimal_type(
@@ -270,6 +256,36 @@ impl TryFrom<&DType> for LogicalType {
         };
 
         Ok(LogicalType::new(duckdb_type))
+    }
+}
+
+impl TryFrom<StructFields> for LogicalType {
+    type Error = VortexError;
+
+    fn try_from(struct_type: StructFields) -> Result<Self, Self::Error> {
+        LogicalType::try_from(&struct_type)
+    }
+}
+
+impl TryFrom<&StructFields> for LogicalType {
+    type Error = VortexError;
+
+    fn try_from(struct_type: &StructFields) -> Result<Self, Self::Error> {
+        let child_types: Vec<LogicalType> = struct_type
+            .fields()
+            .map(|field_dtype| LogicalType::try_from(&field_dtype))
+            .collect::<Result<_, _>>()?;
+
+        let child_names: Vec<CString> = struct_type
+            .names()
+            .iter()
+            .map(|field_name| {
+                CString::new(field_name.as_ref())
+                    .map_err(|e| vortex_err!("Invalid field name '{field_name}': {e}"))
+            })
+            .collect::<Result<_, _>>()?;
+
+        LogicalType::struct_type(child_types, child_names)
     }
 }
 

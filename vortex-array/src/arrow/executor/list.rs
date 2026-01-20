@@ -25,6 +25,7 @@ use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::ListViewArray;
+use crate::arrays::ListViewArrayParts;
 use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrow::ArrowArrayExecutor;
@@ -115,7 +116,13 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     assert!(array.is_zero_copy_to_list());
 
-    let (elements, offsets, sizes, validity) = array.into_parts();
+    let ListViewArrayParts {
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ..
+    } = array.into_parts();
 
     // For ZCTL, we know that we only care about the final size.
     let final_size = sizes
@@ -169,7 +176,13 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let (elements, offsets, sizes, validity) = array.into_parts();
+    let ListViewArrayParts {
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ..
+    } = array.into_parts();
 
     let offsets = offsets
         .cast(DType::Primitive(O::PTYPE, Nullability::NonNullable))?

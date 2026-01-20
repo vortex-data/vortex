@@ -134,7 +134,7 @@ fn create_from_fields(
             );
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
-            for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
+            for (field, vx_field) in fields.iter().zip_eq(vortex_fields.iter()) {
                 let arrow_field = vx_field
                     .clone()
                     .execute_arrow(Some(field.data_type()), ctx)?;
@@ -158,7 +158,7 @@ fn create_from_fields(
         Err(names) => {
             // No target fields specified - use preferred types for each child
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
-            for vx_field in vortex_fields.into_iter() {
+            for vx_field in vortex_fields.iter() {
                 let arrow_array = vx_field.clone().execute_arrow(None, ctx)?;
                 arrow_arrays.push(arrow_array);
             }

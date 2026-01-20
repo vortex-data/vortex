@@ -4,7 +4,6 @@
 use std::marker::PhantomData;
 
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::search_sorted::SearchSorted;
@@ -12,6 +11,7 @@ use vortex::array::search_sorted::SearchSortedSide;
 use vortex::dtype::IntegerPType;
 use vortex::dtype::match_each_integer_ptype;
 use vortex::encodings::runend::RunEndArray;
+use vortex::encodings::runend::RunEndArrayParts;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 
@@ -32,18 +32,14 @@ struct RunEndExporter<E: IntegerPType> {
     run_end_offset: usize,
 }
 
-// TODO(joe): into_parts.
 pub(crate) fn new_exporter(
-    array: &RunEndArray,
+    array: RunEndArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let ends = array
-        .ends()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-    let values = array.values().clone();
+    let offset = array.offset();
+    let RunEndArrayParts { ends, values } = array.into_parts();
+    let ends = ends.execute::<PrimitiveArray>(ctx)?;
     let values_exporter = new_array_exporter(values.clone(), cache, ctx)?;
 
     match_each_integer_ptype!(ends.ptype(), |E| {
@@ -52,7 +48,7 @@ pub(crate) fn new_exporter(
             ends_type: PhantomData::<E>,
             values,
             values_exporter,
-            run_end_offset: array.offset(),
+            run_end_offset: offset,
         }))
     })
 }

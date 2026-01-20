@@ -20,6 +20,7 @@ impl ColumnExporter for TemporalExporter {
     }
 }
 
+// TODO(joe): into_parts
 pub(crate) fn new_exporter(
     array: TemporalArray,
     ctx: &mut ExecutionCtx,
@@ -31,6 +32,7 @@ pub(crate) fn new_exporter(
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_primitive(),
+            ctx,
         )?,
     }))
 }

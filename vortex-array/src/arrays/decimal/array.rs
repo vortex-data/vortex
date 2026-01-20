@@ -232,10 +232,10 @@ impl DecimalArray {
 
     pub fn into_parts(self) -> DecimalArrayParts {
         let nullability = self.dtype.nullability();
-        let dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
+        let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
 
         DecimalArrayParts {
-            dtype,
+            decimal_dtype,
             nullability,
             values: self.values,
             values_type: self.values_type,

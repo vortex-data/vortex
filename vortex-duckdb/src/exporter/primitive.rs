@@ -7,6 +7,9 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::NativePType;
 use vortex::dtype::match_each_native_ptype;
 use vortex::error::VortexResult;
+use vortex::mask::Mask;
+use vortex_array::ExecutionCtx;
+use vortex_array::vtable::ValidityHelper;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
@@ -20,7 +23,10 @@ struct PrimitiveExporter<T: NativePType> {
     _phantom_type: PhantomData<T>,
 }
 
-pub fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub fn new_exporter(
+    array: PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
     match_each_native_ptype!(array.ptype(), |T| {
         let buffer = array.to_buffer::<T>();
         let prim = Box::new(PrimitiveExporter {
@@ -29,7 +35,13 @@ pub fn new_exporter(array: PrimitiveArray) -> VortexResult<Box<dyn ColumnExporte
             shared_buffer: VectorBuffer::new(buffer),
             _phantom_type: Default::default(),
         });
-        Ok(validity::new_exporter(array.validity_mask(), prim))
+        Ok(validity::new_exporter(
+            array
+                .validity()
+                .to_array(array.len())
+                .execute::<Mask>(ctx)?,
+            prim,
+        ))
     })
 }
 
@@ -50,8 +62,10 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 mod tests {
     use itertools::Itertools;
     use vortex::error::VortexExpect;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
     use crate::duckdb::DataChunk;
@@ -63,7 +77,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_INTEGER)]);
 
-        new_exporter(arr)
+        new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
             .export(0, 3, &mut chunk.get_vector(0))
             .unwrap();
@@ -89,7 +103,7 @@ mod tests {
                 .collect_vec();
 
             for i in 0..ARRAY_COUNT {
-                new_exporter(arr.clone())
+                new_exporter(arr.clone(), &mut SESSION.create_execution_ctx())
                     .unwrap()
                     .export(
                         i * DUCKDB_STANDARD_VECTOR_SIZE,

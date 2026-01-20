@@ -136,9 +136,10 @@ fn new_array_exporter_with_flatten(
         return sequence::new_exporter(array);
     }
 
-    if let Some(array) = array.as_opt::<RunEndVTable>() {
-        return run_end::new_exporter(array, cache, ctx);
-    }
+    let array = match array.try_into::<RunEndVTable>() {
+        Ok(array) => return run_end::new_exporter(array, cache, ctx),
+        Err(array) => array,
+    };
 
     if let Some(array) = array.as_opt::<DictVTable>() {
         return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
@@ -152,10 +153,10 @@ fn new_array_exporter_with_flatten(
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
         Canonical::Null(array) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
-        Canonical::Bool(array) => bool::new_exporter(array),
-        Canonical::Primitive(array) => primitive::new_exporter(array),
-        Canonical::Decimal(array) => decimal::new_exporter(array),
-        Canonical::VarBinView(array) => varbinview::new_exporter(array),
+        Canonical::Bool(array) => bool::new_exporter(array, ctx),
+        Canonical::Primitive(array) => primitive::new_exporter(array, ctx),
+        Canonical::Decimal(array) => decimal::new_exporter(array, ctx),
+        Canonical::VarBinView(array) => varbinview::new_exporter(array, ctx),
         Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
         Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),

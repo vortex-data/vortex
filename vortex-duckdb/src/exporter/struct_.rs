@@ -4,7 +4,9 @@
 use std::ops::Not;
 
 use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::StructArrayParts;
 use vortex::array::optimizer::ArrayOptimizer;
 use vortex::compute::mask;
 use vortex::error::VortexResult;
@@ -22,23 +24,28 @@ struct StructExporter {
     children: Vec<Box<dyn ColumnExporter>>,
 }
 
-// // TODO(joe): into parts
 pub(crate) fn new_exporter(
     array: StructArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
+    let len = array.len();
+    let StructArrayParts {
+        validity,
+        struct_fields,
+        fields,
+        ..
+    } = array.into_parts();
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(
-            array.len(),
-            &LogicalType::try_from(array.dtype())?,
+            len,
+            &LogicalType::try_from(struct_fields)?,
         ));
     }
 
-    let children = array
-        .fields()
+    let children = fields
         .iter()
         .map(|child| {
             if matches!(validity, Mask::Values(_)) {
@@ -49,7 +56,7 @@ pub(crate) fn new_exporter(
                     ctx,
                 )
             } else {
-                new_array_exporter(child.clone(), cache, ctx)
+                new_array_exporter(child.clone().into_array(), cache, ctx)
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;

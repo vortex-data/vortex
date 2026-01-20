@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::VarBinViewArray;
+pub use array::VarBinViewArrayParts;
 
 mod accessor;
 pub(crate) mod compact;

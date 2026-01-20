@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 use vortex::array::Array;
-use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::ListViewArray;
+use vortex::array::arrays::ListViewArrayParts;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::dtype::IntegerPType;
 use vortex::dtype::match_each_integer_ptype;
@@ -38,17 +38,24 @@ struct ListViewExporter<O, S> {
     size_type: PhantomData<S>,
 }
 
-// TODO(joe): into parts
 pub(crate) fn new_exporter(
     array: ListViewArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
+    let len = array.len();
+    let ListViewArrayParts {
+        elements_dtype,
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ..
+    } = array.into_parts();
     // Cache an `elements` vector up front so that future exports can reference it.
-    let elements = array.elements();
     let num_elements = elements.len();
 
-    let values_key = Arc::as_ptr(elements).addr();
+    let values_key = Arc::as_ptr(&elements).addr();
     // Check if we have a cached vector and extract it if we do.
     let cached_elements = cache
         .values_cache
@@ -60,9 +67,9 @@ pub(crate) fn new_exporter(
         None => {
             // We have no cached the vector yet, so create a new DuckDB vector for the elements.
             let mut duckdb_elements =
-                Vector::with_capacity(elements.dtype().try_into()?, elements.len());
+                Vector::with_capacity(elements_dtype.as_ref().try_into()?, elements.len());
             let elements_exporter =
-                new_array_exporter_with_flatten(array.elements().clone(), cache, ctx, true)?;
+                new_array_exporter_with_flatten(elements.clone(), cache, ctx, true)?;
 
             if !elements.is_empty() {
                 elements_exporter.export(0, elements.len(), &mut duckdb_elements)?;
@@ -77,21 +84,14 @@ pub(crate) fn new_exporter(
         }
     };
 
-    let offsets = array
-        .offsets()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
-    let sizes = array
-        .sizes()
-        .clone()
-        .execute::<Canonical>(ctx)?
-        .into_primitive();
+    let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+    let sizes = sizes.clone().execute::<PrimitiveArray>(ctx)?;
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
 
     let boxed = match_each_integer_ptype!(offsets.ptype(), |O| {
         match_each_integer_ptype!(sizes.ptype(), |S| {
             Box::new(ListViewExporter {
-                validity: array.validity_mask(),
+                validity,
                 duckdb_elements: shared_elements,
                 offsets,
                 sizes,

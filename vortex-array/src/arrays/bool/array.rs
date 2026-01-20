@@ -53,6 +53,12 @@ pub struct BoolArray {
     pub(super) stats_set: ArrayStats,
 }
 
+pub struct BoolArrayParts {
+    pub dtype: DType,
+    pub bits: BitBuffer,
+    pub validity: Validity,
+}
+
 impl BoolArray {
     /// Constructs a new `BoolArray`.
     ///
@@ -120,6 +126,16 @@ impl BoolArray {
         }
 
         Ok(())
+    }
+
+    /// Splits into owned parts
+    #[inline]
+    pub fn into_parts(self) -> BoolArrayParts {
+        BoolArrayParts {
+            dtype: self.dtype,
+            bits: self.bits,
+            validity: self.validity,
+        }
     }
 
     /// Creates a new [`BoolArray`] from a [`BitBuffer`] and [`Validity`] directly.

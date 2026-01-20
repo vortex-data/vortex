@@ -2,10 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::ffi::c_char;
+use std::sync::Arc;
 
 use itertools::Itertools;
+use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
-use vortex::array::vtable::ValidityHelper;
+use vortex::array::arrays::VarBinViewArrayParts;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
@@ -13,6 +15,7 @@ use vortex::mask::Mask;
 use vortex::vector::binaryview::BinaryView;
 use vortex::vector::binaryview::Inlined;
 
+use crate::LogicalType;
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
 use crate::exporter::ColumnExporter;
@@ -20,30 +23,34 @@ use crate::exporter::all_invalid;
 
 struct VarBinViewExporter {
     views: Buffer<BinaryView>,
-    buffers: Vec<ByteBuffer>,
+    buffers: Arc<[ByteBuffer]>,
     vector_buffers: Vec<VectorBuffer>,
     validity: Mask,
 }
 
-pub(crate) fn new_exporter(array: VarBinViewArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity().to_mask(array.len());
+pub(crate) fn new_exporter(
+    array: VarBinViewArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Box<dyn ColumnExporter>> {
+    let len = array.len();
+    let VarBinViewArrayParts {
+        validity,
+        dtype,
+        views,
+        buffers,
+    } = array.into_parts();
+    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(
-            array.len(),
-            &array.dtype().try_into()?,
+            len,
+            &LogicalType::try_from(dtype)?,
         ));
     }
-
     Ok(Box::new(VarBinViewExporter {
-        views: array.views().clone(),
-        buffers: array.buffers().to_vec(),
-        vector_buffers: array
-            .buffers()
-            .iter()
-            .cloned()
-            .map(VectorBuffer::new)
-            .collect_vec(),
-        validity: array.validity_mask(),
+        views,
+        buffers: buffers.clone(),
+        vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
+        validity,
     }))
 }
 
