@@ -3,8 +3,6 @@
 
 pub mod layouts;
 
-use std::sync::Arc;
-
 pub use children::*;
 pub use encoding::*;
 pub use flatbuffers::*;
@@ -33,4 +31,3 @@ mod test;
 pub mod vtable;
 
 pub type LayoutContext = Context<LayoutEncodingRef>;
-pub type LayoutContextRef = Arc<Context<LayoutEncodingRef>>;

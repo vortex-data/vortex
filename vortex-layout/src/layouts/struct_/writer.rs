@@ -25,7 +25,7 @@ use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout as _;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -63,7 +63,7 @@ impl StructStrategy {
 impl LayoutStrategy for StructStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,
@@ -228,7 +228,7 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;
@@ -242,7 +242,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         let segments = Arc::new(TestSegments::default());
         block_on(|handle| {
@@ -273,7 +273,7 @@ mod tests {
         let strategy =
             StructStrategy::new(FlatLayoutStrategy::default(), FlatLayoutStrategy::default());
         let (ptr, eof) = SequenceId::root().split();
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         let segments = Arc::new(TestSegments::default());
         let res = block_on(|handle| {

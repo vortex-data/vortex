@@ -12,7 +12,7 @@ use futures::StreamExt as _;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;
@@ -42,7 +42,7 @@ impl BufferedStrategy {
 impl LayoutStrategy for BufferedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         mut eof: SequencePointer,

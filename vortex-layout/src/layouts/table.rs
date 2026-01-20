@@ -29,7 +29,7 @@ use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -204,7 +204,7 @@ impl TableStrategy {
 impl LayoutStrategy for TableStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,

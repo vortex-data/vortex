@@ -261,7 +261,7 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
@@ -301,7 +301,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -384,7 +384,7 @@ mod tests {
             );
 
             let array = VarBinArray::from_iter(data, DType::Utf8(Nullability::Nullable)).to_array();
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let layout: LayoutRef = strategy
@@ -447,7 +447,7 @@ mod tests {
             )
             .to_array();
             let array_to_write = array.clone();
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();

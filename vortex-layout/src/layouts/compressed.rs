@@ -12,7 +12,7 @@ use vortex_btrblocks::BtrBlocksCompressor;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;
@@ -123,7 +123,7 @@ impl CompressingStrategy {
 impl LayoutStrategy for CompressingStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         eof: SequencePointer,

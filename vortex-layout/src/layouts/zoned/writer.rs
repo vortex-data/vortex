@@ -11,7 +11,7 @@ use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -72,7 +72,7 @@ impl ZonedStrategy {
 impl LayoutStrategy for ZonedStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,

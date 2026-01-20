@@ -407,7 +407,7 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -420,7 +420,7 @@ mod tests {
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -454,7 +454,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(
@@ -489,7 +489,7 @@ mod tests {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn null_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
@@ -531,7 +531,7 @@ mod tests {
     /// |`{"b": {"c": 6 }}`|
     #[fixture]
     fn nested_struct_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = TableStrategy::new(

@@ -302,7 +302,7 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutReader;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -357,7 +357,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();
@@ -398,7 +398,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = buffer![1..=5].into_array();

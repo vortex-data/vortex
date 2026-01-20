@@ -12,6 +12,7 @@ pub use builder::MAX_IS_TRUNCATED;
 pub use builder::MIN_IS_TRUNCATED;
 pub use builder::lower_bound;
 pub use builder::upper_bound;
+use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::expr::stats::Stat;
@@ -25,7 +26,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayContextRef;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;
@@ -132,7 +132,7 @@ impl VTable for ZonedVTable {
         metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: &ArrayContextRef,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),

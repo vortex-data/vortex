@@ -66,12 +66,21 @@ impl<T: Clone> Registry<T> {
     }
 }
 
-#[derive(Debug)]
+/// A [`Context`] holds a set of interned IDs for use during serialization/deserialization, mapping
+/// IDs to u16 indices.
+///
+/// ## Upcoming Changes
+///
+/// 1. This object holds an Arc of Mutex internally because we need concurrent access from the
+///    layout writer code path. We should update SegmentSink to take an Array rather than
+///    ByteBuffer such that serializing arrays is done sequentially.
+/// 2. The name is terrible. Interner<T> is better, but I want to minimize breakage for now.
+#[derive(Clone, Debug)]
 pub struct Context<T> {
     // TODO(ngates): it's a long story, but if we make SegmentSink and SegmentSource take an
     //  enum of Segment { Array, DType, Buffer } then we don't actually need a mutable context
     //  in the LayoutWriter, therefore we don't need a Mutex here and everyone is happier.
-    ids: Mutex<Vec<Id>>,
+    ids: Arc<Mutex<Vec<Id>>>,
     // Optional registry used to filter the permissible interned items.
     registry: Option<Registry<T>>,
 }
@@ -79,7 +88,7 @@ pub struct Context<T> {
 impl<T> Default for Context<T> {
     fn default() -> Self {
         Self {
-            ids: Mutex::new(Vec::new()),
+            ids: Arc::new(Mutex::new(Vec::new())),
             registry: None,
         }
     }
@@ -88,7 +97,7 @@ impl<T> Default for Context<T> {
 impl<T: Clone> Context<T> {
     pub fn new(ids: Vec<Id>) -> Self {
         Self {
-            ids: Mutex::new(ids),
+            ids: Arc::new(Mutex::new(ids)),
             registry: None,
         }
     }

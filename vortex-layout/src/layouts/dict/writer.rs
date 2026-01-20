@@ -35,7 +35,7 @@ use vortex_error::vortex_err;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -125,7 +125,7 @@ impl DictStrategy {
 impl LayoutStrategy for DictStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         stream: SendableSequentialStream,
         mut eof: SequencePointer,

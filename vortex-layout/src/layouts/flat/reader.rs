@@ -237,7 +237,7 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
@@ -248,7 +248,7 @@ mod test {
     #[test]
     fn flat_identity() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();
@@ -291,7 +291,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
 
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -331,7 +331,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid).to_array();

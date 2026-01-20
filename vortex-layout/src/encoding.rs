@@ -13,7 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutChildren;
 use crate::LayoutRef;
@@ -35,7 +35,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ArrayContextRef,
+        ctx: &ArrayContext,
     ) -> VortexResult<LayoutRef>;
 }
 
@@ -58,7 +58,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ArrayContextRef,
+        ctx: &ArrayContext,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let layout = V::build(

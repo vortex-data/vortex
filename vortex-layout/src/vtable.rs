@@ -12,7 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::Layout;
 use crate::LayoutChildType;
@@ -82,7 +82,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: &ArrayContextRef,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

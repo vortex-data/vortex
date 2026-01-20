@@ -13,7 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -46,7 +46,7 @@ impl Default for FlatLayoutStrategy {
 impl LayoutStrategy for FlatLayoutStrategy {
     async fn write_stream(
         &self,
-        ctx: ArrayContextRef,
+        ctx: ArrayContext,
         segment_sink: SegmentSinkRef,
         mut stream: SendableSequentialStream,
         _eof: SequencePointer,
@@ -184,7 +184,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;
@@ -198,7 +198,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let array = PrimitiveArray::new(buffer![1, 2, 3, 4, 5], Validity::AllValid);
@@ -235,7 +235,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
             let mut builder =
@@ -313,7 +313,7 @@ mod tests {
             )
             .unwrap();
 
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
 
             // Write the array into a byte buffer.
             let (layout, segments) = {

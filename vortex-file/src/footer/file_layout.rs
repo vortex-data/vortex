@@ -14,8 +14,8 @@ use flatbuffers::WIPOffset;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
-use vortex_layout::ArrayContextRef;
-use vortex_layout::LayoutContextRef;
+use vortex_layout::ArrayContext;
+use vortex_layout::LayoutContext;
 
 use crate::footer::segment::SegmentSpec;
 
@@ -25,9 +25,9 @@ use crate::footer::segment::SegmentSpec;
 /// which describes the structure of the data in the file.
 pub(crate) struct FooterFlatBufferWriter {
     /// The array context containing encodings used in the file.
-    pub(crate) ctx: ArrayContextRef,
+    pub(crate) ctx: ArrayContext,
     /// The layout context containing the layouts used in the file.
-    pub(crate) layout_ctx: LayoutContextRef,
+    pub(crate) layout_ctx: LayoutContext,
     /// Specifications for all segments in the file.
     pub(crate) segment_specs: Arc<[SegmentSpec]>,
 }

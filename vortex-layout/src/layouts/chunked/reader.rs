@@ -324,7 +324,7 @@ mod test {
     use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -339,7 +339,7 @@ mod test {
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
     fn chunked_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         let segments = Arc::new(TestSegments::default());
         let strategy = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());

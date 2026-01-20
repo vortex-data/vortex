@@ -404,7 +404,7 @@ mod test {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -420,7 +420,7 @@ mod test {
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
     fn stats_layout() -> (Arc<dyn SegmentSource>, LayoutRef) {
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
         let strategy = ZonedStrategy::new(

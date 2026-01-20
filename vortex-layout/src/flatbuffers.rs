@@ -17,10 +17,9 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
 
-use crate::ArrayContextRef;
+use crate::ArrayContext;
 use crate::Layout;
 use crate::LayoutContext;
-use crate::LayoutContextRef;
 use crate::LayoutRef;
 use crate::children::ViewedLayoutChildren;
 use crate::segments::SegmentId;
@@ -47,8 +46,8 @@ static LAYOUT_VERIFIER: LazyLock<VerifierOptions> = LazyLock::new(|| {
 pub fn layout_from_flatbuffer(
     flatbuffer: FlatBuffer,
     dtype: &DType,
-    layout_ctx: &LayoutContextRef,
-    ctx: &ArrayContextRef,
+    layout_ctx: &LayoutContext,
+    ctx: &ArrayContext,
     layouts: &LayoutRegistry,
 ) -> VortexResult<LayoutRef> {
     let fb_layout = root_with_opts::<layout::Layout>(&LAYOUT_VERIFIER, &flatbuffer)?;

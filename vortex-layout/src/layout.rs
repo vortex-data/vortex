@@ -346,7 +346,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
 
     #[test]
     fn test_layout_child_type_name() {
@@ -500,7 +500,7 @@ mod tests {
         use crate::layouts::struct_::StructLayout;
         use crate::segments::SegmentId;
 
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
 
         // Create a flat layout for dict values (utf8 strings)
         let dict_values =

@@ -231,7 +231,7 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_utils::env::EnvVarGuard;
 
-    use crate::ArrayContextRef;
+    use crate::ArrayContext;
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
     use crate::layouts::chunked::ChunkedLayout;
@@ -248,7 +248,7 @@ mod tests {
     fn test_display_tree_inline_array_tree() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
         block_on(|handle| async move {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
 
             // Create nullable i64 array (2 buffers: data + validity)
@@ -339,7 +339,7 @@ vortex.struct, dtype: {numbers=i64?, strings=utf8}, children: 2, rows: 5
         // Ensure inline array node is disabled for this test
         let _guard = EnvVarGuard::remove("FLAT_LAYOUT_INLINE_ARRAY_NODE");
         block_on(|handle| async move {
-            let ctx = ArrayContextRef::default();
+            let ctx = ArrayContext::default();
             let segments = Arc::new(TestSegments::default());
 
             // Create simple i32 array
@@ -397,7 +397,7 @@ vortex.chunked, dtype: i32, children: 2, rows: 10
     fn test_display_array_tree_with_inline_node() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
 
@@ -439,7 +439,7 @@ vortex.flat, dtype: i32?, segment 0, buffers=[20B], total=20B
     fn test_display_tree_without_inline_node() {
         let _guard = EnvVarGuard::set("FLAT_LAYOUT_INLINE_ARRAY_NODE", "1");
 
-        let ctx = ArrayContextRef::default();
+        let ctx = ArrayContext::default();
         let segments = Arc::new(TestSegments::default());
         let (ptr, eof) = SequenceId::root().split();
 
