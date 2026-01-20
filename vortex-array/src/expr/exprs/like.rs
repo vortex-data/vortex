@@ -15,11 +15,13 @@ use vortex_vector::Datum;
 use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
+use crate::arrow::ArrowArrayExecutor;
 use crate::compute::LikeOptions;
 use crate::compute::like as like_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -114,14 +116,19 @@ impl VTable for Like {
         like_compute(&child, &pattern, *options)
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [child, pattern]: [Datum; _] = args
-            .datums
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [child, pattern]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        let child = child.into_arrow()?;
-        let pattern = pattern.into_arrow()?;
+        // FIXME(ngates): we need to execute into an Arrow Datum.
+        let child = child.execute_arrow(None, args.ctx)?;
+        let pattern = pattern.execute_arrow(None, args.ctx)?;
 
         let array = match (options.negated, options.case_insensitive) {
             (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),

@@ -15,11 +15,17 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
-use vortex_vector::Datum;
+use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
 use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Executable;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -96,11 +102,11 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Execute the expression on the given vector with the given dtype.
     ///
     /// This function will become required in a future release.
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        _ = options;
-        drop(args);
-        vortex_bail!("Expression {} does not support execution", self.id());
-    }
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -305,23 +311,59 @@ pub trait SimplifyCtx {
 }
 
 /// Arguments for expression execution.
-pub struct ExecutionArgs {
-    /// The input datums for the expression, one per child.
-    pub datums: Vec<Datum>,
-    /// The input dtypes for the expression, one per child.
-    pub dtypes: Vec<DType>,
+pub struct ExecutionArgs<'a> {
+    /// The inputs for the expression, one per child.
+    pub inputs: Vec<ArrayRef>,
     /// The row count of the execution scope.
     pub row_count: usize,
-    /// The expected return dtype of the expression, as computed by [`Expression::return_dtype`].
-    pub return_dtype: DType,
+    /// The execution context.
+    pub ctx: &'a mut ExecutionCtx,
 }
 
-/// Arguments for expression validity execution.
-pub struct ValidityExecutionArgs {
-    /// The input masks for the expression, one per child.
-    pub inputs: Vec<Mask>,
-    /// The row count of the execution scope.
-    pub row_count: usize,
+/// The result of expression execution.
+pub enum ExecutionResult {
+    Array(Canonical),
+    Scalar(ConstantArray),
+}
+
+impl ExecutionResult {
+    pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
+        ExecutionResult::Scalar(ConstantArray::new(scalar.into(), len))
+    }
+
+    /// Returns the length of this execution result.
+    pub fn len(&self) -> usize {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.len(),
+            ExecutionResult::Scalar(constant) => constant.len(),
+        }
+    }
+
+    /// Returns the data type of this execution result.
+    pub fn dtype(&self) -> &DType {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.dtype(),
+            ExecutionResult::Scalar(constant) => constant.dtype(),
+        }
+    }
+}
+
+impl Executable for ExecutionResult {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        Ok(match array.as_opt::<ConstantVTable>() {
+            None => ExecutionResult::Array(array.execute::<Canonical>(ctx)?),
+            Some(constant) => ExecutionResult::Scalar(constant.clone()),
+        })
+    }
+}
+
+impl IntoArray for ExecutionResult {
+    fn into_array(self) -> ArrayRef {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.into_array(),
+            ExecutionResult::Scalar(constant) => constant.into_array(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -391,7 +433,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult>;
     fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
     fn reduce(
         &self,
@@ -504,38 +546,41 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
         let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;
         #[cfg(debug_assertions)]
-        let expected_dtype = args.return_dtype.clone();
+        let expected_dtype = {
+            let args_dtypes: Vec<DType> = args
+                .inputs
+                .iter()
+                .map(|array| array.dtype().clone())
+                .collect();
+            V::return_dtype(&self.0, options, &args_dtypes)
+        }?;
 
         let result = V::execute(&self.0, options, args)?;
 
-        if let Datum::Vector(v) = &result {
-            assert_eq!(
-                v.len(),
-                expected_row_count,
-                "Expression execution {} returned vector of length {}, but expected {}",
-                self.0.id(),
-                v.len(),
-                expected_row_count,
-            );
-        }
+        assert_eq!(
+            result.len(),
+            expected_row_count,
+            "Expression execution {} returned vector of length {}, but expected {}",
+            self.0.id(),
+            result.len(),
+            expected_row_count,
+        );
 
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
         {
-            use vortex_vector::datum_matches_dtype;
-
-            if !datum_matches_dtype(&result, &expected_dtype) {
-                vortex_bail!(
-                    "Expression execution returned datum of invalid dtype. Expected {}, got {:?}",
-                    expected_dtype,
-                    result
-                );
-            }
+            vortex_ensure!(
+                result.dtype() == &expected_dtype,
+                "Expression execution {} returned vector of invalid dtype. Expected {}, got {}",
+                self.0.id(),
+                expected_dtype,
+                result.dtype(),
+            );
         }
 
         Ok(result)

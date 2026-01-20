@@ -31,6 +31,7 @@ use crate::compute::sub;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -131,86 +132,27 @@ impl VTable for Binary {
         }
     }
 
-    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [lhs, rhs]: [Datum; _] = args
-            .datums
+    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+        let [lhs, rhs]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        // Handle logical operators.
         match op {
-            Operator::And => {
-                return Ok(LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
-            }
-            Operator::Or => {
-                return Ok(LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
-            }
-            _ => {}
-        }
-
-        // Arrow's vectorized comparison kernels (`cmp::eq`, etc.) don't support nested types
-        // (Struct, List, FixedSizeList). For those, we use `compare_nested_arrow_arrays` which does
-        // element-wise comparison via `make_comparator`.
-        if let Some(cmp_op) = op.maybe_cmp_operator()
-            && (lhs.is_nested() || rhs.is_nested())
-        {
-            // Treat scalars as 1-element arrow arrays.
-            let lhs_arr = lhs.into_arrow()?;
-            let rhs_arr = rhs.into_arrow()?;
-
-            let bool_array = compare_nested_arrow_arrays(lhs_arr.get().0, rhs_arr.get().0, cmp_op)?;
-            let vector = bool_array.into_vector()?;
-
-            let both_are_scalar = lhs_arr.get().1 && rhs_arr.get().1;
-
-            return Ok(if both_are_scalar {
-                Datum::Scalar(vortex_vector::Scalar::Bool(vector.scalar_at(0)))
-            } else {
-                Datum::Vector(vortex_vector::Vector::Bool(vector))
-            });
-        }
-
-        let lhs = lhs.into_arrow()?;
-        let rhs = rhs.into_arrow()?;
-
-        let vector = match op {
-            // Handle comparison operators.
-            Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gte => cmp::gt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-            Operator::Lt => cmp::lt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Lte => cmp::lt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-
-            // Handle arithmetic operators.
-            Operator::Add => {
-                arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Sub => {
-                arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Mul => {
-                arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Div => {
-                arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-
-            // Logical operators were handled above.
-            Operator::And | Operator::Or => unreachable!("Already dealt with above"),
-        };
-
-        let both_are_scalar = lhs.get().1 && rhs.get().1;
-
-        Ok(if both_are_scalar {
-            Datum::Scalar(vector.scalar_at(0))
-        } else {
-            Datum::Vector(vector)
-        })
+            Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
+            Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
+            Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
+            Operator::Lte => compare(&lhs, &rhs, compute::Operator::Lte),
+            Operator::Gt => compare(&lhs, &rhs, compute::Operator::Gt),
+            Operator::Gte => compare(&lhs, &rhs, compute::Operator::Gte),
+            Operator::And => and_kleene(&lhs, &rhs),
+            Operator::Or => or_kleene(&lhs, &rhs),
+            Operator::Add => add(&lhs, &rhs),
+            Operator::Sub => sub(&lhs, &rhs),
+            Operator::Mul => mul(&lhs, &rhs),
+            Operator::Div => div(&lhs, &rhs),
+        }?
+        .execute(args.ctx)
     }
 
     fn stat_falsification(

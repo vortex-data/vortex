@@ -10,13 +10,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -93,12 +93,16 @@ impl VTable for Cast {
         })
     }
 
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(
+        &self,
+        target_dtype: &DType,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         let input = args
-            .datums
+            .inputs
             .pop()
             .vortex_expect("missing input for Cast expression");
-        vortex_compute::cast::Cast::cast(&input, target_dtype)
+        compute_cast(input.as_ref(), target_dtype)?.execute(args.ctx)
     }
 
     fn reduce(
