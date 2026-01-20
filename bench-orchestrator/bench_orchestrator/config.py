@@ -94,7 +94,7 @@ class RunConfig:
 class BuildConfig:
     """Configuration for building benchmark binaries."""
 
-    profile: str = "release_debug"
+    profile: str = "dev"
     rustflags: str = "-C target-cpu=native -C force-frame-pointers=yes"
 
 

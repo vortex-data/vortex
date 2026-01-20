@@ -6,7 +6,10 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::AnyScalarFn;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::ExpressionArray;
+use vortex_array::arrays::ExpressionVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
@@ -15,8 +18,42 @@ use vortex_error::VortexResult;
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-pub(super) const RULES: ParentRuleSet<RunEndVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&RunEndScalarFnRule)]);
+pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&RunEndExpressionRule),
+    ParentRuleSet::lift(&RunEndScalarFnRule),
+]);
+
+#[derive(Debug)]
+struct RunEndExpressionRule;
+
+impl ArrayParentReduceRule<RunEndVTable> for RunEndExpressionRule {
+    type Parent = Exact<ExpressionVTable>;
+
+    fn parent(&self) -> Exact<ExpressionVTable> {
+        Exact::from(&ExpressionVTable)
+    }
+
+    fn reduce_parent(
+        &self,
+        run_end: &RunEndArray,
+        parent: &ExpressionArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let new_values =
+            ExpressionArray::try_new(parent.expression().clone(), run_end.values().clone())?;
+        Ok(Some(
+            unsafe {
+                RunEndArray::new_unchecked(
+                    run_end.ends().clone(),
+                    new_values.into_array(),
+                    run_end.offset(),
+                    run_end.len(),
+                )
+            }
+            .into_array(),
+        ))
+    }
+}
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///

@@ -21,6 +21,7 @@ mod constant;
 mod datetime;
 mod decimal;
 mod dict;
+mod expression;
 mod extension;
 mod filter;
 mod fixed_size_list;
@@ -37,7 +38,6 @@ mod varbinview;
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
-mod expression;
 // pub mod pipeline;
 // TODO(connor): Export exact types, not glob.
 
@@ -47,6 +47,7 @@ pub use constant::*;
 pub use datetime::*;
 pub use decimal::*;
 pub use dict::*;
+pub use expression::*;
 pub use extension::*;
 pub use filter::*;
 pub use fixed_size_list::*;

@@ -3,11 +3,14 @@
 
 mod array;
 mod operations;
+mod rules;
 mod validity;
+mod visitor;
 
+use std::fmt::Debug;
+use std::fmt::Formatter;
 use std::ops::Range;
 
-use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,16 +20,16 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::expression::vtable::rules::RULES;
 use crate::buffer::BufferHandle;
-use crate::builders::ArrayBuilder;
 use crate::expr::Expression;
-use crate::expr::proto::ExprSerializeProtoExt;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
+use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 vtable!(Expression);
@@ -63,12 +66,25 @@ impl ExpressionArray {
             stats: ArrayStats::default(),
         }
     }
+
+    /// Get the expression associated with this array.
+    pub fn expression(&self) -> &Expression {
+        &self.expression
+    }
 }
 
-#[derive(Debug)]
 pub struct ExpressionArrayMetadata {
     expression: Expression,
     scope_dtype: DType,
+}
+
+impl Debug for ExpressionArrayMetadata {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("")
+            .field("expression", &format!("{}", self.expression))
+            .field("scope_dtype", &format!("{}", self.scope_dtype))
+            .finish()
+    }
 }
 
 /// VTable for the expression array.
@@ -82,7 +98,7 @@ impl VTable for ExpressionVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = Self;
+    type ComputeVTable = NotSupported;
 
     fn id(&self) -> ArrayId {
         ArrayId::from("vortex.expression")
@@ -132,7 +148,7 @@ impl VTable for ExpressionVTable {
         array.input = children
             .into_iter()
             .next()
-            .vortex_expect("Expression array must have exactly one child")?;
+            .vortex_expect("Expression array must have exactly one child");
         Ok(())
     }
 
@@ -143,12 +159,16 @@ impl VTable for ExpressionVTable {
             .execute::<Canonical>(ctx)
     }
 
+    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array)
+    }
+
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ExpressionArray {
                 expression: array.expression.clone(),
                 dtype: array.dtype.clone(),
-                input: array.input.slice(range)?,
+                input: array.input.slice(range),
                 stats: Default::default(),
             }
             .into_array(),

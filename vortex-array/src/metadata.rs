@@ -26,8 +26,13 @@ where
 }
 
 /// Empty array metadata
-#[derive(Debug)]
 pub struct EmptyMetadata;
+
+impl Debug for EmptyMetadata {
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        Ok(())
+    }
+}
 
 impl SerializeMetadata for EmptyMetadata {
     fn serialize(self) -> Vec<u8> {

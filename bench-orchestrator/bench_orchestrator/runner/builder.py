@@ -32,7 +32,8 @@ class BenchmarkBuilder:
     def get_binary_path(self, engine: Engine) -> Path:
         """Get path to built binary."""
         binary_name = engine.binary_name
-        return self.workspace_root / "target" / self.config.profile / binary_name
+        subdir = "debug" if self.config.profile == "dev" else self.config.profile
+        return self.workspace_root / "target" / subdir / binary_name
 
     def build(self, engines: list[Engine]) -> dict[Engine, Path]:
         """Build binaries for specified engines, return paths."""
