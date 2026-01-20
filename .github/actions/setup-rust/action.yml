@@ -22,6 +22,10 @@ inputs:
   timestamp:
     description: "Timestamp cache with cargo sweep"
     default: "false"
+  enable-sccache:
+    description: "Should sccache be installed and configured, enabled by default"
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -58,6 +62,7 @@ runs:
         env-vars: "RUSTFLAGS"
 
     - name: Rust Compile Cache
+      if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Install Protoc (for lance-encoding build step)
