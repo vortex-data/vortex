@@ -232,7 +232,7 @@ impl VortexReadAt for ObjectStoreSource {
                 }
             }
 
-            Ok(target.into_handle())
+            target.into_handle()
         })
         .boxed()
     }

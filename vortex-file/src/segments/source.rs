@@ -13,7 +13,6 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use vortex_array::buffer::BufferHandle;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::BufferAllocator;
@@ -106,22 +105,12 @@ impl FileSegmentSource {
                                 }
                             };
 
-                            match source.read_at_into(req.offset(), target).await {
-                                Ok(handle) => {
-                                    if handle.as_host_opt().is_some() {
-                                        Ok(handle.unwrap_host())
-                                    } else {
-                                        Err(vortex_err!(
-                                            "read_at_into returned a non-host buffer"
-                                        ))
-                                    }
-                                }
-                                Err(e) => Err(e),
-                            }
+                            source.read_at_into(req.offset(), target).await
                         } else {
                             source
                                 .read_at(req.offset(), req.len(), req.alignment())
                                 .await
+                                .map(BufferHandle::new_host)
                         };
                         req.resolve(result);
                     }
@@ -177,12 +166,7 @@ impl SegmentSource for FileSegmentSource {
             .boxed()
         });
 
-        async move {
-            maybe_fut
-                .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
-                .await
-                .map(BufferHandle::new_host)
-        }
+        async move { maybe_fut.ok_or_else(|| vortex_err!("Missing segment: {}", id))?.await }
         .boxed()
     }
 }
@@ -193,13 +177,13 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
+    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
 }
 
 impl Future for ReadFuture {
-    type Output = VortexResult<ByteBuffer>;
+    type Output = VortexResult<BufferHandle>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.polled {

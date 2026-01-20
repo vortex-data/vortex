@@ -3,6 +3,7 @@
 
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBufferMut;
+use vortex_error::VortexResult;
 
 /// A destination for I/O reads that can be finalized into a [`BufferHandle`].
 pub trait WriteTarget: Send + 'static {
@@ -18,7 +19,7 @@ pub trait WriteTarget: Send + 'static {
     }
 
     /// Finalize the target into a buffer handle.
-    fn into_handle(self: Box<Self>) -> BufferHandle;
+    fn into_handle(self: Box<Self>) -> VortexResult<BufferHandle>;
 }
 
 impl WriteTarget for ByteBufferMut {
@@ -30,7 +31,7 @@ impl WriteTarget for ByteBufferMut {
         ByteBufferMut::len(self)
     }
 
-    fn into_handle(self: Box<Self>) -> BufferHandle {
-        BufferHandle::new_host(self.freeze())
+    fn into_handle(self: Box<Self>) -> VortexResult<BufferHandle> {
+        Ok(BufferHandle::new_host(self.freeze()))
     }
 }

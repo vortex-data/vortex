@@ -136,7 +136,7 @@ impl VortexReadAt for FileReadAdapter {
             handle
                 .spawn_blocking(move || {
                     read_exact_at(&file, target.as_mut_slice(), offset)?;
-                    Ok(target.into_handle())
+                    target.into_handle()
                 })
                 .await
         }

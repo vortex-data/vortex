@@ -98,7 +98,7 @@ pub trait VortexReadAt: Send + Sync + 'static {
         async move {
             let data = read_fut.await?;
             target.as_mut_slice().copy_from_slice(data.as_ref());
-            Ok(target.into_handle())
+            target.into_handle()
         }
         .boxed()
     }
@@ -233,7 +233,7 @@ impl VortexReadAt for ByteBuffer {
                 );
             }
             target.as_mut_slice().copy_from_slice(&buffer.as_ref()[start..end]);
-            Ok(target.into_handle())
+            target.into_handle()
         }
         .boxed()
     }

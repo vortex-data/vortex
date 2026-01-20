@@ -4,6 +4,7 @@
 //! CUDA support for Vortex arrays.
 
 pub mod executor;
+mod device_buffer;
 mod for_;
 mod kernel;
 pub mod pinned;
@@ -18,6 +19,7 @@ pub use pinned::PinnedByteBuffer;
 pub use pinned::PinnedByteBufferPool;
 pub use pinned::PooledPinnedBuffer;
 pub use pinned_allocator::PinnedBufferAllocator;
+pub use pinned_allocator::PinnedDeviceAllocator;
 use for_::ForExecutor;
 pub use session::CudaSession;
 

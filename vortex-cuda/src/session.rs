@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
+use cudarc::driver::CudaStream;
 use vortex_array::vtable::ArrayId;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -48,6 +49,13 @@ impl CudaSession {
             .new_stream()
             .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
         Ok(CudaExecutionCtx::new(stream, vortex_session))
+    }
+
+    /// Creates a new CUDA stream.
+    pub fn new_stream(&self) -> VortexResult<Arc<CudaStream>> {
+        self.context
+            .new_stream()
+            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))
     }
 
     /// Registers CUDA support for an array encoding.
