@@ -542,7 +542,7 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner: runs-on=${{ github.run_id }}/pool=windows-x64/extras=s3-cache
+            runner: runs-on=${{ github.run_id }}/family=m7i/image=windows22-full-x64/cpu=8/extras=s3-cache
           - os: linux-arm64
             runner:
               - runs-on=${{ github.run_id }}
