@@ -14,11 +14,13 @@ pub use io_buf::*;
 pub use limit::*;
 #[cfg(feature = "object_store")]
 pub use object_store::*;
+pub use allocator::*;
 pub use read::*;
 pub use write_target::*;
 pub use write::*;
 
 pub mod file;
+mod allocator;
 mod io_buf;
 pub mod kanal_ext;
 mod limit;

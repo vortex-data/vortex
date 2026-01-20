@@ -16,6 +16,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::BufferAllocator;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
@@ -71,10 +72,21 @@ impl FileSegmentSource {
         handle: Handle,
         metrics: VortexMetrics,
     ) -> Self {
+        Self::open_with_allocator(segments, source, handle, metrics, None)
+    }
+
+    pub fn open_with_allocator(
+        segments: Arc<[SegmentSpec]>,
+        source: Arc<dyn VortexReadAt>,
+        handle: Handle,
+        metrics: VortexMetrics,
+        allocator: Option<Arc<dyn BufferAllocator>>,
+    ) -> Self {
         let (send, recv) = mpsc::unbounded();
 
         let coalesce_config = source.coalesce_config();
         let concurrency = source.concurrency();
+        let allocator = allocator.clone();
 
         let drive_fut = async move {
             let stream =
@@ -83,10 +95,34 @@ impl FileSegmentSource {
             stream
                 .map(move |req| {
                     let source = source.clone();
+                    let allocator = allocator.clone();
                     async move {
-                        let result = source
-                            .read_at(req.offset(), req.len(), req.alignment())
-                            .await;
+                        let result = if let Some(allocator) = allocator {
+                            let target = match allocator.allocate(req.len(), req.alignment()) {
+                                Ok(target) => target,
+                                Err(e) => {
+                                    req.resolve(Err(e));
+                                    return;
+                                }
+                            };
+
+                            match source.read_at_into(req.offset(), target).await {
+                                Ok(handle) => {
+                                    if handle.as_host_opt().is_some() {
+                                        Ok(handle.unwrap_host())
+                                    } else {
+                                        Err(vortex_err!(
+                                            "read_at_into returned a non-host buffer"
+                                        ))
+                                    }
+                                }
+                                Err(e) => Err(e),
+                            }
+                        } else {
+                            source
+                                .read_at(req.offset(), req.len(), req.alignment())
+                                .await
+                        };
                         req.resolve(result);
                     }
                 })

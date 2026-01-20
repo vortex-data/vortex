@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::BufferAllocator;
 use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
@@ -53,6 +54,8 @@ pub struct VortexOpenOptions {
     footer: Option<Footer>,
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    /// Optional allocator for read buffers.
+    allocator: Option<Arc<dyn BufferAllocator>>,
     /// A metrics registry for the file.
     metrics: VortexMetrics,
 }
@@ -70,6 +73,7 @@ pub trait OpenOptionsSessionExt:
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
+            allocator: None,
             metrics: self.metrics(),
         }
     }
@@ -132,6 +136,12 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a custom buffer allocator for reads.
+    pub fn with_allocator(mut self, allocator: Arc<dyn BufferAllocator>) -> Self {
+        self.allocator = Some(allocator);
+        self
+    }
+
     /// Open a Vortex file using the provided I/O source.
     ///
     /// This is the most common way to open a [`VortexFile`] and tends to provide the best
@@ -182,12 +192,15 @@ impl VortexOpenOptions {
         ));
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
-            footer.segment_map().clone(),
-            read,
-            self.session.handle(),
-            self.metrics.clone(),
-        )));
+        let segment_source = Arc::new(SharedSegmentSource::new(
+            FileSegmentSource::open_with_allocator(
+                footer.segment_map().clone(),
+                read,
+                self.session.handle(),
+                self.metrics.clone(),
+                self.allocator.clone(),
+            ),
+        ));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
