@@ -3,17 +3,16 @@
 
 use std::sync::Arc;
 
-use num_traits::AsPrimitive;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::MAX_BUFFER_LEN;
+use vortex_array::arrays::build_views::build_views;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
-use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_vector::binaryview::BinaryView;
@@ -37,9 +36,6 @@ pub(super) fn canonicalize_fsst(
     })
 }
 
-/// Maximum number of buffer bytes that can be referenced by a single `BinaryView`
-const MAX_BUFFER_LEN: usize = i32::MAX as usize;
-
 pub(crate) fn fsst_decode_views(
     fsst_array: &FSSTArray,
     start_buf_index: u32,
@@ -59,7 +55,6 @@ pub(crate) fn fsst_decode_views(
         .clone()
         .execute::<PrimitiveArray>(ctx)?;
 
-    // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
     let total_size: usize = match_each_integer_ptype!(uncompressed_lens_array.ptype(), |P| {
         uncompressed_lens_array
@@ -85,49 +80,6 @@ pub(crate) fn fsst_decode_views(
             uncompressed_lens_array.as_slice::<P>(),
         ))
     })
-}
-
-fn build_views<P: NativePType + AsPrimitive<usize>>(
-    start_buf_index: u32,
-    max_buffer_len: usize,
-    mut uncompressed_bytes: ByteBufferMut,
-    uncompressed_lens: &[P],
-) -> (Vec<ByteBuffer>, Buffer<BinaryView>) {
-    let mut views = BufferMut::<BinaryView>::with_capacity(uncompressed_lens.len());
-
-    let mut buffers = Vec::new();
-    let mut buf_index = start_buf_index;
-
-    let mut offset = 0;
-    for &len in uncompressed_lens {
-        let len = len.as_();
-        assert!(len <= max_buffer_len, "values cannot exceed max_buffer_len");
-
-        if (offset + len) > max_buffer_len {
-            // Roll the buffer every 2GiB, to avoid overflowing VarBinView offset field
-            let rest = uncompressed_bytes.split_off(offset);
-
-            buffers.push(uncompressed_bytes.freeze());
-            buf_index += 1;
-            offset = 0;
-
-            uncompressed_bytes = rest;
-        }
-        let view = BinaryView::make_view(
-            &uncompressed_bytes[offset..][..len],
-            buf_index,
-            offset.as_(),
-        );
-        // SAFETY: we reserved the right capacity beforehand
-        unsafe { views.push_unchecked(view) };
-        offset += len;
-    }
-
-    if !uncompressed_bytes.is_empty() {
-        buffers.push(uncompressed_bytes.freeze());
-    }
-
-    (buffers, views.freeze())
 }
 
 #[cfg(test)]

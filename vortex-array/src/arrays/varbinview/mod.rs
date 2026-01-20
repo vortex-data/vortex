@@ -13,5 +13,6 @@ mod compute;
 mod vtable;
 pub use vtable::VarBinViewVTable;
 
+pub mod build_views;
 #[cfg(test)]
 mod tests;
