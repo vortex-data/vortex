@@ -97,7 +97,7 @@ fn list_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
 
     // TODO(ngates): use new_unchecked when it is added to arrow-rs.
     Ok(Arc::new(GenericListArray::<O>::new(
@@ -154,7 +154,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_arrow_null_buffer(&validity, sizes.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
         elements_field.clone(),
@@ -212,7 +212,7 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
         "Cannot convert to non-nullable Arrow array with null elements"
     );
 
-    let null_buffer = to_arrow_null_buffer(&validity, sizes.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(validity, sizes.len(), ctx)?;
 
     Ok(Arc::new(GenericListArray::<O>::new(
         elements_field.clone(),

@@ -15,6 +15,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::mask::Mask;
 use vortex::scalar::DecimalType;
+use vortex_array::arrays::DecimalArrayParts;
 
 use crate::duckdb::Vector;
 use crate::duckdb::VectorBuffer;
@@ -34,12 +35,20 @@ struct DecimalZeroCopyExporter<D: NativeDecimalType> {
 }
 
 pub(crate) fn new_exporter(array: DecimalArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
-    let dest_values_type = precision_to_duckdb_storage_size(&array.decimal_dtype())?;
+    let len = array.len();
+    let DecimalArrayParts {
+        validity,
+        decimal_dtype,
+        values_type,
+        values,
+        ..
+    } = array.into_parts();
+    let dest_values_type = precision_to_duckdb_storage_size(&decimal_dtype)?;
+    let validity = validity.to_mask(len);
 
-    if array.values_type() == dest_values_type {
-        match_each_decimal_value_type!(array.values_type(), |D| {
-            let buffer = array.buffer::<D>();
+    if values_type == dest_values_type {
+        match_each_decimal_value_type!(values_type, |D| {
+            let buffer = Buffer::<D>::from_byte_buffer(values)
             return Ok(Box::new(DecimalZeroCopyExporter {
                 values: buffer.clone(),
                 shared_buffer: VectorBuffer::new(buffer),
@@ -48,10 +57,10 @@ pub(crate) fn new_exporter(array: DecimalArray) -> VortexResult<Box<dyn ColumnEx
         })
     }
 
-    match_each_decimal_value_type!(array.values_type(), |D| {
+    match_each_decimal_value_type!(values_type, |D| {
         match_each_decimal_value_type!(dest_values_type, |N| {
             Ok(Box::new(DecimalExporter {
-                values: array.buffer::<D>(),
+                values: Buffer::<D>::from_byte_buffer(values),
                 validity,
                 dest_value_type: PhantomData::<N>,
             }))

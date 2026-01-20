@@ -622,7 +622,7 @@ impl PyArray {
             )));
         }
 
-        let inner = take(&slf, &*indices)?;
+        let inner = &slf.take(&*indices)?;
 
         Ok(PyArrayRef::from(inner))
     }

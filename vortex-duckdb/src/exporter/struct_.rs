@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Not;
+
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::StructArray;
 use vortex::array::optimizer::ArrayOptimizer;
@@ -14,51 +16,14 @@ use crate::exporter::ColumnExporter;
 use crate::exporter::ConversionCache;
 use crate::exporter::all_invalid;
 use crate::exporter::new_array_exporter;
-use crate::exporter::new_operator_array_exporter;
 use crate::exporter::validity;
 
 struct StructExporter {
     children: Vec<Box<dyn ColumnExporter>>,
 }
 
+// // TODO(joe): into parts
 pub(crate) fn new_exporter(
-    array: StructArray,
-    cache: &ConversionCache,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    let validity = array.validity_mask();
-    // DuckDB requires that the validity of the child be a subset of the parent struct so we mask out children with
-    // parents nullability
-    let validity_for_mask = array.dtype().is_nullable().then(|| !&validity);
-
-    let children = array
-        .fields()
-        .iter()
-        .map(|child| {
-            if let Some(mv) = validity_for_mask.as_ref() {
-                new_array_exporter(&mask(child, mv)?, cache)
-            } else {
-                new_array_exporter(child, cache)
-            }
-        })
-        .collect::<VortexResult<Vec<_>>>()?;
-    let struct_exporter = Box::new(StructExporter { children });
-    Ok(if array.dtype().is_nullable() {
-        validity::new_exporter(validity, struct_exporter)
-    } else {
-        struct_exporter
-    })
-}
-
-impl ColumnExporter for StructExporter {
-    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
-        for (idx, child) in self.children.iter().enumerate() {
-            child.export(offset, len, &mut vector.struct_vector_get_child(idx))?;
-        }
-        Ok(())
-    }
-}
-
-pub(crate) fn new_operator_exporter(
     array: StructArray,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
@@ -78,9 +43,13 @@ pub(crate) fn new_operator_exporter(
         .map(|child| {
             if matches!(validity, Mask::Values(_)) {
                 // TODO(joe): use new mask.
-                new_operator_array_exporter(mask(child, &validity)?.optimize()?, cache, ctx)
+                new_array_exporter(
+                    mask(child, &validity.clone().not())?.optimize()?,
+                    cache,
+                    ctx,
+                )
             } else {
-                new_operator_array_exporter(child.clone(), cache, ctx)
+                new_array_exporter(child.clone(), cache, ctx)
             }
         })
         .collect::<VortexResult<Vec<_>>>()?;
@@ -88,6 +57,15 @@ pub(crate) fn new_operator_exporter(
         validity,
         Box::new(StructExporter { children }),
     ))
+}
+
+impl ColumnExporter for StructExporter {
+    fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        for (idx, child) in self.children.iter().enumerate() {
+            child.export(offset, len, &mut vector.struct_vector_get_child(idx))?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -103,8 +81,10 @@ mod tests {
     use vortex::buffer::BitBuffer;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
@@ -126,10 +106,14 @@ mod tests {
         )
         .vortex_expect("LogicalType creation should succeed for test data")]);
 
-        new_exporter(arr, &ConversionCache::default())
-            .unwrap()
-            .export(0, 10, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            arr,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(0, 10, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
@@ -186,10 +170,14 @@ mod tests {
         )
         .vortex_expect("LogicalType creation should succeed for test data")]);
 
-        new_exporter(arr, &ConversionCache::default())
-            .unwrap()
-            .export(0, 10, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            arr,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(0, 10, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(10);
 
         assert_eq!(
@@ -227,10 +215,14 @@ mod tests {
         )
         .vortex_expect("LogicalType creation should succeed for test data")]);
 
-        new_exporter(arr, &ConversionCache::default())
-            .unwrap()
-            .export(0, 10, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            arr,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(0, 10, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(10);
 
         assert_eq!(

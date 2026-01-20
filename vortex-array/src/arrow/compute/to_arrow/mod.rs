@@ -22,7 +22,7 @@ use crate::compute::Options;
 /// Warning: do not use this to convert a Vortex [`crate::stream::ArrayStream`] since each array
 /// may have a different preferred Arrow type. Use [`to_arrow`] instead.
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
-#[allow(deprecated)]
+#[expect(deprecated)]
 pub fn to_arrow_preferred(array: &dyn Array) -> VortexResult<ArrowArrayRef> {
     to_arrow_opts(array, &ToArrowOptions { arrow_type: None })
 }
@@ -35,7 +35,7 @@ pub fn to_arrow(array: &dyn Array, arrow_type: &DataType) -> VortexResult<ArrowA
 }
 
 #[deprecated(note = "Use ArrowArrayExecutor::execute_arrow instead")]
-#[allow(deprecated)]
+#[expect(deprecated)]
 pub fn to_arrow_opts(array: &dyn Array, options: &ToArrowOptions) -> VortexResult<ArrowArrayRef> {
     let data_type = if let Some(data_type) = &options.arrow_type {
         data_type.clone()

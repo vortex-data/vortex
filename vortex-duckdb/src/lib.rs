@@ -98,6 +98,7 @@ pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
 
     let conn = database
         .connect()
+        .inspect_err(|e| println!("err {e}"))
         .vortex_expect("Failed to connect to DuckDB database");
     register_table_functions(&conn).vortex_expect("Failed to initialize Vortex extension");
 }

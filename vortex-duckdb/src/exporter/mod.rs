@@ -23,7 +23,6 @@ use bitvec::prelude::Lsb0;
 use bitvec::view::BitView;
 pub use cache::ConversionCache;
 pub use decimal::precision_to_duckdb_storage_size;
-use vortex::array::Array;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
@@ -61,7 +60,7 @@ impl ArrayExporter {
         let fields = array
             .fields()
             .iter()
-            .map(|field| new_operator_array_exporter(field.clone(), cache, ctx))
+            .map(|field| new_array_exporter(field.clone(), cache, ctx))
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(Self {
             fields,
@@ -114,93 +113,41 @@ pub trait ColumnExporter {
 }
 
 fn new_array_exporter(
-    array: &dyn Array,
+    array: ArrayRef,
     cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    new_array_exporter_with_flatten(array, cache, false)
+    new_array_exporter_with_flatten(array, cache, ctx, false)
 }
 
 /// Create a DuckDB exporter for the given Vortex array.
 fn new_array_exporter_with_flatten(
-    array: &dyn Array,
-    cache: &ConversionCache,
-    flatten: bool,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        return constant::new_exporter(array);
-    }
-
-    if let Some(array) = array.as_opt::<RunEndVTable>() {
-        return run_end::new_exporter(array, cache);
-    }
-
-    if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_exporter_with_flatten(array, cache, flatten);
-    }
-
-    if let Some(array) = array.as_opt::<SequenceVTable>() {
-        return sequence::new_exporter(array);
-    }
-
-    if let Some(array) = array.as_opt::<ListVTable>() {
-        return list::new_exporter(array, cache);
-    }
-
-    // Otherwise, we fall back to canonical
-    match array.to_canonical()? {
-        Canonical::Null(_) => Ok(all_invalid::new_exporter(array.len(), &LogicalType::null())),
-        Canonical::Bool(array) => bool::new_exporter(array),
-        Canonical::Primitive(array) => primitive::new_exporter(array),
-        Canonical::Decimal(array) => decimal::new_exporter(array),
-        Canonical::Struct(array) => struct_::new_exporter(array, cache),
-        Canonical::List(array) => list_view::new_exporter(array, cache),
-        Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache),
-        Canonical::VarBinView(array) => varbinview::new_exporter(array),
-        Canonical::Extension(ext) => {
-            if is_temporal_ext_type(ext.id()) {
-                let temporal_array =
-                    TemporalArray::try_from(ext).vortex_expect("id is a temporal array");
-                return temporal::new_exporter(&temporal_array);
-            }
-            todo!("no non-temporal extension exporter")
-        }
-    }
-}
-
-fn new_operator_array_exporter(
-    array: ArrayRef,
-    cache: &ConversionCache,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Box<dyn ColumnExporter>> {
-    new_array_operator_exporter_with_flatten(array, cache, ctx, false)
-}
-
-/// Create a DuckDB exporter for the given Vortex array.
-fn new_array_operator_exporter_with_flatten(
     array: ArrayRef,
     cache: &ConversionCache,
     ctx: &mut ExecutionCtx,
     flatten: bool,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    if let Some(array) = array.as_opt::<ConstantVTable>() {
-        return constant::new_exporter(array);
-    }
+    let array = match array.try_into::<ConstantVTable>() {
+        Ok(array) => return constant::new_exporter(array),
+        Err(array) => array,
+    };
 
     if let Some(array) = array.as_opt::<SequenceVTable>() {
         return sequence::new_exporter(array);
     }
 
     if let Some(array) = array.as_opt::<RunEndVTable>() {
-        return run_end::new_operator_exporter(array, cache, ctx);
+        return run_end::new_exporter(array, cache, ctx);
     }
 
     if let Some(array) = array.as_opt::<DictVTable>() {
-        return dict::new_operator_exporter_with_flatten(array, cache, ctx, flatten);
+        return dict::new_exporter_with_flatten(array, cache, ctx, flatten);
     }
 
-    if let Some(array) = array.as_opt::<ListVTable>() {
-        return list::new_operator_exporter(array, cache, ctx);
-    }
+    let array = match array.try_into::<ListVTable>() {
+        Ok(array) => return list::new_exporter(array, cache, ctx),
+        Err(array) => array,
+    };
 
     // Otherwise, we fall back to canonical
     match array.execute::<Canonical>(ctx)? {
@@ -209,14 +156,14 @@ fn new_array_operator_exporter_with_flatten(
         Canonical::Primitive(array) => primitive::new_exporter(array),
         Canonical::Decimal(array) => decimal::new_exporter(array),
         Canonical::VarBinView(array) => varbinview::new_exporter(array),
-        Canonical::List(array) => list_view::new_operator_exporter(array, cache, ctx),
-        Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache),
-        Canonical::Struct(array) => struct_::new_operator_exporter(array, cache, ctx),
+        Canonical::List(array) => list_view::new_exporter(array, cache, ctx),
+        Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
+        Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
         Canonical::Extension(ext) => {
             if is_temporal_ext_type(ext.id()) {
                 let temporal_array =
                     TemporalArray::try_from(ext).vortex_expect("id is a temporal array");
-                return temporal::new_operator_exporter(temporal_array, ctx);
+                return temporal::new_exporter(temporal_array, ctx);
             }
             vortex_bail!("no non-temporal extension exporter")
         }

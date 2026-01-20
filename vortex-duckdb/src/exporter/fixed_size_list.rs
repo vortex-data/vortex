@@ -8,6 +8,7 @@
 //! lists have the same number of elements.
 //!
 //! [`DType::FixedSizeList`]: vortex_dtype::DType::FixedSizeList
+use vortex::array::ExecutionCtx;
 use vortex::array::arrays::FixedSizeListArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -33,19 +34,24 @@ struct FixedSizeListExporter {
 pub(crate) fn new_exporter(
     array: FixedSizeListArray,
     cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
-    let elements_exporter = new_array_exporter_with_flatten(array.elements(), cache, true)?;
+    let list_size = array.list_size();
+    let len = array.len();
+    let (elements, validity, dtype) = array.into_parts();
+    let mask = validity.to_mask(len);
+    let elements_exporter = new_array_exporter_with_flatten(elements, cache, ctx, true)?;
 
-    let ltype: LogicalType = array.dtype().try_into()?;
+    let ltype: LogicalType = (&dtype).try_into()?;
 
-    if let Mask::AllFalse(len) = array.validity_mask() {
+    if mask.all_false() {
         return Ok(all_invalid::new_exporter(len, &ltype));
     }
 
     Ok(Box::new(FixedSizeListExporter {
-        validity: array.validity_mask(),
+        validity: mask,
         elements_exporter,
-        list_size: array.list_size(),
+        list_size,
     }))
 }
 
@@ -93,8 +99,10 @@ mod tests {
     use vortex::array::validity::Validity;
     use vortex::buffer::buffer;
     use vortex::error::VortexExpect;
+    use vortex_array::VortexSessionExecute;
 
     use super::*;
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
@@ -112,10 +120,14 @@ mod tests {
         // TODO(connor): This mutable API is brittle. Maybe bundle this logic?
         let mut chunk = DataChunk::new([array_type]);
 
-        new_exporter(fsl, &ConversionCache::default())
-            .unwrap()
-            .export(offset, len, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            fsl,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(offset, len, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(len);
 
         chunk
@@ -323,10 +335,14 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(outer_fsl, &ConversionCache::default())
-            .unwrap()
-            .export(0, 2, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            outer_fsl,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(0, 2, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(2);
 
         assert_eq!(chunk.len(), 2);
@@ -376,10 +392,14 @@ mod tests {
         let outer_array_type = create_nested_array_type(2, 3);
         let mut chunk = DataChunk::new([outer_array_type]);
 
-        new_exporter(outer_fsl, &ConversionCache::default())
-            .unwrap()
-            .export(0, 3, &mut chunk.get_vector(0))
-            .unwrap();
+        new_exporter(
+            outer_fsl,
+            &ConversionCache::default(),
+            &mut SESSION.create_execution_ctx(),
+        )
+        .unwrap()
+        .export(0, 3, &mut chunk.get_vector(0))
+        .unwrap();
         chunk.set_len(3);
 
         assert_eq!(chunk.len(), 3);

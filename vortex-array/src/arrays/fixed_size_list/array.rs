@@ -166,8 +166,8 @@ impl FixedSizeListArray {
         }
     }
 
-    pub fn into_parts(self) -> (ArrayRef, Validity) {
-        (self.elements, self.validity)
+    pub fn into_parts(self) -> (ArrayRef, Validity, DType) {
+        (self.elements, self.validity, self.dtype)
     }
 
     /// Validates the components that would be used to create a [`FixedSizeListArray`].

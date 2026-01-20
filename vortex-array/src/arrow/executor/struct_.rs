@@ -24,16 +24,16 @@ use crate::ToCanonical;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ScalarFnVTable;
 use crate::arrays::StructArray;
+use crate::arrays::StructArrayParts;
 use crate::arrays::StructVTable;
 use crate::arrow::ArrowArrayExecutor;
 use crate::arrow::executor::validity::to_arrow_null_buffer;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Pack;
-use crate::vtable::ValidityHelper;
 
 pub(super) fn to_arrow_struct(
     array: ArrayRef,
-    fields: Option<&Fields>,
+    target_fields: Option<&Fields>,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let len = array.len();
@@ -51,10 +51,17 @@ pub(super) fn to_arrow_struct(
     // Attempt to short-circuit if the array is already a StructVTable:
     let array = match array.try_into::<StructVTable>() {
         Ok(array) => {
-            let validity = to_arrow_null_buffer(array.validity(), array.len(), ctx)?;
+            let len = array.len();
+            let StructArrayParts {
+                validity,
+                fields,
+                struct_fields,
+                ..
+            } = array.into_parts();
+            let validity = to_arrow_null_buffer(validity, len, ctx)?;
             return create_from_fields(
-                fields.ok_or_else(|| array.names().clone()),
-                array.into_fields(),
+                target_fields.ok_or_else(|| struct_fields.names().clone()),
+                &fields,
                 validity,
                 len,
                 ctx,
@@ -71,8 +78,8 @@ pub(super) fn to_arrow_struct(
             unreachable!("Pack must have Struct dtype");
         };
         return create_from_fields(
-            fields.ok_or_else(|| struct_fields.names().clone()),
-            array.children().to_vec(),
+            target_fields.ok_or_else(|| struct_fields.names().clone()),
+            array.children(),
             None, // Pack is never null,
             len,
             ctx,
@@ -80,7 +87,7 @@ pub(super) fn to_arrow_struct(
     }
 
     // Otherwise, we fall back to executing to a StructArray.
-    let array = if let Some(fields) = fields {
+    let array = if let Some(fields) = target_fields {
         let vx_fields = StructFields::from_arrow(fields);
         // We apply a cast to ensure we push down casting where possible into the struct fields.
         array.cast(DType::Struct(
@@ -92,10 +99,18 @@ pub(super) fn to_arrow_struct(
     };
 
     let struct_array = array.execute::<StructArray>(ctx)?;
-    let validity = to_arrow_null_buffer(struct_array.validity(), struct_array.len(), ctx)?;
+    let len = struct_array.len();
+    let StructArrayParts {
+        validity,
+        fields,
+        struct_fields,
+        ..
+    } = struct_array.into_parts();
+
+    let validity = to_arrow_null_buffer(validity, len, ctx)?;
     create_from_fields(
-        fields.ok_or_else(|| struct_array.names().clone()),
-        struct_array.into_fields(),
+        target_fields.ok_or_else(|| struct_fields.names().clone()),
+        &fields,
         validity,
         len,
         ctx,
@@ -104,7 +119,7 @@ pub(super) fn to_arrow_struct(
 
 fn create_from_fields(
     fields: Result<&Fields, FieldNames>,
-    vortex_fields: Vec<ArrayRef>,
+    vortex_fields: &[ArrayRef],
     null_buffer: Option<NullBuffer>,
     len: usize,
     ctx: &mut ExecutionCtx,
@@ -120,7 +135,9 @@ fn create_from_fields(
 
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
             for (field, vx_field) in fields.iter().zip_eq(vortex_fields.into_iter()) {
-                let arrow_field = vx_field.execute_arrow(Some(field.data_type()), ctx)?;
+                let arrow_field = vx_field
+                    .clone()
+                    .execute_arrow(Some(field.data_type()), ctx)?;
                 vortex_ensure!(
                     field.is_nullable() || arrow_field.null_count() == 0,
                     "Cannot convert field '{}' to non-nullable Arrow field because it contains nulls",
@@ -142,7 +159,7 @@ fn create_from_fields(
             // No target fields specified - use preferred types for each child
             let mut arrow_arrays = Vec::with_capacity(vortex_fields.len());
             for vx_field in vortex_fields.into_iter() {
-                let arrow_array = vx_field.execute_arrow(None, ctx)?;
+                let arrow_array = vx_field.clone().execute_arrow(None, ctx)?;
                 arrow_arrays.push(arrow_array);
             }
 
