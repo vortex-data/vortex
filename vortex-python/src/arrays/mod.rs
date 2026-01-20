@@ -35,7 +35,7 @@ use vortex::dtype::match_each_integer_ptype;
 use vortex::error::VortexError;
 use vortex::ipc::messages::EncoderMessage;
 use vortex::ipc::messages::MessageEncoder;
-
+use vortex_array::compute::take;
 use crate::PyVortex;
 use crate::arrays::native::PyNativeArray;
 use crate::arrays::py::PyPythonArray;
@@ -621,7 +621,9 @@ impl PyArray {
             )));
         }
 
-        Ok(PyArrayRef::from(slf.take(indices.clone())?))
+        let inner = take(&slf, &*indices)?;
+
+        Ok(PyArrayRef::from(inner))
     }
 
     #[pyo3(signature = (start, end))]
