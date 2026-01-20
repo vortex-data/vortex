@@ -9,10 +9,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::buffer::DeviceBuffer;
-use vortex_array::validity::Validity::NonNullable;
-use vortex_buffer::Alignment;
-use vortex_dtype::FromPrimitiveOrF16;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_error::VortexExpect;
@@ -20,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
 
+use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
@@ -56,7 +53,7 @@ async fn execute_for(array: &FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     })
 }
 
-async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
+async fn execute_for_typed<P: DeviceRepr + NativePType>(
     array: &FoRArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
@@ -66,40 +63,36 @@ async fn execute_for_typed<P: DeviceRepr + NativePType + FromPrimitiveOrF16>(
         .as_::<P>()
         .vortex_expect("Cannot have a null reference");
 
-    let encoded = array.encoded().clone();
-    // Recursively decompresss the child.
-    let unpacked_canonical = encoded.execute_cuda(ctx).await?;
-
-    let unpacked_array = unpacked_canonical.as_primitive();
-    let unpacked_slice = unpacked_array.as_slice::<P>();
-
-    // TODO(0ax1): Check whether buffer is already on device.
-    let device_data = ctx.copy_buffer_to_device(unpacked_slice)?;
-
+    let encoded = array.encoded().clone().execute_cuda(ctx).await?;
+    let (dtype, buffer_handle, validity, ..) = encoded.into_primitive().into_parts();
+    let device_buffer_handle = ctx.ensure_on_device::<P>(&buffer_handle)?;
+    let cuda_view = device_buffer_handle.cuda_view::<P>()?;
     let array_len = array.len() as u64;
-    let _kernel_events = launch_cuda_kernel!(
+
+    // Ignore the CUDA events returned from the kernel launch, as the CUDA slice,
+    // owned by the buffer handle, holds CUDA events that can be checked for completion.
+    let _cuda_events = launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "for",
         ptypes: &[array.ptype()],
-        launch_args: [*device_data.cuda_slice(), reference, array_len],
-        // CUDA events are submitted before and after the kernel launch. This
-        // enables waiting for a single kernel to finish without doing a global
-        // synchronize on the stream. Timing is disabled to keep the overhead low.
+        launch_args: [cuda_view, reference, array_len],
+        // CUDA events are automatically submitted before and after the kernel launch.
         event_recording: CU_EVENT_DISABLE_TIMING,
         array_len: array.len()
     );
 
-    // TODO: Don't copy back after the end of each run.
-    let host_bytes = device_data.copy_to_host(Alignment::of::<P>())?;
-    let primitive = PrimitiveArray::from_byte_buffer(host_bytes, array.ptype(), NonNullable);
-
-    Ok(Canonical::Primitive(primitive))
+    Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+        device_buffer_handle,
+        dtype.as_ptype(),
+        validity,
+    )))
 }
 
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
@@ -133,8 +126,11 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
+        let result_buf =
+            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+
         assert_eq!(
-            result.as_primitive().as_slice::<u8>(),
+            result_buf,
             input_data
                 .iter()
                 .map(|&val| val.wrapping_add(10))
@@ -165,8 +161,11 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
+        let result_buf =
+            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+
         assert_eq!(
-            result.as_primitive().as_slice::<u16>(),
+            result_buf,
             input_data
                 .iter()
                 .map(|&val| val.wrapping_add(1000))
@@ -197,8 +196,11 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
+        let result_buf =
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+
         assert_eq!(
-            result.as_primitive().as_slice::<u32>(),
+            result_buf,
             input_data
                 .iter()
                 .map(|&val| val.wrapping_add(100000))
@@ -229,8 +231,11 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
+        let result_buf =
+            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+
         assert_eq!(
-            result.as_primitive().as_slice::<u64>(),
+            result_buf,
             input_data
                 .iter()
                 .map(|&val| val.wrapping_add(1000000u64))

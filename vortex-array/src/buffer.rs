@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::Any;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -40,8 +41,11 @@ enum Inner {
     Device(Arc<dyn DeviceBuffer>),
 }
 
-/// A buffer that is stored on a device (e.g. GPU).
+/// A buffer that is stored on the GPU.
 pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
+    /// Returns a reference as `Any` to enable downcasting.
+    fn as_any(&self) -> &dyn Any;
+
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 
