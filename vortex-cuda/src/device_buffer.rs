@@ -9,7 +9,6 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::sys::CUdeviceptr;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
@@ -23,27 +22,26 @@ pub struct CudaDeviceBuffer<T> {
     inner: Arc<CudaSlice<T>>,
     offset: usize,
     len: usize,
+    device_ptr: u64,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     /// Creates a new CUDA device buffer from a [`CudaSlice`].
     pub fn new(cuda_slice: CudaSlice<T>) -> Self {
         let len = cuda_slice.len();
+        let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
+
         Self {
             inner: Arc::new(cuda_slice),
             offset: 0,
             len,
+            device_ptr,
         }
     }
 
     /// Returns a [`CudaView`] to the CUDA device buffer.
     pub fn as_view(&self) -> CudaView<'_, T> {
         self.inner.slice(self.offset..self.offset + self.len)
-    }
-
-    /// Returns the device pointer for this buffer.
-    fn device_ptr(&self) -> CUdeviceptr {
-        self.inner.device_ptr(self.inner.stream()).0
     }
 }
 
@@ -80,7 +78,7 @@ impl CudaBufferExt for BufferHandle {
 impl<T: DeviceRepr> Debug for CudaDeviceBuffer<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CudaDeviceBuffer")
-            .field("device_ptr", &self.device_ptr())
+            .field("device_ptr", &self.device_ptr)
             .field("offset", &self.offset)
             .field("len", &self.len)
             .finish()
@@ -89,7 +87,7 @@ impl<T: DeviceRepr> Debug for CudaDeviceBuffer<T> {
 
 impl<T: DeviceRepr> std::hash::Hash for CudaDeviceBuffer<T> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.device_ptr().hash(state);
+        self.device_ptr.hash(state);
         self.len.hash(state);
         self.offset.hash(state);
     }
@@ -97,9 +95,7 @@ impl<T: DeviceRepr> std::hash::Hash for CudaDeviceBuffer<T> {
 
 impl<T: DeviceRepr> PartialEq for CudaDeviceBuffer<T> {
     fn eq(&self, other: &Self) -> bool {
-        self.device_ptr() == other.device_ptr()
-            && self.len == other.len
-            && self.offset == other.offset
+        self.device_ptr == other.device_ptr && self.len == other.len && self.offset == other.offset
     }
 }
 
@@ -150,6 +146,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             inner: Arc::clone(&self.inner),
             offset: new_offset,
             len: new_len,
+            device_ptr: self.device_ptr,
         })
     }
 
