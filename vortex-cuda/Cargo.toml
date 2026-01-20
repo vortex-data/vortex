@@ -34,6 +34,7 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 futures = { workspace = true }
+rand = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
 vortex-file = { workspace = true, features = ["tokio"] }
 vortex-layout = { workspace = true }

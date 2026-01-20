@@ -24,6 +24,8 @@ use criterion::Throughput;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use cudarc::driver::CudaContext;
+use rand::seq::SliceRandom;
+use rand::thread_rng;
 use tokio::runtime::Runtime;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -68,7 +70,8 @@ fn create_session(rt: &Runtime) -> VortexSession {
 /// Create a synthetic Vortex file in memory with the given number of rows.
 fn create_vortex_buffer(rt: &Runtime, session: &VortexSession, num_rows: usize) -> ByteBuffer {
     // Create a simple i64 array with predictable data
-    let data: Vec<i64> = (0..num_rows as i64).collect();
+    let mut data: Vec<i64> = (0..num_rows as i64).collect();
+    data.shuffle(&mut thread_rng());
     let array = PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     let mut buf = ByteBufferMut::empty();

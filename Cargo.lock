@@ -10272,6 +10272,7 @@ dependencies = [
  "cudarc",
  "futures",
  "parking_lot",
+ "rand 0.9.2",
  "tokio",
  "tracing",
  "vortex-array",
