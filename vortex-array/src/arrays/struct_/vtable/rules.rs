@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::FieldName;
-use vortex_error::VortexExpect;
+use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -26,11 +24,9 @@ use crate::expr::Mask;
 use crate::expr::annotate_scope_access;
 use crate::expr::col;
 use crate::expr::root;
-use crate::expr::transform::PartitionedExpr;
 use crate::expr::transform::partition;
 use crate::expr::transform::replace;
 use crate::matchers::Exact;
-use crate::matchers::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
@@ -39,6 +35,7 @@ use crate::vtable::ValidityHelper;
 pub(super) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
+    ParentRuleSet::lift(&StructPartitionRule),
 ]);
 
 /// Rule to push down cast into struct fields.
@@ -203,6 +200,38 @@ impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
         }
 
         // Otherwise, build a StructArray with each partition as a field
-        vortex_bail!("StructPartitionRule for multiple partitions not yet implemented")
+
+        // We process the partitioned expressions to rewrite the root scope to be that of the
+        // field, rather than the struct. In other words, "stepping in" to the field scope.
+        let partitions: Vec<_> = partitioned
+            .partitions
+            .iter()
+            .zip_eq(partitioned.partition_annotations.iter())
+            .map(|(e, name)| replace(e.clone(), &col(name.clone()), root()))
+            .collect();
+
+        let fields = partitioned.partition_annotations
+            .iter()
+            .zip(partitions.into_iter())
+            .map(|(field_name, field_expr)| {
+                let field_idx = array.dtype.as_struct_fields().find(field_name)
+                    .ok_or_else(|| vortex_err!("Field name must exist in struct dtype as it was used to partition expression"))?;
+                Ok(ExpressionArray::try_new(field_expr, array.masked_field(field_idx)?)?
+                    .into_array())
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        // Wrap up the partitions in a struct array that will be referenced by the root expression.
+        let struct_array = StructArray::try_new(
+            partitioned.partition_names,
+            fields,
+            array.len(),
+            Validity::NonNullable,
+        )?
+        .into_array();
+
+        Ok(Some(
+            ExpressionArray::try_new(partitioned.root, struct_array)?.into_array(),
+        ))
     }
 }

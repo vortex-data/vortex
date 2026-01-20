@@ -386,10 +386,10 @@ impl StructArray {
     /// This returns the result of a full "get_item" operation on the struct array, instead of
     /// a naive lightweight field access.
     pub fn masked_field(&self, field_idx: usize) -> VortexResult<ArrayRef> {
-        let field = self.fields[field_idx];
+        let field = &self.fields[field_idx];
         match self.dtype().nullability() {
-            Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &self.validity_mask().not()),
+            Nullability::NonNullable => Ok(field.clone()),
+            Nullability::Nullable => mask(field, &self.validity_mask().not()),
         }
     }
 
