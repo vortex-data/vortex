@@ -41,8 +41,11 @@ enum Inner {
     Device(Arc<dyn DeviceBuffer>),
 }
 
-/// A buffer that is stored on a device (e.g. GPU).
+/// A buffer that is stored on the GPU.
 pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
+    /// Returns a reference as `Any` to enable downcasting.
+    fn as_any(&self) -> &dyn Any;
+
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 
@@ -61,9 +64,6 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
-
-    /// Returns a reference as `Any` to enable downcasting.
-    fn as_any(&self) -> &dyn Any;
 }
 
 impl Hash for dyn DeviceBuffer {
