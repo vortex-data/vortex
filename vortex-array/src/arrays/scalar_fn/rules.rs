@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -74,8 +75,12 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if !array.children.iter().all(|c| c.is::<ConstantVTable>()) {
             return Ok(None);
         }
-        let result = array.scalar_at(0);
-        Ok(Some(ConstantArray::new(result, array.len).into_array()))
+        if array.is_empty() {
+            Ok(Some(Canonical::empty(array.dtype()).into_array()))
+        } else {
+            let result = array.scalar_at(0);
+            Ok(Some(ConstantArray::new(result, array.len).into_array()))
+        }
     }
 }
 
@@ -195,5 +200,43 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_error::VortexExpect;
+
+    use crate::array::IntoArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::expr::cast;
+    use crate::expr::is_null;
+    use crate::expr::root;
+
+    #[test]
+    fn test_empty_constants() {
+        let array = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(Some(1u64), 0).into_array(),
+                PrimitiveArray::from_iter(vec![2u64])
+                    .into_array()
+                    .apply(&cast(
+                        root(),
+                        DType::Primitive(PType::U64, Nullability::Nullable),
+                    ))
+                    .vortex_expect("casted"),
+            ],
+            DType::Primitive(PType::U64, Nullability::Nullable),
+        )
+        .vortex_expect("construction")
+        .to_array();
+
+        let expr = is_null(root());
+        expr.evaluate(&array).vortex_expect("expr evaluation");
     }
 }
