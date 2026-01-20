@@ -18,7 +18,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
@@ -245,9 +244,9 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().to_primitive();
-        let right_parts = array.right_parts().to_primitive();
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
+        let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();

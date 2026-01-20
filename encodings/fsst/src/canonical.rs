@@ -4,7 +4,8 @@
 use std::sync::Arc;
 
 use vortex_array::Canonical;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -17,8 +18,11 @@ use vortex_vector::binaryview::BinaryView;
 
 use crate::FSSTArray;
 
-pub(super) fn canonicalize_fsst(array: &FSSTArray) -> VortexResult<Canonical> {
-    let (buffer, views) = fsst_decode_views(array, 0);
+pub(super) fn canonicalize_fsst(
+    array: &FSSTArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    let (buffer, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
@@ -38,7 +42,8 @@ pub(super) fn canonicalize_fsst(array: &FSSTArray) -> VortexResult<Canonical> {
 pub(super) fn fsst_decode_views(
     fsst_array: &FSSTArray,
     buf_index: u32,
-) -> (ByteBuffer, Buffer<BinaryView>) {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<(ByteBuffer, Buffer<BinaryView>)> {
     // FSSTArray has two child arrays:
     //  1. A VarBinArray, which holds the string heap of the compressed codes.
     //  2. An uncompressed_lengths primitive array, storing the length of each original
@@ -48,7 +53,10 @@ pub(super) fn fsst_decode_views(
     // necessary for a VarBinViewArray and construct the canonical array.
     let bytes = fsst_array.codes().sliced_bytes();
 
-    let uncompressed_lens_array = fsst_array.uncompressed_lengths().to_primitive();
+    let uncompressed_lens_array = fsst_array
+        .uncompressed_lengths()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
 
     // Decompress the full dataset.
     #[allow(clippy::cast_possible_truncation)]
@@ -85,7 +93,7 @@ pub(super) fn fsst_decode_views(
         }
     });
 
-    (uncompressed_bytes.freeze(), views.freeze())
+    Ok((uncompressed_bytes.freeze(), views.freeze()))
 }
 
 #[cfg(test)]

@@ -191,14 +191,15 @@ impl VTable for FSSTVTable {
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+        let mut ctx = ExecutionCtx::new(vortex_session::VortexSession::empty());
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count(), &mut ctx)?;
 
         builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        canonicalize_fsst(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_fsst(array, ctx)
     }
 
     fn execute_parent(
