@@ -16,6 +16,8 @@ use crate::v2::readers::scalar_fn::ScalarFnReader;
 
 impl dyn Reader + '_ {
     /// Apply the expression to this reader, producing a new reader in constant time.
+    ///
+    /// FIXME(ngates): how should we differentiate between prune, filter, and project expressions?
     pub fn apply(self: Arc<Self>, expr: &Expression) -> VortexResult<ReaderRef> {
         // If the expression is a root, return self.
         if expr.is::<Root>() {

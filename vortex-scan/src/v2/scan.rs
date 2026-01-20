@@ -124,7 +124,7 @@ impl ArrayStream for Scan {
 impl Stream for Scan {
     type Item = VortexResult<ArrayRef>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         todo!()
     }
 }

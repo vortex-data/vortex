@@ -45,6 +45,9 @@ pub trait Reader: 'static + Send + Sync {
     }
 
     /// Creates a scan over the given row range of the reader.
+    ///
+    /// TODO(ngates): we may want to pass `&dyn SegmentSource` here to force readers to construct
+    ///  segment futures at this time. This allows for I/O pre-fetching to begin.
     fn execute(&self, row_range: Range<u64>) -> VortexResult<ReaderStreamRef>;
 }
 
