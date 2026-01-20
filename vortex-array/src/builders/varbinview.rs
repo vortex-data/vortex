@@ -297,15 +297,7 @@ impl ArrayBuilder for VarBinViewBuilder {
             ViewAdjustment::Rewriting(adjustment) => match array.validity_mask() {
                 Mask::AllTrue(_) => {
                     for (idx, &view) in array.views().iter().enumerate() {
-                        let new_view = if view.is_inlined() {
-                            view
-                        } else if let Some(adjusted) = adjustment.adjust_view(&view) {
-                            adjusted
-                        } else {
-                            let bytes = array.bytes_at(idx);
-                            let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
-                            BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
-                        };
+                        let new_view = self.push_view(view, &adjustment, &array, idx);
                         self.views_builder.push(new_view);
                     }
                 }
@@ -319,14 +311,8 @@ impl ArrayBuilder for VarBinViewBuilder {
                     {
                         let new_view = if !is_valid {
                             BinaryView::empty_view()
-                        } else if view.is_inlined() {
-                            view
-                        } else if let Some(adjusted) = adjustment.adjust_view(&view) {
-                            adjusted
                         } else {
-                            let bytes = array.bytes_at(idx);
-                            let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
-                            BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
+                            self.push_view(view, &adjustment, &array, idx)
                         };
                         self.views_builder.push(new_view);
                     }
@@ -351,6 +337,27 @@ impl ArrayBuilder for VarBinViewBuilder {
 
     fn finish_into_canonical(&mut self) -> Canonical {
         Canonical::VarBinView(self.finish_into_varbinview())
+    }
+}
+
+impl VarBinViewBuilder {
+    #[inline]
+    fn push_view(
+        &mut self,
+        view: BinaryView,
+        adjustment: &RewritingViewAdjustment,
+        array: &VarBinViewArray,
+        idx: usize,
+    ) -> BinaryView {
+        if view.is_inlined() {
+            view
+        } else if let Some(adjusted) = adjustment.adjust_view(&view) {
+            adjusted
+        } else {
+            let bytes = array.bytes_at(idx);
+            let (new_buf_idx, new_offset) = self.append_value_to_buffer(&bytes);
+            BinaryView::make_view(bytes.as_slice(), new_buf_idx, new_offset)
+        }
     }
 }
 
@@ -801,6 +808,8 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
@@ -875,11 +884,17 @@ mod tests {
         let mut builder =
             VarBinViewBuilder::with_buffer_deduplication(DType::Utf8(Nullability::Nullable), 10);
 
-        array.append_to_builder(&mut builder)?;
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+        array.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
 
-        array.slice(1..2).append_to_builder(&mut builder)?;
-        array.slice(0..1).append_to_builder(&mut builder)?;
+        array
+            .slice(1..2)
+            .append_to_builder(&mut builder, &mut ctx)?;
+        array
+            .slice(0..1)
+            .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
 
         let array2 = {
@@ -889,11 +904,15 @@ mod tests {
             builder.finish_into_varbinview()
         };
 
-        array2.append_to_builder(&mut builder)?;
+        array2.append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 2);
 
-        array.slice(0..1).append_to_builder(&mut builder)?;
-        array2.slice(0..1).append_to_builder(&mut builder)?;
+        array
+            .slice(0..1)
+            .append_to_builder(&mut builder, &mut ctx)?;
+        array2
+            .slice(0..1)
+            .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 2);
         Ok(())
     }

@@ -253,6 +253,7 @@ impl VTable for ALPRDVTable {
         let left_parts_dict = array.left_parts_dictionary();
 
         let validity = array
+            .left_parts()
             .validity()?
             .to_array(array.len())
             .execute::<Mask>(ctx)?;

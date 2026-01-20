@@ -14,11 +14,14 @@ use tokio::fs::create_dir_all;
 use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
+use vortex::VortexSessionDefault;
 use vortex::array::ArrayRef;
+use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
 use vortex::file::WriteOptionsSessionExt;
+use vortex::session::VortexSession;
 
 use crate::CompactionStrategy;
 use crate::Format;
@@ -37,7 +40,10 @@ pub async fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<ChunkedA
 
         // Make sure data is uncompressed and canonicalized
         let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-        chunk.append_to_builder(builder.as_mut())?;
+        chunk.append_to_builder(
+            builder.as_mut(),
+            &mut VortexSession::default().create_execution_ctx(),
+        )?;
         let chunk = builder.finish();
         chunks.push(chunk);
     }
