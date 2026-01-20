@@ -22,7 +22,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -39,7 +38,6 @@ pub use rules::BoolMaskedValidityRule;
 
 use crate::arrays::bool::vtable::rules::RULES;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
 
 vtable!(Bool);
 
@@ -61,12 +59,8 @@ impl VTable for BoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.bool")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        BoolVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
@@ -87,7 +81,6 @@ impl VTable for BoolVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -154,3 +147,7 @@ impl VTable for BoolVTable {
 
 #[derive(Debug)]
 pub struct BoolVTable;
+
+impl BoolVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.bool");
+}

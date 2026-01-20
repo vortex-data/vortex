@@ -14,6 +14,7 @@ use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
 use vortex_array::serde::ArrayParts;
+use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
@@ -66,6 +67,7 @@ impl FlatReader {
         let segment_fut = self.segment_source.request(self.layout.segment_id());
 
         let ctx = self.layout.array_ctx().clone();
+        let registry = self.session.arrays().registry().clone();
         let dtype = self.layout.dtype().clone();
         let array_tree = self.layout.array_tree().cloned();
         async move {
@@ -77,7 +79,9 @@ impl FlatReader {
                 // Parse the flatbuffer from the segment itself.
                 ArrayParts::try_from(segment)?
             };
-            parts.decode(&ctx, &dtype, row_count).map_err(Arc::new)
+            parts
+                .decode(&dtype, row_count, &ctx, &registry)
+                .map_err(Arc::new)
         }
         .boxed()
         .shared()

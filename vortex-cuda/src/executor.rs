@@ -230,7 +230,7 @@ impl CudaArrayExt for ArrayRef {
 
         let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
             tracing::debug!(
-                encoding = %self.encoding().id(),
+                encoding = %self.encoding_id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
             let mut array_ctx = ctx.vortex_session.create_execution_ctx();
@@ -238,7 +238,7 @@ impl CudaArrayExt for ArrayRef {
         };
 
         tracing::debug!(
-            encoding = %self.encoding().id(),
+            encoding = %self.encoding_id(),
             "Executing array on CUDA device"
         );
 

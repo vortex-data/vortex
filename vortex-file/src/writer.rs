@@ -14,6 +14,7 @@ use futures::future::LocalBoxFuture;
 use futures::future::ready;
 use futures::pin_mut;
 use futures::select;
+use itertools::Itertools;
 use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::expr::stats::Stat;
@@ -144,7 +145,9 @@ impl VortexWriteOptions {
         // serialised array order is deterministic. The serialisation of arrays are done
         // parallel and with an empty context they can register their encodings to the context
         // in different order, changing the written bytes from run to run.
-        let ctx = ArrayContext::from_registry_sorted(self.session.arrays().registry());
+        let ctx = ArrayContext::new(self.session.arrays().registry().ids().sorted().collect())
+            // Configure a registry just to ensure only known encodings are interned.
+            .with_registry(self.session.arrays().registry().clone());
         let dtype = stream.dtype().clone();
 
         let (mut ptr, eof) = SequenceId::root().split();

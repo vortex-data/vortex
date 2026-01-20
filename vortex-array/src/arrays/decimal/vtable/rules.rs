@@ -29,7 +29,7 @@ impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
     type Parent = Exact<MaskedVTable>;
 
     fn parent(&self) -> Exact<MaskedVTable> {
-        Exact::from(&MaskedVTable)
+        Exact::new()
     }
 
     fn reduce_parent(

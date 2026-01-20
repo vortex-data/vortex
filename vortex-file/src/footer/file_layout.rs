@@ -46,10 +46,10 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
 
         let array_specs = self
             .ctx
-            .encodings()
+            .to_ids()
             .iter()
             .map(|e| {
-                let id = fbb.create_string(e.id().as_ref());
+                let id = fbb.create_string(e.as_ref());
                 fb::ArraySpec::create(fbb, &fb::ArraySpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
@@ -57,10 +57,10 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
 
         let layout_specs = self
             .layout_ctx
-            .encodings()
+            .to_ids()
             .iter()
             .map(|e| {
-                let id = fbb.create_string(e.id().as_ref());
+                let id = fbb.create_string(e.as_ref());
                 fb::LayoutSpec::create(fbb, &fb::LayoutSpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();

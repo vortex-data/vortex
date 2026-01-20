@@ -63,7 +63,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -101,7 +100,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          cache-suffix: "python"
       - name: Install uv
         uses: spiraldb/actions/.github/actions/setup-uv@0.18.5
         with:
@@ -506,7 +504,6 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-          cache-suffix: "sanitizer"
           timestamp: "true"
       - name: Install build dependencies
         run: |
@@ -647,7 +644,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
+        uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -690,7 +687,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           timestamp: "true"
-          cache-suffix: "cxx"
       - name: Build and run C++ unit tests
         run: |
           mkdir -p vortex-cxx/build

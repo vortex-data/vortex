@@ -46,7 +46,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
     // TODO(joe); remove Vector usage internally?

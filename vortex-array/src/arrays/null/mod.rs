@@ -25,8 +25,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
@@ -49,12 +47,8 @@ impl VTable for NullVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.null")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        NullVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &NullArray) -> VortexResult<Self::Metadata> {
@@ -70,7 +64,6 @@ impl VTable for NullVTable {
     }
 
     fn build(
-        &self,
         _dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -130,6 +123,10 @@ pub struct NullArray {
 
 #[derive(Debug)]
 pub struct NullVTable;
+
+impl NullVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.null");
+}
 
 impl NullArray {
     pub fn new(len: usize) -> Self {

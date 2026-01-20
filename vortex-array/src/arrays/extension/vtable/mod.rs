@@ -27,8 +27,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
@@ -46,12 +44,8 @@ impl VTable for ExtensionVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.ext")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ExtensionVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &ExtensionArray) -> VortexResult<Self::Metadata> {
@@ -67,7 +61,6 @@ impl VTable for ExtensionVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -119,3 +112,7 @@ impl VTable for ExtensionVTable {
 
 #[derive(Debug)]
 pub struct ExtensionVTable;
+
+impl ExtensionVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.ext");
+}

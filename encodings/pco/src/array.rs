@@ -37,8 +37,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
@@ -98,12 +96,8 @@ impl VTable for PcoVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.pco")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        PcoVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &PcoArray) -> VortexResult<Self::Metadata> {
@@ -119,7 +113,6 @@ impl VTable for PcoVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -221,6 +214,10 @@ pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
 
 #[derive(Debug)]
 pub struct PcoVTable;
+
+impl PcoVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.pco");
+}
 
 #[derive(Clone, Debug)]
 pub struct PcoArray {

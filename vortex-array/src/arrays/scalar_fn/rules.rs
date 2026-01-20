@@ -158,7 +158,7 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
     fn reduce_parent(

@@ -24,8 +24,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -41,6 +39,10 @@ vtable!(VarBinView);
 #[derive(Debug)]
 pub struct VarBinViewVTable;
 
+impl VarBinViewVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
+}
+
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
 
@@ -52,12 +54,8 @@ impl VTable for VarBinViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.varbinview")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        VarBinViewVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
@@ -73,7 +71,6 @@ impl VTable for VarBinViewVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

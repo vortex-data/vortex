@@ -35,8 +35,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -84,12 +82,8 @@ impl VTable for SparseVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.sparse")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SparseVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &SparseArray) -> VortexResult<Self::Metadata> {
@@ -107,7 +101,6 @@ impl VTable for SparseVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -204,6 +197,10 @@ pub struct SparseArray {
 
 #[derive(Debug)]
 pub struct SparseVTable;
+
+impl SparseVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.sparse");
+}
 
 impl SparseArray {
     pub fn try_new(

@@ -118,7 +118,7 @@ impl VTable for DictVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: ArrayContext,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata

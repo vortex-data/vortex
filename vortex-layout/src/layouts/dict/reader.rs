@@ -467,7 +467,7 @@ mod tests {
                 .unwrap();
 
             let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
-            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &SESSION)
                 .unwrap()

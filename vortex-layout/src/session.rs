@@ -23,12 +23,14 @@ pub struct LayoutSession {
 impl LayoutSession {
     /// Register a layout encoding in the session, replacing any existing encoding with the same ID.
     pub fn register(&self, layout: LayoutEncodingRef) {
-        self.registry.register(layout);
+        self.registry.register(layout.id(), layout);
     }
 
     /// Register layout encodings in the session, replacing any existing encodings with the same IDs.
     pub fn register_many(&self, layouts: impl IntoIterator<Item = LayoutEncodingRef>) {
-        self.registry.register_many(layouts);
+        for layout in layouts {
+            self.registry.register(layout.id(), layout);
+        }
     }
 
     /// Returns the layout encoding registry.
@@ -42,13 +44,11 @@ impl Default for LayoutSession {
         let layouts = LayoutRegistry::default();
 
         // Register the built-in layout encodings.
-        layouts.register_many([
-            LayoutEncodingRef::new_ref(ChunkedLayoutEncoding.as_ref()),
-            LayoutEncodingRef::new_ref(FlatLayoutEncoding.as_ref()),
-            LayoutEncodingRef::new_ref(StructLayoutEncoding.as_ref()),
-            LayoutEncodingRef::new_ref(ZonedLayoutEncoding.as_ref()),
-            LayoutEncodingRef::new_ref(DictLayoutEncoding.as_ref()),
-        ]);
+        layouts.register(ChunkedLayoutEncoding.id(), ChunkedLayoutEncoding.as_ref());
+        layouts.register(FlatLayoutEncoding.id(), FlatLayoutEncoding.as_ref());
+        layouts.register(StructLayoutEncoding.id(), StructLayoutEncoding.as_ref());
+        layouts.register(ZonedLayoutEncoding.id(), ZonedLayoutEncoding.as_ref());
+        layouts.register(DictLayoutEncoding.id(), DictLayoutEncoding.as_ref());
 
         Self { registry: layouts }
     }

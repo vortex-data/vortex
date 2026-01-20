@@ -31,8 +31,6 @@ use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -42,6 +40,10 @@ vtable!(Masked);
 
 #[derive(Debug)]
 pub struct MaskedVTable;
+
+impl MaskedVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
+}
 
 impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
@@ -63,8 +65,8 @@ impl VTable for MaskedVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.masked")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -82,10 +84,6 @@ impl VTable for MaskedVTable {
         ))
     }
 
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        MaskedVTable.as_vtable()
-    }
-
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
@@ -99,7 +97,6 @@ impl VTable for MaskedVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -193,6 +190,7 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::ArrayContext;
+    use crate::ArraySession;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -203,7 +201,6 @@ mod tests {
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
-    use crate::vtable::ArrayVTableExt;
 
     #[rstest]
     #[case(
@@ -227,8 +224,8 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let ctx = ArrayContext::empty().with(MaskedVTable.as_vtable());
 
+        let ctx = ArrayContext::empty();
         let serialized = array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -241,8 +238,10 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let session = ArraySession::default();
+
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&ctx, &dtype, len).unwrap();
+        let decoded = parts.decode(&dtype, len, &ctx, session.registry()).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(

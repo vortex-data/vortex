@@ -36,7 +36,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
     // TODO(joe): should this use Vector?

@@ -30,8 +30,6 @@ use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
@@ -46,6 +44,10 @@ vtable!(Dict);
 #[derive(Debug)]
 pub struct DictVTable;
 
+impl DictVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
+}
+
 impl VTable for DictVTable {
     type Array = DictArray;
 
@@ -57,12 +59,8 @@ impl VTable for DictVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.dict")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DictVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -111,7 +109,6 @@ impl VTable for DictVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,

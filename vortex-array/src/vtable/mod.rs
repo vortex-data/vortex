@@ -45,7 +45,7 @@ use crate::serde::ArrayChildren;
 /// which can be disabled by assigning to the [`NotSupported`] type.
 ///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
-/// traits via the [`crate::ArrayAdapter`] and [`ArrayVTableAdapter`] types respectively.
+/// traits.
 ///
 /// The functions defined in these vtable traits will typically document their pre- and
 /// post-conditions. The pre-conditions are validated inside the [`Array`] and [`DynVTable`]
@@ -65,11 +65,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Can be disabled by assigning to the [`NotSupported`] type.
     type ComputeVTable: ComputeVTable<Self>;
 
-    /// Returns the ID of the encoding.
-    fn id(&self) -> ArrayId;
-
-    /// Returns the encoding for the array.
-    fn encoding(array: &Self::Array) -> ArrayVTable;
+    /// Returns the ID of the array.
+    fn id(array: &Self::Array) -> ArrayId;
 
     /// Exports metadata for an array.
     ///
@@ -129,7 +126,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// * Running UTF-8 validation for any buffers that are expected to hold flat UTF-8 data
     // TODO(ngates): take the parts by ownership, since most arrays need them anyway
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
