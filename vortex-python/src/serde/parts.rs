@@ -6,7 +6,6 @@ use std::ops::Deref;
 use pyo3::Bound;
 use pyo3::PyAny;
 use pyo3::PyRef;
-use pyo3::PyResult;
 use pyo3::Python;
 use pyo3::prelude::PyAnyMethods;
 use pyo3::pyclass;
@@ -18,6 +17,7 @@ use vortex::buffer::ByteBuffer;
 use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
+use crate::error::PyVortexError;
 use crate::serde::context::PyArrayContext;
 
 /// ArrayParts is a parsed representation of a serialized array.
@@ -44,7 +44,7 @@ impl From<ArrayParts> for PyArrayParts {
 impl PyArrayParts {
     /// Parse a serialized array into its parts.
     #[staticmethod]
-    fn parse(data: &[u8]) -> PyResult<PyArrayParts> {
+    fn parse(data: &[u8]) -> Result<PyArrayParts, PyVortexError> {
         // TODO(ngates): create a buffer from a slice of bytes?
         let buffer = ByteBuffer::copy_from(data);
         Ok(PyArrayParts(ArrayParts::try_from(buffer)?))
@@ -55,7 +55,12 @@ impl PyArrayParts {
     /// # Returns
     ///
     /// The decoded array.
-    fn decode(&self, ctx: &PyArrayContext, dtype: PyDType, len: usize) -> PyResult<PyArrayRef> {
+    fn decode(
+        &self,
+        ctx: &PyArrayContext,
+        dtype: PyDType,
+        len: usize,
+    ) -> Result<PyArrayRef, PyVortexError> {
         Ok(PyArrayRef::from(self.0.decode(
             dtype.inner(),
             len,
@@ -79,7 +84,10 @@ impl PyArrayParts {
     /// Return the buffers of the array, currently as :class:`pyarrow.Buffer`.
     // TODO(ngates): ideally we'd use the buffer protocol, but that requires the 3.11 ABI.
     #[getter]
-    fn buffers<'py>(slf: PyRef<'py, Self>, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyAny>>> {
+    fn buffers<'py>(
+        slf: PyRef<'py, Self>,
+        py: Python<'py>,
+    ) -> Result<Vec<Bound<'py, PyAny>>, PyVortexError> {
         if slf.nbuffers() == 0 {
             return Ok(Vec::new());
         }

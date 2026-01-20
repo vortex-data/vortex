@@ -12,11 +12,12 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyAnyMethods;
 pub(crate) use python::*;
 use vortex::array::vtable::ArrayId;
-use vortex::error::VortexResult;
 pub(crate) use vtable::*;
 
+use crate::error::PyVortexError;
+
 /// Extract the array id from a Python class `id` attribute.
-pub fn id_from_obj(cls: &Bound<PyAny>) -> VortexResult<ArrayId> {
+pub fn id_from_obj(cls: &Bound<PyAny>) -> Result<ArrayId, PyVortexError> {
     Ok(ArrayId::new_arc(
         cls.getattr("id")
             .map_err(|_| {

@@ -8,6 +8,7 @@ use vortex::array::ArrayRef;
 use vortex::scan::RepeatedScan;
 
 use crate::RUNTIME;
+use crate::error::PyVortexError;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
@@ -35,7 +36,7 @@ impl PyRepeatedScan {
         slf: Bound<Self>,
         start: Option<u64>,
         stop: Option<u64>,
-    ) -> PyResult<PyArrayIterator> {
+    ) -> Result<PyArrayIterator, PyVortexError> {
         let row_count = slf.get().row_count;
         let row_range = match (start, stop) {
             (Some(start), Some(stop)) => Some(start..stop),
@@ -49,13 +50,14 @@ impl PyRepeatedScan {
         )))
     }
 
-    fn scalar_at(slf: Bound<Self>, index: u64) -> PyResult<Bound<PyScalar>> {
+    fn scalar_at(slf: Bound<Self>, index: u64) -> Result<Bound<PyScalar>, PyVortexError> {
         let row_count = slf.get().row_count;
         if index >= row_count {
             return Err(PyIndexError::new_err(format!(
                 "Index out of bounds: {} >= {}",
                 index, row_count
-            )));
+            ))
+            .into());
         }
 
         for batch in slf
@@ -68,12 +70,9 @@ impl PyRepeatedScan {
                 continue;
             }
             let scalar = array.scalar_at(0)?;
-            return PyScalar::init(slf.py(), scalar);
+            return Ok(PyScalar::init(slf.py(), scalar)?);
         }
 
-        Err(PyIndexError::new_err(format!(
-            "Index {} not found in the scan",
-            index
-        )))
+        Err(PyIndexError::new_err(format!("Index {} not found in the scan", index)).into())
     }
 }

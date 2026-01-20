@@ -12,6 +12,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrays::native::AsArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
+use crate::error::PyVortexError;
 
 /// Concrete class for arrays with `vortex.struct` encoding.
 #[pyclass(name = "StructArray", module = "vortex", extends=PyNativeArray, frozen)]
@@ -24,7 +25,7 @@ impl EncodingSubclass for PyStructArray {
 #[pymethods]
 impl PyStructArray {
     /// Returns the given field of the struct array.
-    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<PyArrayRef> {
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> Result<PyArrayRef, PyVortexError> {
         let field = self_.as_array_ref().field_by_name(name)?.clone();
         Ok(PyArrayRef::from(field))
     }

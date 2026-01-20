@@ -29,6 +29,7 @@ use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
+use crate::error::PyVortexError;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::object_store_urls::object_store_from_url;
@@ -133,7 +134,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<PyArrayRef> {
+    ) -> Result<PyArrayRef, PyVortexError> {
         let array = read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -151,7 +152,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> Result<Py<PyAny>, PyVortexError> {
         let mut scan = self_
             .vxf
             .scan()?
@@ -167,7 +168,7 @@ impl PyVortexDataset {
         let reader: Box<dyn RecordBatchReader + Send> =
             Box::new(scan.into_record_batch_reader(schema, &*RUNTIME)?);
 
-        reader.into_pyarrow(self_.py())
+        Ok(reader.into_pyarrow(self_.py())?)
     }
 
     /// The number of rows matching the filter.
@@ -177,13 +178,15 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> PyResult<usize> {
+    ) -> Result<usize, PyVortexError> {
         if row_filter.is_none() {
             let row_count = match row_range {
                 Some(range) => range.1 - range.0,
                 None => self_.vxf.row_count(),
             };
-            return row_count.try_into().map_err(PyValueError::new_err);
+            return row_count
+                .try_into()
+                .map_err(|e| PyValueError::new_err(e).into());
         }
 
         let mut scan = self_
@@ -200,15 +203,14 @@ impl PyVortexDataset {
         let n_rows: usize = scan
             .into_array_iter(&*RUNTIME)?
             .map_ok(|array| array.len())
-            .process_results(|iter| iter.sum())
-            .map_err(|err| PyValueError::new_err(format!("vortex error: {}", err)))?;
+            .process_results(|iter| iter.sum())?;
 
         Ok(n_rows)
     }
 
     /// The natural splits of this Dataset.
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+    pub fn splits(&self) -> Result<Vec<(u64, u64)>, PyVortexError> {
         Ok(self
             .vxf
             .splits()?
@@ -219,6 +221,6 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(py: Python, url: &str) -> PyResult<PyVortexDataset> {
+pub fn dataset_from_url(py: Python, url: &str) -> Result<PyVortexDataset, PyVortexError> {
     Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
 }
