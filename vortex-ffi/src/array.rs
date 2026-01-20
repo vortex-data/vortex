@@ -236,6 +236,8 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
     fn test_null_operations() {
         unsafe {
             let primitive = PrimitiveArray::new(
@@ -261,6 +263,8 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore)]
+    // TODO(joe): enable once this is fixed https://github.com/Amanieu/parking_lot/issues/477
     fn test_get_field() {
         unsafe {
             let names = VarBinViewArray::from_iter_str(["Alice", "Bob", "Charlie"]);

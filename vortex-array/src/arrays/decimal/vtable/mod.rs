@@ -15,7 +15,9 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
@@ -31,7 +33,6 @@ use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 pub mod rules;
 mod validity;
@@ -58,7 +59,6 @@ impl VTable for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
@@ -143,6 +143,10 @@ impl VTable for DecimalVTable {
             );
         }
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Decimal(array.clone()))
     }
 
     fn reduce_parent(

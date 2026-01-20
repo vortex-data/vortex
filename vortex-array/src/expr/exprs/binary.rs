@@ -318,6 +318,24 @@ impl VTable for Binary {
         }
     }
 
+    fn validity(
+        &self,
+        operator: &Operator,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let lhs = expression.child(0).validity()?;
+        let rhs = expression.child(1).validity()?;
+
+        Ok(match operator {
+            // AND and OR are kleene logic.
+            Operator::And => None,
+            _ => {
+                // All other binary operators are null if either side is null.
+                Some(and(lhs, rhs))
+            }
+        })
+    }
+
     fn is_null_sensitive(&self, _operator: &Operator) -> bool {
         false
     }

@@ -23,9 +23,7 @@ use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
 use crate::Precision;
-use crate::VortexSessionExecute;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::RULES;
 use crate::buffer::BufferHandle;
@@ -38,7 +36,6 @@ use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -54,7 +51,6 @@ impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
@@ -163,12 +159,6 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
     }
 }
 
-impl CanonicalVTable<SliceVTable> for SliceVTable {
-    fn canonicalize(array: &SliceArray) -> VortexResult<Canonical> {
-        SliceVTable::execute(array, &mut LEGACY_SESSION.create_execution_ctx())
-    }
-}
-
 impl OperationsVTable<SliceVTable> for SliceVTable {
     fn scalar_at(array: &SliceArray, index: usize) -> Scalar {
         array.child.scalar_at(array.range.start + index)
@@ -176,22 +166,6 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 }
 
 impl ValidityVTable<SliceVTable> for SliceVTable {
-    fn is_valid(array: &SliceArray, index: usize) -> bool {
-        array.child.is_valid(array.range.start + index)
-    }
-
-    fn all_valid(array: &SliceArray) -> bool {
-        // This is an over-approximation: if the entire child is all valid,
-        // then the slice is all valid too.
-        array.child.all_valid()
-    }
-
-    fn all_invalid(array: &SliceArray) -> bool {
-        // This is an over-approximation: if the entire child is all invalid,
-        // then the slice is all invalid too.
-        array.child.all_invalid()
-    }
-
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         Ok(array.child.validity()?.slice(array.range.clone()))
     }

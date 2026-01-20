@@ -235,19 +235,6 @@ impl ExpressionConvertor for DefaultExpressionConvertor {
                     return Ok(TreeNodeRecursion::Stop);
                 }
 
-                // If the projection contains a `CastColumnExpr` that casts to physical types that don't have a 1:1 mapping
-                // with Vortex's types system, we make sure to pull the input from the file and keep the projection
-                if let Some(cast_expr) = node.as_any().downcast_ref::<df_expr::CastColumnExpr>()
-                    && is_dtype_incompatible(cast_expr.target_field().data_type())
-                {
-                    scan_projection.push((
-                        cast_expr.input_field().name().clone(),
-                        self.convert(cast_expr.expr().as_ref())?,
-                    ));
-                    leftover_projection.push(projection_expr.clone());
-                    return Ok(TreeNodeRecursion::Stop);
-                }
-
                 // DataFusion assumes different decimal types can be coerced.
                 // Vortex expects a perfect match so we don't push it down.
                 if let Some(binary_expr) = node.as_any().downcast_ref::<df_expr::BinaryExpr>()
@@ -428,25 +415,6 @@ fn supported_data_types(dt: &DataType) -> bool {
 /// Checks if a GetField scalar function can be pushed down.
 fn can_scalar_fn_be_pushed_down(scalar_fn: &ScalarFunctionExpr) -> bool {
     ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn).is_some()
-}
-
-fn is_dtype_incompatible(dt: &DataType) -> bool {
-    use DataType::*;
-
-    dt.is_run_ends_type()
-        || is_decimal(dt)
-        || matches!(
-            dt,
-            Dictionary(..)
-                | Utf8
-                | LargeUtf8
-                | Binary
-                | LargeBinary
-                | FixedSizeBinary(_)
-                | FixedSizeList(..)
-                | ListView(..)
-                | LargeListView(..)
-        )
 }
 
 // TODO(adam): Replace with `DataType::is_decimal` once its released.

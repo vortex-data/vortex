@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -40,6 +39,7 @@ use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
+use crate::expr::VTableExt;
 use crate::expr::lit;
 use crate::matchers::MatchKey;
 use crate::matchers::Matcher;
@@ -68,7 +68,6 @@ impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
@@ -350,7 +349,7 @@ impl expr::VTable for ArrayExpr {
     type Options = FakeEq<ArrayRef>;
 
     fn id(&self) -> ExprId {
-        ExprId::from("vortex.between")
+        ExprId::from("vortex.array")
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -381,5 +380,14 @@ impl expr::VTable for ArrayExpr {
         _scope: &ArrayRef,
     ) -> VortexResult<ArrayRef> {
         Ok(options.0.clone())
+    }
+
+    fn validity(
+        &self,
+        options: &Self::Options,
+        _expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let validity_array = options.0.validity()?.to_array(options.0.len());
+        Ok(Some(ArrayExpr.new_expr(FakeEq(validity_array), [])))
     }
 }

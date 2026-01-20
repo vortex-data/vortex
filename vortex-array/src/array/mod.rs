@@ -29,6 +29,8 @@ use crate::ArrayHash;
 use crate::Canonical;
 use crate::DynArrayEq;
 use crate::DynArrayHash;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DecimalVTable;
@@ -44,6 +46,7 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::ArrayBuilder;
+use crate::compute;
 use crate::compute::ComputeFn;
 use crate::compute::InvocationArgs;
 use crate::compute::Output;
@@ -57,7 +60,6 @@ use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTable;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::ComputeVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -145,12 +147,14 @@ pub trait Array:
 
     /// Returns whether all items in the array are valid.
     ///
-    /// This is usually cheaper than computing a precise `valid_count`.
+    /// This is usually cheaper than computing a precise `valid_count`, but may return false
+    /// negatives.
     fn all_valid(&self) -> bool;
 
     /// Returns whether the array is all invalid.
     ///
-    /// This is usually cheaper than computing a precise `invalid_count`.
+    /// This is usually cheaper than computing a precise `invalid_count`, but may return false
+    /// negatives.
     fn all_invalid(&self) -> bool;
 
     /// Returns the number of valid elements in the array.
@@ -545,7 +549,18 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         if index >= self.len() {
             vortex_panic!(OutOfBounds: index, 0, self.len());
         }
-        <V::ValidityVTable as ValidityVTable<V>>::is_valid(&self.0, index)
+        match self
+            .validity()
+            .vortex_expect("Failed to get validity for is_valid")
+        {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(a) => a
+                .scalar_at(index)
+                .as_bool()
+                .value()
+                .vortex_expect("validity must be non-nullable"),
+        }
     }
 
     fn is_invalid(&self, index: usize) -> bool {
@@ -553,11 +568,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn all_valid(&self) -> bool {
-        <V::ValidityVTable as ValidityVTable<V>>::all_valid(&self.0)
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => true,
+            Validity::AllInvalid => false,
+            Validity::Array(a) => a.statistics().compute_min::<bool>().unwrap_or(false),
+        }
     }
 
     fn all_invalid(&self) -> bool {
-        <V::ValidityVTable as ValidityVTable<V>>::all_invalid(&self.0)
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => false,
+            Validity::AllInvalid => true,
+            Validity::Array(a) => !a.statistics().compute_max::<bool>().unwrap_or(true),
+        }
     }
 
     fn valid_count(&self) -> usize {
@@ -567,7 +590,19 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return self.len() - invalid_count;
         }
 
-        let count = <V::ValidityVTable as ValidityVTable<V>>::valid_count(&self.0);
+        let count = match self
+            .validity()
+            .vortex_expect("Failed to get validity for valid_count")
+        {
+            Validity::NonNullable | Validity::AllValid => self.len(),
+            Validity::AllInvalid => 0,
+            Validity::Array(a) => {
+                let sum = compute::sum(&a).vortex_expect("Failed to compute sum for valid count");
+                sum.as_primitive()
+                    .as_::<usize>()
+                    .vortex_expect("Sum must be non-nullable")
+            }
+        };
         assert!(count <= self.len(), "Valid count exceeds array length");
 
         self.statistics()
@@ -577,37 +612,38 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn invalid_count(&self) -> usize {
-        if let Some(Precision::Exact(invalid_count)) =
-            self.statistics().get_as::<usize>(Stat::NullCount)
-        {
-            return invalid_count;
-        }
-
-        let count = <V::ValidityVTable as ValidityVTable<V>>::invalid_count(&self.0);
-        assert!(count <= self.len(), "Invalid count exceeds array length");
-
-        self.statistics()
-            .set(Stat::NullCount, Precision::exact(count));
-
-        count
+        self.len() - self.valid_count()
     }
 
     fn validity(&self) -> VortexResult<Validity> {
         if self.dtype().is_nullable() {
-            <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)
+            let validity = <V::ValidityVTable as ValidityVTable<V>>::validity(&self.0)?;
+            if let Validity::Array(array) = &validity {
+                vortex_ensure!(array.len() == self.len(), "Validity array length mismatch");
+                vortex_ensure!(
+                    matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
+                    "Validity array for must be non-nullable boolean: {}",
+                    self.to_array().display_tree(),
+                );
+            }
+            Ok(validity)
         } else {
             Ok(Validity::NonNullable)
         }
     }
 
     fn validity_mask(&self) -> Mask {
-        let mask = <V::ValidityVTable as ValidityVTable<V>>::validity_mask(&self.0);
-        assert_eq!(mask.len(), self.len(), "Validity mask length mismatch");
-        mask
+        match self.validity().vortex_expect("Failed to get validity") {
+            Validity::NonNullable | Validity::AllValid => Mask::new_true(self.len()),
+            Validity::AllInvalid => Mask::new_false(self.len()),
+            Validity::Array(a) => a
+                .try_to_mask_fill_null_false()
+                .vortex_expect("Failed to get validity mask"),
+        }
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = <V::CanonicalVTable as CanonicalVTable<V>>::canonicalize(&self.0)?;
+        let canonical = V::execute(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         assert_eq!(
             self.len(),
@@ -642,7 +678,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         }
         let len = builder.len();
 
-        <V::CanonicalVTable as CanonicalVTable<V>>::append_to_builder(&self.0, builder)?;
+        V::append_to_builder(&self.0, builder)?;
+
         assert_eq!(
             len + self.len(),
             builder.len(),

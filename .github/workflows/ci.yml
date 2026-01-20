@@ -213,7 +213,8 @@ jobs:
             args: "--all-targets"
           - name: "with tokio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+            # Only build the crates that have the tokio features, not re-building other crates with no-default-features
+            args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown

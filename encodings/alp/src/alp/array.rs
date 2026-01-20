@@ -29,7 +29,6 @@ use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::ArrayVTable;
 use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
@@ -46,7 +45,6 @@ use vortex_error::vortex_err;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
-use crate::alp::decompress::decompress_into_array;
 use crate::alp::decompress::execute_decompress;
 
 vtable!(ALP);
@@ -57,7 +55,6 @@ impl VTable for ALPVTable {
     type Metadata = ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
@@ -456,12 +453,6 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
     }
 }
 
-impl CanonicalVTable<ALPVTable> for ALPVTable {
-    fn canonicalize(array: &ALPArray) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress_into_array(array.clone())))
-    }
-}
-
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
@@ -490,6 +481,7 @@ mod tests {
 
     use super::*;
     use crate::alp_encode;
+    use crate::decompress_into_array;
 
     static SESSION: LazyLock<VortexSession> =
         LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

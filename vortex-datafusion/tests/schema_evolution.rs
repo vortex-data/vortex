@@ -14,18 +14,22 @@ use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
+use arrow_schema::Fields;
 use arrow_schema::Schema;
 use datafusion::arrow::array::Array;
 use datafusion::arrow::array::ArrayRef as ArrowArrayRef;
+use datafusion::arrow::array::DictionaryArray;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::array::StructArray;
+use datafusion::arrow::datatypes::UInt16Type;
+use datafusion::arrow::datatypes::UInt32Type;
+use datafusion::assert_batches_sorted_eq;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
 use datafusion::execution::SessionStateBuilder;
 use datafusion::execution::context::SessionContext;
 use datafusion_common::assert_batches_eq;
-use datafusion_common::assert_batches_sorted_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
 use datafusion_datasource::ListingTableUrl;
@@ -336,7 +340,7 @@ async fn test_filter_schema_evolution_struct_fields() {
     let table = ListingTable::try_new(
         ListingTableConfig::new(table_url)
             .with_listing_options(list_opts)
-            .with_schema(read_schema.clone()), // .with_expr_adapter_factory(Arc::new(DF52PhysicalExprAdapterFactory)),
+            .with_schema(read_schema.clone()),
     )
     .unwrap();
 
@@ -401,4 +405,124 @@ async fn test_filter_schema_evolution_struct_fields() {
         ],
         &filtered_scan
     );
+}
+
+#[tokio::test]
+async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
+    let (ctx, store) = make_session_ctx();
+
+    // First file
+    let struct_fields = Fields::from(vec![
+        Field::new_dictionary("a", DataType::UInt16, DataType::Utf8, true),
+        Field::new_dictionary("b", DataType::UInt16, DataType::Utf8, true),
+    ]);
+    let struct_array = StructArray::new(
+        struct_fields.clone(),
+        vec![
+            Arc::new(DictionaryArray::<UInt16Type>::from_iter(["x1", "y1", "x1"])),
+            Arc::new(DictionaryArray::<UInt16Type>::from_iter(["p1", "p1", "q1"])),
+        ],
+        None,
+    );
+
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "my_struct",
+            DataType::Struct(struct_fields),
+            true,
+        )])),
+        vec![Arc::new(struct_array)],
+    )?;
+
+    write_file(&store, "files/file1.vortex", &batch).await;
+
+    // Second file
+    let struct_fields = Fields::from(vec![
+        Field::new_dictionary("a", DataType::UInt32, DataType::Utf8, true),
+        Field::new_dictionary("b", DataType::UInt32, DataType::Utf8, true),
+        Field::new_dictionary("c", DataType::UInt32, DataType::Utf8, true),
+    ]);
+    let struct_array = StructArray::new(
+        struct_fields.clone(),
+        vec![
+            Arc::new(DictionaryArray::<UInt32Type>::from_iter(["x2", "y2", "x2"])),
+            Arc::new(DictionaryArray::<UInt32Type>::from_iter(["p2", "p2", "q2"])),
+            Arc::new(DictionaryArray::<UInt32Type>::from_iter(["a2", "b2", "c2"])),
+        ],
+        None,
+    );
+
+    let batch = RecordBatch::try_new(
+        Arc::new(Schema::new(vec![Field::new(
+            "my_struct",
+            DataType::Struct(struct_fields.clone()),
+            true,
+        )])),
+        vec![Arc::new(struct_array)],
+    )?;
+
+    write_file(&store, "files/file2.vortex", &batch).await;
+
+    let read_schema = batch.schema();
+
+    // Read the table back as Vortex
+    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
+    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
+        .with_session_config_options(ctx.state().config())
+        .with_file_extension("vortex");
+
+    let table = Arc::new(ListingTable::try_new(
+        ListingTableConfig::new(table_url)
+            .with_listing_options(list_opts)
+            .with_schema(read_schema.clone()),
+    )?);
+
+    let df = ctx.read_table(table.clone()).unwrap();
+    let table_schema = Arc::new(df.schema().as_arrow().clone());
+
+    assert_eq!(table_schema.as_ref(), read_schema.as_ref());
+
+    let full_scan = df.collect().await.unwrap();
+
+    assert_batches_sorted_eq!(
+        &[
+            "+-----------------------+",
+            "| my_struct             |",
+            "+-----------------------+",
+            "| {a: x1, b: p1, c: }   |",
+            "| {a: x1, b: q1, c: }   |",
+            "| {a: x2, b: p2, c: a2} |",
+            "| {a: x2, b: q2, c: c2} |",
+            "| {a: y1, b: p1, c: }   |",
+            "| {a: y2, b: p2, c: b2} |",
+            "+-----------------------+",
+        ],
+        &full_scan
+    );
+
+    let filter =
+        get_field(col("my_struct"), "a")
+            .eq(lit("x1"))
+            .or(get_field(col("my_struct"), "a").eq(lit("x2")));
+    // run a filter that touches both the payload.uptime AND the payload.instance nested fields
+    let df = ctx.read_table(table.clone())?;
+    let filtered_scan = df.filter(filter)?.collect().await?;
+
+    assert_eq!(filtered_scan[0].schema(), read_schema);
+
+    assert_batches_sorted_eq!(
+        &[
+            "+-----------------------+",
+            "| my_struct             |",
+            "+-----------------------+",
+            "| {a: x1, b: p1, c: }   |",
+            "| {a: x1, b: q1, c: }   |",
+            "| {a: x2, b: p2, c: a2} |",
+            "| {a: x2, b: q2, c: c2} |",
+            "+-----------------------+",
+        ],
+        &filtered_scan
+    );
+
+    Ok(())
 }
