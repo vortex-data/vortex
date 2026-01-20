@@ -28,7 +28,6 @@ use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::compute::Operator;
 use vortex::compute::compare;
-use vortex::compute::take;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -622,9 +621,7 @@ impl PyArray {
             )));
         }
 
-        let inner = &slf.take(&*indices)?;
-
-        Ok(PyArrayRef::from(inner))
+        Ok(PyArrayRef::from(slf.take(indices.clone())?))
     }
 
     #[pyo3(signature = (start, end))]
