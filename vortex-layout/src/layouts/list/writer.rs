@@ -36,6 +36,34 @@ use crate::sequence::SequencePointer;
 use crate::sequence::SequentialStreamAdapter;
 use crate::sequence::SequentialStreamExt;
 
+trait ToU64 {
+    fn to_u64(self) -> u64;
+}
+
+impl ToU64 for u8 {
+    fn to_u64(self) -> u64 {
+        u64::from(self)
+    }
+}
+
+impl ToU64 for u16 {
+    fn to_u64(self) -> u64 {
+        u64::from(self)
+    }
+}
+
+impl ToU64 for u32 {
+    fn to_u64(self) -> u64 {
+        u64::from(self)
+    }
+}
+
+impl ToU64 for u64 {
+    fn to_u64(self) -> u64 {
+        self
+    }
+}
+
 /// A write strategy that performs component shredding for list types.
 ///
 /// - Variable-size lists are written as:
@@ -154,68 +182,31 @@ impl LayoutStrategy for ListStrategy {
                                         let offsets = list.offsets().to_primitive();
                                         let offsets_slice_u64: VortexResult<Vec<u64>> =
                                             match offsets.ptype() {
-                                                PType::U8 => Ok(offsets
-                                                    .as_slice::<u8>()
-                                                    .iter()
-                                                    .map(|&v| u64::from(v))
-                                                    .collect()),
-                                                PType::U16 => Ok(offsets
-                                                    .as_slice::<u16>()
-                                                    .iter()
-                                                    .map(|&v| u64::from(v))
-                                                    .collect()),
-                                                PType::U32 => Ok(offsets
-                                                    .as_slice::<u32>()
-                                                    .iter()
-                                                    .map(|&v| u64::from(v))
-                                                    .collect()),
-                                                PType::U64 => Ok(offsets
-                                                    .as_slice::<u64>()
-                                                    .to_vec()),
-                                                PType::I8 => offsets
-                                                    .as_slice::<i8>()
-                                                    .iter()
-                                                    .map(|&v| {
-                                                        u64::try_from(v).map_err(|_| {
-                                                            vortex_err!(
-                                                                "List offsets must be convertible to u64"
-                                                            )
-                                                        })
-                                                    })
-                                                    .collect(),
-                                                PType::I16 => offsets
-                                                    .as_slice::<i16>()
-                                                    .iter()
-                                                    .map(|&v| {
-                                                        u64::try_from(v).map_err(|_| {
-                                                            vortex_err!(
-                                                                "List offsets must be convertible to u64"
-                                                            )
-                                                        })
-                                                    })
-                                                    .collect(),
-                                                PType::I32 => offsets
-                                                    .as_slice::<i32>()
-                                                    .iter()
-                                                    .map(|&v| {
-                                                        u64::try_from(v).map_err(|_| {
-                                                            vortex_err!(
-                                                                "List offsets must be convertible to u64"
-                                                            )
-                                                        })
-                                                    })
-                                                    .collect(),
-                                                PType::I64 => offsets
-                                                    .as_slice::<i64>()
-                                                    .iter()
-                                                    .map(|&v| {
-                                                        u64::try_from(v).map_err(|_| {
-                                                            vortex_err!(
-                                                                "List offsets must be convertible to u64"
-                                                            )
-                                                        })
-                                                    })
-                                                    .collect(),
+                                                ptype if ptype.is_unsigned_int() => vortex_dtype::match_each_unsigned_integer_ptype!(ptype, |T| {
+                                                    Ok(offsets
+                                                        .as_slice::<T>()
+                                                        .iter()
+                                                        .map(|&v| v.to_u64())
+                                                        .collect())
+                                                }),
+                                                ptype if ptype.is_signed_int() => {
+                                                    vortex_dtype::match_each_signed_integer_ptype!(
+                                                        ptype,
+                                                        |T| {
+                                                        offsets
+                                                            .as_slice::<T>()
+                                                            .iter()
+                                                            .map(|&v| {
+                                                                u64::try_from(v).map_err(|_| {
+                                                                    vortex_err!(
+                                                                        "List offsets must be convertible to u64"
+                                                                    )
+                                                                })
+                                                            })
+                                                            .collect()
+                                                        }
+                                                    )
+                                                }
                                                 other => Err(vortex_err!(
                                                     "List offsets must be an integer type, got {other}"
                                                 )),

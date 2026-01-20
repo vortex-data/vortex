@@ -65,7 +65,7 @@ impl VTable for ListVTable {
 
     fn nchildren(layout: &Self::Layout) -> usize {
         let validity_children = layout.dtype.is_nullable() as usize;
-        match layout.dtype {
+        match &layout.dtype {
             DType::List(..) => 2 + validity_children, // offsets + elements
             DType::FixedSizeList(..) => 1 + validity_children, // elements
             _ => 0,
@@ -105,7 +105,7 @@ impl VTable for ListVTable {
             return LayoutChildType::Auxiliary("validity".into());
         }
 
-        match layout.dtype {
+        match &layout.dtype {
             DType::List(..) => {
                 let offsets_idx = if is_nullable { 1 } else { 0 };
                 if idx == offsets_idx {
@@ -115,7 +115,10 @@ impl VTable for ListVTable {
                 }
             }
             DType::FixedSizeList(..) => LayoutChildType::Auxiliary("elements".into()),
-            _ => LayoutChildType::Auxiliary("unknown".into()),
+            _ => unreachable!(
+                "ListLayout only supports List and FixedSizeList dtypes, got {}",
+                layout.dtype()
+            ),
         }
     }
 
