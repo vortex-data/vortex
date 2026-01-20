@@ -221,16 +221,7 @@ impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
         // FIXME(ngates): we need a better way to avoid terminating here..
         //  For now, the partitioner returns Pack expressions for direct field accesses.
         if partitioned.partitions.iter().all(|p| p.is::<Pack>()) {
-            tracing::warn!(
-                "StructPartitionRule: all partitions are direct field accesses, cannot reduce further: {}",
-                partitioned
-            );
             return Ok(None);
-        } else {
-            tracing::info!(
-                "StructPartitionRule: partitioned expression into {}",
-                partitioned
-            );
         }
 
         // Otherwise, we need to handle multiple partitions.
