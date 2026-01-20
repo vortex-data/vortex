@@ -6,14 +6,28 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::ExpressionArray;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::Root;
 use crate::optimizer::ArrayOptimizer;
 
 impl dyn Array + '_ {
     /// Apply the expression to this array, producing a new array in constant time.
     pub fn apply(&self, expr: &Expression) -> VortexResult<ArrayRef> {
         let expr = expr.optimize_recursive(self.dtype())?;
+
+        // If the expression is a root, return self. No point in wrapping it.
+        if expr.is::<Root>() {
+            return Ok(self.to_array());
+        }
+
+        // Manually convert literals to ConstantArray.
+        if let Some(scalar) = expr.as_opt::<Literal>() {
+            return Ok(ConstantArray::new(scalar.clone(), self.len()).into_array());
+        }
+
         let array = ExpressionArray::try_new(expr, self.to_array())?
             .into_array()
             .optimize_recursive()?;
