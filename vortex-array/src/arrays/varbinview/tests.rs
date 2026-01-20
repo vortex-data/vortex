@@ -1,22 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_scalar::Scalar;
 use vortex_vector::binaryview::BinaryView;
 
-use crate::Array;
 use crate::ToCanonical;
 use crate::arrays::VarBinViewArray;
+use crate::assert_arrays_eq;
 
 #[test]
 pub fn varbin_view() {
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"]);
-    assert_eq!(binary_arr.len(), 2);
-    assert_eq!(binary_arr.scalar_at(0), Scalar::from("hello world"));
-    assert_eq!(
-        binary_arr.scalar_at(1),
-        Scalar::from("hello world this is a long string")
+    assert_arrays_eq!(
+        binary_arr,
+        VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
     );
 }
 
@@ -25,9 +22,9 @@ pub fn slice_array() {
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
             .slice(1..2);
-    assert_eq!(
-        binary_arr.scalar_at(0),
-        Scalar::from("hello world this is a long string")
+    assert_arrays_eq!(
+        binary_arr,
+        VarBinViewArray::from_iter_str(["hello world this is a long string"])
     );
 }
 
@@ -35,8 +32,10 @@ pub fn slice_array() {
 pub fn flatten_array() {
     let binary_arr = VarBinViewArray::from_iter_str(["string1", "string2"]);
     let var_bin = binary_arr.to_varbinview();
-    assert_eq!(var_bin.scalar_at(0), Scalar::from("string1"));
-    assert_eq!(var_bin.scalar_at(1), Scalar::from("string2"));
+    assert_arrays_eq!(
+        var_bin,
+        VarBinViewArray::from_iter_str(["string1", "string2"])
+    );
 }
 
 #[test]

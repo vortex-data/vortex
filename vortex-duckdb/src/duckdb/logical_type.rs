@@ -7,7 +7,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex::dtype::ExtDType;
 use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
@@ -105,54 +104,6 @@ impl LogicalType {
 
         // SAFETY: This pointer came directly from DuckDB, and we checked that it was not `NULL`.
         Ok(unsafe { Self::own(ptr) })
-    }
-
-    /// Converts temporal extension types to corresponding DuckDB types.
-    ///
-    /// # Arguments
-    ///
-    /// * `ext_dtype` - A reference to the extension data type containing temporal metadata.
-    ///
-    /// # Supported Temporal Types
-    ///
-    /// - **Date**: Must use `TimeUnit::D`
-    /// - **Time**: Must use `TimeUnit::Us`
-    /// - **Timestamp**: Supports `TimeUnit::Ns`, `Us`, `Ms`, `S`
-    pub fn temporal_type(ext_dtype: &ExtDType) -> VortexResult<Self> {
-        use vortex::dtype::datetime::TemporalMetadata;
-        use vortex::dtype::datetime::TimeUnit;
-
-        let temporal_metadata = TemporalMetadata::try_from(ext_dtype)
-            .map_err(|e| vortex_err!("Failed to extract temporal metadata: {}", e))?;
-
-        let duckdb_type = match temporal_metadata {
-            TemporalMetadata::Date(TimeUnit::Days) => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
-            TemporalMetadata::Date(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for date", time_unit);
-            }
-            TemporalMetadata::Time(TimeUnit::Microseconds) => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
-            TemporalMetadata::Time(time_unit) => {
-                vortex_bail!("Invalid TimeUnit {} for time", time_unit);
-            }
-            TemporalMetadata::Timestamp(time_unit, tz) => match time_unit {
-                TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                TimeUnit::Microseconds => {
-                    if let Some(tz) = tz {
-                        if tz != "UTC" {
-                            vortex_bail!("Invalid timezone for timestamp: {tz}");
-                        }
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-                    } else {
-                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP
-                    }
-                }
-                TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
-                _ => vortex_bail!("Invalid TimeUnit {} for timestamp", time_unit),
-            },
-        };
-
-        Ok(Self::new(duckdb_type))
     }
 
     pub fn new_array(element_dtype: DUCKDB_TYPE, array_size: u32) -> Self {

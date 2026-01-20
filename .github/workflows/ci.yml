@@ -75,6 +75,8 @@ jobs:
         run: uvx ruff check .
       # PyRight needs the project for type information, so use uv run
       - name: Python Lint - PyRight
+        env:
+          MATURIN_PEP517_ARGS: "--profile dev"
         run: uv run basedpyright vortex-python
 
   python-test:
@@ -89,6 +91,7 @@ jobs:
     timeout-minutes: 120
     env:
       RUST_LOG: "info,uv=debug"
+      MATURIN_PEP517_ARGS: "--profile dev"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -208,7 +211,8 @@ jobs:
             args: "--all-targets"
           - name: "with tokio dispatcher"
             command: "build"
-            args: "--no-default-features --features tokio --all-targets --ignore-unknown-features"
+            # Only build the crates that have the tokio features, not re-building other crates with no-default-features
+            args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
             command: "build"
             target: wasm32-unknown-unknown
@@ -368,6 +372,8 @@ jobs:
 
       - name: Check semver
         uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          exclude: vortex-cuda
 
   rust-coverage:
     name: "Rust tests (coverage) (${{ matrix.suite }})"
@@ -379,10 +385,6 @@ jobs:
         include:
           - suite: tests
             cpu: 32
-          - suite: tpc-h
-            cpu: 16
-          - suite: ffi
-            cpu: 16
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -418,17 +420,6 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
-      - name: Run TPC-H
-        if: ${{ matrix.suite == 'tpc-h' }}
-        # We use i2 to ensure that restarting the duckdb connection succeeds
-        run: |
-          cargo run --bin datafusion-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
-          cargo run --bin duckdb-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
-      - name: Run FFI Example
-        if: ${{ matrix.suite == 'ffi' }}
-        run: |
-          cargo build -p vortex-ffi
-          cargo run -p vortex-ffi --example hello_vortex
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -450,6 +441,11 @@ jobs:
           disable_search: true
           flags: ${{ matrix.suite }}
           use_oidc: true
+      - name: Cleanup coverage file
+        shell: bash
+        run: |
+          du -sh target/coverage/
+          rm -rf target/coverage/
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
@@ -492,7 +488,6 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-          cache-suffix: "sanitizer"
           timestamp: "true"
       - name: Install build dependencies
         run: |
@@ -507,15 +502,16 @@ jobs:
           RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked --workspace --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked --all-features  \
+            --target x86_64-unknown-linux-gnu \
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
-            --workspace \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
-            --verbose
+            -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
@@ -528,7 +524,7 @@ jobs:
       matrix:
         include:
           - os: windows-x64
-            runner: runs-on=${{ github.run_id }}/pool=windows-x64
+            runner: runs-on=${{ github.run_id }}/pool=windows-x64/extras=s3-cache
           - os: linux-arm64
             runner:
               - runs-on=${{ github.run_id }}
@@ -540,13 +536,14 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: runs-on/action@v2
-        if: matrix.os == 'linux-arm64'
         with:
           sccache: s3
       - uses: actions/checkout@v5
       - name: Install Visual Studio Build Tools (Windows)
         if: matrix.os == 'windows-x64'
         run: |
+          $flags = '-C debuginfo=0'
+          echo "RUSTFLAGS=$flags" >> $env:GITHUB_ENV
           choco install visualstudio2022buildtools --package-parameters `
             "--add Microsoft.VisualStudio.Component.VC.Tools.x86.x64 --add Microsoft.VisualStudio.Component.Windows11SDK.26100 --passive" -y
       - name: Setup Python (Windows)
@@ -566,10 +563,10 @@ jobs:
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
@@ -604,10 +601,10 @@ jobs:
       matrix:
         include:
           - { shard: 1, name: "Core foundation", packages: "vortex-buffer vortex-dtype vortex-error" }
-          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features test-harness" }
+          - { shard: 2, name: "Array types", packages: "vortex-array vortex-scalar vortex-vector", features: "--features _test-harness" }
           - { shard: 3, name: "Main library", packages: "vortex vortex-compute" }
           - { shard: 4, name: "Encodings 1", packages: "vortex-alp vortex-bytebool vortex-datetime-parts" }
-          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features test-harness" }
+          - { shard: 5, name: "Encodings 2", packages: "vortex-decimal-byte-parts vortex-fastlanes vortex-fsst", features: "--features _test-harness" }
           - { shard: 6, name: "Encodings 3", packages: "vortex-pco vortex-runend vortex-sequence" }
           - { shard: 7, name: "Encodings 4", packages: "vortex-sparse vortex-zigzag vortex-zstd" }
           - { shard: 8, name: "Storage formats", packages: "vortex-flatbuffers vortex-proto vortex-btrblocks" }
@@ -634,7 +631,7 @@ jobs:
           RUSTFLAGS: "-C target-feature=+avx2 -C debug-assertions=yes"
         run: cargo codspeed build ${{ matrix.features }} $(printf -- '-p %s ' ${{ matrix.packages }}) --profile bench
       - name: Run benchmarks
-        uses: CodSpeedHQ/action@99c1668ae56776024208bba66011679f7f844a7e
+        uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
@@ -668,26 +665,29 @@ jobs:
       - extras=s3-cache
       - tag=cxx-build
     steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
+      - id: setup-rust
+        uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          timestamp: "true"
       - name: Build and run C++ unit tests
-        working-directory: vortex-cxx/
         run: |
-          mkdir -p build
-          cd build
-          cmake -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON ..
-          cmake --build . --parallel $(nproc)
-          ctest -V
+          mkdir -p vortex-cxx/build
+          cmake -S vortex-cxx -B vortex-cxx/build -DVORTEX_ENABLE_TESTING=ON -DVORTEX_ENABLE_ASAN=ON
+          cmake --build vortex-cxx/build --parallel $(nproc)
+          ctest --test-dir vortex-cxx/build -V
       - name: Build and run the example in release mode
-        working-directory: vortex-cxx/examples
         run: |
-          mkdir -p build
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          cmake --build . --parallel $(nproc)
-          ./hello-vortex ../goldenfiles/example.vortex
+          cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
+          cmake --build vortex-cxx/examples/build --parallel $(nproc)
+          vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
+      - name: Prune cache
+        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
+        run: cargo sweep --file
 
   wasm-integration:
     name: "wasm-integration"

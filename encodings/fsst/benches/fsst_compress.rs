@@ -3,11 +3,14 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::VarBinArray;
@@ -16,16 +19,21 @@ use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::session::ArraySession;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 // [(string_count, avg_len, unique_chars)]
 const BENCH_ARGS: &[(usize, usize, u8)] = &[
@@ -99,7 +107,7 @@ fn canonicalize_compare(
         .with_inputs(|| (&fsst_array, &constant))
         .bench_refs(|(fsst_array, constant)| {
             compare(
-                fsst_array.to_canonical().as_ref(),
+                fsst_array.to_canonical().unwrap().as_ref(),
                 constant.as_ref(),
                 Operator::Eq,
             )
@@ -130,7 +138,9 @@ fn chunked_canonicalize_into(
     bencher.with_inputs(|| &array).bench_refs(|array| {
         let mut builder =
             VarBinViewBuilder::with_capacity(DType::Binary(Nullability::NonNullable), array.len());
-        array.append_to_builder(&mut builder);
+        array
+            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
+            .unwrap();
         builder.finish()
     });
 }

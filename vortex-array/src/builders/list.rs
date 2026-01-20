@@ -22,13 +22,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ListArray;
-use crate::arrays::list_view_from_list;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
-use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
@@ -295,10 +293,6 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
     }
-
-    fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(list_view_from_list(self.finish_into_list()))
-    }
 }
 
 #[cfg(test)]
@@ -319,6 +313,8 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ListArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::list::ListBuilder;
     use crate::validity::Validity;
@@ -455,15 +451,9 @@ mod tests {
 
         let actual = builder.finish_into_canonical().into_listview();
 
-        assert_eq!(
-            actual.elements().to_primitive().as_slice::<i32>(),
-            expected.elements().to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(actual.elements(), expected.elements());
 
-        assert_eq!(
-            actual.offsets().to_primitive().as_slice::<O>(),
-            expected.offsets().to_primitive().as_slice::<O>()
-        );
+        assert_arrays_eq!(actual.offsets(), expected.offsets());
 
         assert_eq!(actual.validity(), expected.validity())
     }
@@ -606,12 +596,16 @@ mod tests {
         assert_eq!(list.len(), 5);
 
         // Verify elements array: [1, 2, 3, 10, 11, 4, 5].
-        let elements = list.elements().to_primitive();
-        assert_eq!(elements.as_slice::<i32>(), &[1, 2, 3, 10, 11, 4, 5]);
+        assert_arrays_eq!(
+            list.elements(),
+            PrimitiveArray::from_iter([1i32, 2, 3, 10, 11, 4, 5])
+        );
 
         // Verify offsets array.
-        let offsets = list.offsets().to_primitive();
-        assert_eq!(offsets.as_slice::<u32>(), &[0, 3, 5, 7, 7, 7]);
+        assert_arrays_eq!(
+            list.offsets(),
+            PrimitiveArray::from_iter([0u32, 3, 5, 7, 7, 7])
+        );
 
         // Test dtype mismatch error.
         let mut builder = ListBuilder::<u32>::with_capacity(dtype, NonNullable, 20, 10);

@@ -212,6 +212,7 @@ mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::NativePType;
@@ -237,6 +238,6 @@ mod tests {
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_rle_decompress(&array, ctx).unwrap();
-        assert_eq!(primitive_array.as_slice::<T>(), unpacked.as_slice::<T>());
+        assert_arrays_eq!(unpacked, primitive_array);
     }
 }

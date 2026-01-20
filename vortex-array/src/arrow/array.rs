@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
 use vortex_buffer::BitBuffer;
@@ -17,12 +16,12 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::BoolArray;
@@ -34,10 +33,7 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::CanonicalVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -52,19 +48,13 @@ impl VTable for ArrowVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.arrow")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ArrowVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        ArrowVTable::ID
     }
 
     fn metadata(_array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -80,7 +70,6 @@ impl VTable for ArrowVTable {
     }
 
     fn build(
-        &self,
         _dtype: &DType,
         _len: usize,
         _metadata: &Self::Metadata,
@@ -98,12 +87,21 @@ impl VTable for ArrowVTable {
         );
         Ok(())
     }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
+            .execute::<Canonical>(ctx)
+    }
 }
 
 /// A Vortex array that wraps an in-memory Arrow array.
 // TODO(ngates): consider having each Arrow encoding be a separate encoding ID.
 #[derive(Debug)]
 pub struct ArrowVTable;
+
+impl ArrowVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.arrow");
+}
 
 #[derive(Clone, Debug)]
 pub struct ArrowArray {
@@ -151,41 +149,13 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
     }
 }
 
-impl CanonicalVTable<ArrowVTable> for ArrowVTable {
-    fn canonicalize(array: &ArrowArray) -> Canonical {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
-    }
-}
-
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn slice(array: &ArrowArray, range: Range<usize>) -> ArrayRef {
-        let inner = array.inner.slice(range.start, range.len());
-        let new_array = ArrowArray {
-            inner,
-            dtype: array.dtype.clone(),
-            stats_set: Default::default(),
-        };
-        new_array.into_array()
-    }
-
     fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
         vortex_panic!("Not supported")
     }
 }
 
 impl ValidityVTable<ArrowVTable> for ArrowVTable {
-    fn is_valid(array: &ArrowArray, index: usize) -> bool {
-        array.inner.is_valid(index)
-    }
-
-    fn all_valid(array: &ArrowArray) -> bool {
-        array.inner.logical_null_count() == 0
-    }
-
-    fn all_invalid(array: &ArrowArray) -> bool {
-        array.inner.logical_null_count() == array.inner.len()
-    }
-
     fn validity(array: &ArrowArray) -> VortexResult<Validity> {
         Ok(match array.inner.logical_nulls() {
             None => Validity::AllValid,

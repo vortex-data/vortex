@@ -4,6 +4,7 @@
 //! Execution logic for DictArray - takes from values using codes (indices).
 
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::Canonical;
 use crate::arrays::BoolArray;
@@ -30,10 +31,10 @@ use crate::compute::TakeKernel;
 ///
 /// This is the core operation for dictionary decoding - it expands the dictionary
 /// by looking up each code in the values array.
-pub fn take_canonical(values: Canonical, codes: &PrimitiveArray) -> Canonical {
-    match values {
+pub fn take_canonical(values: Canonical, codes: &PrimitiveArray) -> VortexResult<Canonical> {
+    Ok(match values {
         Canonical::Null(a) => Canonical::Null(take_null(&a, codes)),
-        Canonical::Bool(a) => Canonical::Bool(take_bool(&a, codes)),
+        Canonical::Bool(a) => Canonical::Bool(take_bool(&a, codes)?),
         Canonical::Primitive(a) => Canonical::Primitive(take_primitive(&a, codes)),
         Canonical::Decimal(a) => Canonical::Decimal(take_decimal(&a, codes)),
         Canonical::VarBinView(a) => Canonical::VarBinView(take_varbinview(&a, codes)),
@@ -41,7 +42,7 @@ pub fn take_canonical(values: Canonical, codes: &PrimitiveArray) -> Canonical {
         Canonical::FixedSizeList(a) => Canonical::FixedSizeList(take_fixed_size_list(&a, codes)),
         Canonical::Struct(a) => Canonical::Struct(take_struct(&a, codes)),
         Canonical::Extension(a) => Canonical::Extension(take_extension(&a, codes)),
-    }
+    })
 }
 
 fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
@@ -52,12 +53,95 @@ fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
         .clone()
 }
 
-fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> BoolArray {
-    BoolVTable
-        .take(array, codes.as_ref())
-        .vortex_expect("take bool array")
+//     pub(super) fn dict_bool_take(dict_array: &DictArray) -> VortexResult<Canonical> {
+//         let values = dict_array.values();
+//         let codes = dict_array.codes();
+//         let result_nullability = dict_array.dtype().nullability();
+//
+//         let bool_values = values.to_bool();
+//         let result_validity = bool_values.validity_mask();
+//         let bool_buffer = bool_values.bit_buffer();
+//         let (first_match, second_match) = match result_validity.bit_buffer() {
+//             AllOr::All => {
+//                 let mut indices_iter = bool_buffer.set_indices();
+//                 (indices_iter.next(), indices_iter.next())
+//             }
+//             AllOr::None => (None, None),
+//             AllOr::Some(v) => {
+//                 let mut indices_iter = bool_buffer.set_indices().filter(|i| v.value(*i));
+//                 (indices_iter.next(), indices_iter.next())
+//             }
+//         };
+//
+//         Ok(match (first_match, second_match) {
+//             // Couldn't find a value match, so the result is all false.
+//             (None, _) => match result_validity {
+//                 Mask::AllTrue(_) => BoolArray::from_bit_buffer(
+//                     BitBuffer::new_unset(codes.len()),
+//                     Validity::copy_from_array(codes).union_nullability(result_nullability),
+//                 )
+//                     .to_canonical()?,
+//                 Mask::AllFalse(_) => ConstantArray::new(
+//                     Scalar::null(DType::Bool(Nullability::Nullable)),
+//                     codes.len(),
+//                 )
+//                     .to_canonical()?,
+//                 Mask::Values(_) => BoolArray::from_bit_buffer(
+//                     BitBuffer::new_unset(codes.len()),
+//                     Validity::from_mask(result_validity, result_nullability).take(codes)?,
+//                 )
+//                     .to_canonical()?,
+//             },
+//             // We found a single matching value so we can compare the codes directly.
+//             (Some(code), None) => match result_validity {
+//                 Mask::AllTrue(_) => cast(
+//                     &compare(
+//                         codes,
+//                         &cast(
+//                             ConstantArray::new(code, codes.len()).as_ref(),
+//                             codes.dtype(),
+//                         )?,
+//                         Operator::Eq,
+//                     )?,
+//                     &DType::Bool(result_nullability),
+//                 )?
+//                     .to_canonical()?,
+//                 Mask::AllFalse(_) => ConstantArray::new(
+//                     Scalar::null(DType::Bool(Nullability::Nullable)),
+//                     codes.len(),
+//                 )
+//                     .to_canonical()?,
+//                 Mask::Values(rv) => mask(
+//                     &compare(
+//                         codes,
+//                         &cast(
+//                             ConstantArray::new(code, codes.len()).as_ref(),
+//                             codes.dtype(),
+//                         )?,
+//                         Operator::Eq,
+//                     )?,
+//                     &Mask::from_buffer(
+//                         take(BoolArray::from(rv.bit_buffer().clone()).as_ref(), codes)?
+//                             .to_bool()
+//                             .bit_buffer()
+//                             .not(),
+//                     ),
+//                 )?
+//                     .to_canonical()?,
+//             },
+//             // More than one value matches.
+//             _ => take(bool_values.as_ref(), codes)
+//                 .vortex_expect("taking codes from dictionary values shouldn't fail")
+//                 .to_canonical()?,
+//         })
+//     }
+
+// TODO(joe): use dict_bool_take
+fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> VortexResult<BoolArray> {
+    Ok(BoolVTable
+        .take(array, codes.as_ref())?
         .as_::<BoolVTable>()
-        .clone()
+        .clone())
 }
 
 fn take_primitive(array: &PrimitiveArray, codes: &PrimitiveArray) -> PrimitiveArray {

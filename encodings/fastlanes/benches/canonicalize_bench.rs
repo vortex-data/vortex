@@ -1,17 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::SeedableRng;
 use rand::prelude::StdRng;
 use vortex_array::Array;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::session::ArraySession;
 use vortex_error::VortexExpect;
 use vortex_fastlanes::bitpack_compress::test_harness::make_array;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
@@ -31,6 +37,9 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 100, 0.00),
     (10000, 1000, 0.00),
 ];
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 #[divan::bench(args = BENCH_ARGS)]
 fn into_canonical_non_nullable(
@@ -70,7 +79,9 @@ fn canonical_into_non_nullable(
             chunked.dtype().nullability(),
             chunk_len * chunk_count,
         );
-        chunked.append_to_builder(&mut primitive_builder);
+        chunked
+            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         primitive_builder.finish()
     });
 }
@@ -101,8 +112,8 @@ fn into_canonical_nullable(
     let chunked = ChunkedArray::from_iter(chunks).into_array();
 
     bencher
-        .with_inputs(|| &chunked)
-        .bench_refs(|chunked| chunked.to_canonical());
+        .with_inputs(|| chunked.clone())
+        .bench_values(|chunked| chunked.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
 }
 
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
@@ -125,7 +136,9 @@ fn canonical_into_nullable(
             chunked.dtype().nullability(),
             chunk_len * chunk_count,
         );
-        chunked.append_to_builder(&mut primitive_builder);
+        chunked
+            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         primitive_builder.finish()
     });
 }

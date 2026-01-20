@@ -15,22 +15,20 @@ use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -67,19 +65,13 @@ impl VTable for DecimalBytePartsVTable {
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.decimal_byte_parts")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DecimalBytePartsVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -98,7 +90,6 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -137,6 +128,18 @@ impl VTable for DecimalBytePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: slicing encoded MSP does not change the encoded values
+        Ok(Some(unsafe {
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+                .into_array()
+        }))
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        to_canonical_decimal(array, ctx)
     }
 }
 
@@ -195,6 +198,10 @@ impl DecimalBytePartsArray {
 #[derive(Debug)]
 pub struct DecimalBytePartsVTable;
 
+impl DecimalBytePartsVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
+}
+
 impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn len(array: &DecimalBytePartsArray) -> usize {
         array.msp.len()
@@ -226,36 +233,30 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     }
 }
 
-impl CanonicalVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn canonicalize(array: &DecimalBytePartsArray) -> Canonical {
-        // TODO(joe): support parts len != 1
-        let prim = array.msp.to_primitive();
-        // Depending on the decimal type and the min/max of the primitive array we can choose
-        // the correct buffer size
+/// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
+fn to_canonical_decimal(
+    array: &DecimalBytePartsArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    // TODO(joe): support parts len != 1
+    let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
+    // Depending on the decimal type and the min/max of the primitive array we can choose
+    // the correct buffer size
 
-        match_each_signed_integer_ptype!(prim.ptype(), |P| {
-            // SAFETY: The primitive array's buffer is already validated with correct type.
-            // The decimal dtype matches the array's dtype, and validity is preserved.
-            Canonical::Decimal(unsafe {
-                DecimalArray::new_unchecked(
-                    prim.buffer::<P>(),
-                    *array.decimal_dtype(),
-                    prim.validity().clone(),
-                )
-            })
+    Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
+        // SAFETY: The primitive array's buffer is already validated with correct type.
+        // The decimal dtype matches the array's dtype, and validity is preserved.
+        Canonical::Decimal(unsafe {
+            DecimalArray::new_unchecked(
+                prim.to_buffer::<P>(),
+                *array.decimal_dtype(),
+                prim.validity().clone(),
+            )
         })
-    }
+    }))
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn slice(array: &DecimalBytePartsArray, range: Range<usize>) -> ArrayRef {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
-                .into_array()
-        }
-    }
-
     fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
         // TODO(joe): support parts len != 1
         let scalar = array.msp.scalar_at(index);

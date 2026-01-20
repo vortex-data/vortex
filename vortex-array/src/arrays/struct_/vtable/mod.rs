@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools;
@@ -11,27 +12,28 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod rules;
 mod validity;
 mod visitor;
 
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
 
 vtable!(Struct);
 
@@ -41,19 +43,13 @@ impl VTable for StructVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.struct")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        StructVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &StructArray) -> VortexResult<Self::Metadata> {
@@ -69,7 +65,6 @@ impl VTable for StructVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -139,6 +134,10 @@ impl VTable for StructVTable {
         Ok(())
     }
 
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Struct(array.clone()))
+    }
+
     fn reduce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -146,7 +145,32 @@ impl VTable for StructVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let fields = array
+            .fields()
+            .iter()
+            .map(|field| field.slice(range.clone()))
+            .collect_vec();
+
+        // SAFETY: Slicing preserves all StructArray invariants
+        Ok(Some(
+            unsafe {
+                StructArray::new_unchecked(
+                    fields,
+                    array.struct_fields().clone(),
+                    range.len(),
+                    array.validity().slice(range),
+                )
+            }
+            .into_array(),
+        ))
+    }
 }
 
 #[derive(Debug)]
 pub struct StructVTable;
+
+impl StructVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.struct");
+}

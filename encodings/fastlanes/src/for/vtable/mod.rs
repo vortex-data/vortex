@@ -3,16 +3,18 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
+use std::ops::Range;
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -24,11 +26,10 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::FoRArray;
+use crate::r#for::array::for_decompress::decompress;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod array;
-mod canonical;
-mod encode;
 mod operations;
 mod rules;
 mod validity;
@@ -42,19 +43,13 @@ impl VTable for FoRVTable {
     type Metadata = ScalarValueMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("fastlanes.for")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FoRVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -87,7 +82,6 @@ impl VTable for FoRVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -114,10 +108,29 @@ impl VTable for FoRVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: Just slicing encoded data does not affect FOR.
+        Ok(Some(unsafe {
+            FoRArray::new_unchecked(
+                array.encoded().slice(range),
+                array.reference_scalar().clone(),
+            )
+            .into_array()
+        }))
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(decompress(array, ctx)?))
+    }
 }
 
 #[derive(Debug)]
 pub struct FoRVTable;
+
+impl FoRVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
+}
 
 #[derive(Clone)]
 pub struct ScalarValueMetadata(pub ScalarValue);

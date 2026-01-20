@@ -434,6 +434,7 @@ impl Mask {
         match &self {
             Self::AllTrue(_) => n,
             Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
+            // TODO(joe): optimize this function
             Self::Values(values) => values.indices()[n],
         }
     }

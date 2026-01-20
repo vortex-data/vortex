@@ -18,6 +18,7 @@ use vortex_vector::primitive::PrimitiveVector;
 use crate::Array;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ListArray;
@@ -36,10 +37,10 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
     type Parent = Exact<FilterVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
+        Exact::new()
     }
 
-    // TODO(joe): should this use Vector?
+    // TODO(joe): Remove the vector usage?
     fn execute_parent(
         &self,
         array: &ListArray,
@@ -68,7 +69,12 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                     0,
                 );
                 vec.append_nulls(selection.true_count());
-                return Ok(Some(vec.freeze().into_array(array.dtype()).to_canonical()));
+                return Ok(Some(
+                    vec.freeze()
+                        .into_array(array.dtype())
+                        .into_array()
+                        .execute::<Canonical>(ctx)?,
+                ));
             }
             Validity::Array(a) => a
                 .filter(parent.filter_mask().clone())?
@@ -123,7 +129,8 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
                 )
             }
             .into_array(array.dtype())
-            .to_canonical(),
+            .into_array()
+            .execute::<Canonical>(ctx)?,
         ))
     }
 }

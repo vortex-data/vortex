@@ -10,6 +10,7 @@ mod arrow;
 pub mod compress;
 mod compute;
 mod iter;
+mod kernel;
 mod ops;
 mod rules;
 
@@ -23,36 +24,9 @@ pub mod _benchmarking {
 
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
-use vortex_array::Canonical;
 use vortex_array::session::ArraySessionExt;
-use vortex_array::vtable::ArrayVTableExt;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::VisitorVTable;
-use vortex_error::VortexResult;
 use vortex_session::VortexSession;
-
-use crate::compress::runend_encode;
-
-impl EncodeVTable<RunEndVTable> for RunEndVTable {
-    fn encode(
-        _vtable: &RunEndVTable,
-        canonical: &Canonical,
-        _like: Option<&RunEndArray>,
-    ) -> VortexResult<Option<RunEndArray>> {
-        let parray = canonical.clone().into_primitive();
-        let (ends, values) = runend_encode(&parray);
-        // SAFETY: runend_decode implementation must return valid RunEndArray
-        //  components.
-        unsafe {
-            Ok(Some(RunEndArray::new_unchecked(
-                ends.to_array(),
-                values,
-                0,
-                parray.len(),
-            )))
-        }
-    }
-}
 
 impl VisitorVTable<RunEndVTable> for RunEndVTable {
     fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
@@ -65,7 +39,7 @@ impl VisitorVTable<RunEndVTable> for RunEndVTable {
 
 /// Initialize run-end encoding in the given session.
 pub fn initialize(session: &mut VortexSession) {
-    session.arrays().register(RunEndVTable.as_vtable());
+    session.arrays().register(RunEndVTable::ID, RunEndVTable);
 }
 
 #[cfg(test)]

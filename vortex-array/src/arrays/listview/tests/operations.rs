@@ -20,6 +20,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::compute::cast;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
@@ -110,14 +112,18 @@ fn test_slice_out_of_order() {
     assert_eq!(sliced_list.size_at(2), 1, "Third list should have size 1");
 
     // Verify the actual list contents are correct.
-    let list0 = sliced_list.list_elements_at(0);
-    assert_eq!(list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 10);
-
-    let list1 = sliced_list.list_elements_at(1);
-    assert_eq!(list1.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 40);
-
-    let list2 = sliced_list.list_elements_at(2);
-    assert_eq!(list2.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 90);
+    assert_arrays_eq!(
+        sliced_list.list_elements_at(0),
+        PrimitiveArray::from_iter([10i32, 20, 30])
+    );
+    assert_arrays_eq!(
+        sliced_list.list_elements_at(1),
+        PrimitiveArray::from_iter([40i32, 50, 60])
+    );
+    assert_arrays_eq!(
+        sliced_list.list_elements_at(2),
+        PrimitiveArray::from_iter([90i32])
+    );
 }
 
 #[test]

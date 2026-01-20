@@ -98,7 +98,7 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
@@ -112,8 +112,8 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
-        assert_eq!(result.as_slice::<i32>(), &[1, 1, 1, 2]);
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
     #[test]
@@ -137,10 +137,7 @@ mod test {
             Validity::Array(BoolArray::from_iter(vec![true, false, true]).to_array()),
         )
         .unwrap();
-        assert_eq!(result.dtype(), expect.dtype());
-        assert_eq!(result.scalar_at(0), expect.scalar_at(0));
-        assert_eq!(result.scalar_at(1), expect.scalar_at(1));
-        assert_eq!(result.scalar_at(2), expect.scalar_at(2));
+        assert_arrays_eq!(result, expect);
     }
 
     #[test]
@@ -152,11 +149,14 @@ mod test {
         assert_eq!(arr.len(), 9);
 
         let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap().to_primitive();
+        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());
-        assert!(result.as_slice::<i32>().is_empty());
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::empty::<i32>(Nullability::NonNullable)
+        );
     }
 
     #[test]

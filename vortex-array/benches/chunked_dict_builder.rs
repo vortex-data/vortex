@@ -1,19 +1,29 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::distr::Distribution;
 use rand::distr::StandardUniform;
 use vortex_array::Array;
+use vortex_array::Canonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::dict_test::gen_dict_primitive_chunks;
 use vortex_array::builders::builder_with_capacity;
 use vortex_array::compute::warm_up_vtables;
+use vortex_array::session::ArraySession;
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
     divan::main();
 }
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 const BENCH_ARGS: &[(usize, usize, usize)] = &[
     (1000, 10, 10),
@@ -35,7 +45,9 @@ fn chunked_dict_primitive_canonical_into<T: NativePType>(
 
     bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut());
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         builder.finish()
     })
 }
@@ -50,6 +62,6 @@ fn chunked_dict_primitive_into_canonical<T: NativePType>(
     let chunk = gen_dict_primitive_chunks::<T, u16>(len, unique_values, chunk_count);
 
     bencher
-        .with_inputs(|| &chunk)
-        .bench_refs(|chunk| chunk.to_canonical())
+        .with_inputs(|| chunk.clone())
+        .bench_values(|chunk| chunk.execute::<Canonical>(&mut SESSION.create_execution_ctx()))
 }

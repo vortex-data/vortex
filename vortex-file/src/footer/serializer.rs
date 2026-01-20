@@ -72,7 +72,10 @@ impl FooterSerializer {
             Some(dtype_segment)
         };
 
-        let layout_ctx = LayoutContext::empty();
+        // TODO(ngates): we should separate the read/write side of Context since the write side
+        //  doesn't need to look anything up in the registry.
+        let layout_ctx = LayoutContext::default();
+
         let (buffer, layout_segment) = write_flatbuffer(
             &mut self.offset,
             &self.footer.layout().flatbuffer_writer(&layout_ctx),

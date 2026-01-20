@@ -3,13 +3,13 @@
 
 use prost::Message;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -20,11 +20,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
 use crate::RLEArray;
+use crate::rle::array::rle_decompress::rle_decompress;
+use crate::rle::kernel::PARENT_KERNELS;
 
 mod array;
-mod canonical;
-mod encode;
 mod operations;
+mod rules;
 mod validity;
 mod visitor;
 
@@ -52,19 +53,54 @@ impl VTable for RLEVTable {
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("fastlanes.rle")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        RLEVTable.as_vtable()
+    fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        use vortex_array::IntoArray;
+
+        use crate::FL_CHUNK_SIZE;
+
+        let offset_in_chunk = array.offset();
+        let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
+        let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);
+
+        let values_start_idx = array.values_idx_offset(chunk_start_idx);
+        let values_end_idx = if chunk_end_idx < array.values_idx_offsets().len() {
+            array.values_idx_offset(chunk_end_idx)
+        } else {
+            array.values().len()
+        };
+
+        let sliced_values = array.values().slice(values_start_idx..values_end_idx);
+
+        let sliced_values_idx_offsets = array
+            .values_idx_offsets()
+            .slice(chunk_start_idx..chunk_end_idx);
+
+        let sliced_indices = array
+            .indices()
+            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE);
+
+        // SAFETY: Slicing preserves all invariants.
+        Ok(Some(unsafe {
+            RLEArray::new_unchecked(
+                sliced_values,
+                sliced_indices,
+                sliced_values_idx_offsets,
+                array.dtype().clone(),
+                // Keep the offset relative to the first chunk.
+                (array.offset() + range.start) % FL_CHUNK_SIZE,
+                range.len(),
+            )
+            .into_array()
+        }))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -106,7 +142,6 @@ impl VTable for RLEVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -143,10 +178,35 @@ impl VTable for RLEVTable {
             len,
         )
     }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(rle_decompress(array, ctx)?))
+    }
+
+    fn reduce_parent(
+        array: &RLEArray,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
+    }
 }
 
 #[derive(Debug)]
 pub struct RLEVTable;
+
+impl RLEVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.rle");
+}
 
 #[cfg(test)]
 mod tests {

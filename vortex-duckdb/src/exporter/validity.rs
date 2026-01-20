@@ -25,6 +25,10 @@ pub(crate) fn new_exporter(
 
 impl ColumnExporter for ValidityExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
+        assert!(
+            offset + len <= self.mask.len(),
+            "cannot access outside of array"
+        );
         if unsafe { vector.set_validity(&self.mask, offset, len) } {
             // All values are null, so no point copying the data.
             return Ok(());

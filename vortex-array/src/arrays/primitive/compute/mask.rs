@@ -16,10 +16,16 @@ use crate::vtable::ValidityHelper;
 impl MaskKernel for PrimitiveVTable {
     fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let validity = array.validity().mask(mask);
-        Ok(
-            PrimitiveArray::from_byte_buffer(array.byte_buffer().clone(), array.ptype(), validity)
-                .into_array(),
-        )
+
+        // SAFETY: validity and data buffer still have same length
+        Ok(unsafe {
+            PrimitiveArray::new_unchecked_from_handle(
+                array.buffer_handle().clone(),
+                array.ptype(),
+                validity,
+            )
+            .into_array()
+        })
     }
 }
 

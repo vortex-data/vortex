@@ -6,13 +6,14 @@ use arrayref::array_ref;
 use fastlanes::RLE;
 use num_traits::AsPrimitive;
 use vortex_array::Array;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::FL_CHUNK_SIZE;
@@ -23,13 +24,13 @@ use crate::RLEArray;
     clippy::cognitive_complexity,
     reason = "complexity is from nested match_each_* macros"
 )]
-pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
+pub fn rle_decompress(array: &RLEArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     match_each_native_ptype!(array.values().dtype().as_ptype(), |V| {
         match_each_unsigned_integer_ptype!(array.values_idx_offsets().dtype().as_ptype(), |O| {
             // RLE indices are always u16 (or u8 if downcasted).
             match array.indices().dtype().as_ptype() {
-                PType::U8 => rle_decode_typed::<V, u8, O>(array),
-                PType::U16 => rle_decode_typed::<V, u16, O>(array),
+                PType::U8 => rle_decode_typed::<V, u8, O>(array, ctx),
+                PType::U16 => rle_decode_typed::<V, u16, O>(array, ctx),
                 _ => vortex_panic!(
                     "Unsupported index type for RLE decoding: {}",
                     array.indices().dtype().as_ptype()
@@ -40,16 +41,19 @@ pub fn rle_decompress(array: &RLEArray) -> PrimitiveArray {
 }
 
 /// Decompresses an `RLEArray` into to a primitive array of unsigned integers.
-fn rle_decode_typed<V, I, O>(array: &RLEArray) -> PrimitiveArray
+fn rle_decode_typed<V, I, O>(
+    array: &RLEArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray>
 where
     V: NativePType + RLE + Clone + Copy,
     I: NativePType + Into<usize>,
     O: NativePType + AsPrimitive<u64>,
 {
-    let values = array.values().to_primitive();
+    let values = array.values().clone().execute::<PrimitiveArray>(ctx)?;
     let values = values.as_slice::<V>();
 
-    let indices = array.indices().to_primitive();
+    let indices = array.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let indices = indices.as_slice::<I>();
     assert_eq!(indices.len() % FL_CHUNK_SIZE, 0);
 
@@ -60,7 +64,10 @@ where
     let mut buffer = BufferMut::<V>::with_capacity(num_chunks * FL_CHUNK_SIZE);
     let buffer_uninit = buffer.spare_capacity_mut();
 
-    let values_idx_offsets = array.values_idx_offsets().to_primitive();
+    let values_idx_offsets = array
+        .values_idx_offsets()
+        .clone()
+        .execute::<PrimitiveArray>(ctx)?;
     let values_idx_offsets = values_idx_offsets.as_slice::<O>();
 
     for chunk_idx in 0..num_chunks {
@@ -91,10 +98,10 @@ where
 
     let offset_within_chunk = array.offset();
 
-    PrimitiveArray::new(
+    Ok(PrimitiveArray::new(
         buffer
             .freeze()
             .slice(offset_within_chunk..(offset_within_chunk + array.len())),
         Validity::copy_from_array(array.as_ref()),
-    )
+    ))
 }

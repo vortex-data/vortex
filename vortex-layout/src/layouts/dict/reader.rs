@@ -259,6 +259,7 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutId;
@@ -466,7 +467,7 @@ mod tests {
                 .unwrap();
 
             let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
-            assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
+            assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
             let actual = layout
                 .new_reader("".into(), segments, &SESSION)
                 .unwrap()
@@ -479,7 +480,13 @@ mod tests {
                 .await
                 .unwrap();
             let expected = array.validity_mask().into_array();
-            assert_arrays_eq!(actual.to_canonical().into_array(), expected);
+            assert_arrays_eq!(
+                actual
+                    .to_canonical()
+                    .vortex_expect("to_canonical failed")
+                    .into_array(),
+                expected
+            );
         })
     }
 }

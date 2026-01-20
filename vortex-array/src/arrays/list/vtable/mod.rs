@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -13,9 +15,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
 use crate::metadata::SerializeMetadata;
@@ -23,14 +27,12 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod kernel;
 mod operations;
 mod validity;
@@ -52,19 +54,24 @@ impl VTable for ListVTable {
     type Metadata = ProstMetadata<ListMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.list")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ListVTable.as_vtable()
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ListArray::new(
+                array.elements().clone(),
+                array.offsets().slice(range.start..range.end + 1),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -85,7 +92,6 @@ impl VTable for ListVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -144,6 +150,10 @@ impl VTable for ListVTable {
         Ok(())
     }
 
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -156,3 +166,7 @@ impl VTable for ListVTable {
 
 #[derive(Debug)]
 pub struct ListVTable;
+
+impl ListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
+}

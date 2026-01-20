@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_buffer::Buffer;
 use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
+use vortex_dtype::NativeDecimalType;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
@@ -12,30 +17,36 @@ use crate::arrays::DecimalVTable;
 use crate::compute::CastKernel;
 use crate::compute::CastKernelAdapter;
 use crate::register_kernel;
-use crate::stats::ArrayStats;
 use crate::vtable::ValidityHelper;
 
 impl CastKernel for DecimalVTable {
     fn cast(&self, array: &DecimalArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         // Early return if not casting to decimal
-        let DType::Decimal(to_precision_scale, to_nullability) = dtype else {
+        let DType::Decimal(to_decimal_dtype, to_nullability) = dtype else {
             return Ok(None);
         };
-        let DType::Decimal(from_precision_scale, _) = array.dtype() else {
+        let DType::Decimal(from_decimal_dtype, _) = array.dtype() else {
             vortex_panic!(
                 "DecimalArray must have decimal dtype, got {:?}",
                 array.dtype()
             );
         };
 
-        // We only support casting to the same decimal type with different nullability
-        if from_precision_scale != to_precision_scale {
+        // Scale changes are not yet supported
+        if from_decimal_dtype.scale() != to_decimal_dtype.scale() {
             vortex_bail!(
-                "Cannot cast decimal({},{}) to decimal({},{})",
-                from_precision_scale.precision(),
-                from_precision_scale.scale(),
-                to_precision_scale.precision(),
-                to_precision_scale.scale()
+                "Casting decimal with scale {} to scale {} not yet implemented",
+                from_decimal_dtype.scale(),
+                to_decimal_dtype.scale()
+            );
+        }
+
+        // Downcasting precision is not yet supported
+        if to_decimal_dtype.precision() < from_decimal_dtype.precision() {
+            vortex_bail!(
+                "Downcasting decimal from precision {} to {} not yet implemented",
+                from_decimal_dtype.precision(),
+                to_decimal_dtype.precision()
             );
         }
 
@@ -50,14 +61,23 @@ impl CastKernel for DecimalVTable {
             .clone()
             .cast_nullability(*to_nullability, array.len())?;
 
-        // Construct DecimalArray directly since we can't use new() without knowing the concrete type
+        // If the target needs a wider physical type, upcast the values
+        let target_values_type = DecimalType::smallest_decimal_value_type(to_decimal_dtype);
+        let array = if target_values_type > array.values_type() {
+            upcast_decimal_values(array, target_values_type)?
+        } else {
+            array.clone()
+        };
+
+        // SAFETY: The byte buffer came from a valid DecimalArray with valid lengths.
         Ok(Some(
-            DecimalArray {
-                dtype: DType::Decimal(*from_precision_scale, *to_nullability),
-                values: array.byte_buffer(),
-                values_type: array.values_type(),
-                validity: new_validity,
-                stats_set: ArrayStats::default(),
+            unsafe {
+                DecimalArray::new_unchecked_from_byte_buffer(
+                    array.byte_buffer(),
+                    array.values_type(),
+                    *to_decimal_dtype,
+                    new_validity,
+                )
             }
             .to_array(),
         ))
@@ -66,14 +86,68 @@ impl CastKernel for DecimalVTable {
 
 register_kernel!(CastKernelAdapter(DecimalVTable).lift());
 
+/// Upcast a DecimalArray to a wider physical representation (e.g., i32 -> i64) while keeping
+/// the same precision and scale.
+///
+/// This is useful when you need to widen the underlying storage type to accommodate operations
+/// that might overflow the current representation, or to match the physical type expected by
+/// downstream consumers.
+///
+/// # Errors
+///
+/// Returns an error if `to_values_type` is narrower than the array's current values type.
+/// Only upcasting (widening) is supported.
+pub fn upcast_decimal_values(
+    array: &DecimalArray,
+    to_values_type: DecimalType,
+) -> VortexResult<DecimalArray> {
+    let from_values_type = array.values_type();
+
+    // If already the target type, just clone
+    if from_values_type == to_values_type {
+        return Ok(array.clone());
+    }
+
+    // Only allow upcasting (widening)
+    if to_values_type < from_values_type {
+        vortex_bail!(
+            "Cannot downcast decimal values from {:?} to {:?}. Only upcasting is supported.",
+            from_values_type,
+            to_values_type
+        );
+    }
+
+    let decimal_dtype = array.decimal_dtype();
+    let validity = array.validity().clone();
+
+    // Use match_each_decimal_value_type to dispatch based on source and target types
+    match_each_decimal_value_type!(from_values_type, |F| {
+        let from_buffer = array.buffer::<F>();
+        match_each_decimal_value_type!(to_values_type, |T| {
+            let to_buffer = upcast_decimal_buffer::<F, T>(from_buffer);
+            Ok(DecimalArray::new(to_buffer, decimal_dtype, validity))
+        })
+    })
+}
+
+/// Upcast a buffer of decimal values from type F to type T.
+/// Since T is wider than F, this conversion never fails.
+fn upcast_decimal_buffer<F: NativeDecimalType, T: NativeDecimalType>(from: Buffer<F>) -> Buffer<T> {
+    from.iter()
+        .map(|&v| T::from(v).vortex_expect("upcast should never fail"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
+    use vortex_dtype::DecimalType;
     use vortex_dtype::Nullability;
 
+    use super::upcast_decimal_values;
     use crate::arrays::DecimalArray;
     use crate::canonical::ToCanonical;
     use crate::compute::cast;
@@ -130,14 +204,14 @@ mod tests {
     }
 
     #[test]
-    fn cast_different_precision_fails() {
+    fn cast_different_scale_fails() {
         let array = DecimalArray::new(
             buffer![100i32],
             DecimalDType::new(10, 2),
             Validity::NonNullable,
         );
 
-        // Try to cast to different precision
+        // Try to cast to different scale - not supported
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
         let result = cast(array.as_ref(), &different_dtype);
 
@@ -146,8 +220,48 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("Cannot cast decimal(10,2) to decimal(15,3)")
+                .contains("Casting decimal with scale 2 to scale 3 not yet implemented")
         );
+    }
+
+    #[test]
+    fn cast_downcast_precision_fails() {
+        let array = DecimalArray::new(
+            buffer![100i64],
+            DecimalDType::new(18, 2),
+            Validity::NonNullable,
+        );
+
+        // Try to downcast precision - not supported
+        let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
+        let result = cast(array.as_ref(), &smaller_dtype);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Downcasting decimal from precision 18 to 10 not yet implemented")
+        );
+    }
+
+    #[test]
+    fn cast_upcast_precision_succeeds() {
+        let array = DecimalArray::new(
+            buffer![100i32, 200, 300],
+            DecimalDType::new(10, 2),
+            Validity::NonNullable,
+        );
+
+        // Cast to higher precision with same scale - should succeed
+        let wider_dtype = DType::Decimal(DecimalDType::new(38, 2), Nullability::NonNullable);
+        let casted = cast(array.as_ref(), &wider_dtype).unwrap().to_decimal();
+
+        assert_eq!(casted.precision(), 38);
+        assert_eq!(casted.scale(), 2);
+        assert_eq!(casted.len(), 3);
+        // Should be stored in i128 now (precision 38 requires i128)
+        assert_eq!(casted.values_type(), DecimalType::I128);
     }
 
     #[test]
@@ -177,5 +291,102 @@ mod tests {
     #[case(DecimalArray::new(buffer![42i32], DecimalDType::new(5, 1), Validity::NonNullable))]
     fn test_cast_decimal_conformance(#[case] array: DecimalArray) {
         test_cast_conformance(array.as_ref());
+    }
+
+    #[test]
+    fn upcast_decimal_values_i32_to_i64() {
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let array = DecimalArray::new(
+            buffer![100i32, 200, 300],
+            decimal_dtype,
+            Validity::NonNullable,
+        );
+
+        assert_eq!(array.values_type(), DecimalType::I32);
+
+        let casted = upcast_decimal_values(&array, DecimalType::I64).unwrap();
+
+        assert_eq!(casted.values_type(), DecimalType::I64);
+        assert_eq!(casted.decimal_dtype(), decimal_dtype);
+        assert_eq!(casted.len(), 3);
+
+        // Verify values are preserved
+        let buffer = casted.buffer::<i64>();
+        assert_eq!(buffer.as_ref(), &[100i64, 200, 300]);
+    }
+
+    #[test]
+    fn upcast_decimal_values_i64_to_i128() {
+        let decimal_dtype = DecimalDType::new(18, 4);
+        let array = DecimalArray::new(
+            buffer![10000i64, 20000, 30000],
+            decimal_dtype,
+            Validity::NonNullable,
+        );
+
+        let casted = upcast_decimal_values(&array, DecimalType::I128).unwrap();
+
+        assert_eq!(casted.values_type(), DecimalType::I128);
+        assert_eq!(casted.decimal_dtype(), decimal_dtype);
+
+        let buffer = casted.buffer::<i128>();
+        assert_eq!(buffer.as_ref(), &[10000i128, 20000, 30000]);
+    }
+
+    #[test]
+    fn upcast_decimal_values_same_type_returns_clone() {
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let array = DecimalArray::new(
+            buffer![100i32, 200, 300],
+            decimal_dtype,
+            Validity::NonNullable,
+        );
+
+        let casted = upcast_decimal_values(&array, DecimalType::I32).unwrap();
+
+        assert_eq!(casted.values_type(), DecimalType::I32);
+        assert_eq!(casted.decimal_dtype(), decimal_dtype);
+    }
+
+    #[test]
+    fn upcast_decimal_values_with_nulls() {
+        let decimal_dtype = DecimalDType::new(10, 2);
+        let array = DecimalArray::from_option_iter([Some(100i32), None, Some(300)], decimal_dtype);
+
+        let casted = upcast_decimal_values(&array, DecimalType::I64).unwrap();
+
+        assert_eq!(casted.values_type(), DecimalType::I64);
+        assert_eq!(casted.len(), 3);
+
+        // Check validity is preserved
+        let mask = casted.validity_mask();
+        assert!(mask.value(0));
+        assert!(!mask.value(1));
+        assert!(mask.value(2));
+
+        // Check non-null values
+        let buffer = casted.buffer::<i64>();
+        assert_eq!(buffer[0], 100);
+        assert_eq!(buffer[2], 300);
+    }
+
+    #[test]
+    fn upcast_decimal_values_downcast_fails() {
+        let decimal_dtype = DecimalDType::new(18, 4);
+        let array = DecimalArray::new(
+            buffer![10000i64, 20000, 30000],
+            decimal_dtype,
+            Validity::NonNullable,
+        );
+
+        // Attempt to downcast from i64 to i32 should fail
+        let result = upcast_decimal_values(&array, DecimalType::I32);
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Cannot downcast decimal values")
+        );
     }
 }

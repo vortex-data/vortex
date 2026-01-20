@@ -3,7 +3,7 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
@@ -15,6 +15,7 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -61,25 +62,34 @@ pub fn unpack_to_pvector<P: BitPacked>(array: &BitPackedArray) -> PVectorMut<P> 
     unsafe { PVectorMut::new_unchecked(elements, validity) }
 }
 
-pub fn unpack_array(array: &BitPackedArray) -> PrimitiveArray {
-    match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive_array::<P>(array) })
+pub fn unpack_array(
+    array: &BitPackedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.ptype(), |P| {
+        unpack_primitive_array::<P>(array, ctx)
+    })
 }
 
-pub fn unpack_primitive_array<T: BitPacked>(array: &BitPackedArray) -> PrimitiveArray {
+pub fn unpack_primitive_array<T: BitPacked>(
+    array: &BitPackedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_into_primitive_builder::<T>(array, &mut builder);
+    unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
-    builder.finish_into_primitive()
+    Ok(builder.finish_into_primitive())
 }
 
 pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     array: &BitPackedArray,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
-) {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
     // If the array is empty, then we don't need to add anything to the builder.
     if array.is_empty() {
-        return;
+        return Ok(());
     }
 
     let mut uninit_range = builder.uninit_range(array.len());
@@ -97,7 +107,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, patches);
+        apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -105,21 +115,27 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     unsafe {
         uninit_range.finish();
     }
+    Ok(())
 }
 
-pub fn apply_patches_to_uninit_range<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
-    apply_patches_to_uninit_range_fn(dst, patches, |x| x)
+pub fn apply_patches_to_uninit_range<T: NativePType>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    apply_patches_to_uninit_range_fn(dst, patches, ctx, |x| x)
 }
 
 pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
+    ctx: &mut ExecutionCtx,
     f: F,
-) {
+) -> VortexResult<()> {
     assert_eq!(patches.array_len(), dst.len());
 
-    let indices = patches.indices().to_primitive();
-    let values = patches.values().to_primitive();
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     let validity = values.validity_mask();
     let values = values.as_slice::<T>();
 
@@ -133,6 +149,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
             f,
         )
     });
+    Ok(())
 }
 
 fn insert_values_and_validity_at_indices_to_uninit_range<
@@ -205,8 +222,10 @@ mod tests {
 
     use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
@@ -219,13 +238,13 @@ mod tests {
     use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
-    static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::empty);
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     fn compression_roundtrip(n: usize) {
         let values = PrimitiveArray::from_iter((0..n).map(|i| (i % 2047) as u16));
         let compressed = BitPackedArray::encode(values.as_ref(), 11).unwrap();
-        let decompressed = compressed.to_primitive();
-        assert_arrays_eq!(decompressed, values);
+        assert_arrays_eq!(compressed, values);
 
         values
             .as_slice::<u16>()
@@ -251,66 +270,72 @@ mod tests {
     }
 
     #[test]
-    fn test_all_zeros() {
+    fn test_all_zeros() -> VortexResult<()> {
         let zeros = buffer![0u16, 0, 0, 0].into_array().to_primitive();
-        let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
-        let actual = unpack_array(&bitpacked);
+        let bitpacked = bitpack_encode(&zeros, 0, None)?;
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 0, 0, 0]));
+        Ok(())
     }
 
     #[test]
-    fn test_simple_patches() {
+    fn test_simple_patches() -> VortexResult<()> {
         let zeros = buffer![0u16, 1, 0, 1].into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 0, None).unwrap();
-        let actual = unpack_array(&bitpacked);
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([0u16, 1, 0, 1]));
+        Ok(())
     }
 
     #[test]
-    fn test_one_full_chunk() {
+    fn test_one_full_chunk() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(0u16..1024).into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
-        let actual = unpack_array(&bitpacked);
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1024));
+        Ok(())
     }
 
     #[test]
-    fn test_three_full_chunks_with_patches() {
+    fn test_three_full_chunks_with_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
             .into_array()
             .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert!(bitpacked.patches().is_some());
-        let actual = unpack_array(&bitpacked);
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((5u16..1029).chain(5u16..1029).chain(5u16..1029))
         );
+        Ok(())
     }
 
     #[test]
-    fn test_one_full_chunk_and_one_short_chunk_no_patch() {
+    fn test_one_full_chunk_and_one_short_chunk_no_patch() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(0u16..1025).into_array().to_primitive();
         let bitpacked = bitpack_encode(&zeros, 11, None).unwrap();
         assert!(bitpacked.patches().is_none());
-        let actual = unpack_array(&bitpacked);
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(0u16..1025));
+        Ok(())
     }
 
     #[test]
-    fn test_one_full_chunk_and_one_short_chunk_with_patches() {
+    fn test_one_full_chunk_and_one_short_chunk_with_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let actual = unpack_array(&bitpacked);
+        let actual = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter(512u16..1537));
+        Ok(())
     }
 
     #[test]
-    fn test_offset_and_short_chunk_and_patches() {
+    fn test_offset_and_short_chunk_and_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..1537)
             .into_array()
             .to_primitive();
@@ -318,12 +343,16 @@ mod tests {
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..1025);
-        let actual = unpack_array(bitpacked.as_::<BitPackedVTable>());
+        let actual = unpack_array(
+            bitpacked.as_::<BitPackedVTable>(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
+        Ok(())
     }
 
     #[test]
-    fn test_offset_and_short_chunk_with_chunks_between_and_patches() {
+    fn test_offset_and_short_chunk_with_chunks_between_and_patches() -> VortexResult<()> {
         let zeros = BufferMut::from_iter(512u16..2741)
             .into_array()
             .to_primitive();
@@ -331,20 +360,28 @@ mod tests {
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
         let bitpacked = bitpacked.slice(1023..2049);
-        let actual = unpack_array(bitpacked.as_::<BitPackedVTable>());
+        let actual = unpack_array(
+            bitpacked.as_::<BitPackedVTable>(),
+            &mut SESSION.create_execution_ctx(),
+        )?;
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))
         );
+        Ok(())
     }
 
     #[test]
-    fn test_unpack_into_empty_array() {
+    fn test_unpack_into_empty_array() -> VortexResult<()> {
         let empty: PrimitiveArray = PrimitiveArray::from_iter(Vec::<u32>::new());
         let bitpacked = bitpack_encode(&empty, 0, None).unwrap();
 
         let mut builder = PrimitiveBuilder::<u32>::new(Nullability::NonNullable);
-        unpack_into_primitive_builder(&bitpacked, &mut builder);
+        unpack_into_primitive_builder(
+            &bitpacked,
+            &mut builder,
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         let result = builder.finish_into_primitive();
         assert_eq!(
@@ -352,11 +389,12 @@ mod tests {
             0,
             "Empty array should result in empty builder"
         );
+        Ok(())
     }
 
     /// This test ensures that the mask is properly appended to the range, not the builder.
     #[test]
-    fn test_unpack_into_with_validity_mask() {
+    fn test_unpack_into_with_validity_mask() -> VortexResult<()> {
         // Create an array with some null values.
         let values = Buffer::from_iter([1u32, 0, 3, 4, 0]);
         let validity = Validity::from_iter([true, false, true, true, false]);
@@ -367,7 +405,11 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::Nullable, 5);
-        unpack_into_primitive_builder(&bitpacked, &mut builder);
+        unpack_into_primitive_builder(
+            &bitpacked,
+            &mut builder,
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         let result = builder.finish_into_primitive();
 
@@ -378,11 +420,12 @@ mod tests {
         assert!(!result.scalar_at(2).is_null());
         assert!(!result.scalar_at(3).is_null());
         assert!(result.scalar_at(4).is_null());
+        Ok(())
     }
 
     /// Test that `unpack_into` correctly handles arrays with patches.
     #[test]
-    fn test_unpack_into_with_patches() {
+    fn test_unpack_into_with_patches() -> VortexResult<()> {
         // Create an array where most values fit in 4 bits but some need patches.
         let values: Vec<u32> = (0..100)
             .map(|i| if i % 20 == 0 { 1000 + i } else { i % 16 })
@@ -398,23 +441,28 @@ mod tests {
 
         // Unpack into a new builder.
         let mut builder = PrimitiveBuilder::<u32>::with_capacity(Nullability::NonNullable, 100);
-        unpack_into_primitive_builder(&bitpacked, &mut builder);
+        unpack_into_primitive_builder(
+            &bitpacked,
+            &mut builder,
+            &mut SESSION.create_execution_ctx(),
+        )?;
 
         let result = builder.finish_into_primitive();
 
         // Verify all values were correctly unpacked including patches.
         assert_arrays_eq!(result, PrimitiveArray::from_iter(values));
+        Ok(())
     }
 
     /// Test basic unpacking to primitive vector for multiple types and sizes.
     #[test]
-    fn test_unpack_to_primitive_vector_basic() {
+    fn test_unpack_to_primitive_vector_basic() -> VortexResult<()> {
         // Test with u8 values.
         let u8_values = PrimitiveArray::from_iter([5u8, 10, 15, 20, 25]);
         let u8_bitpacked = bitpack_encode(&u8_values, 5, None).unwrap();
         let u8_vector = unpack_to_primitive_vector(&u8_bitpacked);
         // Compare with existing unpack method.
-        let expected = unpack_array(&u8_bitpacked);
+        let expected = unpack_array(&u8_bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_eq!(u8_vector.len(), expected.len());
         // Verify the vector matches expected values by checking specific elements.
         let _u8_frozen = u8_vector.freeze();
@@ -439,13 +487,14 @@ mod tests {
         assert_eq!(i32_vector.len(), 1025);
 
         // Verify consistency: unpack_to_primitive_vector and unpack_array should produce same values.
-        let i32_array = unpack_array(&i32_bitpacked);
+        let i32_array = unpack_array(&i32_bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_eq!(i32_vector.len(), i32_array.len());
+        Ok(())
     }
 
     /// Test unpacking with patches at various positions.
     #[test]
-    fn test_unpack_to_primitive_vector_with_patches() {
+    fn test_unpack_to_primitive_vector_with_patches() -> VortexResult<()> {
         // Create an array where patches are needed at start, middle, and end.
         let values: Vec<u32> = vec![
             2000, // Patch at start
@@ -464,7 +513,7 @@ mod tests {
         // Verify length and that patches were applied.
         assert_eq!(vector.len(), values.len());
         // The vector should have the patched values, which unpack_array also produces.
-        let expected = unpack_array(&bitpacked);
+        let expected = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
         assert_eq!(vector.len(), expected.len());
 
         // Test with a larger array with multiple patches across chunks.
@@ -483,6 +532,7 @@ mod tests {
 
         let large_vector = unpack_to_primitive_vector(&large_bitpacked);
         assert_eq!(large_vector.len(), 3072);
+        Ok(())
     }
 
     /// Test unpacking with nullability and validity masks.
@@ -523,16 +573,16 @@ mod tests {
 
     /// Test that the execute method produces consistent results with other unpacking methods.
     #[test]
-    fn test_execute_method_consistency() {
+    fn test_execute_method_consistency() -> VortexResult<()> {
         // Test that execute(), unpack_to_primitive_vector(), and unpack_array() all produce consistent results.
-        let test_consistency = |array: &PrimitiveArray, bit_width: u8| {
+        let test_consistency = |array: &PrimitiveArray, bit_width: u8| -> VortexResult<()> {
             let bitpacked = bitpack_encode(array, bit_width, None).unwrap();
 
             // Method 1: Using the new unpack_to_primitive_vector.
             let vector_result = unpack_to_primitive_vector(&bitpacked);
 
             // Method 2: Using the old unpack_array.
-            let unpacked_array = unpack_array(&bitpacked);
+            let unpacked_array = unpack_array(&bitpacked, &mut SESSION.create_execution_ctx())?;
 
             // Method 3: Using the execute() method (this is what would be used in production).
             let executed = {
@@ -575,21 +625,22 @@ mod tests {
                 "execute() and unpack_array().execute() produced different lengths"
             );
             // Both should produce identical arrays since they represent the same data.
+            Ok(())
         };
 
         // Test various scenarios without patches.
-        test_consistency(&PrimitiveArray::from_iter(0u16..100), 7);
-        test_consistency(&PrimitiveArray::from_iter(0u32..1024), 10);
+        test_consistency(&PrimitiveArray::from_iter(0u16..100), 7)?;
+        test_consistency(&PrimitiveArray::from_iter(0u32..1024), 10)?;
 
         // Test with values that will create patches.
-        test_consistency(&PrimitiveArray::from_iter((0i16..2048).map(|x| x % 128)), 7);
+        test_consistency(&PrimitiveArray::from_iter((0i16..2048).map(|x| x % 128)), 7)?;
 
         // Test with an array that definitely has patches.
         let patch_values: Vec<u32> = (0..100)
             .map(|i| if i % 20 == 0 { 1000 + i } else { i % 16 })
             .collect();
         let patch_array = PrimitiveArray::from_iter(patch_values);
-        test_consistency(&patch_array, 4);
+        test_consistency(&patch_array, 4)?;
 
         // Test with sliced array (offset > 0).
         let values = PrimitiveArray::from_iter(0u32..2048);
@@ -599,7 +650,7 @@ mod tests {
         // Test all three methods on the sliced array.
         let sliced_bp = sliced.as_::<BitPackedVTable>();
         let vector_result = unpack_to_primitive_vector(sliced_bp);
-        let unpacked_array = unpack_array(sliced_bp);
+        let unpacked_array = unpack_array(sliced_bp, &mut SESSION.create_execution_ctx())?;
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
             sliced.execute::<Canonical>(&mut ctx).unwrap()
@@ -622,11 +673,12 @@ mod tests {
             1000,
             "sliced executed primitive length should be 1000"
         );
+        Ok(())
     }
 
     /// Test edge cases for unpacking.
     #[test]
-    fn test_unpack_edge_cases() {
+    fn test_unpack_edge_cases() -> VortexResult<()> {
         // Empty array.
         let empty: PrimitiveArray = PrimitiveArray::from_iter(Vec::<u64>::new());
         let empty_bp = bitpack_encode(&empty, 0, None).unwrap();
@@ -639,7 +691,7 @@ mod tests {
         let zeros_vec = unpack_to_primitive_vector(&zeros_bp);
         assert_eq!(zeros_vec.len(), 100);
         // Verify consistency with unpack_array.
-        let zeros_array = unpack_array(&zeros_bp);
+        let zeros_array = unpack_array(&zeros_bp, &mut SESSION.create_execution_ctx())?;
         assert_eq!(zeros_vec.len(), zeros_array.len());
 
         // Maximum bit width for u16 (15 bits, since bitpacking requires bit_width < type bit width).
@@ -665,7 +717,7 @@ mod tests {
         let boundary_vec = unpack_to_primitive_vector(&boundary_bp);
         assert_eq!(boundary_vec.len(), 3072);
         // Verify consistency.
-        let boundary_unpacked = unpack_array(&boundary_bp);
+        let boundary_unpacked = unpack_array(&boundary_bp, &mut SESSION.create_execution_ctx())?;
         assert_eq!(boundary_vec.len(), boundary_unpacked.len());
 
         // Single element.
@@ -673,5 +725,6 @@ mod tests {
         let single_bp = bitpack_encode(&single, 6, None).unwrap();
         let single_vec = unpack_to_primitive_vector(&single_bp);
         assert_eq!(single_vec.len(), 1);
+        Ok(())
     }
 }

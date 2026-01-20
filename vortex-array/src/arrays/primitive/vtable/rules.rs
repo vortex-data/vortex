@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::Buffer;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
@@ -30,7 +29,7 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
     type Parent = Exact<MaskedVTable>;
 
     fn parent(&self) -> Exact<MaskedVTable> {
-        Exact::from(&MaskedVTable)
+        Exact::new()
     }
 
     fn reduce_parent(
@@ -42,11 +41,11 @@ impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
         let masked_array = match_each_native_ptype!(array.ptype(), |T| {
-            // SAFETY: Since we are only flipping some bits in the validity, all invariants that
-            // were upheld are still upheld.
+            // SAFETY: masking validity does not change PrimitiveArray invariants
             unsafe {
-                PrimitiveArray::new_unchecked(
-                    Buffer::<T>::from_byte_buffer(array.byte_buffer().clone()),
+                PrimitiveArray::new_unchecked_from_handle(
+                    array.buffer_handle().clone(),
+                    array.ptype(),
                     array.validity().clone().and(parent.validity().clone()),
                 )
             }

@@ -23,7 +23,7 @@ pub fn chunked_to_vec_record_batch(
         .map(|array| {
             // TODO(connor)[ListView]: The rust Parquet implementation does not support writing
             // `ListView` to Parquet files yet.
-            let converted_array = recursive_list_from_list_view(array.clone());
+            let converted_array = recursive_list_from_list_view(array.clone())?;
             Ok(RecordBatch::try_from(converted_array.as_ref())?)
         })
         .collect::<anyhow::Result<Vec<_>>>()?;

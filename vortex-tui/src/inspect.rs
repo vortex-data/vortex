@@ -444,7 +444,7 @@ impl<'a> VortexInspector<'a> {
         Ok(self
             .session
             .open_options()
-            .open(self.path.as_path())
+            .open_path(self.path.as_path())
             .await?
             .footer()
             .clone())

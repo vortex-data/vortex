@@ -79,7 +79,7 @@ impl Dataset for DownloadableDataset {
 
         Ok(SESSION
             .open_options()
-            .open(vortex.as_path())
+            .open_path(vortex.as_path())
             .await?
             .scan()?
             .into_array_stream()?

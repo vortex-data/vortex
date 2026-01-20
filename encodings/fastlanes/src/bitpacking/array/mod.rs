@@ -282,6 +282,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_buffer::Buffer;
 
     use crate::BitPackedArray;
@@ -327,9 +328,9 @@ mod test {
 
         let packed_with_patches = BitPackedArray::encode(&parray, 9).unwrap();
         assert!(packed_with_patches.patches().is_some());
-        assert_eq!(
-            packed_with_patches.to_primitive().as_slice::<i32>(),
-            values.as_slice()
+        assert_arrays_eq!(
+            packed_with_patches.to_primitive(),
+            PrimitiveArray::new(values, vortex_array::validity::Validity::NonNullable)
         );
     }
 }

@@ -219,13 +219,16 @@ mod test {
     use vortex_dtype::PType;
     use vortex_dtype::UnsignedPType;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_error::vortex_panic;
     use vortex_mask::AllOr;
 
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
@@ -339,7 +342,7 @@ mod test {
     }
 
     #[test]
-    fn test_dict_array_from_primitive_chunks() {
+    fn test_dict_array_from_primitive_chunks() -> VortexResult<()> {
         let len = 2;
         let chunk_count = 2;
         let array = make_dict_primitive_chunks::<u64, u64>(len, 2, chunk_count);
@@ -348,12 +351,15 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array.clone().append_to_builder(builder.as_mut());
+        array
+            .clone()
+            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();
 
         assert_arrays_eq!(into_prim, prim_into);
+        Ok(())
     }
 
     #[cfg_attr(miri, ignore)]

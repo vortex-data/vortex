@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use vortex_buffer::Buffer;
@@ -13,21 +14,22 @@ use vortex_error::vortex_err;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -37,25 +39,23 @@ vtable!(VarBinView);
 #[derive(Debug)]
 pub struct VarBinViewVTable;
 
+impl VarBinViewVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.varbinview");
+}
+
 impl VTable for VarBinViewVTable {
     type Array = VarBinViewArray;
 
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.varbinview")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        VarBinViewVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &VarBinViewArray) -> VortexResult<Self::Metadata> {
@@ -71,7 +71,6 @@ impl VTable for VarBinViewVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -83,7 +82,7 @@ impl VTable for VarBinViewVTable {
         }
         let mut buffers: Vec<ByteBuffer> = buffers
             .iter()
-            .map(|b| b.clone().try_to_bytes())
+            .map(|b| b.clone().try_to_host())
             .collect::<VortexResult<Vec<_>>>()?;
         let views = buffers.pop().vortex_expect("buffers non-empty");
 
@@ -120,5 +119,21 @@ impl VTable for VarBinViewVTable {
             ),
         }
         Ok(())
+    }
+
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            VarBinViewArray::new(
+                array.views().slice(range.clone()),
+                array.buffers().clone(),
+                array.dtype().clone(),
+                array.validity().slice(range),
+            )
+            .into_array(),
+        ))
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::VarBinView(array.clone()))
     }
 }

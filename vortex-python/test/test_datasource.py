@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import pyarrow as pa
+import pytest
 import ray
 from ray.data import read_datasource  # pyright: ignore[reportUnknownVariableType]
 
@@ -9,6 +10,19 @@ import vortex as vx
 from vortex.ray.datasource import VortexDatasource, partition
 
 from .test_file import record
+
+
+@pytest.fixture(scope="module")
+def ray_init():
+    # https://github.com/ray-project/ray/issues/53848#issuecomment-3056271943
+    ray.init(  # pyright: ignore[reportUnknownMemberType]
+        runtime_env={
+            "working_dir": None,
+            "excludes": [".git", ".venv"],
+        }
+    )
+    yield None
+    ray.shutdown()  # pyright: ignore[reportUnknownMemberType]
 
 
 def test_partition():
@@ -25,15 +39,7 @@ def test_partition():
     assert partition(3, list(range(11))) == [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10]]
 
 
-def test_vortex_datasource(tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType]
-    # https://github.com/ray-project/ray/issues/53848#issuecomment-3056271943
-    ray.init(  # pyright: ignore[reportUnknownMemberType]
-        runtime_env={
-            "working_dir": None,
-            "excludes": [".git", ".venv"],
-        }
-    )
-
+def test_vortex_datasource(ray_init, tmpdir_factory):  # pyright: ignore[reportUnknownParameterType, reportMissingParameterType, reportUnusedParameter]
     folder = tmpdir_factory.mktemp("data")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
 
     arr1 = vx.array([record(x) for x in range(5)])

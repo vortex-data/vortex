@@ -215,10 +215,9 @@ mod tests {
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
-        let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 1500);
-        assert_arrays_eq!(decoded, array);
+        assert_arrays_eq!(encoded, array);
         // 2 chunks: 1024 + 476 elements
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
@@ -230,10 +229,9 @@ mod tests {
         let array = values.into_array();
 
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
-        let decoded = encoded.to_primitive();
 
         assert_eq!(encoded.len(), 2048);
-        assert_arrays_eq!(decoded, array);
+        assert_arrays_eq!(encoded, array);
         assert_eq!(encoded.values_idx_offsets().len(), 2);
     }
 

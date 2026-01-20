@@ -71,8 +71,8 @@ pub fn bitpack_encode(
         .flatten();
 
     // SAFETY: all components validated above
-    unsafe {
-        Ok(BitPackedArray::new_unchecked(
+    let bitpacked = unsafe {
+        BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -80,8 +80,13 @@ pub fn bitpack_encode(
             bit_width,
             array.len(),
             0,
-        ))
-    }
+        )
+    };
+    bitpacked
+        .stats_set
+        .to_ref(bitpacked.as_ref())
+        .inherit_from(array.statistics());
+    Ok(bitpacked)
 }
 
 /// Bitpack an array into the specified bit-width without checking statistics.
@@ -100,8 +105,8 @@ pub unsafe fn bitpack_encode_unchecked(
     let packed = unsafe { bitpack_unchecked(&array, bit_width)? };
 
     // SAFETY: checked by bitpack_unchecked
-    unsafe {
-        Ok(BitPackedArray::new_unchecked(
+    let bitpacked = unsafe {
+        BitPackedArray::new_unchecked(
             packed,
             array.dtype().clone(),
             array.validity().clone(),
@@ -109,8 +114,13 @@ pub unsafe fn bitpack_encode_unchecked(
             bit_width,
             array.len(),
             0,
-        ))
-    }
+        )
+    };
+    bitpacked
+        .stats_set
+        .to_ref(bitpacked.as_ref())
+        .inherit_from(array.statistics());
+    Ok(bitpacked)
 }
 
 /// Bitpack a [PrimitiveArray] to the given width.
@@ -365,7 +375,7 @@ fn bytes_per_exception(ptype: PType) -> usize {
     ptype.byte_width() + 4
 }
 
-#[cfg(feature = "test-harness")]
+#[cfg(feature = "_test-harness")]
 pub mod test_harness {
     use rand::Rng as _;
     use rand::rngs::StdRng;
@@ -408,18 +418,26 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::bitpack_compress::test_harness::make_array;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_best_bit_width() {
@@ -463,7 +481,7 @@ mod test {
     }
 
     #[test]
-    fn canonicalize_chunked_of_bitpacked() {
+    fn canonicalize_chunked_of_bitpacked() -> VortexResult<()> {
         let mut rng = StdRng::seed_from_u64(0);
 
         let chunks = (0..10)
@@ -474,17 +492,21 @@ mod test {
         let into_ca = chunked.clone().to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.clone().append_to_builder(&mut primitive_builder);
+        chunked
+            .clone()
+            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into);
 
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
         primitive_builder.extend_from_array(&chunked);
         let ca_into = primitive_builder.finish();
 
-        assert_arrays_eq!(into_ca, ca_into.to_primitive());
+        assert_arrays_eq!(into_ca, ca_into);
+
+        Ok(())
     }
 
     #[test]

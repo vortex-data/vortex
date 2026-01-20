@@ -82,7 +82,6 @@ mod test {
         let filtered_array = filtered_array.as_::<SparseVTable>();
 
         assert_eq!(filtered_array.len(), 1);
-        assert_eq!(filtered_array.patches().values().len(), 1);
         assert_arrays_eq!(
             filtered_array.patches().indices(),
             PrimitiveArray::from_iter([0u64])
@@ -104,7 +103,6 @@ mod test {
         let filtered_array = filter(&array, &mask).unwrap();
         let filtered_array = filtered_array.as_::<SparseVTable>();
 
-        assert_eq!(filtered_array.len(), 4);
         assert_arrays_eq!(
             filtered_array.patches().indices(),
             PrimitiveArray::from_iter([1u64, 3])

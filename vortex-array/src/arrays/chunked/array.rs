@@ -117,7 +117,7 @@ impl ChunkedArray {
 
     #[inline]
     pub fn chunk_offsets(&self) -> Buffer<u64> {
-        self.chunk_offsets.buffer()
+        self.chunk_offsets.to_buffer()
     }
 
     pub(crate) fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
@@ -175,7 +175,7 @@ impl ChunkedArray {
                     // All chunks are guaranteed to be valid arrays matching self.dtype().
                     unsafe {
                         ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                            .to_canonical()
+                            .to_canonical()?
                             .into_array()
                     },
                 );
@@ -199,7 +199,7 @@ impl ChunkedArray {
                 // SAFETY: chunks_to_combine contains valid chunks of the same dtype as self.
                 // All chunks are guaranteed to be valid arrays matching self.dtype().
                 ChunkedArray::new_unchecked(chunks_to_combine, self.dtype().clone())
-                    .to_canonical()
+                    .to_canonical()?
                     .into_array()
             });
         }

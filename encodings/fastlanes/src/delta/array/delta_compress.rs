@@ -92,39 +92,43 @@ fn compress_primitive<T: NativePType + Delta + Transpose + WrappingSub, const LA
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_dtype::NativePType;
+    use std::sync::LazyLock;
 
-    use super::*;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
+    use vortex_error::VortexResult;
+    use vortex_session::VortexSession;
+
     use crate::DeltaArray;
     use crate::delta::array::delta_decompress::delta_decompress;
 
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
     #[test]
-    fn test_compress() {
-        do_roundtrip_test::<u32>((0u32..10_000).collect());
+    fn test_compress() -> VortexResult<()> {
+        do_roundtrip_test((0u32..10_000).collect())
     }
 
     #[test]
-    fn test_compress_nullable() {
-        do_roundtrip_test::<u32>(PrimitiveArray::from_option_iter(
+    fn test_compress_nullable() -> VortexResult<()> {
+        do_roundtrip_test(PrimitiveArray::from_option_iter(
             (0u32..10_000).map(|i| (i % 2 == 0).then_some(i)),
-        ));
+        ))
     }
 
     #[test]
-    fn test_compress_overflow() {
-        do_roundtrip_test::<u8>((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect());
+    fn test_compress_overflow() -> VortexResult<()> {
+        do_roundtrip_test((0..10_000).map(|i| (i % (u8::MAX as i32)) as u8).collect())
     }
 
-    fn do_roundtrip_test<T: NativePType>(input: PrimitiveArray) {
-        let delta = DeltaArray::try_from_primitive_array(&input).unwrap();
+    fn do_roundtrip_test(input: PrimitiveArray) -> VortexResult<()> {
+        let delta = DeltaArray::try_from_primitive_array(&input)?;
         assert_eq!(delta.len(), input.len());
-        let decompressed = delta_decompress(&delta);
-        let decompressed_slice = decompressed.as_slice::<T>();
-        assert_eq!(decompressed_slice.len(), input.len());
-        for (actual, expected) in decompressed_slice.iter().zip(input.as_slice()) {
-            assert_eq!(actual, expected);
-        }
-        assert_eq!(decompressed.validity(), input.validity());
+        let decompressed = delta_decompress(&delta, &mut SESSION.create_execution_ctx())?;
+        assert_arrays_eq!(decompressed, input);
+        Ok(())
     }
 }

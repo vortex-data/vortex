@@ -11,7 +11,9 @@ use vortex_dtype::Nullability;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::VarBinViewArray;
 use crate::arrays::varbin::VarBinArray;
+use crate::assert_arrays_eq;
 use crate::validity::Validity;
 
 #[fixture]
@@ -31,19 +33,17 @@ fn binary_array() -> ArrayRef {
 
 #[rstest]
 pub fn test_scalar_at(binary_array: ArrayRef) {
-    assert_eq!(binary_array.len(), 2);
-    assert_eq!(binary_array.scalar_at(0), "hello world".into());
-    assert_eq!(
-        binary_array.scalar_at(1),
-        "hello world this is a long string".into()
-    )
+    assert_arrays_eq!(
+        binary_array,
+        VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
+    );
 }
 
 #[rstest]
 pub fn slice_array(binary_array: ArrayRef) {
     let binary_arr = binary_array.slice(1..2);
-    assert_eq!(
-        binary_arr.scalar_at(0),
-        "hello world this is a long string".into()
+    assert_arrays_eq!(
+        binary_arr,
+        VarBinViewArray::from_iter_str(["hello world this is a long string"])
     );
 }

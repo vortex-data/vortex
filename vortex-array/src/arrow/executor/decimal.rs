@@ -4,72 +4,340 @@
 use std::sync::Arc;
 
 use arrow_array::ArrayRef as ArrowArrayRef;
-use arrow_array::PrimitiveArray;
-use arrow_array::types::DecimalType;
+use arrow_array::Decimal32Array as ArrowDecimal32Array;
+use arrow_array::Decimal64Array as ArrowDecimal64Array;
+use arrow_array::Decimal128Array as ArrowDecimal128Array;
+use arrow_array::Decimal256Array as ArrowDecimal256Array;
+use arrow_buffer::i256;
+use arrow_schema::DataType;
+use itertools::Itertools;
+use num_traits::AsPrimitive;
+use num_traits::ToPrimitive;
 use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::DecimalDType;
-use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
-use vortex_error::VortexError;
+use vortex_dtype::DecimalType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_vector::Vector;
+use vortex_error::vortex_err;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::arrays::DecimalArray;
 use crate::arrow::null_buffer::to_null_buffer;
-use crate::builtins::ArrayBuiltins;
 
-// TODO(ngates): our i256 is different from Arrow's. Therefore we need an explicit `N` type
-//  representing the Vortex native type that is equivalent to the Arrow native type.
-pub(super) fn to_arrow_decimal<D: DecimalType, N: NativeDecimalType>(
+pub(super) fn to_arrow_decimal(
     array: ArrayRef,
-    precision: u8,
-    scale: i8,
+    data_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    // Since Vortex doesn't have physical types, our DecimalDType only contains precision and scale.
-    // When calling execute, Vortex may use any physical type >= the smallest type that can
-    // hold the requested precision.
-    //
-    // We therefore create a fake precision that forces Vortex to use a native type that is at
-    // least as wide as the requested Arrow type. We cast the array into this type.
-    //
-    // NOTE(ngates): we assume that a cast operation will produce the narrowest possible type that
-    //  fits the requested precision.
-    let fake_precision = precision.max(N::MAX_PRECISION);
-    let array = array.cast(DType::Decimal(
-        DecimalDType::new(fake_precision, scale),
-        Nullability::Nullable,
-    ))?;
+    // Execute the array as a DecimalArray.
+    let decimal_array = array.execute::<DecimalArray>(ctx)?;
 
-    // Execute the array as a vector and downcast to our native type.
-    let vector = array.execute::<Vector>(ctx)?.into_decimal();
-    vortex_ensure!(
-        vector.decimal_type() == N::DECIMAL_TYPE,
-        "Decimal array conversion produced unexpected decimal type: expected {:?}, got {:?}",
-        N::DECIMAL_TYPE,
-        vector.decimal_type()
-    );
+    match data_type {
+        DataType::Decimal32(..) => to_arrow_decimal32(decimal_array),
+        DataType::Decimal64(..) => to_arrow_decimal64(decimal_array),
+        DataType::Decimal128(..) => to_arrow_decimal128(decimal_array),
+        DataType::Decimal256(..) => to_arrow_decimal256(decimal_array),
+        _ => unreachable!("to_arrow_decimal called with non-decimal type"),
+    }
+}
 
-    let (_ps, buffer, validity) = N::downcast(vector).into_parts();
-    let nulls = to_null_buffer(validity);
-
-    assert_eq!(
-        size_of::<D::Native>(),
-        size_of::<N>(),
-        "Mismatched native sizes between Arrow decimal type and Vortex native decimal type"
-    );
-
-    // SAFETY: we just checked that size_of::<D::Native> == size_of<N>. We also know that we have
-    //  the same bit-representation as Arrow. We only need to transmute because we have different
-    //  i256 types.
-    let buffer = unsafe { std::mem::transmute::<Buffer<N>, Buffer<D::Native>>(buffer) };
-
+fn to_arrow_decimal32(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(array.validity_mask());
+    let buffer: Buffer<i32> = match array.values_type() {
+        DecimalType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I32 => array.buffer::<i32>(),
+        DecimalType::I64 => array
+            .buffer::<i64>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i64 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalType::I128 => array
+            .buffer::<i128>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i128 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalType::I256 => array
+            .buffer::<vortex_scalar::i256>()
+            .into_iter()
+            .map(|x| {
+                x.to_i32()
+                    .ok_or_else(|| vortex_err!("i256 to i32 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+    };
     Ok(Arc::new(
-        PrimitiveArray::<D>::new(buffer.into_arrow_scalar_buffer(), nulls)
-            .with_precision_and_scale(precision, scale)
-            .map_err(VortexError::from)?,
+        ArrowDecimal32Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
     ))
+}
+
+fn to_arrow_decimal64(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(array.validity_mask());
+    let buffer: Buffer<i64> = match array.values_type() {
+        DecimalType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I64 => array.buffer::<i64>(),
+        DecimalType::I128 => array
+            .buffer::<i128>()
+            .into_iter()
+            .map(|x| {
+                x.to_i64()
+                    .ok_or_else(|| vortex_err!("i128 to i64 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+        DecimalType::I256 => array
+            .buffer::<vortex_scalar::i256>()
+            .into_iter()
+            .map(|x| {
+                x.to_i64()
+                    .ok_or_else(|| vortex_err!("i256 to i64 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+    };
+    Ok(Arc::new(
+        ArrowDecimal64Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
+    ))
+}
+
+fn to_arrow_decimal128(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(array.validity_mask());
+    let buffer: Buffer<i128> = match array.values_type() {
+        DecimalType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I128 => array.buffer::<i128>(),
+        DecimalType::I256 => array
+            .buffer::<vortex_scalar::i256>()
+            .into_iter()
+            .map(|x| {
+                x.to_i128()
+                    .ok_or_else(|| vortex_err!("i256 to i128 narrowing cannot be done safely"))
+            })
+            .process_results(|iter| Buffer::from_trusted_len_iter(iter))?,
+    };
+    Ok(Arc::new(
+        ArrowDecimal128Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
+    ))
+}
+
+fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
+    let null_buffer = to_null_buffer(array.validity_mask());
+    let buffer: Buffer<i256> = match array.values_type() {
+        DecimalType::I8 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i8>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I16 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i16>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I32 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i32>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I64 => {
+            Buffer::from_trusted_len_iter(array.buffer::<i64>().into_iter().map(|x| x.as_()))
+        }
+        DecimalType::I128 => Buffer::from_trusted_len_iter(
+            array
+                .buffer::<i128>()
+                .into_iter()
+                .map(|x| vortex_scalar::i256::from_i128(x).into()),
+        ),
+        DecimalType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
+    };
+    Ok(Arc::new(
+        ArrowDecimal256Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
+            .with_precision_and_scale(
+                array.decimal_dtype().precision(),
+                array.decimal_dtype().scale(),
+            )?,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use arrow_array::Array;
+    use arrow_array::Decimal128Array;
+    use arrow_array::Decimal256Array;
+    use arrow_buffer::i256;
+    use arrow_schema::DataType;
+    use rstest::rstest;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DecimalDType;
+    use vortex_dtype::NativeDecimalType;
+    use vortex_error::VortexResult;
+
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
+    use crate::array::IntoArray;
+    use crate::arrays::DecimalArray;
+    use crate::arrow::ArrowArrayExecutor;
+    use crate::arrow::IntoArrowArray;
+    use crate::builders::ArrayBuilder;
+    use crate::builders::DecimalBuilder;
+    use crate::validity::Validity;
+
+    #[test]
+    fn decimal_to_arrow() -> VortexResult<()> {
+        // Make a very simple i128 and i256 array.
+        let decimal_vortex = DecimalArray::new(
+            buffer![1i128, 2i128, 3i128, 4i128, 5i128],
+            DecimalDType::new(19, 2),
+            Validity::NonNullable,
+        );
+        let arrow = decimal_vortex.into_array().execute_arrow(
+            Some(&DataType::Decimal128(19, 2)),
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )?;
+        assert_eq!(arrow.data_type(), &DataType::Decimal128(19, 2));
+        let decimal_array = arrow.as_any().downcast_ref::<Decimal128Array>().unwrap();
+        assert_eq!(
+            decimal_array.values().as_ref(),
+            &[1i128, 2i128, 3i128, 4i128, 5i128]
+        );
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
+    fn test_to_arrow_decimal128<T: NativeDecimalType>(
+        #[case] _decimal_type: T,
+    ) -> VortexResult<()> {
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal128(2, 1))?;
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal128Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), 10);
+        assert_eq!(arrow_decimal.value(1), 11);
+        assert_eq!(arrow_decimal.value(2), 12);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
+    fn test_to_arrow_decimal32<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
+        use arrow_array::Decimal32Array;
+
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal32(2, 1))?;
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal32Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), 10);
+        assert_eq!(arrow_decimal.value(1), 11);
+        assert_eq!(arrow_decimal.value(2), 12);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
+    fn test_to_arrow_decimal64<T: NativeDecimalType>(#[case] _decimal_type: T) -> VortexResult<()> {
+        use arrow_array::Decimal64Array;
+
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal64(2, 1))?;
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal64Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), 10);
+        assert_eq!(arrow_decimal.value(1), 11);
+        assert_eq!(arrow_decimal.value(2), 12);
+        Ok(())
+    }
+
+    #[rstest]
+    #[case(0i8)]
+    #[case(0i16)]
+    #[case(0i32)]
+    #[case(0i64)]
+    #[case(0i128)]
+    #[case(vortex_scalar::i256::ZERO)]
+    fn test_to_arrow_decimal256<T: NativeDecimalType>(
+        #[case] _decimal_type: T,
+    ) -> VortexResult<()> {
+        let mut decimal = DecimalBuilder::new::<T>(DecimalDType::new(2, 1), false.into());
+        decimal.append_value(10);
+        decimal.append_value(11);
+        decimal.append_value(12);
+        let decimal = decimal.finish();
+
+        let arrow_array = decimal.into_arrow(&DataType::Decimal256(2, 1))?;
+        let arrow_decimal = arrow_array
+            .as_any()
+            .downcast_ref::<Decimal256Array>()
+            .unwrap();
+        assert_eq!(arrow_decimal.value(0), i256::from_i128(10));
+        assert_eq!(arrow_decimal.value(1), i256::from_i128(11));
+        assert_eq!(arrow_decimal.value(2), i256::from_i128(12));
+        Ok(())
+    }
 }

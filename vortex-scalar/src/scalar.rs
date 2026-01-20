@@ -133,7 +133,10 @@ impl Scalar {
     }
 
     fn cast_to_non_extension(&self, target: &DType) -> VortexResult<Self> {
-        assert!(!matches!(target, DType::Extension(..)));
+        assert!(
+            !matches!(target, DType::Extension(..)),
+            "cast_to_non_extension must not be called with an Extension dtype (got {target})",
+        );
 
         if self.is_null() {
             if target.is_nullable() {
@@ -183,7 +186,7 @@ impl Scalar {
                 .ok()
                 .flatten()
                 .map_or(0, |s| s.len()),
-            DType::Struct(_dtype, _) => self
+            DType::Struct(..) => self
                 .as_struct()
                 .fields()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
@@ -193,7 +196,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_ext_dtype) => self.as_extension().storage().nbytes(),
+            DType::Extension(_) => self.as_extension().storage().nbytes(),
         }
     }
 

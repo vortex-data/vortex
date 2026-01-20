@@ -70,7 +70,7 @@ mod tests {
     fn test_string_new() {
         unsafe {
             let test_str = "hello world";
-            let ptr = test_str.as_ptr() as *const c_char;
+            let ptr = test_str.as_ptr().cast();
             let len = test_str.len();
 
             let vx_str = vx_string_new(ptr, len);
@@ -103,7 +103,7 @@ mod tests {
             let ptr = vx_string_ptr(vx_str);
             let len = vx_string_len(vx_str);
 
-            let slice = slice::from_raw_parts(ptr as *const u8, len);
+            let slice = slice::from_raw_parts(ptr.cast::<u8>(), len);
             let recovered = str::from_utf8_unchecked(slice);
             assert_eq!(recovered, "testing");
 
@@ -115,7 +115,7 @@ mod tests {
     fn test_empty_string() {
         unsafe {
             let empty = "";
-            let ptr = empty.as_ptr() as *const c_char;
+            let ptr = empty.as_ptr().cast();
             let vx_str = vx_string_new(ptr, 0);
 
             assert_eq!(vx_string_len(vx_str), 0);
@@ -129,7 +129,7 @@ mod tests {
     fn test_unicode_string() {
         unsafe {
             let unicode_str = "Hello 世界 🌍";
-            let ptr = unicode_str.as_ptr() as *const c_char;
+            let ptr = unicode_str.as_ptr().cast();
             let len = unicode_str.len();
 
             let vx_str = vx_string_new(ptr, len);

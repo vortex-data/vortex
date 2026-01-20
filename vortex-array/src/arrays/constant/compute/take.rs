@@ -66,6 +66,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
@@ -87,7 +88,13 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_arrays_eq!(
+            taken.to_primitive(),
+            PrimitiveArray::new(
+                buffer![42i32, 42, 42],
+                Validity::from_iter([false, true, false])
+            )
+        );
         assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
     }
 
@@ -103,7 +110,10 @@ mod tests {
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
         );
-        assert_eq!(taken.to_primitive().as_slice::<i32>(), &[42, 42, 42]);
+        assert_arrays_eq!(
+            taken.to_primitive(),
+            PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
+        );
         assert_eq!(taken.validity_mask().indices(), AllOr::All);
     }
 

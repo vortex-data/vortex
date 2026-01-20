@@ -57,6 +57,7 @@ impl MessageEncoder {
                 // Currently we include a Context in every message. We could convert this to
                 // sending deltas later.
                 let ctx = ArrayContext::empty();
+
                 let array_buffers = array
                     .serialize(&ctx, &SerializeOptions::default())
                     // TODO(ngates): we should propagate this somehow
@@ -64,9 +65,9 @@ impl MessageEncoder {
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 
                 let array_encodings = ctx
-                    .encodings()
+                    .to_ids()
                     .iter()
-                    .map(|e| fbb.create_string(e.id().as_ref()))
+                    .map(|e| fbb.create_string(e.as_ref()))
                     .collect::<Vec<_>>();
                 let array_encodings = fbb.create_vector(array_encodings.as_slice());
 

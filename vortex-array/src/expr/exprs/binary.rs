@@ -23,6 +23,7 @@ use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
 use crate::compute::compare;
+use crate::compute::compare_nested_arrow_arrays;
 use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
@@ -136,6 +137,7 @@ impl VTable for Binary {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
+        // Handle logical operators.
         match op {
             Operator::And => {
                 return Ok(LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
@@ -146,10 +148,33 @@ impl VTable for Binary {
             _ => {}
         }
 
+        // Arrow's vectorized comparison kernels (`cmp::eq`, etc.) don't support nested types
+        // (Struct, List, FixedSizeList). For those, we use `compare_nested_arrow_arrays` which does
+        // element-wise comparison via `make_comparator`.
+        if let Some(cmp_op) = op.maybe_cmp_operator()
+            && (lhs.is_nested() || rhs.is_nested())
+        {
+            // Treat scalars as 1-element arrow arrays.
+            let lhs_arr = lhs.into_arrow()?;
+            let rhs_arr = rhs.into_arrow()?;
+
+            let bool_array = compare_nested_arrow_arrays(lhs_arr.get().0, rhs_arr.get().0, cmp_op)?;
+            let vector = bool_array.into_vector()?;
+
+            let both_are_scalar = lhs_arr.get().1 && rhs_arr.get().1;
+
+            return Ok(if both_are_scalar {
+                Datum::Scalar(vortex_vector::Scalar::Bool(vector.scalar_at(0)))
+            } else {
+                Datum::Vector(vortex_vector::Vector::Bool(vector))
+            });
+        }
+
         let lhs = lhs.into_arrow()?;
         let rhs = rhs.into_arrow()?;
 
         let vector = match op {
+            // Handle comparison operators.
             Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
             Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
             Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
@@ -161,6 +186,7 @@ impl VTable for Binary {
                 .into_vector()?
                 .into(),
 
+            // Handle arithmetic operators.
             Operator::Add => {
                 arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
@@ -173,17 +199,18 @@ impl VTable for Binary {
             Operator::Div => {
                 arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
             }
-            Operator::And | Operator::Or => {
-                unreachable!("Already dealt with above")
-            }
+
+            // Logical operators were handled above.
+            Operator::And | Operator::Or => unreachable!("Already dealt with above"),
         };
 
-        // If both inputs are scalars, return a scalar datum.
-        if lhs.get().1 && rhs.get().1 {
-            return Ok(Datum::Scalar(vector.scalar_at(0)));
-        }
+        let both_are_scalar = lhs.get().1 && rhs.get().1;
 
-        Ok(Datum::Vector(vector))
+        Ok(if both_are_scalar {
+            Datum::Scalar(vector.scalar_at(0))
+        } else {
+            Datum::Vector(vector)
+        })
     }
 
     fn stat_falsification(
@@ -289,6 +316,24 @@ impl VTable for Binary {
             )),
             Operator::Add | Operator::Sub | Operator::Mul | Operator::Div => None,
         }
+    }
+
+    fn validity(
+        &self,
+        operator: &Operator,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        let lhs = expression.child(0).validity()?;
+        let rhs = expression.child(1).validity()?;
+
+        Ok(match operator {
+            // AND and OR are kleene logic.
+            Operator::And => None,
+            _ => {
+                // All other binary operators are null if either side is null.
+                Some(and(lhs, rhs))
+            }
+        })
     }
 
     fn is_null_sensitive(&self, _operator: &Operator) -> bool {
@@ -567,18 +612,14 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
+    use vortex_scalar::Scalar;
+    use vortex_vector::ScalarOps;
 
-    use super::and;
-    use super::and_collect;
-    use super::and_collect_right;
-    use super::eq;
-    use super::gt;
-    use super::gt_eq;
-    use super::lt;
-    use super::lt_eq;
-    use super::not_eq;
-    use super::or;
+    use super::*;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
@@ -664,5 +705,88 @@ mod tests {
     fn test_display_print() {
         let expr = gt(lit(1), lit(2));
         assert_eq!(format!("{expr}"), "(1i32 > 2i32)");
+    }
+
+    /// Regression test for GitHub issue #5947: struct comparison in filter expressions should work
+    /// using `make_comparator` instead of Arrow's `cmp` functions which don't support nested types.
+    #[test]
+    fn test_struct_comparison() {
+        // Create a struct dtype for testing.
+        let struct_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b"]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+
+        // Test 1: Equal structs should return true.
+        let lhs_scalar = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![Scalar::from(1i32), Scalar::from(3i32)],
+        );
+        let rhs_scalar = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![Scalar::from(1i32), Scalar::from(3i32)],
+        );
+
+        let lhs_datum = Datum::Scalar(lhs_scalar.to_vector_scalar());
+        let rhs_datum = Datum::Scalar(rhs_scalar.to_vector_scalar());
+
+        let result = Binary.bind(Operator::Eq).execute(ExecutionArgs {
+            datums: vec![lhs_datum, rhs_datum],
+            dtypes: vec![struct_dtype.clone(), struct_dtype.clone()],
+            row_count: 1,
+            return_dtype: DType::Bool(Nullability::NonNullable),
+        });
+
+        assert!(result.is_ok(), "Expected success, but got: {:?}", result);
+        let datum = result.unwrap();
+        if let Datum::Scalar(vortex_vector::Scalar::Bool(bool_scalar)) = datum {
+            assert!(bool_scalar.is_valid());
+            assert_eq!(
+                bool_scalar.value(),
+                Some(true),
+                "Equal structs should be equal"
+            );
+        } else {
+            panic!("Expected Scalar::Bool, got {:?}", datum);
+        }
+
+        // Test 2: Different structs should return false.
+        let lhs_scalar = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![Scalar::from(1i32), Scalar::from(3i32)],
+        );
+        let rhs_scalar = Scalar::struct_(
+            struct_dtype.clone(),
+            vec![Scalar::from(1i32), Scalar::from(4i32)], // Different value.
+        );
+
+        let lhs_datum = Datum::Scalar(lhs_scalar.to_vector_scalar());
+        let rhs_datum = Datum::Scalar(rhs_scalar.to_vector_scalar());
+
+        let result = Binary.bind(Operator::Eq).execute(ExecutionArgs {
+            datums: vec![lhs_datum, rhs_datum],
+            dtypes: vec![struct_dtype.clone(), struct_dtype],
+            row_count: 1,
+            return_dtype: DType::Bool(Nullability::NonNullable),
+        });
+
+        assert!(result.is_ok(), "Expected success, but got: {:?}", result);
+        let datum = result.unwrap();
+        if let Datum::Scalar(vortex_vector::Scalar::Bool(bool_scalar)) = datum {
+            assert!(bool_scalar.is_valid());
+            assert_eq!(
+                bool_scalar.value(),
+                Some(false),
+                "Different structs should not be equal"
+            );
+        } else {
+            panic!("Expected Scalar::Bool, got {:?}", datum);
+        }
     }
 }

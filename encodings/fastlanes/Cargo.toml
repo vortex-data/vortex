@@ -40,11 +40,11 @@ itertools = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-alp = { path = "../alp" }
-vortex-array = { workspace = true, features = ["test-harness"] }
-vortex-fastlanes = { path = ".", features = ["test-harness"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-fastlanes = { path = ".", features = ["_test-harness"] }
 
 [features]
-test-harness = ["dep:rand"]
+_test-harness = ["dep:rand"]
 
 [[bench]]
 name = "bitpacking_take"
@@ -57,9 +57,9 @@ harness = false
 [[bench]]
 name = "canonicalize_bench"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]
 
 [[bench]]
 name = "compute_between"
 harness = false
-required-features = ["test-harness"]
+required-features = ["_test-harness"]

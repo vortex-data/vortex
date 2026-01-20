@@ -57,9 +57,9 @@ struct SegmentInfo {
 ///
 /// Returns an error if the file cannot be opened or read.
 pub async fn exec_segments(session: &VortexSession, args: SegmentsArgs) -> VortexResult<()> {
-    let vxf = session.open_options().open(args.file).await?;
-
+    let vxf = session.open_options().open_path(args.file).await?;
     let footer = vxf.footer();
+
     let mut segment_tree = collect_segment_tree(footer.layout().as_ref(), footer.segment_map());
 
     // Convert to output format

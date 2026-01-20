@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::IntoArray;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
@@ -19,19 +15,6 @@ use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn slice(array: &DateTimePartsArray, range: Range<usize>) -> ArrayRef {
-        // SAFETY: slicing all components preserves values
-        unsafe {
-            DateTimePartsArray::new_unchecked(
-                array.dtype().clone(),
-                array.days().slice(range.clone()),
-                array.seconds().slice(range.clone()),
-                array.subseconds().slice(range),
-            )
-            .into_array()
-        }
-    }
-
     fn scalar_at(array: &DateTimePartsArray, index: usize) -> Scalar {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(

@@ -24,14 +24,19 @@ use crate::messages::SyncMessageReader;
 pub struct SyncIPCReader<R: Read> {
     reader: SyncMessageReader<R>,
     dtype: DType,
+    registry: ArrayRegistry,
 }
 
 impl<R: Read> SyncIPCReader<R> {
     pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
-        let mut reader = SyncMessageReader::new(read, registry);
+        let mut reader = SyncMessageReader::new(read);
         match reader.next().transpose()? {
             Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(SyncIPCReader { reader, dtype }),
+                DecoderMessage::DType(dtype) => Ok(SyncIPCReader {
+                    reader,
+                    dtype,
+                    registry,
+                }),
                 msg => {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
@@ -55,7 +60,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
             Ok(msg) => match msg {
                 DecoderMessage::Array((array_parts, ctx, row_count)) => Some(
                     array_parts
-                        .decode(&ctx, &self.dtype, row_count)
+                        .decode(&self.dtype, row_count, &ctx, &self.registry)
                         .and_then(|array| {
                             if array.dtype() != self.dtype() {
                                 Err(vortex_err!(

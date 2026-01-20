@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -10,7 +12,10 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
+use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
@@ -20,14 +25,12 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
+use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod rules;
 mod validity;
@@ -37,6 +40,10 @@ vtable!(ListView);
 
 #[derive(Debug)]
 pub struct ListViewVTable;
+
+impl ListViewVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -54,19 +61,29 @@ impl VTable for ListViewVTable {
     type Metadata = ProstMetadata<ListViewMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.listview")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ListViewVTable.as_vtable()
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // SAFETY: Slicing the components of an existing valid array is still valid.
+        Ok(Some(
+            unsafe {
+                ListViewArray::new_unchecked(
+                    array.elements().clone(),
+                    array.offsets().slice(range.clone()),
+                    array.sizes().slice(range.clone()),
+                    array.validity().slice(range),
+                )
+                .with_zero_copy_to_list(array.is_zero_copy_to_list())
+            }
+            .into_array(),
+        ))
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
@@ -87,7 +104,6 @@ impl VTable for ListViewVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -165,6 +181,10 @@ impl VTable for ListViewVTable {
         let new_array = ListViewArray::try_new(elements, offsets, sizes, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::List(array.clone()))
     }
 
     fn reduce_parent(

@@ -227,3 +227,5 @@ sweep.timestamp
 # Pending cargo-insta snapshots
 *.pending-snap
 
+# CUDA
+*.ptx

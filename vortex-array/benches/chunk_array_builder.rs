@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
@@ -8,12 +10,16 @@ use rand::prelude::StdRng;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::VarBinViewBuilder;
 use vortex_array::builders::builder_with_capacity;
+use vortex_array::session::ArraySession;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
+use vortex_session::VortexSession;
 
 fn main() {
     divan::main();
@@ -26,13 +32,18 @@ const BENCH_ARGS: &[(usize, usize)] = &[
     (1000, 10),
 ];
 
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
 #[divan::bench(args = BENCH_ARGS)]
 fn chunked_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize, usize)) {
     let chunk = make_bool_chunks(len, chunk_count);
 
     bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut());
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         builder.finish()
     })
 }
@@ -43,7 +54,9 @@ fn chunked_opt_bool_canonical_into(bencher: Bencher, (len, chunk_count): (usize,
 
     bencher.with_inputs(|| &chunk).bench_refs(|chunk| {
         let mut builder = builder_with_capacity(chunk.dtype(), len * chunk_count);
-        chunk.append_to_builder(builder.as_mut());
+        chunk
+            .append_to_builder(builder.as_mut(), &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         builder.finish()
     })
 }
@@ -75,7 +88,9 @@ fn chunked_varbinview_canonical_into(bencher: Bencher, (len, chunk_count): (usiz
             DType::Utf8(chunk.dtype().nullability()),
             len * chunk_count,
         );
-        chunk.append_to_builder(&mut builder);
+        chunk
+            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         builder.finish()
     })
 }
@@ -98,7 +113,9 @@ fn chunked_varbinview_opt_canonical_into(bencher: Bencher, (len, chunk_count): (
             DType::Utf8(chunk.dtype().nullability()),
             len * chunk_count,
         );
-        chunk.append_to_builder(&mut builder);
+        chunk
+            .append_to_builder(&mut builder, &mut SESSION.create_execution_ctx())
+            .vortex_expect("append failed");
         builder.finish()
     })
 }

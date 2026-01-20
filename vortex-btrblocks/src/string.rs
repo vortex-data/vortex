@@ -11,6 +11,7 @@ use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
+use vortex_array::compute::is_constant;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -330,7 +331,8 @@ impl Scheme for ConstantScheme {
             return Ok(0.0);
         }
 
-        if stats.estimated_distinct_count > 1 || !stats.src.is_constant() {
+        if stats.estimated_distinct_count > 1 || !is_constant(stats.src.as_ref())?.unwrap_or(false)
+        {
             return Ok(0.0);
         }
 
@@ -440,7 +442,6 @@ impl Scheme for NullDominated {
 
 #[cfg(test)]
 mod tests {
-
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -487,7 +488,6 @@ mod tests {
 /// Tests to verify that each string compression scheme produces the expected encoding.
 #[cfg(test)]
 mod scheme_selection_tests {
-
     use vortex_array::arrays::ConstantVTable;
     use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::VarBinViewArray;
