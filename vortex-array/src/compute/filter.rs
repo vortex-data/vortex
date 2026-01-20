@@ -141,7 +141,7 @@ impl ComputeFnVTable for Filter {
 
         vortex_bail!(
             "No filter implementation found for array {}",
-            array.encoding()
+            array.encoding_id()
         )
     }
 

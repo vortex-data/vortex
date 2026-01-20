@@ -26,8 +26,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -72,12 +70,8 @@ impl VTable for RunEndVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.runend")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        RunEndVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &RunEndArray) -> VortexResult<Self::Metadata> {
@@ -99,7 +93,6 @@ impl VTable for RunEndVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -167,6 +160,10 @@ pub struct RunEndArray {
 
 #[derive(Debug)]
 pub struct RunEndVTable;
+
+impl RunEndVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.runend");
+}
 
 impl RunEndArray {
     fn validate(

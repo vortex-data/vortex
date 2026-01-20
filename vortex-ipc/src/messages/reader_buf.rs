@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use bytes::Buf;
-use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -17,10 +16,10 @@ pub struct BufMessageReader<B> {
 }
 
 impl<B: Buf> BufMessageReader<B> {
-    pub fn new(buffer: B, registry: ArrayRegistry) -> Self {
+    pub fn new(buffer: B) -> Self {
         BufMessageReader {
             buffer,
-            decoder: MessageDecoder::new(registry),
+            decoder: MessageDecoder::default(),
         }
     }
 }

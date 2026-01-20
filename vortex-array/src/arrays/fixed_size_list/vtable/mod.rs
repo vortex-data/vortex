@@ -20,8 +20,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -37,6 +35,10 @@ vtable!(FixedSizeList);
 #[derive(Debug)]
 pub struct FixedSizeListVTable;
 
+impl FixedSizeListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
+}
+
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
 
@@ -48,8 +50,8 @@ impl VTable for FixedSizeListVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.fixed_size_list")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -72,10 +74,6 @@ impl VTable for FixedSizeListVTable {
         ))
     }
 
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FixedSizeListVTable.as_vtable()
-    }
-
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
@@ -92,7 +90,6 @@ impl VTable for FixedSizeListVTable {
     ///
     /// This method expects 1 or 2 children (a second child indicates a validity array).
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,

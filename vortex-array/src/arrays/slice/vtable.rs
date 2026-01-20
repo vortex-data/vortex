@@ -33,8 +33,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
@@ -47,6 +45,10 @@ vtable!(Slice);
 #[derive(Debug)]
 pub struct SliceVTable;
 
+impl SliceVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.slice");
+}
+
 impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
@@ -56,12 +58,8 @@ impl VTable for SliceVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::from("vortex.slice")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SliceVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        SliceVTable::ID
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -77,7 +75,6 @@ impl VTable for SliceVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &SliceMetadata,

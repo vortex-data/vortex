@@ -15,8 +15,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChildSliceHelper;
@@ -57,12 +55,8 @@ impl VTable for DeltaVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("fastlanes.delta")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DeltaVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -124,7 +118,6 @@ impl VTable for DeltaVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -155,6 +148,10 @@ impl VTable for DeltaVTable {
 
 #[derive(Debug)]
 pub struct DeltaVTable;
+
+impl DeltaVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("fastlanes.delta");
+}
 
 #[cfg(test)]
 mod tests {

@@ -22,8 +22,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
@@ -57,12 +55,8 @@ impl VTable for ZigZagVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.zigzag")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ZigZagVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &ZigZagArray) -> VortexResult<Self::Metadata> {
@@ -78,7 +72,6 @@ impl VTable for ZigZagVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -128,6 +121,10 @@ pub struct ZigZagArray {
 
 #[derive(Debug)]
 pub struct ZigZagVTable;
+
+impl ZigZagVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.zigzag");
+}
 
 impl ZigZagArray {
     pub fn new(encoded: ArrayRef) -> Self {

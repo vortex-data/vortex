@@ -24,8 +24,6 @@ use vortex_array::validity::Validity;
 use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
@@ -200,12 +198,8 @@ impl VTable for SequenceVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.sequence")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SequenceVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -226,7 +220,6 @@ impl VTable for SequenceVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -423,6 +416,10 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 
 #[derive(Debug)]
 pub struct SequenceVTable;
+
+impl SequenceVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
+}
 
 #[cfg(test)]
 mod tests {

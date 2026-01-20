@@ -3,6 +3,7 @@
 
 use vortex_error::VortexResult;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::slice::SliceArray;
 use crate::arrays::slice::SliceVTable;
@@ -21,7 +22,7 @@ impl ArrayReduceRule<SliceVTable> for SliceVTableRule {
         // Try the child's VTable::slice implementation
         array
             .child()
-            .encoding()
+            .vtable()
             .slice(array.child(), array.slice_range().clone())
     }
 }

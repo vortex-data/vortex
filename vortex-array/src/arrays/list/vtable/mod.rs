@@ -27,8 +27,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -61,8 +59,8 @@ impl VTable for ListVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.list")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -74,10 +72,6 @@ impl VTable for ListVTable {
             )
             .into_array(),
         ))
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ListVTable.as_vtable()
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -98,7 +92,6 @@ impl VTable for ListVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -173,3 +166,7 @@ impl VTable for ListVTable {
 
 #[derive(Debug)]
 pub struct ListVTable;
+
+impl ListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.list");
+}

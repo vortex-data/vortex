@@ -23,8 +23,6 @@ use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
@@ -55,12 +53,8 @@ impl VTable for ByteBoolVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.bytebool")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ByteBoolVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &ByteBoolArray) -> VortexResult<Self::Metadata> {
@@ -76,7 +70,6 @@ impl VTable for ByteBoolVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -146,6 +139,10 @@ pub struct ByteBoolArray {
 
 #[derive(Debug)]
 pub struct ByteBoolVTable;
+
+impl ByteBoolVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
+}
 
 impl ByteBoolArray {
     pub fn new(buffer: ByteBuffer, validity: Validity) -> Self {

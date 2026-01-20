@@ -34,8 +34,6 @@ use crate::stats::StatsSetRef;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
@@ -48,6 +46,10 @@ vtable!(Filter);
 #[derive(Debug)]
 pub struct FilterVTable;
 
+impl FilterVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.filter");
+}
+
 impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
@@ -57,12 +59,8 @@ impl VTable for FilterVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::from("vortex.filter")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FilterVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &Self::Array) -> VortexResult<Self::Metadata> {
@@ -78,7 +76,6 @@ impl VTable for FilterVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &FilterMetadata,

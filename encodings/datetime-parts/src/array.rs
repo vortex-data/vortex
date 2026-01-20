@@ -24,8 +24,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -87,12 +85,8 @@ impl VTable for DateTimePartsVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.datetimeparts")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DateTimePartsVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &DateTimePartsArray) -> VortexResult<Self::Metadata> {
@@ -114,7 +108,6 @@ impl VTable for DateTimePartsVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -199,6 +192,10 @@ pub struct DateTimePartsArray {
 
 #[derive(Debug)]
 pub struct DateTimePartsVTable;
+
+impl DateTimePartsVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.datetimeparts");
+}
 
 impl DateTimePartsArray {
     pub fn try_new(

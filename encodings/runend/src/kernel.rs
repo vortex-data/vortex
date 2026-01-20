@@ -32,7 +32,7 @@ impl ExecuteParentKernel<RunEndVTable> for RunEndSliceKernel {
     type Parent = Exact<SliceVTable>;
 
     fn parent(&self) -> Self::Parent {
-        Exact::from(&SliceVTable)
+        Exact::new()
     }
 
     fn execute_parent(

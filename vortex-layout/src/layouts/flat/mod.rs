@@ -116,7 +116,7 @@ impl VTable for FlatVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -125,7 +125,7 @@ impl VTable for FlatVTable {
             row_count,
             dtype.clone(),
             segment_ids[0],
-            ctx,
+            ctx.clone(),
             metadata
                 .array_encoding_tree
                 .as_ref()

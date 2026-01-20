@@ -82,7 +82,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

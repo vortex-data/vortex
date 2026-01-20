@@ -132,7 +132,7 @@ impl VTable for ZonedVTable {
         metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: ArrayContext,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),

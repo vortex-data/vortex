@@ -34,8 +34,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -82,12 +80,8 @@ impl VTable for FSSTVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.fsst")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FSSTVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &FSSTArray) -> VortexResult<Self::Metadata> {
@@ -108,7 +102,6 @@ impl VTable for FSSTVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -260,6 +253,10 @@ impl Debug for FSSTArray {
 
 #[derive(Debug)]
 pub struct FSSTVTable;
+
+impl FSSTVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.fsst");
+}
 
 impl FSSTArray {
     /// Build an FSST array from a set of `symbols` and `codes`.

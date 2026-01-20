@@ -35,7 +35,7 @@ pub trait LayoutEncoding: 'static + Send + Sync + Debug + private::Sealed {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<LayoutRef>;
 }
 
@@ -58,7 +58,7 @@ impl<V: VTable> LayoutEncoding for LayoutEncodingAdapter<V> {
         metadata: &[u8],
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<LayoutRef> {
         let metadata = <V::Metadata as DeserializeMetadata>::deserialize(metadata)?;
         let layout = V::build(

@@ -28,7 +28,7 @@ impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
     type Parent = Exact<MaskedVTable>;
 
     fn parent(&self) -> Exact<MaskedVTable> {
-        Exact::from(&MaskedVTable)
+        Exact::new()
     }
 
     fn reduce_parent(

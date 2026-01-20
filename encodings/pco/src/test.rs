@@ -17,7 +17,6 @@ use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -142,13 +141,9 @@ fn test_serde() -> VortexResult<()> {
     let pco = PcoArray::from_primitive(&data, 3, 100)?.to_array();
 
     let session = ArraySession::default();
-    let context = ArrayContext::new(
-        session
-            .registry()
-            .items()
-            .chain([PcoVTable.as_vtable()])
-            .collect(),
-    );
+    session.registry().register(PcoVTable::ID, PcoVTable);
+
+    let context = ArrayContext::empty();
 
     let bytes = pco
         .serialize(
@@ -165,9 +160,10 @@ fn test_serde() -> VortexResult<()> {
 
     let parts = ArrayParts::try_from(bytes)?;
     let decoded = parts.decode(
-        &context,
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,
+        &context,
+        session.registry(),
     )?;
     let mut ctx = LEGACY_SESSION.create_execution_ctx();
     let data_type = data.dtype().to_arrow_dtype()?;

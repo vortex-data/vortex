@@ -26,8 +26,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
@@ -60,12 +58,8 @@ impl VTable for ALPVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.alp")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ALPVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &ALPArray) -> VortexResult<Self::Metadata> {
@@ -91,7 +85,6 @@ impl VTable for ALPVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -211,6 +204,10 @@ pub struct ALPArray {
 
 #[derive(Debug)]
 pub struct ALPVTable;
+
+impl ALPVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.alp");
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ALPMetadata {

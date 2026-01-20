@@ -28,8 +28,6 @@ use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
@@ -72,12 +70,8 @@ impl VTable for DecimalBytePartsVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.decimal_byte_parts")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DecimalBytePartsVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &DecimalBytePartsArray) -> VortexResult<Self::Metadata> {
@@ -96,7 +90,6 @@ impl VTable for DecimalBytePartsVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -204,6 +197,10 @@ impl DecimalBytePartsArray {
 
 #[derive(Debug)]
 pub struct DecimalBytePartsVTable;
+
+impl DecimalBytePartsVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.decimal_byte_parts");
+}
 
 impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn len(array: &DecimalBytePartsArray) -> usize {

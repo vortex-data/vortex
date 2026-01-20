@@ -8,7 +8,6 @@ use std::sync::LazyLock;
 
 use futures::StreamExt;
 use futures::pin_mut;
-use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;

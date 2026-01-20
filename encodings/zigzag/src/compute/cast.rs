@@ -61,7 +61,7 @@ mod tests {
         // Verify the result is still a ZigZagArray (not decoded)
         // Note: The result might be wrapped, so let's check the encoding ID
         assert_eq!(
-            casted.encoding().id().as_ref(),
+            casted.encoding_id().as_ref(),
             "vortex.zigzag",
             "Cast should preserve ZigZag encoding"
         );
@@ -81,7 +81,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            casted.encoding().id().as_ref(),
+            casted.encoding_id().as_ref(),
             "vortex.zigzag",
             "Should remain ZigZag encoded"
         );
@@ -101,7 +101,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            casted64.encoding().id().as_ref(),
+            casted64.encoding_id().as_ref(),
             "vortex.zigzag",
             "Should remain ZigZag encoded"
         );

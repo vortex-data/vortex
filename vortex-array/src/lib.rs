@@ -4,7 +4,8 @@
 #![cfg_attr(vortex_nightly, feature(portable_simd))]
 //! Vortex crate containing core logic for encoding and memory representation of [arrays](ArrayRef).
 //!
-//! At the heart of Vortex are [arrays](ArrayRef) and [encodings](vtable::ArrayVTable).
+//! At the heart of Vortex are [arrays](ArrayRef).
+//!
 //! Arrays are typed views of memory buffers that hold [scalars](vortex_scalar::Scalar). These
 //! buffers can be held in a number of physical encodings to perform lightweight compression that
 //! exploits the particular data distribution of the array's values.

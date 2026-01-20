@@ -25,8 +25,6 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityHelper;
@@ -42,6 +40,10 @@ vtable!(ListView);
 
 #[derive(Debug)]
 pub struct ListViewVTable;
+
+impl ListViewVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.listview");
+}
 
 #[derive(Clone, prost::Message)]
 pub struct ListViewMetadata {
@@ -64,8 +66,8 @@ impl VTable for ListViewVTable {
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.listview")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -82,10 +84,6 @@ impl VTable for ListViewVTable {
             }
             .into_array(),
         ))
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        ListViewVTable.as_vtable()
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {
@@ -106,7 +104,6 @@ impl VTable for ListViewVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
