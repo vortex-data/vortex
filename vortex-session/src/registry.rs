@@ -74,7 +74,7 @@ impl<T: Clone> Registry<T> {
 /// 1. This object holds an Arc of Mutex internally because we need concurrent access from the
 ///    layout writer code path. We should update SegmentSink to take an Array rather than
 ///    ByteBuffer such that serializing arrays is done sequentially.
-/// 2. The name is terrible. Interner<T> is better, but I want to minimize breakage for now.
+/// 2. The name is terrible. `Interner<T>` is better, but I want to minimize breakage for now.
 #[derive(Clone, Debug)]
 pub struct Context<T> {
     // TODO(ngates): it's a long story, but if we make SegmentSink and SegmentSource take an
