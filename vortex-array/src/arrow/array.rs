@@ -16,7 +16,6 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
@@ -24,7 +23,9 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::Precision;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrow::FromArrowArray;
 use crate::buffer::BufferHandle;
@@ -96,8 +97,9 @@ impl VTable for ArrowVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable()).to_canonical()
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
+            .execute::<Canonical>(ctx)
     }
 }
 

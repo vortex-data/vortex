@@ -51,20 +51,28 @@ fn compress_primitive<T: NativePType + WrappingSub + PrimInt>(
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use itertools::Itertools;
     use vortex_array::Array;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::stats::StatsProvider;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::PType;
     use vortex_scalar::Scalar;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::BitPackedArray;
     use crate::r#for::array::for_decompress::decompress;
     use crate::r#for::array::for_decompress::fused_decompress;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_compress_round_trip_small() {
@@ -128,18 +136,20 @@ mod test {
     }
 
     #[test]
-    fn test_decompress_fused_patches() {
+    fn test_decompress_fused_patches() -> VortexResult<()> {
         // Create a range offset by a million.
         let expect = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7 + 10));
         let array = PrimitiveArray::from_iter((0u32..1024).map(|x| x % 7));
         let bp = BitPackedArray::encode(array.as_ref(), 2).unwrap();
         let compressed = FoRArray::try_new(bp.clone().into_array(), 10u32.into()).unwrap();
-        let decompressed = fused_decompress::<u32>(&compressed, &bp);
+        let decompressed =
+            fused_decompress::<u32>(&compressed, &bp, &mut SESSION.create_execution_ctx())?;
         assert_arrays_eq!(decompressed, expect);
+        Ok(())
     }
 
     #[test]
-    fn test_overflow() {
+    fn test_overflow() -> VortexResult<()> {
         let array = PrimitiveArray::from_iter(i8::MIN..=i8::MAX);
         let compressed = FoRArray::encode(array.clone()).unwrap();
         assert_eq!(
@@ -159,7 +169,7 @@ mod test {
         let expected_unsigned = PrimitiveArray::from_iter(unsigned);
         assert_arrays_eq!(encoded, expected_unsigned);
 
-        let decompressed = decompress(&compressed);
+        let decompressed = decompress(&compressed, &mut SESSION.create_execution_ctx())?;
         array
             .as_slice::<i8>()
             .iter()
@@ -168,5 +178,6 @@ mod test {
                 assert_eq!(*v, i8::try_from(compressed.scalar_at(i).as_ref()).unwrap());
             });
         assert_arrays_eq!(decompressed, array);
+        Ok(())
     }
 }

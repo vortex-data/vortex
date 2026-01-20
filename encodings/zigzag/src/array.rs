@@ -15,7 +15,6 @@ use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ToCanonical;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -112,9 +111,9 @@ impl VTable for ZigZagVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().to_primitive(),
+            array.encoded().clone().execute(ctx)?,
         )))
     }
 }
@@ -220,6 +219,7 @@ impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 

@@ -253,6 +253,7 @@ impl VTable for BitPackedVTable {
     fn append_to_builder(
         array: &BitPackedArray,
         builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
         match_each_integer_ptype!(array.ptype(), |T| {
             unpack_into_primitive_builder::<T>(
@@ -261,13 +262,13 @@ impl VTable for BitPackedVTable {
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                ctx,
             )
-        });
-        Ok(())
+        })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(unpack_array(array)))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(unpack_array(array, ctx)?))
     }
 
     fn execute_parent(

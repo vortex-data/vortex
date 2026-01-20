@@ -123,12 +123,9 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             primitive_vector = patches.apply_to_primitive_vector(primitive_vector);
         }
 
-        Ok(Some(
-            primitive_vector
-                .freeze()
-                .into_array(parent.dtype())
-                .to_canonical()?,
-        ))
+        Ok(Some(Canonical::Primitive(
+            primitive_vector.freeze().into_array(parent.dtype()),
+        )))
     }
 }
 

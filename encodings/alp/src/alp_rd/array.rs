@@ -18,7 +18,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
@@ -47,8 +46,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_mask::Mask;
 
-use crate::alp_rd::alp_rd_decode;
+use crate::alp_rd_decode;
 
 vtable!(ALPRD);
 
@@ -245,12 +245,17 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let left_parts = array.left_parts().to_primitive();
-        let right_parts = array.right_parts().to_primitive();
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
+        let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;
 
         // Decode the left_parts using our builtin dictionary.
         let left_parts_dict = array.left_parts_dictionary();
+
+        let validity = array
+            .validity()?
+            .to_array(array.len())
+            .execute::<Mask>(ctx)?;
 
         let decoded_array = if array.is_f32() {
             PrimitiveArray::new(
@@ -260,8 +265,9 @@ impl VTable for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u32>(),
                     array.left_parts_patches(),
-                ),
-                Validity::copy_from_array(array.as_ref()),
+                    ctx,
+                )?,
+                Validity::from_mask(validity, array.dtype().nullability()),
             )
         } else {
             PrimitiveArray::new(
@@ -271,8 +277,9 @@ impl VTable for ALPRDVTable {
                     array.right_bit_width,
                     right_parts.into_buffer_mut::<u64>(),
                     array.left_parts_patches(),
-                ),
-                Validity::copy_from_array(array.as_ref()),
+                    ctx,
+                )?,
+                Validity::from_mask(validity, array.dtype().nullability()),
             )
         };
 

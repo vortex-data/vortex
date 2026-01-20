@@ -163,15 +163,19 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(
+        array: &ChunkedArray,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         for chunk in array.chunks() {
-            chunk.append_to_builder(builder)?;
+            chunk.append_to_builder(builder, ctx)?;
         }
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        _canonicalize(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        _canonicalize(array, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

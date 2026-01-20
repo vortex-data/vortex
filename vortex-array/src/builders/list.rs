@@ -22,13 +22,11 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ListArray;
-use crate::arrays::list_view_from_list;
 use crate::builders::ArrayBuilder;
 use crate::builders::DEFAULT_BUILDER_CAPACITY;
 use crate::builders::LazyBitBufferBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::builders::builder_with_capacity;
-use crate::canonical::Canonical;
 use crate::canonical::ToCanonical;
 
 /// The builder for building a [`ListArray`], parametrized by the [`IntegerPType`] of the `offsets`
@@ -294,10 +292,6 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
 
     fn finish(&mut self) -> ArrayRef {
         self.finish_into_list().into_array()
-    }
-
-    fn finish_into_canonical(&mut self) -> Canonical {
-        Canonical::List(list_view_from_list(self.finish_into_list()))
     }
 }
 

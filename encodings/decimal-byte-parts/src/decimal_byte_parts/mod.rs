@@ -20,8 +20,8 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::DecimalArray;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -145,8 +145,8 @@ impl VTable for DecimalBytePartsVTable {
         }))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        to_canonical_decimal(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        to_canonical_decimal(array, ctx)
     }
 }
 
@@ -237,9 +237,12 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 }
 
 /// Converts a DecimalBytePartsArray to its canonical DecimalArray representation.
-fn to_canonical_decimal(array: &DecimalBytePartsArray) -> VortexResult<Canonical> {
+fn to_canonical_decimal(
+    array: &DecimalBytePartsArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
     // TODO(joe): support parts len != 1
-    let prim = array.msp.to_primitive();
+    let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
     // Depending on the decimal type and the min/max of the primitive array we can choose
     // the correct buffer size
 

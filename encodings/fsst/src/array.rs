@@ -183,22 +183,26 @@ impl VTable for FSSTVTable {
         Ok(())
     }
 
-    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(
+        array: &FSSTArray,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(&array.to_canonical()?.into_array());
+            builder.extend_from_array(&array.to_array().execute::<Canonical>(ctx)?.into_array());
             return Ok(());
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
 
         builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        canonicalize_fsst(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_fsst(array, ctx)
     }
 
     fn execute_parent(
