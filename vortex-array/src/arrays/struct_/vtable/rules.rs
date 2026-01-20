@@ -199,6 +199,8 @@ impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
             ));
         }
 
+        tracing::warn!("PARTITIONED: {}", partitioned);
+
         // Otherwise, build a StructArray with each partition as a field
 
         // We process the partitioned expressions to rewrite the root scope to be that of the

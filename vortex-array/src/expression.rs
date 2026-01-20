@@ -18,7 +18,7 @@ impl dyn Array + '_ {
             .into_array()
             .optimize_recursive()?;
 
-        tracing::warn!("EXPRESSION APPLY:\n{}", array.display_tree());
+        tracing::debug!("EXPRESSION APPLY:\n{}", array.display_tree());
         Ok(array)
 
         // // If the expression is a root, return self.
