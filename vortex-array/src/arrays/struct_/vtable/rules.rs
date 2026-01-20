@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::FieldName;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
@@ -9,6 +12,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
+use crate::arrays::ExpressionArray;
+use crate::arrays::ExpressionVTable;
 use crate::arrays::ScalarFnArrayExt;
 use crate::arrays::ScalarFnArrayView;
 use crate::arrays::StructArray;
@@ -18,6 +23,14 @@ use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
 use crate::expr::Mask;
+use crate::expr::annotate_scope_access;
+use crate::expr::col;
+use crate::expr::root;
+use crate::expr::transform::PartitionedExpr;
+use crate::expr::transform::partition;
+use crate::expr::transform::replace;
+use crate::matchers::Exact;
+use crate::matchers::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
@@ -144,5 +157,52 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
                     .map(Some)
             }
         }
+    }
+}
+
+/// Rule to partition a parent expression over the fields of a StructArray.
+#[derive(Debug)]
+pub struct StructPartitionRule;
+impl ArrayParentReduceRule<StructVTable> for StructPartitionRule {
+    type Parent = Exact<ExpressionVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::from(&ExpressionVTable)
+    }
+
+    fn reduce_parent(
+        &self,
+        array: &StructArray,
+        parent: &ExpressionArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Partition the expression into expressions that can be evaluated over individual fields
+        let partitioned = partition(
+            parent.expression().clone(),
+            array.dtype(),
+            annotate_scope_access(array.dtype().as_struct_fields()),
+        )?;
+
+        // If there's only one partition, we can step into the scope of the single field directly.
+        if partitioned.partitions.len() == 1 {
+            let field_name = partitioned.partition_annotations[0].clone();
+            let field_idx = array.dtype.as_struct_fields().find(&field_name)
+                .ok_or_else(|| vortex_err!("Field name must exist in struct dtype as it was used to partition expression"))?;
+
+            // Replace getitem(field_name) with root()
+            let new_expression = replace(
+                parent.expression().clone(),
+                &col(field_name.clone()),
+                root(),
+            );
+
+            return Ok(Some(
+                ExpressionArray::try_new(new_expression, array.masked_field(field_idx)?)?
+                    .into_array(),
+            ));
+        }
+
+        // Otherwise, build a StructArray with each partition as a field
+        vortex_bail!("StructPartitionRule for multiple partitions not yet implemented")
     }
 }

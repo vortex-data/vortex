@@ -3,11 +3,13 @@
 
 use std::fmt::Debug;
 use std::iter::once;
+use std::ops::Not;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,6 +19,7 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -376,6 +379,18 @@ impl StructArray {
         iter: T,
     ) -> VortexResult<Self> {
         Self::try_from_iter_with_validity(iter, Validity::NonNullable)
+    }
+
+    /// Return the field at `field_idx` with the struct's validity mask applied.
+    ///
+    /// This returns the result of a full "get_item" operation on the struct array, instead of
+    /// a naive lightweight field access.
+    pub fn masked_field(&self, field_idx: usize) -> VortexResult<ArrayRef> {
+        let field = self.fields[field_idx];
+        match self.dtype().nullability() {
+            Nullability::NonNullable => Ok(field),
+            Nullability::Nullable => mask(&field, &self.validity_mask().not()),
+        }
     }
 
     // TODO(aduffy): Add equivalent function to support field masks for nested column access.
