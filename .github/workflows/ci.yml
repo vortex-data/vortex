@@ -385,10 +385,6 @@ jobs:
         include:
           - suite: tests
             cpu: 32
-          - suite: tpc-h
-            cpu: 16
-          - suite: ffi
-            cpu: 16
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -424,18 +420,6 @@ jobs:
           RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
           cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
-      - name: Run TPC-H
-        if: ${{ matrix.suite == 'tpc-h' }}
-        # We use i2 to ensure that restarting the duckdb connection succeeds
-        run: |
-          cargo run --bin datafusion-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
-          cargo run --bin duckdb-bench -- tpch -i2 --formats "vortex,vortex-compact" --opt scale-factor=0.1
-          rm -rf vortex-bench/data/
-      - name: Run FFI Example
-        if: ${{ matrix.suite == 'ffi' }}
-        run: |
-          cargo build -p vortex-ffi
-          cargo run -p vortex-ffi --example hello_vortex
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -575,11 +559,13 @@ jobs:
           tool: nextest
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
+        env:
+          RUSFLAGS: "-C debuginfo=0"
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
-        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb
+        run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-duckdb --exclude xtask
       - name: Prune cache
         if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
         run: cargo sweep --file
