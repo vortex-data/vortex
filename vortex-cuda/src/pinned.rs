@@ -183,7 +183,10 @@ impl PooledPinnedBuffer {
 
     /// Returns the length of the buffer in bytes.
     pub fn len(&self) -> usize {
-        self.inner.as_ref().map(|b| b.len()).unwrap_or(0)
+        self.inner
+            .as_ref()
+            .map(|b| b.len())
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"))
     }
 
     /// Returns true if the buffer is empty.
@@ -275,7 +278,7 @@ impl Drop for PooledPinnedBuffer {
 /// This is used by `Bytes::from_owner` to manage the lifecycle of pooled pinned buffers.
 struct PooledPinnedBufferOwner {
     // We use Option so we can take the buffer out in Drop
-    inner: Mutex<Option<PinnedByteBuffer>>,
+    inner: Option<PinnedByteBuffer>,
     // Cached pointer and length for AsRef implementation
     ptr: *const u8,
     len: usize,
@@ -294,7 +297,7 @@ impl PooledPinnedBufferOwner {
             .unwrap_or_else(|e| vortex_panic!("failed to get pointer to pinned buffer: {e}"));
         let len = inner.len();
         Self {
-            inner: Mutex::new(Some(inner)),
+            inner: Some(inner),
             ptr,
             len,
             pool,
@@ -313,7 +316,7 @@ impl AsRef<[u8]> for PooledPinnedBufferOwner {
 impl Drop for PooledPinnedBufferOwner {
     fn drop(&mut self) {
         // Take the buffer out and return it to the pool
-        if let Some(buffer) = self.inner.lock().take() {
+        if let Some(buffer) = self.inner.take() {
             drop(self.pool.put(buffer));
         }
     }

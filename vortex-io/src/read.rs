@@ -237,6 +237,7 @@ impl VortexReadAt for ByteBuffer {
         }
         .boxed()
     }
+
 }
 
 /// A wrapper that instruments a [`VortexReadAt`] with metrics.
@@ -319,6 +320,26 @@ impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
             sizes.update(length as i64);
             total_size.add(length as i64);
             buf
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let durations = self.durations.clone();
+        let sizes = self.sizes.clone();
+        let total_size = self.total_size.clone();
+        let length = target.len();
+        let read_fut = self.read.read_at_into(offset, target);
+        async move {
+            let _timer = durations.time();
+            let result = read_fut.await;
+            sizes.update(length as i64);
+            total_size.add(length as i64);
+            result
         }
         .boxed()
     }
