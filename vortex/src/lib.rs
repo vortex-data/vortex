@@ -36,10 +36,6 @@ pub mod compressor {
     pub use vortex_layout::layouts::compact::CompactCompressor;
 }
 
-pub mod dataset {
-    pub use vortex_dataset::*;
-}
-
 pub mod dtype {
     pub use vortex_dtype::*;
 }

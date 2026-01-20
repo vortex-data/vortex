@@ -7,6 +7,7 @@
 const IDEAL_SPLIT_SIZE: u64 = 100_000;
 
 pub mod arrow;
+pub mod datasource;
 mod filter;
 pub mod row_mask;
 mod splits;

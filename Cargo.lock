@@ -10024,7 +10024,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-compute",
- "vortex-dataset",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10329,17 +10328,6 @@ dependencies = [
  "vortex",
  "vortex-utils",
  "walkdir",
-]
-
-[[package]]
-name = "vortex-dataset"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "futures",
- "vortex-array",
- "vortex-dtype",
- "vortex-error",
 ]
 
 [[package]]

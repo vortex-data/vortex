@@ -9,7 +9,6 @@ members = [
     "vortex-compute",
     "vortex-cxx",
     "vortex-datafusion",
-    "vortex-dataset",
     "vortex-dtype",
     "vortex-duckdb",
     "vortex-error",
@@ -223,7 +222,6 @@ vortex-buffer = { version = "0.1.0", path = "./vortex-buffer", default-features 
 vortex-bytebool = { version = "0.1.0", path = "./encodings/bytebool", default-features = false }
 vortex-compute = { version = "0.1.0", path = "./vortex-compute", default-features = false }
 vortex-datafusion = { version = "0.1.0", path = "./vortex-datafusion", default-features = false }
-vortex-dataset = { version = "0.1.0", path = "./vortex-dataset", default-features = false }
 vortex-datetime-parts = { version = "0.1.0", path = "./encodings/datetime-parts", default-features = false }
 vortex-decimal-byte-parts = { version = "0.1.0", path = "encodings/decimal-byte-parts", default-features = false }
 vortex-dtype = { version = "0.1.0", path = "./vortex-dtype", default-features = false }

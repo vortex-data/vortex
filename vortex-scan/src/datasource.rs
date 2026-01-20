@@ -31,12 +31,12 @@ pub trait DataSourceProvider: 'static {
     async fn deserialize_split(&self, data: &[u8]) -> VortexResult<SplitRef>;
 }
 
-/// A reference-counted source.
+/// A reference-counted data source.
 pub type DataSourceRef = Arc<dyn DataSource>;
 
-/// A source represents a streamable dataset that can be scanned with projection and filter
-/// expressions. Each scan produces splits that can be executed in parallel to read data.
-/// Each split can be serialized for remote execution.
+/// A data source represents a streamable dataset that can be scanned with projection and filter
+/// expressions. Each scan produces splits that can be executed (potentially in parallel) to read
+/// data. Each split can be serialized for remote execution.
 #[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
@@ -51,11 +51,15 @@ pub trait DataSource: 'static + Send + Sync {
 
 #[derive(Debug, Clone, Default)]
 pub struct ScanRequest {
+    /// Projection expression, `None` implies `root()`.
     pub projection: Option<Expression>,
+    /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
+    /// Optional limit on the number of rows to scan.
     pub limit: Option<u64>,
 }
 
+/// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
 #[async_trait]
@@ -75,6 +79,7 @@ pub trait DataSourceScan: 'static + Send + Sync {
 pub type SplitStream = BoxStream<'static, VortexResult<SplitRef>>;
 pub type SplitRef = Arc<dyn Split>;
 
+/// A split represents a unit of work that can be executed to produce a stream of arrays.
 pub trait Split: 'static + Send + Sync {
     /// Downcast the split to a concrete type.
     fn as_any(&self) -> &dyn Any;
@@ -89,6 +94,7 @@ pub trait Split: 'static + Send + Sync {
     fn byte_size_estimate(&self) -> Estimate<u64>;
 }
 
+/// An estimate that can be exact, an upper bound, or unknown.
 #[derive(Default)]
 pub enum Estimate<T> {
     Exact(T),
