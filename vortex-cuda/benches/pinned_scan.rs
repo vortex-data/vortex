@@ -41,6 +41,7 @@ use vortex_cuda::has_nvcc;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::register_default_encodings;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
@@ -53,7 +54,7 @@ const ROW_COUNTS: &[(usize, &str)] = &[
     (100_000_000, "100M_rows"),
 ];
 
-fn create_session() -> VortexSession {
+fn create_session(rt: &Runtime) -> VortexSession {
     let mut session = VortexSession::empty()
         .with::<VortexMetrics>()
         .with::<ArraySession>()
@@ -61,13 +62,11 @@ fn create_session() -> VortexSession {
         .with::<ExprSession>()
         .with::<RuntimeSession>();
     register_default_encodings(&mut session);
-    session
+    rt.block_on(async { session.with_tokio() })
 }
 
 /// Create a synthetic Vortex file in memory with the given number of rows.
-fn create_vortex_buffer(session: &VortexSession, num_rows: usize) -> ByteBuffer {
-    let rt = Runtime::new().unwrap();
-
+fn create_vortex_buffer(rt: &Runtime, session: &VortexSession, num_rows: usize) -> ByteBuffer {
     // Create a simple i64 array with predictable data
     let data: Vec<i64> = (0..num_rows as i64).collect();
     let array = PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
@@ -85,9 +84,7 @@ fn create_vortex_buffer(session: &VortexSession, num_rows: usize) -> ByteBuffer 
 }
 
 /// Scan with default allocator (regular memory).
-fn scan_default(session: &VortexSession, buffer: &ByteBuffer) -> Duration {
-    let rt = Runtime::new().unwrap();
-
+fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> Duration {
     rt.block_on(async {
         let file = session
             .open_options()
@@ -113,11 +110,11 @@ fn scan_default(session: &VortexSession, buffer: &ByteBuffer) -> Duration {
 
 /// Scan with pinned allocator (data stays on host in pinned memory).
 fn scan_pinned(
+    rt: &Runtime,
     session: &VortexSession,
     buffer: &ByteBuffer,
     pool: &Arc<PinnedByteBufferPool>,
 ) -> Duration {
-    let rt = Runtime::new().unwrap();
     let allocator = Arc::new(PinnedBufferAllocator::new(pool.clone()));
 
     rt.block_on(async {
@@ -146,12 +143,12 @@ fn scan_pinned(
 
 /// Scan with pinned device allocator (data transferred to GPU).
 fn scan_device(
+    rt: &Runtime,
     session: &VortexSession,
     buffer: &ByteBuffer,
     pool: &Arc<PinnedByteBufferPool>,
     stream: &Arc<cudarc::driver::CudaStream>,
 ) -> Duration {
-    let rt = Runtime::new().unwrap();
     let allocator = Arc::new(PinnedDeviceAllocator::new(pool.clone(), stream.clone()));
 
     rt.block_on(async {
@@ -182,7 +179,8 @@ fn scan_device(
 }
 
 fn bench_scan_default(c: &mut Criterion) {
-    let session = create_session();
+    let rt = Runtime::new().unwrap();
+    let session = create_session(&rt);
 
     let mut group = c.benchmark_group("scan_default");
     group.sample_size(10);
@@ -193,7 +191,7 @@ fn bench_scan_default(c: &mut Criterion) {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
@@ -201,7 +199,7 @@ fn bench_scan_default(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 let mut total = Duration::ZERO;
                 for _ in 0..iters {
-                    total += scan_default(&session, buffer);
+                    total += scan_default(&rt, &session, buffer);
                 }
                 total
             });
@@ -219,7 +217,8 @@ fn bench_scan_pinned(c: &mut Criterion) {
 
     let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
     let pool = Arc::new(PinnedByteBufferPool::new(ctx));
-    let session = create_session();
+    let rt = Runtime::new().unwrap();
+    let session = create_session(&rt);
 
     let mut group = c.benchmark_group("scan_pinned");
     group.sample_size(10);
@@ -229,7 +228,7 @@ fn bench_scan_pinned(c: &mut Criterion) {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
@@ -237,7 +236,7 @@ fn bench_scan_pinned(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 let mut total = Duration::ZERO;
                 for _ in 0..iters {
-                    total += scan_pinned(&session, buffer, &pool);
+                    total += scan_pinned(&rt, &session, buffer, &pool);
                 }
                 total
             });
@@ -256,7 +255,8 @@ fn bench_scan_device(c: &mut Criterion) {
     let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
     let stream = Arc::new(ctx.new_stream().expect("Failed to create stream"));
     let pool = Arc::new(PinnedByteBufferPool::new(ctx));
-    let session = create_session();
+    let rt = Runtime::new().unwrap();
+    let session = create_session(&rt);
 
     let mut group = c.benchmark_group("scan_device");
     group.sample_size(10);
@@ -266,7 +266,7 @@ fn bench_scan_device(c: &mut Criterion) {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
@@ -274,7 +274,7 @@ fn bench_scan_device(c: &mut Criterion) {
             b.iter_custom(|iters| {
                 let mut total = Duration::ZERO;
                 for _ in 0..iters {
-                    total += scan_device(&session, buffer, &pool, &stream);
+                    total += scan_device(&rt, &session, buffer, &pool, &stream);
                 }
                 total
             });
@@ -293,14 +293,15 @@ fn print_scan_comparison() {
 
     println!("\n=== Vortex Scan: Default vs Pinned vs Device Allocator ===\n");
 
+    let rt = Runtime::new().unwrap();
     let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
     let stream = Arc::new(ctx.new_stream().expect("Failed to create stream"));
     let pool = Arc::new(PinnedByteBufferPool::new(ctx));
-    let session = create_session();
+    let session = create_session(&rt);
 
     let num_rows = 10_000_000; // 10M rows
     println!("Creating Vortex file with {} rows...", num_rows);
-    let buffer = create_vortex_buffer(&session, num_rows);
+    let buffer = create_vortex_buffer(&rt, &session, num_rows);
     println!(
         "File size: {:.2} MB ({} bytes)\n",
         buffer.len() as f64 / 1e6,
@@ -311,9 +312,9 @@ fn print_scan_comparison() {
 
     // Warmup
     println!("Warming up...");
-    scan_default(&session, &buffer);
-    scan_pinned(&session, &buffer, &pool);
-    scan_device(&session, &buffer, &pool, &stream);
+    scan_default(&rt, &session, &buffer);
+    scan_pinned(&rt, &session, &buffer, &pool);
+    scan_device(&rt, &session, &buffer, &pool, &stream);
 
     // Default allocator
     println!(
@@ -322,7 +323,7 @@ fn print_scan_comparison() {
     );
     let start = Instant::now();
     for _ in 0..iterations {
-        scan_default(&session, &buffer);
+        scan_default(&rt, &session, &buffer);
     }
     let default_time = start.elapsed();
     let default_throughput = (buffer.len() * iterations) as f64 / default_time.as_secs_f64() / 1e9;
@@ -334,7 +335,7 @@ fn print_scan_comparison() {
     );
     let start = Instant::now();
     for _ in 0..iterations {
-        scan_pinned(&session, &buffer, &pool);
+        scan_pinned(&rt, &session, &buffer, &pool);
     }
     let pinned_time = start.elapsed();
     let pinned_throughput = (buffer.len() * iterations) as f64 / pinned_time.as_secs_f64() / 1e9;
@@ -346,7 +347,7 @@ fn print_scan_comparison() {
     );
     let start = Instant::now();
     for _ in 0..iterations {
-        scan_device(&session, &buffer, &pool, &stream);
+        scan_device(&rt, &session, &buffer, &pool, &stream);
     }
     let device_time = start.elapsed();
     let device_throughput = (buffer.len() * iterations) as f64 / device_time.as_secs_f64() / 1e9;
