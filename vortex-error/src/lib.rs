@@ -126,18 +126,11 @@ pub enum VortexError {
     UrlError(url::ParseError, Box<Backtrace>),
     /// Wrap errors for fallible integer casting.
     TryFromInt(TryFromIntError, Box<Backtrace>),
+    /// Wrap protobuf-related errors
+    Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
     /// Wrap serde and serde json errors
     #[cfg(feature = "serde")]
     SerdeJsonError(serde_json::Error, Box<Backtrace>),
-    /// Wrap prost encode error
-    #[cfg(feature = "prost")]
-    ProstEncodeError(prost::EncodeError, Box<Backtrace>),
-    /// Wrap prost decode error
-    #[cfg(feature = "prost")]
-    ProstDecodeError(prost::DecodeError, Box<Backtrace>),
-    /// Wrap prost unknown enum value
-    #[cfg(feature = "prost")]
-    ProstUnknownEnumValue(prost::UnknownEnumValue, Box<Backtrace>),
 }
 
 impl VortexError {
@@ -232,17 +225,8 @@ impl Display for VortexError {
             VortexError::SerdeJsonError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
-            #[cfg(feature = "prost")]
-            VortexError::ProstEncodeError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "prost")]
-            VortexError::ProstDecodeError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "prost")]
-            VortexError::ProstUnknownEnumValue(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
+            VortexError::Prost(err, backtrace) => {
+                write!(f, "Protobuf error: {err}\nBacktrace:\n{backtrace}")
             }
         }
     }
@@ -266,12 +250,7 @@ impl Error for VortexError {
             VortexError::UrlError(err, _) => Some(err),
             #[cfg(feature = "serde")]
             VortexError::SerdeJsonError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstEncodeError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstDecodeError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstUnknownEnumValue(err, _) => Some(err),
+            VortexError::Prost(err, _) => Some(err.as_ref()),
             _ => None,
         }
     }
@@ -536,24 +515,21 @@ impl From<serde_json::Error> for VortexError {
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::EncodeError> for VortexError {
     fn from(value: prost::EncodeError) -> Self {
-        VortexError::ProstEncodeError(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::DecodeError> for VortexError {
     fn from(value: prost::DecodeError) -> Self {
-        VortexError::ProstDecodeError(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::UnknownEnumValue> for VortexError {
     fn from(value: prost::UnknownEnumValue) -> Self {
-        VortexError::ProstUnknownEnumValue(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 
