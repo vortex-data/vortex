@@ -4,7 +4,8 @@
 mod array;
 mod patch;
 
-pub use array::*;
+pub use array::BoolArray;
+pub use array::BoolArrayParts;
 
 pub mod compute;
 

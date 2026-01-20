@@ -158,6 +158,11 @@ pub struct RunEndArray {
     stats_set: ArrayStats,
 }
 
+pub struct RunEndArrayParts {
+    pub ends: ArrayRef,
+    pub values: ArrayRef,
+}
+
 #[derive(Debug)]
 pub struct RunEndVTable;
 
@@ -389,6 +394,15 @@ impl RunEndArray {
     #[inline]
     pub fn values(&self) -> &ArrayRef {
         &self.values
+    }
+
+    /// Split an `RunEndArray` into parts.
+    #[inline]
+    pub fn into_parts(self) -> RunEndArrayParts {
+        RunEndArrayParts {
+            values: self.values,
+            ends: self.ends,
+        }
     }
 }
 

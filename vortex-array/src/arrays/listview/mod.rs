@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::ListViewArray;
+pub use array::ListViewArrayParts;
 
 mod compute;
 

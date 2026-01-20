@@ -29,9 +29,11 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::Executable;
 use crate::ExecutionCtx;
+use crate::arrays::ListViewArrayParts;
 use crate::arrays::PrimitiveArray;
 
 impl Executable for Vector {
+    #[expect(deprecated)]
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         let canonical = array.execute::<Canonical>(ctx)?;
         canonical.to_vector(ctx)
@@ -44,6 +46,7 @@ impl Canonical {
     /// This is the reverse of `VectorIntoArray` - it takes a fully materialized
     /// canonical array and converts it into the corresponding vector type.
     /// TODO(joe): move over the execute_mask
+    #[deprecated]
     pub fn to_vector(self, ctx: &mut ExecutionCtx) -> VortexResult<Vector> {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
@@ -116,7 +119,13 @@ impl Canonical {
                 }
             }
             Canonical::List(a) => {
-                let (elements, offsets, sizes, validity) = a.into_parts();
+                let ListViewArrayParts {
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    ..
+                } = a.into_parts();
 
                 let validity = validity.to_array(offsets.len()).execute::<Mask>(ctx)?;
                 let elements_vector = elements.execute::<Vector>(ctx)?;

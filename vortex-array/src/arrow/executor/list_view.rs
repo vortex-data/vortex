@@ -15,6 +15,7 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::ListViewArray;
+use crate::arrays::ListViewArrayParts;
 use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrow::ArrowArrayExecutor;
@@ -42,7 +43,13 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
     elements_field: &FieldRef,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<arrow_array::ArrayRef> {
-    let (elements, offsets, sizes, validity) = array.into_parts();
+    let ListViewArrayParts {
+        elements,
+        offsets,
+        sizes,
+        validity,
+        ..
+    } = array.into_parts();
 
     let elements = elements.execute_arrow(Some(elements_field.data_type()), ctx)?;
     vortex_ensure!(
@@ -61,7 +68,7 @@ fn list_view_to_list_view<O: OffsetSizeTrait + IntegerPType>(
         .to_buffer::<O>()
         .into_arrow_scalar_buffer();
 
-    let null_buffer = to_arrow_null_buffer(&validity, offsets.len(), ctx)?;
+    let null_buffer = to_arrow_null_buffer(validity, offsets.len(), ctx)?;
 
     Ok(Arc::new(GenericListViewArray::<O>::new(
         elements_field.clone(),

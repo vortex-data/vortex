@@ -85,6 +85,13 @@ pub struct ListArray {
     pub(super) stats_set: ArrayStats,
 }
 
+pub struct ListArrayParts {
+    pub dtype: DType,
+    pub elements: ArrayRef,
+    pub offsets: ArrayRef,
+    pub validity: Validity,
+}
+
 impl ListArray {
     /// Creates a new [`ListArray`].
     ///
@@ -227,6 +234,16 @@ impl ListArray {
         }
 
         Ok(())
+    }
+
+    /// Splits an array into its parts
+    pub fn into_parts(self) -> ListArrayParts {
+        ListArrayParts {
+            dtype: self.dtype,
+            elements: self.elements,
+            offsets: self.offsets,
+            validity: self.validity,
+        }
     }
 
     /// Returns the offset at the given index from the list array.

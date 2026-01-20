@@ -142,7 +142,6 @@ pub(crate) fn chunk_filters(
 }
 
 /// Filter the chunks using indices.
-#[allow(deprecated)]
 fn filter_indices(
     array: &ChunkedArray,
     indices: impl Iterator<Item = usize>,

@@ -88,6 +88,13 @@ pub struct VarBinViewArray {
     pub(super) stats_set: ArrayStats,
 }
 
+pub struct VarBinViewArrayParts {
+    pub dtype: DType,
+    pub buffers: Arc<[ByteBuffer]>,
+    pub views: Buffer<BinaryView>,
+    pub validity: Validity,
+}
+
 impl VarBinViewArray {
     /// Creates a new [`VarBinViewArray`].
     ///
@@ -260,6 +267,16 @@ impl VarBinViewArray {
         }
 
         Ok(())
+    }
+
+    /// Splits the array into owned parts
+    pub fn into_parts(self) -> VarBinViewArrayParts {
+        VarBinViewArrayParts {
+            dtype: self.dtype,
+            buffers: self.buffers,
+            views: self.views,
+            validity: self.validity,
+        }
     }
 
     /// Number of raw string data buffers held by this array.
