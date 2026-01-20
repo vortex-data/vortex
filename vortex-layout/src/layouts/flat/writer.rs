@@ -4,6 +4,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use vortex_array::Array;
+use vortex_array::ArrayContext;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
@@ -13,7 +14,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -160,6 +160,7 @@ mod tests {
     use std::sync::Arc;
 
     use vortex_array::Array;
+    use vortex_array::ArrayContext;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
@@ -184,7 +185,6 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
 
-    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;

@@ -19,6 +19,7 @@ use futures::stream::BoxStream;
 use futures::stream::once;
 use futures::try_join;
 use vortex_array::Array;
+use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::arrays::DictVTable;
 use vortex_array::builders::dict::DictConstraints;
@@ -35,7 +36,6 @@ use vortex_error::vortex_err;
 use vortex_io::kanal_ext::KanalExt;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;

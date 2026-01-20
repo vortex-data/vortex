@@ -344,9 +344,9 @@ mod private {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayContext;
 
     use super::*;
-    use crate::ArrayContext;
 
     #[test]
     fn test_layout_child_type_name() {

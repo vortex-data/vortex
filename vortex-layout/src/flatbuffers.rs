@@ -8,6 +8,7 @@ use flatbuffers::FlatBufferBuilder;
 use flatbuffers::VerifierOptions;
 use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
+use vortex_array::ArrayContext;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -17,7 +18,6 @@ use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::layout;
 
-use crate::ArrayContext;
 use crate::Layout;
 use crate::LayoutContext;
 use crate::LayoutRef;

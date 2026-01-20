@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use futures::StreamExt as _;
 use futures::pin_mut;
 use vortex_array::Array;
+use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
@@ -16,7 +17,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContext;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
 use crate::segments::SegmentSinkRef;

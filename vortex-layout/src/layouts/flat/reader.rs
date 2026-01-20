@@ -224,6 +224,7 @@ impl LayoutReader for FlatReader {
 mod test {
     use std::sync::Arc;
 
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -237,7 +238,6 @@ mod test {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::segments::TestSegments;

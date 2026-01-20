@@ -381,6 +381,7 @@ mod tests {
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -407,7 +408,6 @@ mod tests {
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
-    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;

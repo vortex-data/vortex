@@ -213,6 +213,7 @@ impl std::fmt::Display for DisplayLayoutTree {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -231,7 +232,6 @@ mod tests {
     use vortex_io::runtime::single::block_on;
     use vortex_utils::env::EnvVarGuard;
 
-    use crate::ArrayContext;
     use crate::IntoLayout;
     use crate::OwnedLayoutChildren;
     use crate::layouts::chunked::ChunkedLayout;

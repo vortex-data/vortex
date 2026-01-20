@@ -12,6 +12,7 @@ use futures::future::try_join_all;
 use futures::pin_mut;
 use itertools::Itertools;
 use vortex_array::Array;
+use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -25,7 +26,6 @@ use vortex_io::runtime::Handle;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::ArrayContext;
 use crate::IntoLayout as _;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
@@ -217,6 +217,7 @@ impl LayoutStrategy for StructStrategy {
 mod tests {
     use std::sync::Arc;
 
+    use vortex_array::ArrayContext;
     use vortex_array::Canonical;
     use vortex_array::IntoArray as _;
     use vortex_array::arrays::ChunkedArray;
@@ -228,7 +229,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContext;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::struct_::writer::StructStrategy;

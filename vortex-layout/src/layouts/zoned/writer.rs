@@ -6,12 +6,12 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt as _;
 use parking_lot::Mutex;
+use vortex_array::ArrayContext;
 use vortex_array::expr::stats::Stat;
 use vortex_array::stats::PRUNING_STATS;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
-use crate::ArrayContext;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;

@@ -7,6 +7,7 @@ pub mod writer;
 use std::env;
 use std::sync::Arc;
 
+use vortex_array::ArrayContext;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ProstMetadata;
 use vortex_buffer::ByteBuffer;
@@ -16,7 +17,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
-use crate::ArrayContext;
 use crate::LayoutChildType;
 use crate::LayoutEncodingRef;
 use crate::LayoutId;

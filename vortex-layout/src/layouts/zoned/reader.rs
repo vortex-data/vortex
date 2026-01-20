@@ -393,6 +393,7 @@ mod test {
 
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::ChunkedArray;
@@ -404,7 +405,6 @@ mod test {
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
 
-    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;

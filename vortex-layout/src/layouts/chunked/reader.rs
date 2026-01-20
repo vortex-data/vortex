@@ -314,6 +314,7 @@ mod test {
     use futures::stream;
     use rstest::fixture;
     use rstest::rstest;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::MaskFuture;
     use vortex_array::assert_arrays_eq;
@@ -324,7 +325,6 @@ mod test {
     use vortex_dtype::PType;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContext;
     use crate::LayoutRef;
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;

@@ -242,6 +242,7 @@ mod tests {
     use std::sync::Arc;
 
     use rstest::rstest;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::arrays::StructArray;
@@ -261,7 +262,6 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContext;
     use crate::LayoutId;
     use crate::LayoutRef;
     use crate::LayoutStrategy;

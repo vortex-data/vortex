@@ -290,6 +290,7 @@ mod tests {
     use std::sync::Arc;
 
     use itertools::Itertools;
+    use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
@@ -302,7 +303,6 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
-    use crate::ArrayContext;
     use crate::LayoutReader;
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
