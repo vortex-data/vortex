@@ -34,6 +34,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
@@ -254,6 +255,7 @@ impl VTable for BitPackedVTable {
         array: &BitPackedArray,
         builder: &mut dyn ArrayBuilder,
     ) -> VortexResult<()> {
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
         match_each_integer_ptype!(array.ptype(), |T| {
             unpack_into_primitive_builder::<T>(
                 array,
@@ -261,13 +263,13 @@ impl VTable for BitPackedVTable {
                     .as_any_mut()
                     .downcast_mut()
                     .vortex_expect("bit packed array must canonicalize into a primitive array"),
+                &mut ctx,
             )
-        });
-        Ok(())
+        })
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(unpack_array(array)))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(unpack_array(array, ctx)?))
     }
 
     fn execute_parent(

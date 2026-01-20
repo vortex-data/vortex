@@ -127,8 +127,8 @@ impl VTable for FoRVTable {
         }))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress(array)))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(decompress(array, ctx)?))
     }
 }
 

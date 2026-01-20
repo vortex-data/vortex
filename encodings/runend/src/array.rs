@@ -151,8 +151,8 @@ impl VTable for RunEndVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        run_end_canonicalize(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        run_end_canonicalize(array, ctx)
     }
 }
 
@@ -475,11 +475,14 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
     }
 }
 
-pub(super) fn run_end_canonicalize(array: &RunEndArray) -> VortexResult<Canonical> {
-    let pends = array.ends().to_primitive();
+pub(super) fn run_end_canonicalize(
+    array: &RunEndArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    let pends = array.ends().clone().execute(ctx)?;
     Ok(match array.dtype() {
         DType::Bool(_) => {
-            let bools = array.values().to_bool();
+            let bools = array.values().clone().execute(ctx)?;
             Canonical::Bool(runend_decode_bools(
                 pends,
                 bools,
@@ -488,7 +491,7 @@ pub(super) fn run_end_canonicalize(array: &RunEndArray) -> VortexResult<Canonica
             ))
         }
         DType::Primitive(..) => {
-            let pvalues = array.values().to_primitive();
+            let pvalues = array.values().clone().execute(ctx)?;
             Canonical::Primitive(runend_decode_primitive(
                 pends,
                 pvalues,

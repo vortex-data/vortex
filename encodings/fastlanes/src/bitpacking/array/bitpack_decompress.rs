@@ -3,7 +3,7 @@
 
 use fastlanes::BitPacking;
 use itertools::Itertools;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
@@ -15,6 +15,7 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
@@ -61,25 +62,34 @@ pub fn unpack_to_pvector<P: BitPacked>(array: &BitPackedArray) -> PVectorMut<P> 
     unsafe { PVectorMut::new_unchecked(elements, validity) }
 }
 
-pub fn unpack_array(array: &BitPackedArray) -> PrimitiveArray {
-    match_each_integer_ptype!(array.ptype(), |P| { unpack_primitive_array::<P>(array) })
+pub fn unpack_array(
+    array: &BitPackedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    match_each_integer_ptype!(array.ptype(), |P| {
+        unpack_primitive_array::<P>(array, ctx)
+    })
 }
 
-pub fn unpack_primitive_array<T: BitPacked>(array: &BitPackedArray) -> PrimitiveArray {
+pub fn unpack_primitive_array<T: BitPacked>(
+    array: &BitPackedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let mut builder = PrimitiveBuilder::with_capacity(array.dtype().nullability(), array.len());
-    unpack_into_primitive_builder::<T>(array, &mut builder);
+    unpack_into_primitive_builder::<T>(array, &mut builder, ctx)?;
     assert_eq!(builder.len(), array.len());
-    builder.finish_into_primitive()
+    Ok(builder.finish_into_primitive())
 }
 
 pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     array: &BitPackedArray,
     // TODO(ngates): do we want to use fastlanes alignment for this buffer?
     builder: &mut PrimitiveBuilder<T>,
-) {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
     // If the array is empty, then we don't need to add anything to the builder.
     if array.is_empty() {
-        return;
+        return Ok(());
     }
 
     let mut uninit_range = builder.uninit_range(array.len());
@@ -97,7 +107,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     bit_packed_iter.decode_into(uninit_slice);
 
     if let Some(patches) = array.patches() {
-        apply_patches_to_uninit_range(&mut uninit_range, patches);
+        apply_patches_to_uninit_range(&mut uninit_range, patches, ctx)?;
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -105,21 +115,27 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     unsafe {
         uninit_range.finish();
     }
+    Ok(())
 }
 
-pub fn apply_patches_to_uninit_range<T: NativePType>(dst: &mut UninitRange<T>, patches: &Patches) {
-    apply_patches_to_uninit_range_fn(dst, patches, |x| x)
+pub fn apply_patches_to_uninit_range<T: NativePType>(
+    dst: &mut UninitRange<T>,
+    patches: &Patches,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<()> {
+    apply_patches_to_uninit_range_fn(dst, patches, ctx, |x| x)
 }
 
 pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
     dst: &mut UninitRange<T>,
     patches: &Patches,
+    ctx: &mut ExecutionCtx,
     f: F,
-) {
+) -> VortexResult<()> {
     assert_eq!(patches.array_len(), dst.len());
 
-    let indices = patches.indices().to_primitive();
-    let values = patches.values().to_primitive();
+    let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+    let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
     let validity = values.validity_mask();
     let values = values.as_slice::<T>();
 
@@ -133,6 +149,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
             f,
         )
     });
+    Ok(())
 }
 
 fn insert_values_and_validity_at_indices_to_uninit_range<
