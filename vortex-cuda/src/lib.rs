@@ -20,6 +20,7 @@ pub use pinned::PinnedByteBufferPool;
 pub use pinned::PooledPinnedBuffer;
 pub use pinned_allocator::PinnedBufferAllocator;
 pub use pinned_allocator::PinnedDeviceAllocator;
+pub use session::CudaSessionExt;
 use for_::ForExecutor;
 pub use session::CudaSession;
 

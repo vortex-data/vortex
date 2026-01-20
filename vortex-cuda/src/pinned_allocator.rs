@@ -67,6 +67,12 @@ impl PinnedDeviceAllocator {
         let stream = session.cuda_session().new_stream()?;
         Ok(Self::new(pool, stream))
     }
+
+    pub fn synchronize(&self) -> VortexResult<()> {
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("Failed to synchronize CUDA stream: {e}"))
+    }
 }
 
 impl BufferAllocator for PinnedDeviceAllocator {

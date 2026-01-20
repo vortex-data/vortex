@@ -58,6 +58,11 @@ impl CudaSession {
             .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))
     }
 
+    /// Returns the CUDA context.
+    pub fn context(&self) -> &Arc<CudaContext> {
+        &self.context
+    }
+
     /// Registers CUDA support for an array encoding.
     ///
     /// # Arguments

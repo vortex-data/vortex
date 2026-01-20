@@ -34,12 +34,16 @@ use vortex::dtype::FieldNames;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::io::BufferAllocator;
 use vortex::layout::collect_segment_ids;
 use vortex::layout::LayoutReader;
 use vortex::mask::Mask;
 use vortex::metrics::VortexMetrics;
 use parking_lot::Mutex;
 use vortex_bench::SESSION;
+use vortex_cuda::CudaSessionExt;
+use vortex_cuda::PinnedByteBufferPool;
+use vortex_cuda::PinnedDeviceAllocator;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use tracing_subscriber::EnvFilter;
@@ -93,6 +97,9 @@ struct Args {
     /// Only prune whole segments (no intra-segment pruning on CPU).
     #[arg(long, default_value_t = false)]
     prune_segments: bool,
+    /// Enable CUDA pinned read + H2D transfer.
+    #[arg(long, default_value_t = false)]
+    gpu: bool,
 }
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -141,12 +148,28 @@ async fn main() -> Result<()> {
     let metrics = VortexMetrics::new_with_tags([("bench", "scan-io")]);
     let read_bytes = metrics.counter("vortex.io.read.total_size");
 
+    #[allow(clippy::if_then_some_else_none)]
+    let gpu_allocator = if args.gpu {
+        let cuda_session = SESSION.cuda_session();
+        let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
+        Some(std::sync::Arc::new(PinnedDeviceAllocator::from_session(
+            pool,
+            &SESSION,
+        )?))
+    } else {
+        None
+    };
+    let allocator: Option<std::sync::Arc<dyn BufferAllocator>> = gpu_allocator
+        .as_ref()
+        .map(|alloc| alloc.clone() as std::sync::Arc<dyn BufferAllocator>);
+
     let targets = resolve_targets(&args).await?;
     let cached_files = if args.reopen {
         None
     } else {
         Some(std::sync::Arc::new(
-            open_all_targets(&targets, metrics.clone(), args.file_concurrency).await?,
+            open_all_targets(&targets, metrics.clone(), args.file_concurrency, allocator.clone())
+                .await?,
         ))
     };
     read_bytes.clear();
@@ -168,10 +191,18 @@ async fn main() -> Result<()> {
                 let first_seen = first_seen.clone();
                 let first_info = first_info.clone();
                 let mode = mode.clone();
+                let allocator = allocator.clone();
                 async move {
                     let file = match &cached_files {
                         Some(files) => files[idx].clone(),
-                        None => open_vortex_file_for_target(&target, metrics.clone()).await?,
+                        None => {
+                            open_vortex_file_for_target(
+                                &target,
+                                metrics.clone(),
+                                allocator,
+                            )
+                            .await?
+                        }
                     };
 
                     if args.prune_segments
@@ -249,6 +280,13 @@ async fn main() -> Result<()> {
             .await?;
 
     let elapsed = start.elapsed().as_secs_f64();
+    let gpu_sync_ms = if let Some(allocator) = gpu_allocator {
+        let sync_start = Instant::now();
+        allocator.synchronize()?;
+        sync_start.elapsed().as_secs_f64() * 1000.0
+    } else {
+        0.0
+    };
     let bytes = read_bytes.count();
     let (first_latency, first_bytes) =
         first_info.lock().unwrap_or((elapsed, read_bytes.count() - bytes_before));
@@ -277,6 +315,9 @@ async fn main() -> Result<()> {
     println!("avg_mb_s={:.2}", total_mb_s);
     println!("avg_first_latency_ms={:.2}", avg_first_latency * 1000.0);
     println!("steady_mb_s={:.2}", steady_mb_s);
+    if args.gpu {
+        println!("gpu_sync_ms={:.2}", gpu_sync_ms);
+    }
 
     Ok(())
 }
@@ -405,21 +446,24 @@ fn is_prefix(source: &str) -> bool {
 async fn open_vortex_file_for_target(
     target: &ScanTarget,
     metrics: VortexMetrics,
+    allocator: Option<std::sync::Arc<dyn BufferAllocator>>,
 ) -> Result<vortex::file::VortexFile> {
     let session = SESSION.clone();
     match target {
-        ScanTarget::Local(path) => Ok(session
-            .open_options()
-            .with_metrics(metrics)
-            .open_path(path)
-            .await?),
+        ScanTarget::Local(path) => {
+            let mut options = session.open_options().with_metrics(metrics);
+            if let Some(allocator) = allocator {
+                options = options.with_allocator(allocator);
+            }
+            Ok(options.open_path(path).await?)
+        }
         ScanTarget::ObjectStore { store, path } => {
             let path_str = path.to_string();
-            Ok(session
-                .open_options()
-                .with_metrics(metrics)
-                .open_object_store(store, &path_str)
-                .await?)
+            let mut options = session.open_options().with_metrics(metrics);
+            if let Some(allocator) = allocator {
+                options = options.with_allocator(allocator);
+            }
+            Ok(options.open_object_store(store, &path_str).await?)
         }
     }
 }
@@ -428,13 +472,15 @@ async fn open_all_targets(
     targets: &[ScanTarget],
     metrics: VortexMetrics,
     concurrency: usize,
+    allocator: Option<std::sync::Arc<dyn BufferAllocator>>,
 ) -> Result<Vec<vortex::file::VortexFile>> {
     let mut files = vec![None; targets.len()];
     let results = futures::stream::iter(targets.iter().enumerate())
         .map(|(idx, target)| {
             let metrics = metrics.clone();
+            let allocator = allocator.clone();
             async move {
-                let file = open_vortex_file_for_target(target, metrics).await?;
+                let file = open_vortex_file_for_target(target, metrics, allocator).await?;
                 Ok::<_, anyhow::Error>((idx, file))
             }
         })

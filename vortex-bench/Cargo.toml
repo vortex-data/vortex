@@ -66,3 +66,4 @@ vortex = { workspace = true, features = [
     "unstable_encodings",
 ] }
 vortex-scan = { workspace = true }
+vortex-cuda = { workspace = true }

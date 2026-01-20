@@ -10174,6 +10174,7 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-cuda",
  "vortex-scan",
 ]
 
