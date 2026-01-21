@@ -43,6 +43,18 @@ pub unsafe trait IoBuf: Unpin + 'static {
             range.end,
             self.bytes_init()
         );
+        #[cfg(debug_assertions)]
+        {
+            let max_offset = isize::MAX as usize;
+            // Guard against pointer arithmetic overflow when we call `base_ptr.add(begin)`
+            // in `OwnedSlice::read_ptr`. `range.end` is already bounded by `bytes_init`,
+            // so only `range.start` needs this extra guard.
+            assert!(
+                range.start <= max_offset,
+                "Range start ({}) too large for pointer arithmetic",
+                range.start
+            );
+        }
 
         OwnedSlice {
             buf: self,
