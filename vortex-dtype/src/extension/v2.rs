@@ -71,22 +71,20 @@ impl ExtDTypeRef {
 }
 
 /// A trait for matching extension dtypes.
-pub trait Matcher<T> {
+pub trait Matcher {
     /// The matched view type.
-    type Match<'a>
-    where
-        T: 'a;
+    type Match<'a>;
 
-    /// Check if the given item matches this matcher.
-    fn matches(item: &T) -> bool {
+    /// Check if the given extension dtype matches this matcher.
+    fn matches(item: &ExtDTypeRef) -> bool {
         Self::try_match(item).is_some()
     }
 
-    /// Check if the given item matches this matcher.
-    fn try_match<'a>(item: &'a T) -> Option<Self::Match<'a>>;
+    /// Check if the given extension dtype matches this matcher.
+    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>>;
 }
 
-impl<V: VTable> Matcher<ExtDTypeRef> for V {
+impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Options;
 
     fn matches(item: &ExtDTypeRef) -> bool {
@@ -104,17 +102,17 @@ impl<V: VTable> Matcher<ExtDTypeRef> for V {
 /// Methods for downcasting type-erased extension dtypes.
 impl ExtDTypeRef {
     /// Check if the extension dtype is of the concrete type.
-    pub fn is<M: Matcher<Self>>(&self) -> bool {
+    pub fn is<M: Matcher>(&self) -> bool {
         M::matches(&self)
     }
 
     /// Downcast to the concrete options type.
-    pub fn try_options<M: Matcher<Self>>(&self) -> Option<M::Match<'_>> {
+    pub fn try_options<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(&self)
     }
 
     /// Downcast to the concrete options type.
-    pub fn options<M: Matcher<Self>>(&self) -> M::Match<'_> {
+    pub fn options<M: Matcher>(&self) -> M::Match<'_> {
         self.try_options::<M>()
             .vortex_expect("Failed to downcast DynExtDType")
     }
