@@ -45,6 +45,12 @@ pub struct DictArray {
     pub(super) all_values_referenced: bool,
 }
 
+pub struct DictArrayParts {
+    pub codes: ArrayRef,
+    pub values: ArrayRef,
+    pub dtype: DType,
+}
+
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
     ///
@@ -114,8 +120,12 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
-    pub fn into_parts(self) -> (ArrayRef, ArrayRef) {
-        (self.codes, self.values)
+    pub fn into_parts(self) -> DictArrayParts {
+        DictArrayParts {
+            codes: self.codes,
+            values: self.values,
+            dtype: self.dtype,
+        }
     }
 
     #[inline]
