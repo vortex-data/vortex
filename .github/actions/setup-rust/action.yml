@@ -11,17 +11,15 @@ inputs:
     required: false
   components:
     description: "optional override for the components to install for the step (e.g. clippy, rustfmt, miri)"
+    default: "clippy, rustfmt"
     required: false
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
-  cache-suffix:
-    description: "optional suffix for cache key to isolate builds with different RUSTFLAGS (e.g. 'sanitizer')"
+  enable-sccache:
+    description: "Should sccache be enabled, true by default."
     required: false
-    default: ""
-  timestamp:
-    description: "Timestamp cache with cargo sweep"
-    default: "false"
+    default: "true"
 
 runs:
   using: "composite"
@@ -47,17 +45,10 @@ runs:
       with:
         toolchain: "${{ steps.toolchain-config.outputs.toolchain }}"
         targets: "${{ inputs.targets }}"
-        components: "${{ inputs.components || 'clippy, rustfmt' }}"
-
-    - name: Rust Dependency Cache
-      uses: Swatinem/rust-cache@v2
-      with:
-        save-if: ${{ github.ref_name == 'develop' }}
-        # os and arch by default
-        shared-key: "rust-cache-${{ github.job }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
-        env-vars: "RUSTFLAGS"
+        components: "${{ inputs.components }}"
 
     - name: Rust Compile Cache
+      if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Install Protoc (for lance-encoding build step)
@@ -66,13 +57,3 @@ runs:
       with:
         version: "29.3"
         repo-token: ${{ inputs.repo-token }}
-
-    - name: Install Sweep
-      shell: bash
-      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
-      run: cargo install cargo-sweep
-
-    - name: Timestamp Cache
-      shell: bash
-      if: ${{ inputs.timestamp == 'true' && github.ref_name == 'develop' }}
-      run: cargo sweep --stamp
