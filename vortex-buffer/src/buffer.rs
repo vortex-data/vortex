@@ -9,6 +9,7 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
 use std::marker::PhantomData;
+use std::mem::size_of;
 use std::ops::Deref;
 use std::ops::RangeBounds;
 
@@ -451,6 +452,7 @@ impl<T> Buffer<T> {
                     "Buffer is not aligned to requested alignment {alignment}, copying: {bt}"
                 )
             }
+            crate::record_alignment_copy(self.len() as u64 * size_of::<T>() as u64);
             Self::copy_from_aligned(self, alignment)
         }
     }

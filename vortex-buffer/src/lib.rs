@@ -55,6 +55,8 @@ pub use buffer_mut::*;
 pub use bytes::*;
 pub use r#const::*;
 pub use string::*;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 mod alignment;
 #[cfg(feature = "arrow")]
 mod arrow;
@@ -80,3 +82,34 @@ pub type ByteBufferMut = BufferMut<u8>;
 
 /// A const-aligned buffer of u8.
 pub type ConstByteBuffer<const A: usize> = ConstBuffer<u8, A>;
+
+/// Counters for alignment-related copy operations.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct AlignmentCopyStats {
+    /// Number of alignment-triggered copies.
+    pub count: u64,
+    /// Total bytes copied due to alignment.
+    pub bytes: u64,
+}
+
+static ALIGNMENT_COPY_COUNT: AtomicU64 = AtomicU64::new(0);
+static ALIGNMENT_COPY_BYTES: AtomicU64 = AtomicU64::new(0);
+
+/// Read alignment copy counters.
+pub fn alignment_copy_stats() -> AlignmentCopyStats {
+    AlignmentCopyStats {
+        count: ALIGNMENT_COPY_COUNT.load(Ordering::Relaxed),
+        bytes: ALIGNMENT_COPY_BYTES.load(Ordering::Relaxed),
+    }
+}
+
+/// Reset alignment copy counters.
+pub fn reset_alignment_copy_stats() {
+    ALIGNMENT_COPY_COUNT.store(0, Ordering::Relaxed);
+    ALIGNMENT_COPY_BYTES.store(0, Ordering::Relaxed);
+}
+
+pub(crate) fn record_alignment_copy(bytes: u64) {
+    ALIGNMENT_COPY_COUNT.fetch_add(1, Ordering::Relaxed);
+    ALIGNMENT_COPY_BYTES.fetch_add(bytes, Ordering::Relaxed);
+}

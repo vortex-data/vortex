@@ -6,6 +6,7 @@ use std::any::type_name;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::io::Write;
+use std::mem::size_of;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -450,6 +451,7 @@ impl<T> BufferMut<T> {
                 _marker: std::marker::PhantomData,
             }
         } else {
+            crate::record_alignment_copy(self.len() as u64 * size_of::<T>() as u64);
             Self::copy_from_aligned(self, alignment)
         }
     }

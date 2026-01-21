@@ -22,12 +22,12 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
 
 #[cfg(test)]
 mod test {
-    use vortex_array::buffer::BufferHandle;
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;

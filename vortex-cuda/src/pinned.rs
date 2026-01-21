@@ -110,6 +110,10 @@ pub struct PinnedByteBufferPool {
     ctx: Arc<CudaContext>,
     max_keep_per_size: usize,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
+    hits: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+    allocs: std::sync::atomic::AtomicU64,
+    puts: std::sync::atomic::AtomicU64,
 }
 
 impl PinnedByteBufferPool {
@@ -124,6 +128,10 @@ impl PinnedByteBufferPool {
             ctx,
             max_keep_per_size: max_keep_per_size.max(1),
             buckets: Mutex::new(HashMap::new()),
+            hits: std::sync::atomic::AtomicU64::new(0),
+            misses: std::sync::atomic::AtomicU64::new(0),
+            allocs: std::sync::atomic::AtomicU64::new(0),
+            puts: std::sync::atomic::AtomicU64::new(0),
         }
     }
 
@@ -133,8 +141,12 @@ impl PinnedByteBufferPool {
         if let Some(bucket) = buckets.get_mut(&len)
             && let Some(buf) = bucket.pop()
         {
+            self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             return Ok(buf);
         }
+        self.misses
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.allocs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         unsafe { PinnedByteBuffer::uninit(&self.ctx, len) }
     }
 
@@ -146,6 +158,7 @@ impl PinnedByteBufferPool {
         if bucket.len() < self.max_keep_per_size {
             bucket.push(buf);
         }
+        self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         Ok(())
     }
 
@@ -157,6 +170,33 @@ impl PinnedByteBufferPool {
             pool: self.clone(),
         })
     }
+
+    /// Snapshot pool reuse statistics.
+    pub fn stats(&self) -> PinnedPoolStats {
+        PinnedPoolStats {
+            hits: self.hits.load(std::sync::atomic::Ordering::Relaxed),
+            misses: self.misses.load(std::sync::atomic::Ordering::Relaxed),
+            allocs: self.allocs.load(std::sync::atomic::Ordering::Relaxed),
+            puts: self.puts.load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+
+    /// Reset pool reuse statistics.
+    pub fn reset_stats(&self) {
+        self.hits.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.misses.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.allocs.store(0, std::sync::atomic::Ordering::Relaxed);
+        self.puts.store(0, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Reuse counters for a pinned buffer pool.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PinnedPoolStats {
+    pub hits: u64,
+    pub misses: u64,
+    pub allocs: u64,
+    pub puts: u64,
 }
 
 /// A pinned buffer that is returned to its pool when dropped.

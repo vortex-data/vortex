@@ -30,6 +30,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
+use vortex_buffer::alignment_copy_stats;
+use vortex_buffer::reset_alignment_copy_stats;
 use vortex_cuda::PinnedBufferAllocator;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
@@ -38,6 +40,8 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::register_default_encodings;
 use vortex_io::DefaultAllocator;
+use vortex_io::default_alloc_stats;
+use vortex_io::reset_default_alloc_stats;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
@@ -66,7 +70,7 @@ fn usage() -> &'static str {
 Flags:\n\
   --rows    Comma-separated row counts (default: 10000000)\n\
   --iters   Iterations per scan (default: 10)\n\
-  --scan    One of: default_zero_copy, default_copy, pinned, device, default, all\n"
+  --scan    One of: default_zero_copy, default_copy, device, default, all\n"
 }
 
 fn parse_csv_usize(value: &str) -> Vec<usize> {
@@ -95,7 +99,6 @@ fn parse_scan_list(value: &str) -> Vec<ScanType> {
                 scans = vec![
                     ScanType::DefaultZeroCopy,
                     ScanType::DefaultCopy,
-                    ScanType::Pinned,
                     ScanType::Device,
                 ];
                 break;
@@ -163,12 +166,7 @@ fn parse_args() -> Result<Config, String> {
 
     let rows = rows.filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_ROWS.to_vec());
     let scans = scans.filter(|v| !v.is_empty()).unwrap_or_else(|| {
-        vec![
-            ScanType::DefaultZeroCopy,
-            ScanType::DefaultCopy,
-            ScanType::Pinned,
-            ScanType::Device,
-        ]
+        vec![ScanType::DefaultZeroCopy, ScanType::DefaultCopy, ScanType::Device]
     });
     if iterations == 0 {
         return Err("Iterations must be > 0".to_string());
@@ -359,6 +357,28 @@ fn format_throughput(bytes: usize, total: Duration, iterations: usize) -> Throug
     ThroughputRow { gb_per_s, ms_avg }
 }
 
+fn print_stats(pool: Option<&PinnedByteBufferPool>) {
+    let align = alignment_copy_stats();
+    println!(
+        "    Alignment copies: {} ({} bytes)",
+        align.count, align.bytes
+    );
+    let alloc = default_alloc_stats();
+    if alloc.count > 0 {
+        println!(
+            "    Default allocs: {} ({} bytes)",
+            alloc.count, alloc.bytes
+        );
+    }
+    if let Some(pool) = pool {
+        let stats = pool.stats();
+        println!(
+            "    Pool reuse: hits={}, misses={}, allocs={}, puts={}",
+            stats.hits, stats.misses, stats.allocs, stats.puts
+        );
+    }
+}
+
 fn main() -> ExitCode {
     let config = match parse_args() {
         Ok(config) => config,
@@ -407,6 +427,8 @@ fn main() -> ExitCode {
         );
 
         if config.scans.contains(&ScanType::DefaultZeroCopy) {
+            reset_default_alloc_stats();
+            reset_alignment_copy_stats();
             let total = run_scan_iters(config.iterations, || {
                 scan_default(&rt, &session, &buffer)
             });
@@ -414,8 +436,11 @@ fn main() -> ExitCode {
                 "  Default (zero-copy): {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
+            print_stats(None);
         }
         if config.scans.contains(&ScanType::DefaultCopy) {
+            reset_default_alloc_stats();
+            reset_alignment_copy_stats();
             let total = run_scan_iters(config.iterations, || {
                 scan_default_copy(&rt, &session, &buffer)
             });
@@ -423,9 +448,13 @@ fn main() -> ExitCode {
                 "  Default (copy):      {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
+            print_stats(None);
         }
         if config.scans.contains(&ScanType::Pinned) {
             let pool = pool.as_ref().expect("Pinned pool required");
+            pool.reset_stats();
+            reset_default_alloc_stats();
+            reset_alignment_copy_stats();
             let total = run_scan_iters(config.iterations, || {
                 scan_pinned(&rt, &session, &buffer, pool)
             });
@@ -433,10 +462,14 @@ fn main() -> ExitCode {
                 "  Pinned (host):       {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
+            print_stats(Some(pool));
         }
         if config.scans.contains(&ScanType::Device) {
             let pool = pool.as_ref().expect("Pinned pool required");
             let stream = stream.as_ref().expect("CUDA stream required");
+            pool.reset_stats();
+            reset_default_alloc_stats();
+            reset_alignment_copy_stats();
             let total = run_scan_iters(config.iterations, || {
                 scan_device(&rt, &session, &buffer, pool, stream)
             });
@@ -444,6 +477,7 @@ fn main() -> ExitCode {
                 "  Device (H2D):        {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
+            print_stats(Some(pool));
         }
         println!();
     }
