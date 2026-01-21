@@ -25,10 +25,14 @@ use crate::v2::ExtDType;
 pub struct Timestamp;
 
 impl Timestamp {
+    pub const ID: ExtId = ExtId::new_ref("vortex.timestamp");
+
+    /// Creates a new Timestamp extension dtype with the given time unit and nullability.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
         Self::new_with_tz(time_unit, None, nullability)
     }
 
+    /// Creates a new Timestamp extension dtype with the given time unit, timezone, and nullability.
     pub fn new_with_tz(
         time_unit: TimeUnit,
         timezone: Option<String>,
@@ -45,9 +49,12 @@ impl Timestamp {
     }
 }
 
+/// Options for the Timestamp DType.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TimestampOptions {
+    /// The time unit of the timestamp.
     pub unit: TimeUnit,
+    /// The timezone of the timestamp, if any.
     pub tz: Option<String>,
 }
 
@@ -64,7 +71,7 @@ impl VTable for Timestamp {
     type Options = TimestampOptions;
 
     fn id(_options: &Self::Options) -> ExtId {
-        ExtId::new_ref("vortex.timestamp")
+        Self::ID
     }
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for
@@ -90,7 +97,7 @@ impl VTable for Timestamp {
         Ok(meta)
     }
 
-    fn deserialize(data: &[u8], session: &VortexSession) -> VortexResult<Self::Options> {
+    fn deserialize(data: &[u8], _session: &VortexSession) -> VortexResult<Self::Options> {
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
         let tz_len_bytes = &data[1..3];

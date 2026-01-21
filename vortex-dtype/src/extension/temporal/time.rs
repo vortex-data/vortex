@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -15,23 +14,23 @@ use crate::VTable;
 use crate::datetime::TimeUnit;
 use crate::v2::ExtDType;
 
-/// Date DType.
-pub struct Date;
+/// Time DType.
+pub struct Time;
 
-impl Date {
-    pub const ID: ExtId = ExtId::new_ref("vortex.date");
+impl Time {
+    pub const ID: ExtId = ExtId::new_ref("vortex.time");
 
-    /// Creates a new Date extension dtype with the given time unit and nullability.
+    /// Creates a new Time extension dtype with the given time unit and nullability.
     ///
-    /// Note that only Milliseconds and Days time units are supported for Date.
+    /// Note that only Milliseconds and Days time units are supported for Time.
     pub fn try_new(time_unit: TimeUnit, nullability: Nullability) -> VortexResult<ExtDType<Self>> {
-        let ptype = date_ptype(&time_unit)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", time_unit))?;
+        let ptype = time_ptype(&time_unit)
+            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", time_unit))?;
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
     }
 }
 
-impl VTable for Date {
+impl VTable for Time {
     type Options = TimeUnit;
 
     fn id(_options: &Self::Options) -> ExtId {
@@ -48,12 +47,12 @@ impl VTable for Date {
     }
 
     fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
-        let ptype = date_ptype(options)
-            .ok_or_else(|| vortex_err!("Date type does not support time unit {}", options))?;
+        let ptype = time_ptype(options)
+            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", options))?;
 
         vortex_ensure!(
             storage_dtype.as_ptype() == ptype,
-            "Date storage dtype for {} must be {}",
+            "Time storage dtype for {} must be {}",
             options,
             ptype
         );
@@ -62,12 +61,10 @@ impl VTable for Date {
     }
 }
 
-fn date_ptype(time_unit: &TimeUnit) -> Option<PType> {
-    match time_unit {
-        TimeUnit::Nanoseconds => None,
-        TimeUnit::Microseconds => None,
-        TimeUnit::Milliseconds => Some(PType::I64),
-        TimeUnit::Seconds => None,
-        TimeUnit::Days => Some(PType::I32),
-    }
+fn time_ptype(time_unit: &TimeUnit) -> Option<PType> {
+    Some(match time_unit {
+        TimeUnit::Nanoseconds | TimeUnit::Microseconds => PType::I64,
+        TimeUnit::Milliseconds | TimeUnit::Seconds => PType::I32,
+        TimeUnit::Days => return None,
+    })
 }

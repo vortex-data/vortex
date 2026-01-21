@@ -68,8 +68,8 @@ impl<V: VTable> DynVTable for VTableAdapter<V> {
     }
 }
 
-impl<V: VTable> From<&'static V> for &'static dyn DynVTable {
-    fn from(_value: &'static V) -> Self {
+impl<V: VTable> From<V> for &'static dyn DynVTable {
+    fn from(_value: V) -> Self {
         const { &VTableAdapter::<V>(PhantomData) }
     }
 }

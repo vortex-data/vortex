@@ -303,6 +303,7 @@ mod tests {
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBufferMut;
+    use vortex_dtype::session::DTypeSession;
     use vortex_io::session::RuntimeSession;
     use vortex_layout::session::LayoutSession;
 
@@ -348,6 +349,7 @@ mod tests {
         let mut buf = ByteBufferMut::empty();
         let mut session = VortexSession::empty()
             .with::<VortexMetrics>()
+            .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ExprSession>()

@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod date;
+mod time;
 mod timestamp;
 
 pub use date::*;
+pub use time::*;
 pub use timestamp::*;
 
 use crate::datetime::TemporalMetadata;
@@ -21,7 +23,7 @@ impl Matcher for AnyTemporal {
         if let Some(opts) = item.try_options::<Timestamp>() {
             return Some(TemporalMetadata::Timestamp(opts.unit, opts.tz.clone()));
         }
-        if let Some(time_unit) = item.try_options::<Date>() {
+        if let Some(time_unit) = item.try_options::<Time>() {
             return Some(TemporalMetadata::Date(*time_unit));
         }
 

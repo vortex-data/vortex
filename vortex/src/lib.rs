@@ -11,6 +11,7 @@ pub use vortex_array::compute;
 pub use vortex_array::expr;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
+use vortex_dtype::session::DTypeSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
@@ -158,6 +159,7 @@ impl VortexSessionDefault for VortexSession {
     fn default() -> VortexSession {
         let mut session = VortexSession::empty()
             .with::<VortexMetrics>()
+            .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ExprSession>()
