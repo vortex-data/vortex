@@ -8,6 +8,7 @@ use std::hash::Hasher;
 use std::ops::Range;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -60,6 +61,22 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     ///
     /// This operation may fail, depending on the device implementation and the underlying hardware.
     fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
+
+    /// Attempts to copy the device buffer to a host buffer asynchronously.
+    ///
+    /// Schedules an async copy and returns a future that completes when the copy is finished.
+    ///
+    /// # Arguments
+    ///
+    /// * `alignment` - The memory alignment to use for the host buffer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails.
+    fn copy_to_host_async(
+        &self,
+        alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>;
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.

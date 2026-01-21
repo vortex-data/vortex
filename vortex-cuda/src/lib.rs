@@ -7,6 +7,7 @@ mod device_buffer;
 pub mod executor;
 mod kernel;
 mod session;
+mod stream;
 
 use std::process::Command;
 
