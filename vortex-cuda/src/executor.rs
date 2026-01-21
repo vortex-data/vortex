@@ -17,7 +17,6 @@ use cudarc::driver::LaunchArgs;
 use cudarc::driver::result;
 use cudarc::driver::result::memcpy_htod_async;
 use cudarc::driver::sys;
-use cudarc::driver::sys::CUevent_flags;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use result::stream;
