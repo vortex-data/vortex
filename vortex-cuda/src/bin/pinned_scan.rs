@@ -32,6 +32,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::alignment_copy_stats;
 use vortex_buffer::reset_alignment_copy_stats;
+use vortex_buffer::Alignment;
 use vortex_cuda::PinnedBufferAllocator;
 use vortex_cuda::PinnedByteBufferPool;
 use vortex_cuda::PinnedDeviceAllocator;
@@ -463,7 +464,7 @@ fn main() -> ExitCode {
         .scans
         .iter()
         .any(|s| matches!(s, ScanType::DefaultCopyPooled))
-        .then(|| Arc::new(HostByteBufferPool::new()));
+        .then(|| Arc::new(HostByteBufferPool::with_fixed_alignment(Alignment::new(4096), 4)));
 
     let stream = ctx
         .as_ref()
