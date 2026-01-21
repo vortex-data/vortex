@@ -35,6 +35,8 @@ use vortex_utils::aliases::dash_map::DashMap;
 use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
+use crate::DefaultVortexReaderFactory;
+use crate::VortexReaderFactory;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 
@@ -60,6 +62,7 @@ pub struct VortexSource {
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
 }
 
 impl VortexSource {
@@ -83,6 +86,7 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            vortex_reader_factory: None,
         }
     }
 
@@ -92,6 +96,17 @@ impl VortexSource {
         expr_convertor: Arc<dyn ExpressionConvertor>,
     ) -> Self {
         self.expression_convertor = expr_convertor;
+        self
+    }
+
+    /// Set a user-defined factory to create the underlying [`VortexReadAt`]
+    ///
+    /// [`VortexReadAt`]: vortex::io::VortexReadAt
+    pub fn with_vortex_reader_factory(
+        mut self,
+        vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    ) -> Self {
+        self.vortex_reader_factory = Some(vortex_reader_factory);
         self
     }
 }
@@ -117,9 +132,14 @@ impl FileSource for VortexSource {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultPhysicalExprAdapterFactory));
 
+        let vortex_reader_factory = self
+            .vortex_reader_factory
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+
         let opener = VortexOpener {
             session: self.session.clone(),
-            object_store,
+            vortex_reader_factory,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),

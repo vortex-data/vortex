@@ -2,28 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Not;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorOps;
-use vortex_vector::bool::BoolScalar;
-use vortex_vector::bool::BoolVector;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -78,29 +68,22 @@ impl VTable for IsNull {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let array = expr.child(0).evaluate(scope)?;
-        Ok(match array.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(false, array.len()).into_array()
-            }
-            Validity::AllInvalid => ConstantArray::new(true, array.len()).into_array(),
-            Validity::Array(a) => a.not()?,
-        })
-    }
+        _data: &Self::Options,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let child = args.inputs.pop().vortex_expect("Missing input child");
+        if let Some(scalar) = child.as_constant() {
+            return Ok(ExecutionResult::constant(scalar.is_null(), args.row_count));
+        }
 
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child = args.datums.pop().vortex_expect("Missing input child");
-        Ok(match child {
-            Datum::Scalar(s) => Datum::Scalar(BoolScalar::new(Some(s.is_null())).into()),
-            Datum::Vector(v) => Datum::Vector(
-                BoolVector::new(v.validity().to_bit_buffer().not(), Mask::new_true(v.len())).into(),
-            ),
+        Ok(match child.validity()? {
+            Validity::NonNullable | Validity::AllValid => {
+                ExecutionResult::constant(false, args.row_count)
+            }
+            Validity::AllInvalid => ExecutionResult::constant(true, args.row_count),
+            Validity::Array(a) => a.not()?.execute(args.ctx)?,
         })
     }
 

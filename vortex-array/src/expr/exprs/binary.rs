@@ -3,27 +3,19 @@
 
 use std::fmt::Formatter;
 
-use arrow_ord::cmp;
 use prost::Message;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::arrow::IntoVector;
-use vortex_compute::logical::LogicalAndKleene;
-use vortex_compute::logical::LogicalOrKleene;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
 use crate::compute::compare;
-use crate::compute::compare_nested_arrow_arrays;
 use crate::compute::div;
 use crate::compute::mul;
 use crate::compute::or_kleene;
@@ -31,6 +23,7 @@ use crate::compute::sub;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -106,16 +99,13 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(
-        &self,
-        operator: &Operator,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let lhs = expr.child(0).evaluate(scope)?;
-        let rhs = expr.child(1).evaluate(scope)?;
+    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+        let [lhs, rhs]: [ArrayRef; _] = args
+            .inputs
+            .try_into()
+            .map_err(|_| vortex_err!("Wrong arg count"))?;
 
-        match operator {
+        match op {
             Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
             Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
             Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
@@ -128,89 +118,8 @@ impl VTable for Binary {
             Operator::Sub => sub(&lhs, &rhs),
             Operator::Mul => mul(&lhs, &rhs),
             Operator::Div => div(&lhs, &rhs),
-        }
-    }
-
-    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [lhs, rhs]: [Datum; _] = args
-            .datums
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
-
-        // Handle logical operators.
-        match op {
-            Operator::And => {
-                return Ok(LogicalAndKleene::and_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
-            }
-            Operator::Or => {
-                return Ok(LogicalOrKleene::or_kleene(&lhs.into_bool(), &rhs.into_bool()).into());
-            }
-            _ => {}
-        }
-
-        // Arrow's vectorized comparison kernels (`cmp::eq`, etc.) don't support nested types
-        // (Struct, List, FixedSizeList). For those, we use `compare_nested_arrow_arrays` which does
-        // element-wise comparison via `make_comparator`.
-        if let Some(cmp_op) = op.maybe_cmp_operator()
-            && (lhs.is_nested() || rhs.is_nested())
-        {
-            // Treat scalars as 1-element arrow arrays.
-            let lhs_arr = lhs.into_arrow()?;
-            let rhs_arr = rhs.into_arrow()?;
-
-            let bool_array = compare_nested_arrow_arrays(lhs_arr.get().0, rhs_arr.get().0, cmp_op)?;
-            let vector = bool_array.into_vector()?;
-
-            let both_are_scalar = lhs_arr.get().1 && rhs_arr.get().1;
-
-            return Ok(if both_are_scalar {
-                Datum::Scalar(vortex_vector::Scalar::Bool(vector.scalar_at(0)))
-            } else {
-                Datum::Vector(vortex_vector::Vector::Bool(vector))
-            });
-        }
-
-        let lhs = lhs.into_arrow()?;
-        let rhs = rhs.into_arrow()?;
-
-        let vector = match op {
-            // Handle comparison operators.
-            Operator::Eq => cmp::eq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::NotEq => cmp::neq(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gt => cmp::gt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Gte => cmp::gt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-            Operator::Lt => cmp::lt(lhs.as_ref(), rhs.as_ref())?.into_vector()?.into(),
-            Operator::Lte => cmp::lt_eq(lhs.as_ref(), rhs.as_ref())?
-                .into_vector()?
-                .into(),
-
-            // Handle arithmetic operators.
-            Operator::Add => {
-                arrow_arith::numeric::add(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Sub => {
-                arrow_arith::numeric::sub(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Mul => {
-                arrow_arith::numeric::mul(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-            Operator::Div => {
-                arrow_arith::numeric::div(lhs.as_ref(), rhs.as_ref())?.into_vector()?
-            }
-
-            // Logical operators were handled above.
-            Operator::And | Operator::Or => unreachable!("Already dealt with above"),
-        };
-
-        let both_are_scalar = lhs.get().1 && rhs.get().1;
-
-        Ok(if both_are_scalar {
-            Datum::Scalar(vector.scalar_at(0))
-        } else {
-            Datum::Vector(vector)
-        })
+        }?
+        .execute(args.ctx)
     }
 
     fn stat_falsification(
@@ -612,12 +521,8 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;
-    use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::StructFields;
     use vortex_scalar::Scalar;
-    use vortex_vector::ScalarOps;
 
     use super::*;
     use crate::expr::Expression;
@@ -711,82 +616,63 @@ mod tests {
     /// using `make_comparator` instead of Arrow's `cmp` functions which don't support nested types.
     #[test]
     fn test_struct_comparison() {
-        // Create a struct dtype for testing.
-        let struct_dtype = DType::Struct(
-            StructFields::new(
-                FieldNames::from(["a", "b"]),
-                vec![
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                    DType::Primitive(PType::I32, Nullability::NonNullable),
-                ],
+        use crate::IntoArray;
+        use crate::arrays::StructArray;
+
+        // Create a struct array with one element for testing.
+        let lhs_struct = StructArray::from_fields(&[
+            (
+                "a",
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
             ),
-            Nullability::NonNullable,
+            (
+                "b",
+                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let rhs_struct_equal = StructArray::from_fields(&[
+            (
+                "a",
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
+            ),
+            (
+                "b",
+                crate::arrays::PrimitiveArray::from_iter([3i32]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let rhs_struct_different = StructArray::from_fields(&[
+            (
+                "a",
+                crate::arrays::PrimitiveArray::from_iter([1i32]).into_array(),
+            ),
+            (
+                "b",
+                crate::arrays::PrimitiveArray::from_iter([4i32]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        // Test using compare compute function directly
+        let result_equal = compare(&lhs_struct, &rhs_struct_equal, compute::Operator::Eq).unwrap();
+        assert_eq!(
+            result_equal.scalar_at(0),
+            Scalar::bool(true, Nullability::NonNullable),
+            "Equal structs should be equal"
         );
 
-        // Test 1: Equal structs should return true.
-        let lhs_scalar = Scalar::struct_(
-            struct_dtype.clone(),
-            vec![Scalar::from(1i32), Scalar::from(3i32)],
+        let result_different =
+            compare(&lhs_struct, &rhs_struct_different, compute::Operator::Eq).unwrap();
+        assert_eq!(
+            result_different.scalar_at(0),
+            Scalar::bool(false, Nullability::NonNullable),
+            "Different structs should not be equal"
         );
-        let rhs_scalar = Scalar::struct_(
-            struct_dtype.clone(),
-            vec![Scalar::from(1i32), Scalar::from(3i32)],
-        );
-
-        let lhs_datum = Datum::Scalar(lhs_scalar.to_vector_scalar());
-        let rhs_datum = Datum::Scalar(rhs_scalar.to_vector_scalar());
-
-        let result = Binary.bind(Operator::Eq).execute(ExecutionArgs {
-            datums: vec![lhs_datum, rhs_datum],
-            dtypes: vec![struct_dtype.clone(), struct_dtype.clone()],
-            row_count: 1,
-            return_dtype: DType::Bool(Nullability::NonNullable),
-        });
-
-        assert!(result.is_ok(), "Expected success, but got: {:?}", result);
-        let datum = result.unwrap();
-        if let Datum::Scalar(vortex_vector::Scalar::Bool(bool_scalar)) = datum {
-            assert!(bool_scalar.is_valid());
-            assert_eq!(
-                bool_scalar.value(),
-                Some(true),
-                "Equal structs should be equal"
-            );
-        } else {
-            panic!("Expected Scalar::Bool, got {:?}", datum);
-        }
-
-        // Test 2: Different structs should return false.
-        let lhs_scalar = Scalar::struct_(
-            struct_dtype.clone(),
-            vec![Scalar::from(1i32), Scalar::from(3i32)],
-        );
-        let rhs_scalar = Scalar::struct_(
-            struct_dtype.clone(),
-            vec![Scalar::from(1i32), Scalar::from(4i32)], // Different value.
-        );
-
-        let lhs_datum = Datum::Scalar(lhs_scalar.to_vector_scalar());
-        let rhs_datum = Datum::Scalar(rhs_scalar.to_vector_scalar());
-
-        let result = Binary.bind(Operator::Eq).execute(ExecutionArgs {
-            datums: vec![lhs_datum, rhs_datum],
-            dtypes: vec![struct_dtype.clone(), struct_dtype],
-            row_count: 1,
-            return_dtype: DType::Bool(Nullability::NonNullable),
-        });
-
-        assert!(result.is_ok(), "Expected success, but got: {:?}", result);
-        let datum = result.unwrap();
-        if let Datum::Scalar(vortex_vector::Scalar::Bool(bool_scalar)) = datum {
-            assert!(bool_scalar.is_valid());
-            assert_eq!(
-                bool_scalar.value(),
-                Some(false),
-                "Different structs should not be equal"
-            );
-        } else {
-            panic!("Expected Scalar::Bool, got {:?}", datum);
-        }
     }
 }

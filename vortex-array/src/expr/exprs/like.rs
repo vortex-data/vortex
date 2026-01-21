@@ -4,15 +4,11 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
@@ -20,6 +16,7 @@ use crate::compute::like as like_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -103,40 +100,17 @@ impl VTable for Like {
         ))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child = expr.child(0).evaluate(scope)?;
-        let pattern = expr.child(1).evaluate(scope)?;
-        like_compute(&child, &pattern, *options)
-    }
-
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [child, pattern]: [Datum; _] = args
-            .datums
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [child, pattern]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        let child = child.into_arrow()?;
-        let pattern = pattern.into_arrow()?;
-
-        let array = match (options.negated, options.case_insensitive) {
-            (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),
-            (false, true) => arrow_string::like::ilike(child.as_ref(), pattern.as_ref()),
-            (true, false) => arrow_string::like::nlike(child.as_ref(), pattern.as_ref()),
-            (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
-        }?;
-
-        let vector = array.into_vector()?;
-        if vector.len() == 1 && args.row_count != 1 {
-            // Arrow returns a scalar datum result
-            return Ok(Datum::Scalar(vector.scalar_at(0).into()));
-        }
-
-        Ok(Datum::Vector(array.into_vector()?.into()))
+        like_compute(&child, &pattern, *options)?.execute(args.ctx)
     }
 
     fn validity(

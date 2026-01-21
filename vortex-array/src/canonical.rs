@@ -117,6 +117,20 @@ impl Canonical {
         }
     }
 
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Canonical::Null(c) => c.dtype(),
+            Canonical::Bool(c) => c.dtype(),
+            Canonical::Primitive(c) => c.dtype(),
+            Canonical::Decimal(c) => c.dtype(),
+            Canonical::VarBinView(c) => c.dtype(),
+            Canonical::List(c) => c.dtype(),
+            Canonical::FixedSizeList(c) => c.dtype(),
+            Canonical::Struct(c) => c.dtype(),
+            Canonical::Extension(c) => c.dtype(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
             Canonical::Null(c) => c.is_empty(),
