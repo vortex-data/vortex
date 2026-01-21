@@ -6,17 +6,33 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::DType;
+use crate::Nullability;
 use crate::PType;
 use crate::VTable;
 use crate::datetime::TimeUnit;
 use crate::extension::vtable::ExtId;
+use crate::v2::ExtDType;
 
-pub struct TimestampDType;
+pub struct Timestamp;
+
+impl Timestamp {
+    pub fn new(nullability: Nullability) -> ExtDType<Self> {
+        ExtDType::try_new(
+            TimestampOptions {
+                time_unit: TimeUnit::Milliseconds,
+                timezone: None,
+            },
+            DType::Primitive(PType::I64, nullability),
+        )
+        .vortex_expect("failed to create timestamp dtype")
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TimestampOptions {
@@ -33,7 +49,7 @@ impl Display for TimestampOptions {
     }
 }
 
-impl VTable for TimestampDType {
+impl VTable for Timestamp {
     type Options = TimestampOptions;
 
     fn id(_options: &Self::Options) -> ExtId {
@@ -54,5 +70,22 @@ impl VTable for TimestampDType {
             "Timestamp storage dtype must be i64"
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use vortex_error::vortex_bail;
+    use vortex_error::vortex_panic;
+
+    use super::*;
+    use crate::Nullability::NonNullable;
+
+    #[test]
+    fn test_stuff() {
+        let dtype = Timestamp::new(NonNullable).erase();
+        let Some(opts) = dtype.try_options::<Timestamp>() else {
+            vortex_panic!("failed to match as Timestamp");
+        };
     }
 }

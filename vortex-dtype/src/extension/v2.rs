@@ -59,30 +59,63 @@ impl ExtDTypeRef {
         self.0.id()
     }
 
+    /// Returns the untyped options of the extension type.
+    pub fn options_ref(&self) -> ExtDTypeOptions<'_> {
+        ExtDTypeOptions { ext_dtype: self }
+    }
+
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
     }
 }
 
-/// Methods for downcasting type-erased extension dtypes.
-impl ExtDTypeRef {
-    /// Check if the extension dtype is of the concrete type.
-    pub fn is<V: VTable>(&self) -> bool {
-        self.0.as_any().is::<ExtDTypeAdapter<V>>()
+/// A trait for matching extension dtypes.
+pub trait Matcher<T> {
+    /// The matched view type.
+    type Match<'a>
+    where
+        T: 'a;
+
+    /// Check if the given item matches this matcher.
+    fn matches(item: &T) -> bool {
+        Self::try_match(item).is_some()
     }
 
-    /// Downcast to the concrete options type.
-    pub fn as_opt<V: VTable>(&self) -> Option<&V::Options> {
-        self.0
+    /// Check if the given item matches this matcher.
+    fn try_match<'a>(item: &'a T) -> Option<Self::Match<'a>>;
+}
+
+impl<V: VTable> Matcher<ExtDTypeRef> for V {
+    type Match<'a> = &'a V::Options;
+
+    fn matches(item: &ExtDTypeRef) -> bool {
+        item.0.as_any().is::<ExtDTypeAdapter<V>>()
+    }
+
+    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+        item.0
             .as_any()
             .downcast_ref::<ExtDTypeAdapter<V>>()
             .map(|adapter| &adapter.options)
     }
+}
+
+/// Methods for downcasting type-erased extension dtypes.
+impl ExtDTypeRef {
+    /// Check if the extension dtype is of the concrete type.
+    pub fn is<M: Matcher<Self>>(&self) -> bool {
+        M::matches(&self)
+    }
 
     /// Downcast to the concrete options type.
-    pub fn as_<V: VTable>(&self) -> &V::Options {
-        self.as_opt::<V>()
+    pub fn try_options<M: Matcher<Self>>(&self) -> Option<M::Match<'_>> {
+        M::try_match(&self)
+    }
+
+    /// Downcast to the concrete options type.
+    pub fn options<M: Matcher<Self>>(&self) -> M::Match<'_> {
+        self.try_options::<M>()
             .vortex_expect("Failed to downcast DynExtDType")
     }
 
@@ -124,6 +157,13 @@ pub struct ExtDTypeOptions<'a> {
     pub(super) ext_dtype: &'a ExtDTypeRef,
 }
 
+impl ExtDTypeOptions<'_> {
+    /// Serialize the options into a byte vector.
+    pub fn serialize(&self) -> VortexResult<Vec<u8>> {
+        self.ext_dtype.0.options_serialize()
+    }
+}
+
 impl Display for ExtDTypeOptions<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.ext_dtype.0.options_display(f)
@@ -159,6 +199,7 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn options_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
     fn options_eq(&self, other: &dyn Any) -> bool;
     fn options_hash(&self, state: &mut dyn Hasher);
+    fn options_serialize(&self) -> VortexResult<Vec<u8>>;
 }
 
 struct ExtDTypeAdapter<V: VTable> {
@@ -201,6 +242,10 @@ impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
 
     fn options_hash(&self, mut state: &mut dyn Hasher) {
         <V::Options as Hash>::hash(&self.options, &mut state);
+    }
+
+    fn options_serialize(&self) -> VortexResult<Vec<u8>> {
+        V::serialize(&self.options)
     }
 }
 
