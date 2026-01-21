@@ -58,6 +58,35 @@ const ROW_COUNTS: &[(usize, &str)] = &[
     (100_000_000, "100M_rows"),
 ];
 
+fn format_row_label(num_rows: usize) -> String {
+    if num_rows % 1_000_000 == 0 {
+        format!("{}M_rows", num_rows / 1_000_000)
+    } else {
+        format!("{num_rows}_rows")
+    }
+}
+
+fn row_counts() -> Vec<(usize, String)> {
+    if let Some(list) = split_env_list("VORTEX_PINNED_SCAN_ROWS") {
+        let mut rows = Vec::new();
+        for item in list {
+            if let Ok(value) = item.parse::<usize>() {
+                if value > 0 {
+                    rows.push((value, format_row_label(value)));
+                }
+            }
+        }
+        if !rows.is_empty() {
+            return rows;
+        }
+    }
+
+    ROW_COUNTS
+        .iter()
+        .map(|(rows, label)| (*rows, (*label).to_string()))
+        .collect()
+}
+
 fn create_session(rt: &Runtime) -> VortexSession {
     let mut session = VortexSession::empty()
         .with::<VortexMetrics>()
@@ -277,19 +306,19 @@ fn bench_scan_default(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan_default");
     group.sample_size(10);
 
-    for (num_rows, label) in ROW_COUNTS {
-        // Skip very large for CI
-        if *num_rows > 10_000_000 {
+    for (num_rows, label) in row_counts() {
+        // Skip very large for CI unless overridden.
+        if env::var("VORTEX_PINNED_SCAN_ROWS").is_err() && num_rows > 10_000_000 {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
         if run_zero_copy {
             group.bench_with_input(
-                BenchmarkId::new("default_zero_copy", label),
+                BenchmarkId::new("default_zero_copy", label.as_str()),
                 &buffer,
                 |b, buffer| {
                     b.iter_custom(|iters| {
@@ -303,15 +332,19 @@ fn bench_scan_default(c: &mut Criterion) {
             );
         }
         if run_copy {
-            group.bench_with_input(BenchmarkId::new("default_copy", label), &buffer, |b, buffer| {
-                b.iter_custom(|iters| {
-                    let mut total = Duration::ZERO;
-                    for _ in 0..iters {
-                        total += scan_default_copy(&rt, &session, buffer);
-                    }
-                    total
-                });
-            });
+            group.bench_with_input(
+                BenchmarkId::new("default_copy", label.as_str()),
+                &buffer,
+                |b, buffer| {
+                    b.iter_custom(|iters| {
+                        let mut total = Duration::ZERO;
+                        for _ in 0..iters {
+                            total += scan_default_copy(&rt, &session, buffer);
+                        }
+                        total
+                    });
+                },
+            );
         }
     }
 
@@ -336,24 +369,28 @@ fn bench_scan_pinned(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan_pinned");
     group.sample_size(10);
 
-    for (num_rows, label) in ROW_COUNTS {
-        if *num_rows > 10_000_000 {
+    for (num_rows, label) in row_counts() {
+        if env::var("VORTEX_PINNED_SCAN_ROWS").is_err() && num_rows > 10_000_000 {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
-        group.bench_with_input(BenchmarkId::new("pinned", label), &buffer, |b, buffer| {
-            b.iter_custom(|iters| {
-                let mut total = Duration::ZERO;
-                for _ in 0..iters {
-                    total += scan_pinned(&rt, &session, buffer, &pool);
-                }
-                total
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("pinned", label.as_str()),
+            &buffer,
+            |b, buffer| {
+                b.iter_custom(|iters| {
+                    let mut total = Duration::ZERO;
+                    for _ in 0..iters {
+                        total += scan_pinned(&rt, &session, buffer, &pool);
+                    }
+                    total
+                });
+            },
+        );
     }
 
     group.finish();
@@ -378,24 +415,28 @@ fn bench_scan_device(c: &mut Criterion) {
     let mut group = c.benchmark_group("scan_device");
     group.sample_size(10);
 
-    for (num_rows, label) in ROW_COUNTS {
-        if *num_rows > 10_000_000 {
+    for (num_rows, label) in row_counts() {
+        if env::var("VORTEX_PINNED_SCAN_ROWS").is_err() && num_rows > 10_000_000 {
             continue;
         }
 
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, num_rows);
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
-        group.bench_with_input(BenchmarkId::new("device", label), &buffer, |b, buffer| {
-            b.iter_custom(|iters| {
-                let mut total = Duration::ZERO;
-                for _ in 0..iters {
-                    total += scan_device(&rt, &session, buffer, &pool, &stream);
-                }
-                total
-            });
-        });
+        group.bench_with_input(
+            BenchmarkId::new("device", label.as_str()),
+            &buffer,
+            |b, buffer| {
+                b.iter_custom(|iters| {
+                    let mut total = Duration::ZERO;
+                    for _ in 0..iters {
+                        total += scan_device(&rt, &session, buffer, &pool, &stream);
+                    }
+                    total
+                });
+            },
+        );
     }
 
     group.finish();
@@ -416,8 +457,12 @@ fn print_scan_comparison() {
     let pool = Arc::new(PinnedByteBufferPool::new(ctx));
     let session = create_session(&rt);
 
-    let num_rows = 10_000_000; // 10M rows
-    println!("Creating Vortex file with {} rows...", num_rows);
+    let rows = row_counts();
+    let (num_rows, label) = rows
+        .first()
+        .map(|(rows, label)| (*rows, label.as_str()))
+        .unwrap_or((10_000_000, "10M_rows"));
+    println!("Creating Vortex file with {} rows ({})...", num_rows, label);
     let buffer = create_vortex_buffer(&rt, &session, num_rows);
     println!(
         "File size: {:.2} MB ({} bytes)\n",
@@ -591,13 +636,13 @@ fn print_scan_comparison_quick() {
     let pool = Arc::new(PinnedByteBufferPool::new(ctx));
     let session = create_session(&rt);
 
-    for (num_rows, label) in ROW_COUNTS {
-        if *num_rows > 10_000_000 {
+    for (num_rows, label) in row_counts() {
+        if env::var("VORTEX_PINNED_SCAN_ROWS").is_err() && num_rows > 10_000_000 {
             continue;
         }
 
         println!("Rows: {} ({})", num_rows, label);
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, num_rows);
         println!(
             "  File size: {:.2} MB ({} bytes)",
             buffer.len() as f64 / 1e6,
