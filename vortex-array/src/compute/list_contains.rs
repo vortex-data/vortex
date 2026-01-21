@@ -102,6 +102,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
 /// ```
+// TODO(joe): ensure that list_contains_scalar from (548303761b4270b583ef34f6ca6e3c2b134a242a)
+// is implemented here.
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     LIST_CONTAINS_FN
         .invoke(&InvocationArgs {
