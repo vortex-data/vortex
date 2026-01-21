@@ -50,7 +50,7 @@ intersphinx_mapping = {
 git_root = Path(__file__).parent.parent
 
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
-nitpick_ignore = []
+nitpick_ignore = [("py:class", "pandas.core.frame.DataFrame")]
 
 doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"
 doctest_default_flags = (
