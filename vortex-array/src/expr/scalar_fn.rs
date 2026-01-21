@@ -13,7 +13,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
-use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::expr::EmptyOptions;

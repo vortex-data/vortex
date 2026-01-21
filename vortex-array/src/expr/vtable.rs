@@ -17,7 +17,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -337,6 +336,11 @@ impl ExecutionResult {
             ExecutionResult::Array(canonical) => canonical.len(),
             ExecutionResult::Scalar(constant) => constant.len(),
         }
+    }
+
+    /// Returns true if this execution result has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 
     /// Returns the data type of this execution result.

@@ -122,7 +122,7 @@ impl VTable for DynamicComparison {
                 .inputs
                 .try_into()
                 .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
-            let rhs = ConstantArray::new(scalar.clone(), args.row_count).into_array();
+            let rhs = ConstantArray::new(scalar, args.row_count).into_array();
 
             return Binary.bind(data.operator.into()).execute(ExecutionArgs {
                 inputs: vec![lhs, rhs],

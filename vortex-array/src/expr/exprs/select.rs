@@ -3,7 +3,6 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use prost::Message;
@@ -16,17 +15,15 @@ use vortex_error::vortex_err;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
-use vortex_vector::Datum;
-use vortex_vector::StructDatum;
-use vortex_vector::VectorOps;
-use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
@@ -158,49 +155,31 @@ impl VTable for Select {
         .into_array())
     }
 
-    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child_fields = args
-            .dtypes
-            .pop()
-            .vortex_expect("Missing input dtype")
-            .into_struct_fields();
-
-        let field_indices: Vec<usize> = match selection {
-            FieldSelection::Include(f) => f
-                .iter()
-                .map(|name| {
-                    child_fields
-                        .find(name)
-                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
-                })
-                .try_collect(),
-            FieldSelection::Exclude(names) => child_fields
-                .names()
-                .iter()
-                .filter(|&f| !names.as_ref().contains(f))
-                .map(|name| {
-                    child_fields
-                        .find(name)
-                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
-                })
-                .try_collect(),
-        }?;
-
+    fn execute(
+        &self,
+        selection: &FieldSelection,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         let child = args
-            .datums
+            .inputs
             .pop()
             .vortex_expect("Missing input child")
-            .into_struct();
+            .execute::<StructArray>(args.ctx)?;
 
-        Ok(match child {
-            StructDatum::Scalar(s) => StructDatum::Scalar(
-                select_from_struct_vector(s.value(), &field_indices)?.scalar_at(0),
-            ),
-            StructDatum::Vector(v) => {
-                StructDatum::Vector(select_from_struct_vector(&v, &field_indices)?)
+        let result = match selection {
+            FieldSelection::Include(f) => child.project(f.as_ref()),
+            FieldSelection::Exclude(names) => {
+                let included_names = child
+                    .names()
+                    .iter()
+                    .filter(|&f| !names.as_ref().contains(f))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                child.project(included_names.as_slice())
             }
-        }
-        .into())
+        }?;
+
+        result.into_array().execute(args.ctx)
     }
 
     fn simplify(
@@ -246,17 +225,6 @@ impl VTable for Select {
         // If this type-checks its infallible.
         false
     }
-}
-
-fn select_from_struct_vector(
-    vec: &StructVector,
-    field_indices: &[usize],
-) -> VortexResult<StructVector> {
-    let new_fields = field_indices
-        .iter()
-        .map(|&idx| vec.fields()[idx].clone())
-        .collect();
-    Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), vec.validity().clone()) })
 }
 
 /// Creates an expression that selects (includes) specific fields from an array.

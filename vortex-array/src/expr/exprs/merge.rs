@@ -15,7 +15,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_vector::Datum;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -25,6 +24,7 @@ use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
@@ -185,8 +185,49 @@ impl VTable for Merge {
         )
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        // Collect fields in order of appearance. Later fields overwrite earlier fields.
+        let mut field_names = Vec::new();
+        let mut arrays = Vec::new();
+        let mut duplicate_names = HashSet::<_>::new();
+
+        for input in args.inputs {
+            let array = input.execute::<StructArray>(args.ctx)?;
+            if array.dtype().is_nullable() {
+                vortex_bail!("merge expects non-nullable input");
+            }
+
+            for (field_name, field_array) in
+                array.names().iter().zip_eq(array.fields().iter().cloned())
+            {
+                // Update or insert field.
+                if let Some(idx) = field_names.iter().position(|name| name == field_name) {
+                    duplicate_names.insert(field_name.clone());
+                    arrays[idx] = field_array;
+                } else {
+                    field_names.push(field_name.clone());
+                    arrays.push(field_array);
+                }
+            }
+        }
+
+        if options == &DuplicateHandling::Error && !duplicate_names.is_empty() {
+            vortex_bail!(
+                "merge: duplicate fields in children: {}",
+                duplicate_names.into_iter().format(", ")
+            )
+        }
+
+        // TODO(DK): When children are allowed to be nullable, this needs to change.
+        let validity = Validity::NonNullable;
+        let len = args.row_count;
+        StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+            .into_array()
+            .execute(args.ctx)
     }
 
     fn reduce(

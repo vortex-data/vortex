@@ -3,12 +3,10 @@
 
 use std::fmt::Formatter;
 
-use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
 
 use crate::ArrayRef;
 use crate::compute::invert;
@@ -16,6 +14,7 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -82,9 +81,13 @@ impl VTable for Not {
         invert(&child_result)
     }
 
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child = args.datums.pop().vortex_expect("Missing input child");
-        Ok(child.into_bool().not().into())
+    fn execute(
+        &self,
+        _data: &Self::Options,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let child = args.inputs.pop().vortex_expect("Missing input child");
+        invert(&child)?.execute(args.ctx)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

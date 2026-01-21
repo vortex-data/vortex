@@ -10,18 +10,15 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
-use vortex_vector::BoolDatum;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
 
 use crate::ArrayRef;
 use crate::ToCanonical;
+use crate::arrays::BoolArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -102,38 +99,19 @@ impl VTable for Mask {
         crate::compute::mask(&child, &vortex_mask::Mask::from_buffer(!mask))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [input, mask]: [Datum; _] = args
-            .datums
+    fn execute(
+        &self,
+        _options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [input, mask_array]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
-        let mask = mask.into_bool();
 
-        match (input, mask) {
-            (Datum::Scalar(input), BoolDatum::Scalar(mask)) => {
-                let mut result = input;
-                result.mask_validity(mask.value().vortex_expect("mask is non-nullable"));
-                Ok(Datum::Scalar(result))
-            }
-            (Datum::Scalar(input), BoolDatum::Vector(mask)) => {
-                let mut result = input.repeat(args.row_count).freeze();
-                result.mask_validity(&vortex_mask::Mask::from(mask.into_bits()));
-                Ok(Datum::Vector(result))
-            }
-            (Datum::Vector(input_array), BoolDatum::Scalar(mask)) => {
-                let mut result = input_array;
-                result.mask_validity(&vortex_mask::Mask::new(
-                    args.row_count,
-                    mask.value().vortex_expect("mask is non-nullable"),
-                ));
-                Ok(Datum::Vector(result))
-            }
-            (Datum::Vector(input_array), BoolDatum::Vector(mask)) => {
-                let mut result = input_array;
-                result.mask_validity(&vortex_mask::Mask::from(mask.into_bits()));
-                Ok(Datum::Vector(result))
-            }
-        }
+        let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
+        let inverted = mask_bool.bit_buffer().not();
+        crate::compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
     }
 
     fn simplify(
