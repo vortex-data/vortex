@@ -18,6 +18,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Executable;

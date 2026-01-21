@@ -13,7 +13,8 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 
 use crate::ArrayRef;
-use crate::IntoArray;
+use crate::Canonical;
+use crate::arrays::ConstantVTable;
 use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
 use crate::expr::Arity;
@@ -161,25 +162,10 @@ impl VTable for Between {
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
 
-        let lower_bound = Binary
-            .bind(options.lower_strict.to_operator().into())
-            .execute(ExecutionArgs {
-                inputs: vec![lower.clone(), arr.clone()],
-                row_count: args.row_count,
-                ctx: args.ctx,
-            })?;
-        let upper_bound = Binary
-            .bind(options.upper_strict.to_operator().into())
-            .execute(ExecutionArgs {
-                inputs: vec![arr, upper],
-                row_count: args.row_count,
-                ctx: args.ctx,
-            })?;
-
-        Binary.bind(Operator::And).execute(ExecutionArgs {
-            inputs: vec![lower_bound.into_array(), upper_bound.into_array()],
-            row_count: args.row_count,
-            ctx: args.ctx,
+        let result = between_compute(arr.as_ref(), lower.as_ref(), upper.as_ref(), options)?;
+        Ok(match result.try_into::<ConstantVTable>() {
+            Ok(constant) => ExecutionResult::Scalar(constant),
+            Err(arr) => ExecutionResult::Array(arr.execute::<Canonical>(args.ctx)?),
         })
     }
 

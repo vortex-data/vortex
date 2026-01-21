@@ -14,6 +14,7 @@ use vortex_scalar::Scalar;
 use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
+use crate::compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -91,12 +92,10 @@ impl VTable for Mask {
     ) -> VortexResult<ArrayRef> {
         let child = expr.child(0).evaluate(scope)?;
 
-        // The expr::Mask semantics are: mask=true means retain, mask=false means null.
-        // But compute::mask has: mask=true means null, mask=false means retain.
-        // So we need to invert the mask before passing to compute::mask.
-        let mask = expr.child(1).evaluate(scope)?.to_bool().into_bit_buffer();
+        // This must be non-nullable.
+        let inverted_mask = expr.child(1).evaluate(scope)?.to_bool().to_mask().not();
 
-        crate::compute::mask(&child, &vortex_mask::Mask::from_buffer(!mask))
+        compute::mask(&child, &inverted_mask)
     }
 
     fn execute(
@@ -111,7 +110,7 @@ impl VTable for Mask {
 
         let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
         let inverted = mask_bool.bit_buffer().not();
-        crate::compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
+        compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
     }
 
     fn simplify(

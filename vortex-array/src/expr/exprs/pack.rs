@@ -135,10 +135,11 @@ impl VTable for Pack {
                     .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
             })
             .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = match options.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
+        let validity: Validity = options.nullability.into();
+        // match options.nullability {
+        //     Nullability::NonNullable => Validity::NonNullable,
+        //     Nullability::Nullable => Validity::AllValid,
+        // };
         Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
@@ -157,10 +158,7 @@ impl VTable for Pack {
     ) -> VortexResult<ExecutionResult> {
         let len = args.row_count;
         let value_arrays = args.inputs;
-        let validity = match options.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
+        let validity: Validity = options.nullability.into();
         StructArray::try_new(options.names.clone(), value_arrays, len, validity)?
             .into_array()
             .execute(args.ctx)
