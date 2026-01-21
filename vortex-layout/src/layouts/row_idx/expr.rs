@@ -3,7 +3,6 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::expr::Arity;
 use vortex_array::expr::ChildName;
 use vortex_array::expr::EmptyOptions;
@@ -47,17 +46,6 @@ impl VTable for RowIdx {
 
     fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
-    }
-
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        vortex_bail!(
-            "RowIdxExpr should not be evaluated directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
-        );
     }
 
     fn execute(
