@@ -9,7 +9,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -63,15 +62,6 @@ impl VTable for Root {
 
     fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         vortex_bail!("Root expression does not support return_dtype")
-    }
-
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(scope.clone())
     }
 
     fn execute(

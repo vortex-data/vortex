@@ -84,21 +84,6 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
 
-    /// Evaluate the expression in the given scope.
-    ///
-    /// This function will be deprecated in a future release in favor of [`VTable::execute`].
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        _ = options;
-        _ = expr;
-        _ = scope;
-        vortex_bail!("Expression {} does not support evaluation", self.id());
-    }
-
     /// Execute the expression on the given vector with the given dtype.
     ///
     /// This function will become required in a future release.
@@ -439,7 +424,6 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult>;
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
     fn reduce(
         &self,
         options: &dyn Any,
@@ -589,15 +573,6 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         }
 
         Ok(result)
-    }
-
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        V::evaluate(
-            &self.0,
-            downcast::<V>(expression.options().as_any()),
-            expression,
-            scope,
-        )
     }
 
     fn reduce(

@@ -16,9 +16,7 @@ use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 
-use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -131,28 +129,6 @@ impl VTable for Select {
         };
 
         Ok(DType::Struct(projected, child_dtype.nullability()))
-    }
-
-    fn evaluate(
-        &self,
-        selection: &FieldSelection,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let batch = expr.child(0).evaluate(scope)?.to_struct();
-        Ok(match selection {
-            FieldSelection::Include(f) => batch.project(f.as_ref()),
-            FieldSelection::Exclude(names) => {
-                let included_names = batch
-                    .names()
-                    .iter()
-                    .filter(|&f| !names.as_ref().contains(f))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                batch.project(included_names.as_slice())
-            }
-        }?
-        .into_array())
     }
 
     fn execute(

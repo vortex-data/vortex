@@ -16,12 +16,10 @@ use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::compute::Operator;
-use crate::compute::compare;
 use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
@@ -90,30 +88,6 @@ impl VTable for DynamicComparison {
         Ok(DType::Bool(
             lhs.nullability() | dynamic.rhs.dtype.nullability(),
         ))
-    }
-
-    fn evaluate(
-        &self,
-        dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        if let Some(value) = dynamic.rhs.scalar() {
-            let lhs = expr.child(0).evaluate(scope)?;
-            let rhs = ConstantArray::new(value, scope.len());
-            return compare(lhs.as_ref(), rhs.as_ref(), dynamic.operator);
-        }
-
-        // Otherwise, we return the default value.
-        let lhs = expr.return_dtype(scope.dtype())?;
-        Ok(ConstantArray::new(
-            Scalar::new(
-                DType::Bool(lhs.nullability() | dynamic.rhs.dtype.nullability()),
-                dynamic.default.into(),
-            ),
-            scope.len(),
-        )
-        .into_array())
     }
 
     fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ExecutionResult> {

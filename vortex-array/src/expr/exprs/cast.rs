@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Deref;
 
 use prost::Message;
 use vortex_dtype::DType;
@@ -11,7 +10,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -75,22 +73,6 @@ impl VTable for Cast {
 
     fn return_dtype(&self, dtype: &DType, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(dtype.clone())
-    }
-
-    fn evaluate(
-        &self,
-        dtype: &DType,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let array = expr.children()[0].evaluate(scope)?;
-        compute_cast(&array, dtype).map_err(|e| {
-            e.with_context(format!(
-                "Failed to cast array of dtype {} to {}",
-                array.dtype(),
-                expr.deref()
-            ))
-        })
     }
 
     fn execute(

@@ -14,7 +14,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
-use crate::ArrayRef;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExecutionResult;
@@ -115,14 +114,6 @@ impl ScalarFn {
         self.vtable
             .as_dyn()
             .return_dtype(self.options.deref(), arg_types)
-    }
-
-    /// Evaluate the expression, returning an ArrayRef.
-    ///
-    /// NOTE: this function will soon be deprecated as all expressions will evaluate trivially
-    ///  into an ExprArray.
-    pub fn evaluate(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.vtable.as_dyn().evaluate(expr, scope)
     }
 
     /// Transforms the expression into one representing the validity of this expression.

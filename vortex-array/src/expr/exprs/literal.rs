@@ -11,10 +11,6 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -72,15 +68,6 @@ impl VTable for Literal {
 
     fn return_dtype(&self, options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(options.dtype().clone())
-    }
-
-    fn evaluate(
-        &self,
-        scalar: &Scalar,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
     }
 
     fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ExecutionResult> {

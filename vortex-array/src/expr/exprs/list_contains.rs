@@ -90,17 +90,6 @@ impl VTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let list_array = expr.child(0).evaluate(scope)?;
-        let value_array = expr.child(1).evaluate(scope)?;
-        compute_list_contains(list_array.as_ref(), value_array.as_ref())
-    }
-
     fn execute(
         &self,
         _options: &Self::Options,

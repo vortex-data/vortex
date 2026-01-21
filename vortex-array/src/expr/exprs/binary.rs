@@ -99,31 +99,6 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn evaluate(
-        &self,
-        operator: &Operator,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let lhs = expr.child(0).evaluate(scope)?;
-        let rhs = expr.child(1).evaluate(scope)?;
-
-        match operator {
-            Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
-            Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
-            Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
-            Operator::Lte => compare(&lhs, &rhs, compute::Operator::Lte),
-            Operator::Gt => compare(&lhs, &rhs, compute::Operator::Gt),
-            Operator::Gte => compare(&lhs, &rhs, compute::Operator::Gte),
-            Operator::And => and_kleene(&lhs, &rhs),
-            Operator::Or => or_kleene(&lhs, &rhs),
-            Operator::Add => add(&lhs, &rhs),
-            Operator::Sub => sub(&lhs, &rhs),
-            Operator::Mul => mul(&lhs, &rhs),
-            Operator::Div => div(&lhs, &rhs),
-        }
-    }
-
     fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
         let [lhs, rhs]: [ArrayRef; _] = args
             .inputs

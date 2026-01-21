@@ -15,7 +15,6 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
@@ -116,31 +115,6 @@ impl VTable for Pack {
             StructFields::new(options.names.clone(), arg_dtypes.to_vec()),
             options.nullability,
         ))
-    }
-
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let len = scope.len();
-        let value_arrays = expr
-            .children()
-            .iter()
-            .zip_eq(options.names.iter())
-            .map(|(child_expr, name)| {
-                child_expr
-                    .evaluate(scope)
-                    .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
-            })
-            .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity: Validity = options.nullability.into();
-        // match options.nullability {
-        //     Nullability::NonNullable => Validity::NonNullable,
-        //     Nullability::Nullable => Validity::AllValid,
-        // };
-        Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
     }
 
     fn validity(

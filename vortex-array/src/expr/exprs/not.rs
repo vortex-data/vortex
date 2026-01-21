@@ -8,7 +8,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::ArrayRef;
 use crate::compute::invert;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -69,16 +68,6 @@ impl VTable for Not {
             );
         }
         Ok(child_dtype.clone())
-    }
-
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child_result = expr.child(0).evaluate(scope)?;
-        invert(&child_result)
     }
 
     fn execute(

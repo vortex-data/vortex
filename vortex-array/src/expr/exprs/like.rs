@@ -100,17 +100,6 @@ impl VTable for Like {
         ))
     }
 
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child = expr.child(0).evaluate(scope)?;
-        let pattern = expr.child(1).evaluate(scope)?;
-        like_compute(&child, &pattern, *options)
-    }
-
     fn execute(
         &self,
         options: &Self::Options,

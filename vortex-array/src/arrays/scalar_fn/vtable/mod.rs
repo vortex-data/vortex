@@ -327,15 +327,6 @@ impl expr::VTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(options.0.clone())
-    }
-
     fn execute(
         &self,
         options: &Self::Options,

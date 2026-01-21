@@ -8,10 +8,6 @@ use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -70,22 +66,6 @@ impl VTable for IsNull {
 
     fn return_dtype(&self, _options: &Self::Options, _arg_dtypes: &[DType]) -> VortexResult<DType> {
         Ok(DType::Bool(Nullability::NonNullable))
-    }
-
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let array = expr.child(0).evaluate(scope)?;
-        Ok(match array.validity()? {
-            Validity::NonNullable | Validity::AllValid => {
-                ConstantArray::new(false, array.len()).into_array()
-            }
-            Validity::AllInvalid => ConstantArray::new(true, array.len()).into_array(),
-            Validity::Array(a) => a.not()?,
-        })
     }
 
     fn execute(

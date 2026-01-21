@@ -14,8 +14,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
@@ -101,21 +99,6 @@ impl VTable for GetItem {
         }
 
         Ok(field_dtype)
-    }
-
-    fn evaluate(
-        &self,
-        field_name: &FieldName,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let input = expr.children()[0].evaluate(scope)?.to_struct();
-        let field = input.field_by_name(field_name).cloned()?;
-
-        match input.dtype().nullability() {
-            Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
-        }
     }
 
     fn execute(

@@ -140,18 +140,6 @@ impl VTable for Between {
         ))
     }
 
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let arr = expr.child(0).evaluate(scope)?;
-        let lower = expr.child(1).evaluate(scope)?;
-        let upper = expr.child(2).evaluate(scope)?;
-        between_compute(&arr, &lower, &upper, options)
-    }
-
     fn execute(
         &self,
         options: &Self::Options,

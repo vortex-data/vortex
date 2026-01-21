@@ -12,7 +12,6 @@ use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::compute;
 use crate::expr::Arity;
@@ -82,20 +81,6 @@ impl VTable for Mask {
             arg_dtypes[1]
         );
         Ok(arg_dtypes[0].as_nullable())
-    }
-
-    fn evaluate(
-        &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child = expr.child(0).evaluate(scope)?;
-
-        // This must be non-nullable.
-        let inverted_mask = expr.child(1).evaluate(scope)?.to_bool().to_mask().not();
-
-        compute::mask(&child, &inverted_mask)
     }
 
     fn execute(
