@@ -57,8 +57,8 @@ runs:
         shared-key: "rust-cache-${{ github.job }}-${{ runner.environment }}-${{ steps.rust-toolchain.outputs.cachekey }}-${{ inputs.targets }}${{ inputs.cache-suffix && format('-{0}', inputs.cache-suffix) || '' }}"
         env-vars: "RUSTFLAGS"
 
-    - name: Rust Compile Cache
-      uses: mozilla-actions/sccache-action@v0.0.9
+    # - name: Rust Compile Cache
+    #   uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'

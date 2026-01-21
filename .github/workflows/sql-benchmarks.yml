@@ -99,8 +99,8 @@ jobs:
     steps:
       - uses: runs-on/action@v2
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
+        # with:
+        #   sccache: s3
       - uses: actions/checkout@v6
         if: inputs.mode == 'pr'
         with:

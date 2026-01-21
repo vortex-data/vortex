@@ -49,8 +49,8 @@ jobs:
             name: Compression
     steps:
       - uses: runs-on/action@v2
-        with:
-          sccache: s3
+        # with:
+        #   sccache: s3
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
         with:

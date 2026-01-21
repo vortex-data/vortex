@@ -48,8 +48,8 @@ jobs:
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
-        with:
-          sccache: s3
+        # with:
+        #   sccache: s3
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.event.pull_request.head.sha }}
