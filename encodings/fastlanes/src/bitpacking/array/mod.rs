@@ -7,6 +7,7 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::patches::Patches;
 use vortex_array::stats::ArrayStats;
 use vortex_array::validity::Validity;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -31,7 +32,7 @@ pub struct BitPackedArray {
     pub(super) len: usize,
     pub(super) dtype: DType,
     pub(super) bit_width: u8,
-    pub(super) packed: ByteBuffer,
+    pub(super) packed: BufferHandle,
     pub(super) patches: Option<Patches>,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
@@ -59,7 +60,7 @@ impl BitPackedArray {
     /// See also the [`encode`][Self::encode] method on this type for a safe path to create a new
     /// bit-packed array.
     pub(crate) unsafe fn new_unchecked(
-        packed: ByteBuffer,
+        packed: BufferHandle,
         dtype: DType,
         validity: Validity,
         patches: Option<Patches>,
@@ -101,7 +102,7 @@ impl BitPackedArray {
     ///
     /// Any violation of these preconditions will result in an error.
     pub fn try_new(
-        packed: ByteBuffer,
+        packed: BufferHandle,
         ptype: PType,
         validity: Validity,
         patches: Option<Patches>,
@@ -130,7 +131,7 @@ impl BitPackedArray {
     }
 
     fn validate(
-        packed: &ByteBuffer,
+        packed: &BufferHandle,
         ptype: PType,
         validity: &Validity,
         patches: Option<&Patches>,
@@ -194,16 +195,24 @@ impl BitPackedArray {
         self.dtype.as_ptype()
     }
 
-    /// Underlying bit packed values as byte array
+    /// Underlying bit packed values as a buffer handle.
     #[inline]
-    pub fn packed(&self) -> &ByteBuffer {
+    pub fn packed(&self) -> &BufferHandle {
         &self.packed
+    }
+
+    /// Underlying bit packed values as a host buffer.
+    ///
+    /// This will copy from device if needed.
+    #[inline]
+    pub fn packed_host(&self) -> ByteBuffer {
+        self.packed.to_host()
     }
 
     /// Access the slice of packed values as an array of `T`
     #[inline]
     pub fn packed_slice<T: NativePType + BitPacking>(&self) -> &[T] {
-        let packed_bytes = self.packed();
+        let packed_bytes = self.packed_host();
         let packed_ptr: *const T = packed_bytes.as_ptr().cast();
         // Return number of elements of type `T` packed in the buffer
         let packed_len = packed_bytes.len() / size_of::<T>();

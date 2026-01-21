@@ -22,6 +22,7 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
 
 #[cfg(test)]
 mod test {
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -158,7 +159,10 @@ mod test {
     fn scalar_at_invalid_patches() {
         let packed_array = unsafe {
             BitPackedArray::new_unchecked(
-                ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
+                BufferHandle::new_host(ByteBuffer::copy_from_aligned(
+                    [0u8; 128],
+                    Alignment::of::<u32>(),
+                )),
                 DType::Primitive(PType::U32, true.into()),
                 Validity::AllInvalid,
                 Some(Patches::new(

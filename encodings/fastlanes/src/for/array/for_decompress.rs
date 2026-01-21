@@ -94,7 +94,7 @@ pub(crate) fn fused_decompress<
     // Create [`UnpackedChunks`] with FoR strategy.
     let mut unpacked = UnpackedChunks::new_with_strategy(
         strategy,
-        bp.packed().clone(),
+        bp.packed_host(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),

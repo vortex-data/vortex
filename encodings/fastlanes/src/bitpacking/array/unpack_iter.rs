@@ -92,7 +92,7 @@ impl<T: BitPacked> BitUnpackedChunks<T> {
     pub fn new(array: &BitPackedArray) -> Self {
         Self::new_with_strategy(
             BitPackingStrategy,
-            array.packed().clone(),
+            array.packed_host(),
             array.bit_width() as usize,
             array.offset() as usize,
             array.len(),

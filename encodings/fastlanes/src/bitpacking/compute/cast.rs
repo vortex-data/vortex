@@ -9,6 +9,7 @@ use vortex_array::compute::cast;
 use vortex_array::patches::Patches;
 use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
+use vortex_array::buffer::BufferHandle;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -24,7 +25,7 @@ impl CastKernel for BitPackedVTable {
                 .cast_nullability(dtype.nullability(), array.len())?;
             return Ok(Some(
                 BitPackedArray::try_new(
-                    array.packed().clone(),
+                    BufferHandle::new_host(array.packed_host()),
                     dtype.as_ptype(),
                     new_validity,
                     array
