@@ -11,17 +11,15 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::builtins::ArrayBuiltins;
 use crate::compute::MaskKernel;
 use crate::compute::MaskKernelAdapter;
+use crate::compute::mask;
 use crate::register_kernel;
 
 impl MaskKernel for ExtensionVTable {
     fn mask(&self, array: &ExtensionArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
-        let masked_storage = array
-            .storage()
-            .clone()
-            .mask(mask_array.clone().into_array())?;
+        // Use compute::mask directly since mask_array has compute::mask semantics (true=null)
+        let masked_storage = mask(array.storage(), mask_array)?;
         if masked_storage.dtype().nullability() == array.ext_dtype().storage_dtype().nullability() {
             Ok(ExtensionArray::new(array.ext_dtype().clone(), masked_storage).into_array())
         } else {

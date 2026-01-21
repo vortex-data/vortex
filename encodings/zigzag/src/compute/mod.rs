@@ -6,7 +6,6 @@ mod cast;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
 use vortex_array::compute::MaskKernel;
@@ -14,6 +13,7 @@ use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::compute::TakeKernel;
 use vortex_array::compute::TakeKernelAdapter;
 use vortex_array::compute::filter;
+use vortex_array::compute::mask;
 use vortex_array::compute::take;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
@@ -42,10 +42,7 @@ register_kernel!(TakeKernelAdapter(ZigZagVTable).lift());
 
 impl MaskKernel for ZigZagVTable {
     fn mask(&self, array: &ZigZagArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        let encoded = array
-            .encoded()
-            .clone()
-            .mask(filter_mask.clone().into_array())?;
+        let encoded = mask(array.encoded(), filter_mask)?;
         Ok(ZigZagArray::try_new(encoded)?.into_array())
     }
 }

@@ -14,7 +14,6 @@ use vortex_scalar::Scalar;
 use super::filter::ChunkFilter;
 use super::filter::chunk_filters;
 use super::filter::find_chunk_idx;
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
@@ -68,12 +67,15 @@ fn mask_indices(
         if chunk_id != current_chunk_id {
             let chunk = array.chunk(current_chunk_id).clone();
             let chunk_len = chunk.len();
+            // chunk_indices contains indices to null out, but chunk.mask() expects
+            // mask=true to mean "retain". So we create a mask with bits set at indices
+            // to null, then invert it to get mask=true at indices to retain.
             let mask = BoolArray::new(
-                BitBuffer::from_indices(chunk_len, &chunk_indices),
+                !BitBuffer::from_indices(chunk_len, &chunk_indices),
                 Validity::NonNullable,
             )
             .into_array();
-            let masked_chunk = chunk.mask(mask.clone())?;
+            let masked_chunk = chunk.mask(mask)?;
             // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
             new_chunks.push(masked_chunk);
@@ -93,9 +95,10 @@ fn mask_indices(
     if !chunk_indices.is_empty() {
         let chunk = array.chunk(current_chunk_id).clone();
         let chunk_len = chunk.len();
+        // Same inversion as above: invert the mask so mask=true means "retain"
         let masked_chunk = chunk.mask(
             BoolArray::new(
-                BitBufferMut::from_indices(chunk_len, &chunk_indices).freeze(),
+                !BitBufferMut::from_indices(chunk_len, &chunk_indices).freeze(),
                 Validity::NonNullable,
             )
             .into_array(),

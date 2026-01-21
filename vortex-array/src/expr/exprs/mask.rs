@@ -94,10 +94,12 @@ impl VTable for Mask {
     ) -> VortexResult<ArrayRef> {
         let child = expr.child(0).evaluate(scope)?;
 
-        // Invert the validity mask - we want to set values to null where validity is false.
+        // The expr::Mask semantics are: mask=true means retain, mask=false means null.
+        // But compute::mask has: mask=true means null, mask=false means retain.
+        // So we need to invert the mask before passing to compute::mask.
         let mask = expr.child(1).evaluate(scope)?.to_bool().into_bit_buffer();
 
-        crate::compute::mask(&child, &vortex_mask::Mask::from_buffer(mask))
+        crate::compute::mask(&child, &vortex_mask::Mask::from_buffer(!mask))
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
