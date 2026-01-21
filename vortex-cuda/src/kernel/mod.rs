@@ -67,7 +67,7 @@ macro_rules! launch_cuda_kernel {
             launch_builder.arg(&$arg);
         )*
 
-        $crate::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
+        $crate::executor::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
     }};
 }
 
