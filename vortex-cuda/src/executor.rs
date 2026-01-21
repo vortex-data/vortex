@@ -36,7 +36,7 @@ use crate::CudaDeviceBuffer;
 use crate::CudaSession;
 use crate::session::CudaSessionExt;
 
-/// Registers a callback and asychronously waits for its completion.
+/// Registers a callback and asynchronously waits for its completion.
 ///
 /// This function can be used to asynchronously wait for events previously
 /// submitted to the stream to complete, e.g. async device buffer allocations.
@@ -79,6 +79,7 @@ fn register_stream_callback(stream: &CudaStream) -> Result<kanal::AsyncReceiver<
         let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
 
         // Blocking send as we're in a callback invoked by the CUDA driver.
+        #[expect(clippy::expect_used)]
         tx.send(())
             // A send should never fail. Panic otherwise.
             .expect("CUDA callback receiver dropped unexpectedly");
