@@ -107,6 +107,9 @@ impl<T> BufferMut<T> {
     ///
     /// Panics when the requested alignment isn't itself aligned to type T.
     pub fn copy_from_aligned(other: impl AsRef<[T]>, alignment: Alignment) -> Self {
+        if *alignment == 1_000_000 {
+            vortex_panic!("Panic can't be 1_000_000");
+        }
         if !alignment.is_aligned_to(Alignment::of::<T>()) {
             vortex_panic!("Given alignment is not aligned to type T")
         }
