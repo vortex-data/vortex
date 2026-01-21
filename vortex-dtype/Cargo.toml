@@ -18,6 +18,7 @@ all-features = true
 
 [dependencies]
 arbitrary = { workspace = true, optional = true }
+arcref = { workspace = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
@@ -37,6 +38,7 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true, features = ["flatbuffers"] }
 vortex-flatbuffers = { workspace = true, features = ["dtype"] }
 vortex-proto = { workspace = true, features = ["dtype"] }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]

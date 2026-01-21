@@ -10366,6 +10366,7 @@ name = "vortex-dtype"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
+ "arcref",
  "arrow-buffer 57.2.0",
  "arrow-schema 57.2.0",
  "flatbuffers",
@@ -10387,6 +10388,7 @@ dependencies = [
  "vortex-error",
  "vortex-flatbuffers",
  "vortex-proto",
+ "vortex-session",
  "vortex-utils",
 ]
 

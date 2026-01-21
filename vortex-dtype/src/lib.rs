@@ -26,6 +26,7 @@ mod native_dtype;
 mod nullability;
 mod ptype;
 mod serde;
+mod session;
 mod struct_;
 
 pub use bigint::*;

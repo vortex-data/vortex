@@ -1,9 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod temporal;
+pub mod v2;
+mod vtable;
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
+
+pub use vtable::*;
 
 use crate::DType;
 use crate::Nullability;
