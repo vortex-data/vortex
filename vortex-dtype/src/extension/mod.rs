@@ -9,6 +9,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::sync::Arc;
 
+pub use temporal::*;
 pub use vtable::*;
 
 use crate::DType;
