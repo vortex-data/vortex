@@ -42,7 +42,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "pyarrow": ("https://arrow.apache.org/docs", None),
-    "pandas": ("https://pandas.pydata.org/docs", None),
+    "pandas": ("https://pandas.pydata.org/pandas-docs/version/2.3/", None),
     "numpy": ("https://numpy.org/doc/stable", None),
     "polars": ("https://docs.pola.rs/api/python/stable", "polars.objects.inv"),
 }
@@ -50,7 +50,7 @@ intersphinx_mapping = {
 git_root = Path(__file__).parent.parent
 
 nitpicky = True  # ensures all :class:, :obj:, etc. links are valid
-nitpick_ignore = [("py:class", "pandas.core.frame.DataFrame")]
+nitpick_ignore = []
 
 doctest_global_setup = "import pyarrow; import vortex; import vortex as vx; import random; random.seed(a=0)"
 doctest_default_flags = (
