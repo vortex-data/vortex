@@ -464,10 +464,13 @@ impl ArrayParts {
         array_tree: ByteBuffer,
         segment: BufferHandle,
     ) -> VortexResult<Self> {
-        // TODO: this can also work with device buffers.
-        let segment = segment.try_to_host()?;
-        // We align each buffer individually, so we remove alignment requirements on the buffer.
-        let segment = segment.aligned(Alignment::none());
+        // We align each buffer individually, so we remove alignment requirements on the segment
+        // for host-resident buffers. Device buffers are sliced directly.
+        let segment = if let Some(host) = segment.as_host_opt() {
+            BufferHandle::new_host(host.clone().aligned(Alignment::none()))
+        } else {
+            segment
+        };
 
         let fb_buffer = FlatBuffer::align_from(array_tree);
 
@@ -489,12 +492,18 @@ impl ArrayParts {
                     let buffer_len = fb_buf.length() as usize;
 
                     // Extract a buffer and ensure it's aligned, copying if necessary
-                    let buffer = segment
-                        .slice(offset..(offset + buffer_len))
-                        .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
-
+                    let buffer = segment.slice(offset..(offset + buffer_len));
+                    let buffer = if let Some(host) = buffer.as_host_opt() {
+                        BufferHandle::new_host(
+                            host.clone().aligned(Alignment::from_exponent(
+                                fb_buf.alignment_exponent(),
+                            )),
+                        )
+                    } else {
+                        buffer
+                    };
                     offset += buffer_len;
-                    BufferHandle::new_host(buffer)
+                    buffer
                 })
                 .collect();
 

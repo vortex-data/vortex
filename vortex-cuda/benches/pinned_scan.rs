@@ -17,6 +17,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
+use std::{env, fmt};
 
 use criterion::BenchmarkId;
 use criterion::Criterion;
@@ -24,8 +25,8 @@ use criterion::Throughput;
 use criterion::criterion_group;
 use criterion::criterion_main;
 use cudarc::driver::CudaContext;
+use rand::rng;
 use rand::seq::SliceRandom;
-use rand::thread_rng;
 use tokio::runtime::Runtime;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -72,7 +73,7 @@ fn create_session(rt: &Runtime) -> VortexSession {
 fn create_vortex_buffer(rt: &Runtime, session: &VortexSession, num_rows: usize) -> ByteBuffer {
     // Create a simple i64 array with predictable data
     let mut data: Vec<i64> = (0..num_rows as i64).collect();
-    data.shuffle(&mut thread_rng());
+    data.shuffle(&mut rng());
     let array = PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
 
     let mut buf = ByteBufferMut::empty();
@@ -210,9 +211,68 @@ fn scan_device(
     })
 }
 
+fn run_scan_iters<F>(iterations: usize, mut f: F) -> Duration
+where
+    F: FnMut() -> Duration,
+{
+    let mut total = Duration::ZERO;
+    for _ in 0..iterations {
+        total += f();
+    }
+    total
+}
+
+fn split_env_list(var: &str) -> Option<Vec<String>> {
+    let raw = env::var(var).ok()?;
+    let items: Vec<String> = raw
+        .split(',')
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if items.is_empty() {
+        None
+    } else {
+        Some(items)
+    }
+}
+
+fn is_selected(name: &str) -> bool {
+    let name = name.to_lowercase();
+    if let Some(only) = split_env_list("VORTEX_PINNED_SCAN_ONLY") {
+        return only.iter().any(|v| v == &name);
+    }
+    if let Some(skip) = split_env_list("VORTEX_PINNED_SCAN_SKIP") {
+        return !skip.iter().any(|v| v == &name);
+    }
+    true
+}
+
+fn format_throughput(bytes: usize, total: Duration, iterations: usize) -> ThroughputRow {
+    let gb_per_s = (bytes * iterations) as f64 / total.as_secs_f64() / 1e9;
+    let ms_avg = total.as_secs_f64() * 1000.0 / iterations as f64;
+    ThroughputRow { gb_per_s, ms_avg }
+}
+
+struct ThroughputRow {
+    gb_per_s: f64,
+    ms_avg: f64,
+}
+
+impl fmt::Display for ThroughputRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:.2} GB/s ({:.2} ms avg)", self.gb_per_s, self.ms_avg)
+    }
+}
+
 fn bench_scan_default(c: &mut Criterion) {
     let rt = Runtime::new().unwrap();
     let session = create_session(&rt);
+
+    let run_zero_copy = is_selected("default_zero_copy");
+    let run_copy = is_selected("default_copy");
+    if !run_zero_copy && !run_copy {
+        return;
+    }
 
     let mut group = c.benchmark_group("scan_default");
     group.sample_size(10);
@@ -227,30 +287,42 @@ fn bench_scan_default(c: &mut Criterion) {
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
-        group.bench_with_input(BenchmarkId::new("default_zero_copy", label), &buffer, |b, buffer| {
-            b.iter_custom(|iters| {
-                let mut total = Duration::ZERO;
-                for _ in 0..iters {
-                    total += scan_default(&rt, &session, buffer);
-                }
-                total
+        if run_zero_copy {
+            group.bench_with_input(
+                BenchmarkId::new("default_zero_copy", label),
+                &buffer,
+                |b, buffer| {
+                    b.iter_custom(|iters| {
+                        let mut total = Duration::ZERO;
+                        for _ in 0..iters {
+                            total += scan_default(&rt, &session, buffer);
+                        }
+                        total
+                    });
+                },
+            );
+        }
+        if run_copy {
+            group.bench_with_input(BenchmarkId::new("default_copy", label), &buffer, |b, buffer| {
+                b.iter_custom(|iters| {
+                    let mut total = Duration::ZERO;
+                    for _ in 0..iters {
+                        total += scan_default_copy(&rt, &session, buffer);
+                    }
+                    total
+                });
             });
-        });
-        group.bench_with_input(BenchmarkId::new("default_copy", label), &buffer, |b, buffer| {
-            b.iter_custom(|iters| {
-                let mut total = Duration::ZERO;
-                for _ in 0..iters {
-                    total += scan_default_copy(&rt, &session, buffer);
-                }
-                total
-            });
-        });
+        }
     }
 
     group.finish();
 }
 
 fn bench_scan_pinned(c: &mut Criterion) {
+    if !is_selected("pinned") {
+        return;
+    }
+
     if !has_nvcc() {
         eprintln!("nvcc not found, skipping pinned scan benchmark");
         return;
@@ -288,6 +360,10 @@ fn bench_scan_pinned(c: &mut Criterion) {
 }
 
 fn bench_scan_device(c: &mut Criterion) {
+    if !is_selected("device") {
+        return;
+    }
+
     if !has_nvcc() {
         eprintln!("nvcc not found, skipping device scan benchmark");
         return;
@@ -353,106 +429,228 @@ fn print_scan_comparison() {
 
     // Warmup
     println!("Warming up...");
-    scan_default(&rt, &session, &buffer);
-    scan_default_copy(&rt, &session, &buffer);
-    scan_pinned(&rt, &session, &buffer, &pool);
-    scan_device(&rt, &session, &buffer, &pool, &stream);
-
-    // Default allocator (zero-copy)
-    println!(
-        "Running {} iterations with default allocator (zero-copy)...",
-        iterations
-    );
-    let start = Instant::now();
-    for _ in 0..iterations {
+    if is_selected("default_zero_copy") {
         scan_default(&rt, &session, &buffer);
     }
-    let default_zero_copy_time = start.elapsed();
-    let default_zero_copy_throughput =
-        (buffer.len() * iterations) as f64 / default_zero_copy_time.as_secs_f64() / 1e9;
-
-    // Default allocator (forced copy)
-    println!(
-        "Running {} iterations with default allocator (copy)...",
-        iterations
-    );
-    let start = Instant::now();
-    for _ in 0..iterations {
+    if is_selected("default_copy") {
         scan_default_copy(&rt, &session, &buffer);
     }
-    let default_copy_time = start.elapsed();
-    let default_copy_throughput =
-        (buffer.len() * iterations) as f64 / default_copy_time.as_secs_f64() / 1e9;
-
-    // Pinned allocator (host)
-    println!(
-        "Running {} iterations with pinned allocator (host)...",
-        iterations
-    );
-    let start = Instant::now();
-    for _ in 0..iterations {
+    if is_selected("pinned") {
         scan_pinned(&rt, &session, &buffer, &pool);
     }
-    let pinned_time = start.elapsed();
-    let pinned_throughput = (buffer.len() * iterations) as f64 / pinned_time.as_secs_f64() / 1e9;
-
-    // Device allocator (pinned + H2D)
-    println!(
-        "Running {} iterations with device allocator (pinned + H2D)...",
-        iterations
-    );
-    let start = Instant::now();
-    for _ in 0..iterations {
+    if is_selected("device") {
         scan_device(&rt, &session, &buffer, &pool, &stream);
     }
-    let device_time = start.elapsed();
-    let device_throughput = (buffer.len() * iterations) as f64 / device_time.as_secs_f64() / 1e9;
+
+    // Default allocator (zero-copy)
+    let mut default_zero_copy_time = None;
+    let mut default_zero_copy_throughput = None;
+    if is_selected("default_zero_copy") {
+        println!(
+            "Running {} iterations with default allocator (zero-copy)...",
+            iterations
+        );
+        let start = Instant::now();
+        for _ in 0..iterations {
+            scan_default(&rt, &session, &buffer);
+        }
+        let elapsed = start.elapsed();
+        default_zero_copy_time = Some(elapsed);
+        default_zero_copy_throughput =
+            Some((buffer.len() * iterations) as f64 / elapsed.as_secs_f64() / 1e9);
+    }
+
+    // Default allocator (forced copy)
+    let mut default_copy_time = None;
+    let mut default_copy_throughput = None;
+    if is_selected("default_copy") {
+        println!(
+            "Running {} iterations with default allocator (copy)...",
+            iterations
+        );
+        let start = Instant::now();
+        for _ in 0..iterations {
+            scan_default_copy(&rt, &session, &buffer);
+        }
+        let elapsed = start.elapsed();
+        default_copy_time = Some(elapsed);
+        default_copy_throughput =
+            Some((buffer.len() * iterations) as f64 / elapsed.as_secs_f64() / 1e9);
+    }
+
+    // Pinned allocator (host)
+    let mut pinned_time = None;
+    let mut pinned_throughput = None;
+    if is_selected("pinned") {
+        println!(
+            "Running {} iterations with pinned allocator (host)...",
+            iterations
+        );
+        let start = Instant::now();
+        for _ in 0..iterations {
+            scan_pinned(&rt, &session, &buffer, &pool);
+        }
+        let elapsed = start.elapsed();
+        pinned_time = Some(elapsed);
+        pinned_throughput =
+            Some((buffer.len() * iterations) as f64 / elapsed.as_secs_f64() / 1e9);
+    }
+
+    // Device allocator (pinned + H2D)
+    let mut device_time = None;
+    let mut device_throughput = None;
+    if is_selected("device") {
+        println!(
+            "Running {} iterations with device allocator (pinned + H2D)...",
+            iterations
+        );
+        let start = Instant::now();
+        for _ in 0..iterations {
+            scan_device(&rt, &session, &buffer, &pool, &stream);
+        }
+        let elapsed = start.elapsed();
+        device_time = Some(elapsed);
+        device_throughput =
+            Some((buffer.len() * iterations) as f64 / elapsed.as_secs_f64() / 1e9);
+    }
 
     println!();
     println!("Results:");
-    println!(
-        "  Default allocator (zero-copy): {:.2} GB/s ({:.2} ms avg)",
-        default_zero_copy_throughput,
-        default_zero_copy_time.as_secs_f64() * 1000.0 / iterations as f64
-    );
-    println!(
-        "  Default allocator (copy):      {:.2} GB/s ({:.2} ms avg)",
-        default_copy_throughput,
-        default_copy_time.as_secs_f64() * 1000.0 / iterations as f64
-    );
-    println!(
-        "  Pinned allocator (host):  {:.2} GB/s ({:.2} ms avg)",
-        pinned_throughput,
-        pinned_time.as_secs_f64() * 1000.0 / iterations as f64
-    );
-    println!(
-        "  Device allocator (H2D):   {:.2} GB/s ({:.2} ms avg)",
-        device_throughput,
-        device_time.as_secs_f64() * 1000.0 / iterations as f64
-    );
+    if let (Some(tp), Some(time)) = (default_zero_copy_throughput, default_zero_copy_time) {
+        println!(
+            "  Default allocator (zero-copy): {:.2} GB/s ({:.2} ms avg)",
+            tp,
+            time.as_secs_f64() * 1000.0 / iterations as f64
+        );
+    }
+    if let (Some(tp), Some(time)) = (default_copy_throughput, default_copy_time) {
+        println!(
+            "  Default allocator (copy):      {:.2} GB/s ({:.2} ms avg)",
+            tp,
+            time.as_secs_f64() * 1000.0 / iterations as f64
+        );
+    }
+    if let (Some(tp), Some(time)) = (pinned_throughput, pinned_time) {
+        println!(
+            "  Pinned allocator (host):  {:.2} GB/s ({:.2} ms avg)",
+            tp,
+            time.as_secs_f64() * 1000.0 / iterations as f64
+        );
+    }
+    if let (Some(tp), Some(time)) = (device_throughput, device_time) {
+        println!(
+            "  Device allocator (H2D):   {:.2} GB/s ({:.2} ms avg)",
+            tp,
+            time.as_secs_f64() * 1000.0 / iterations as f64
+        );
+    }
     println!();
-    println!("Ratios vs default (copy):");
-    println!(
-        "  Pinned (host): {:.2}x",
-        pinned_throughput / default_copy_throughput.max(0.001)
-    );
-    println!(
-        "  Device (H2D):  {:.2}x",
-        device_throughput / default_copy_throughput.max(0.001)
-    );
-    println!("Ratios vs default (zero-copy):");
-    println!(
-        "  Pinned (host): {:.2}x",
-        pinned_throughput / default_zero_copy_throughput.max(0.001)
-    );
-    println!(
-        "  Device (H2D):  {:.2}x",
-        device_throughput / default_zero_copy_throughput.max(0.001)
-    );
+    if let (Some(pinned), Some(device), Some(default_copy)) = (
+        pinned_throughput,
+        device_throughput,
+        default_copy_throughput,
+    ) {
+        println!("Ratios vs default (copy):");
+        println!("  Pinned (host): {:.2}x", pinned / default_copy.max(0.001));
+        println!("  Device (H2D):  {:.2}x", device / default_copy.max(0.001));
+    }
+    if let (Some(pinned), Some(device), Some(default_zero)) = (
+        pinned_throughput,
+        device_throughput,
+        default_zero_copy_throughput,
+    ) {
+        println!("Ratios vs default (zero-copy):");
+        println!("  Pinned (host): {:.2}x", pinned / default_zero.max(0.001));
+        println!("  Device (H2D):  {:.2}x", device / default_zero.max(0.001));
+    }
     println!();
 }
 
+/// Quick comparison across multiple sizes, skipping Criterion output.
+fn print_scan_comparison_quick() {
+    if !has_nvcc() {
+        eprintln!("nvcc not found, skipping scan comparison");
+        return;
+    }
+
+    let iterations = env::var("VORTEX_PINNED_SCAN_ITERS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(10);
+
+    println!("\n=== Vortex Scan Quick Throughput ===\n");
+    println!(
+        "Iterations: {} (set VORTEX_PINNED_SCAN_ITERS to override)\n",
+        iterations
+    );
+
+    let rt = Runtime::new().unwrap();
+    let ctx = CudaContext::new(0).expect("Failed to create CUDA context");
+    let stream = Arc::new(ctx.new_stream().expect("Failed to create stream"));
+    let pool = Arc::new(PinnedByteBufferPool::new(ctx));
+    let session = create_session(&rt);
+
+    for (num_rows, label) in ROW_COUNTS {
+        if *num_rows > 10_000_000 {
+            continue;
+        }
+
+        println!("Rows: {} ({})", num_rows, label);
+        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        println!(
+            "  File size: {:.2} MB ({} bytes)",
+            buffer.len() as f64 / 1e6,
+            buffer.len()
+        );
+
+        // Warmup
+        if is_selected("default_zero_copy") {
+            scan_default(&rt, &session, &buffer);
+        }
+        if is_selected("default_copy") {
+            scan_default_copy(&rt, &session, &buffer);
+        }
+        if is_selected("pinned") {
+            scan_pinned(&rt, &session, &buffer, &pool);
+        }
+        if is_selected("device") {
+            scan_device(&rt, &session, &buffer, &pool, &stream);
+        }
+
+        if is_selected("default_zero_copy") {
+            let total = run_scan_iters(iterations, || scan_default(&rt, &session, &buffer));
+            let row = format_throughput(buffer.len(), total, iterations);
+            println!("  Default (zero-copy): {}", row);
+        }
+        if is_selected("default_copy") {
+            let total = run_scan_iters(iterations, || scan_default_copy(&rt, &session, &buffer));
+            let row = format_throughput(buffer.len(), total, iterations);
+            println!("  Default (copy):      {}", row);
+        }
+        if is_selected("pinned") {
+            let total = run_scan_iters(iterations, || {
+                scan_pinned(&rt, &session, &buffer, &pool)
+            });
+            let row = format_throughput(buffer.len(), total, iterations);
+            println!("  Pinned (host):       {}", row);
+        }
+        if is_selected("device") {
+            let total =
+                run_scan_iters(iterations, || scan_device(&rt, &session, &buffer, &pool, &stream));
+            let row = format_throughput(buffer.len(), total, iterations);
+            println!("  Device (H2D):        {}", row);
+        }
+        println!();
+    }
+}
+
 fn all_benchmarks(c: &mut Criterion) {
+    if env::var("VORTEX_PINNED_SCAN_QUICK").is_ok() {
+        print_scan_comparison_quick();
+        return;
+    }
+
     // Print quick summary first
     print_scan_comparison();
 
