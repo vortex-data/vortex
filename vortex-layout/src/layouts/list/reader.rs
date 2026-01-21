@@ -266,11 +266,53 @@ impl LayoutReader for ListReader {
 
     fn register_splits(
         &self,
-        _field_mask: &[FieldMask],
+        field_mask: &[FieldMask],
         row_range: &Range<u64>,
         splits: &mut BTreeSet<u64>,
     ) -> VortexResult<()> {
         splits.insert(row_range.end);
+
+        match self.dtype() {
+            DType::FixedSizeList(_, list_size, _) => {
+                let list_size_u64 = u64::from(*list_size);
+
+                let element_start = row_range
+                    .start
+                    .checked_mul(list_size_u64)
+                    .ok_or_else(|| vortex_err!("FixedSizeList element start overflow"))?;
+                let element_end = row_range
+                    .end
+                    .checked_mul(list_size_u64)
+                    .ok_or_else(|| vortex_err!("FixedSizeList element end overflow"))?;
+
+                let element_range = element_start..element_end;
+                let mut element_splits = BTreeSet::new();
+                self.elements()?.register_splits(
+                    field_mask,
+                    &element_range,
+                    &mut element_splits,
+                )?;
+
+                // Convert element splits back to row splits, but only when the element split
+                // is aligned to a row boundary.
+                for element_split in element_splits {
+                    if element_split % list_size_u64 != 0 {
+                        continue;
+                    }
+
+                    let row_split = element_split / list_size_u64;
+                    if row_split > row_range.start && row_split < row_range.end {
+                        splits.insert(row_split);
+                    }
+                }
+            }
+            // TODO(a10y): Variable-size lists can only be split "naturally" based on elements,
+            // but mapping element splits back to row ranges requires offsets (or precomputed
+            // row->element boundary metadata) that we don't have at split-planning time.
+            DType::List(..) => {}
+            _ => {}
+        }
+
         Ok(())
     }
 
@@ -345,5 +387,106 @@ impl LayoutReader for ListReader {
                 array.apply(&expr)
             }
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::Arc;
+
+    use futures::stream;
+    use vortex_array::Array;
+    use vortex_array::ArrayContext;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::FixedSizeListArray;
+    use vortex_buffer::buffer;
+    use vortex_dtype::Nullability::NonNullable;
+    use vortex_dtype::PType;
+    use vortex_io::runtime::single::block_on;
+
+    use crate::LayoutStrategy;
+    use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
+    use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::layouts::list::writer::ListStrategy;
+    use crate::segments::TestSegments;
+    use crate::sequence::SequenceId;
+    use crate::sequence::SequentialStreamAdapter;
+    use crate::sequence::SequentialStreamExt as _;
+    use crate::test::SESSION;
+
+    #[test]
+    fn register_splits_fixed_size_list_maps_element_splits_to_rows() {
+        let ctx = ArrayContext::empty();
+
+        let segments = Arc::new(TestSegments::default());
+
+        let list_size: u32 = 2;
+
+        let chunk1_elements = buffer![1i32, 2, 3, 4].into_array();
+        let chunk1 = FixedSizeListArray::try_new(
+            chunk1_elements,
+            list_size,
+            vortex_array::validity::Validity::NonNullable,
+            2,
+        )
+        .unwrap()
+        .into_array();
+
+        let chunk2_elements = buffer![5i32, 6, 7, 8].into_array();
+        let chunk2 = FixedSizeListArray::try_new(
+            chunk2_elements,
+            list_size,
+            vortex_array::validity::Validity::NonNullable,
+            2,
+        )
+        .unwrap()
+        .into_array();
+
+        let list_dtype = chunk1.dtype().clone();
+
+        let elements_strategy = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+        let strategy = ListStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            Arc::new(FlatLayoutStrategy::default()),
+            elements_strategy,
+        );
+
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                segments.clone(),
+                SequentialStreamAdapter::new(
+                    vortex_dtype::DType::FixedSizeList(
+                        Arc::new(vortex_dtype::DType::Primitive(PType::I32, NonNullable)),
+                        list_size,
+                        NonNullable,
+                    ),
+                    stream::iter([
+                        Ok((sequence_id.advance(), chunk1)),
+                        Ok((sequence_id.advance(), chunk2)),
+                    ]),
+                )
+                .sendable(),
+                eof,
+                handle,
+            )
+        })
+        .unwrap();
+
+        // Sanity check we produced the expected fixed-size list shape.
+        assert_eq!(layout.row_count(), 4);
+        assert_eq!(layout.dtype(), &list_dtype);
+
+        // The elements child is chunked with a split at element index 4, which should map to row 2.
+        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let mut splits = BTreeSet::new();
+        reader
+            .register_splits(&[], &(0..layout.row_count()), &mut splits)
+            .unwrap();
+
+        assert!(splits.contains(&2), "splits = {splits:?}");
+        assert!(splits.contains(&layout.row_count()));
     }
 }
