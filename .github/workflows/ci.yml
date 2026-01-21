@@ -227,8 +227,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }} 
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -240,9 +239,6 @@ jobs:
         run: |
           git status --porcelain
           test -z "$(git status --porcelain)"
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   check-min-deps:
     name: "Check build with minimal dependencies"
@@ -285,8 +281,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}       
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -297,9 +292,6 @@ jobs:
         run: cargo clippy --locked --all-features --all-targets -- -D warnings
       - name: Rust Lint - Clippy Default Features
         run: cargo clippy --locked --all-targets -- -D warnings
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   rust-lint-no-default:
     name: "Rust (lint, no default, ${{ matrix.partition }}/2)"
@@ -324,7 +316,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
@@ -332,9 +323,6 @@ jobs:
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features --partition ${{ matrix.partition }}/2 -- -D warnings
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   rust-semver:
     name: "Rust (semver checks)"
@@ -358,7 +346,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       # We have to set the correct Cargo.toml versions so semver checks uses the previous release.
       - name: Latest Tag
         id: latest-tag
@@ -406,8 +393,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}   
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -441,14 +427,6 @@ jobs:
           disable_search: true
           flags: ${{ matrix.suite }}
           use_oidc: true
-      - name: Cleanup coverage file
-        shell: bash
-        run: |
-          du -sh target/coverage/
-          rm -rf target/coverage/
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   rust-test:
     name: "Rust tests (sanitizer)"
@@ -488,7 +466,6 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
           components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-          timestamp: "true"
       - name: Install build dependencies
         run: |
           sudo apt-get update
@@ -512,9 +489,6 @@ jobs:
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
@@ -554,8 +528,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}         
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -567,9 +540,6 @@ jobs:
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   build-java:
     name: "Java"
@@ -673,7 +643,6 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          timestamp: "true"
       - name: Build and run C++ unit tests
         run: |
           mkdir -p vortex-cxx/build
@@ -685,9 +654,6 @@ jobs:
           cmake -S vortex-cxx/examples -B vortex-cxx/examples/build -DCMAKE_BUILD_TYPE=Release
           cmake --build vortex-cxx/examples/build --parallel $(nproc)
           vortex-cxx/examples/build/hello-vortex vortex-cxx/examples/goldenfiles/example.vortex
-      - name: Prune cache
-        if: ${{ github.ref_name == 'develop' && steps.setup-rust.outputs.deps-cache-hit != 'true' }}
-        run: cargo sweep --file
 
   wasm-integration:
     name: "wasm-integration"
