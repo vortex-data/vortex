@@ -13,7 +13,6 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::Range;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -36,11 +35,11 @@ use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
-use crate::expr::lit;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -340,8 +339,8 @@ impl expr::VTable for ArrayExpr {
     fn execute(
         &self,
         options: &Self::Options,
-        args: expr::ExecutionArgs,
-    ) -> VortexResult<expr::ExecutionResult> {
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         crate::Executable::execute(options.0.clone(), args.ctx)
     }
 

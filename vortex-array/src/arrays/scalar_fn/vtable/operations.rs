@@ -1,22 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExecutionResult;
-use crate::expr::Expression;
-use crate::expr::lit;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -24,19 +20,14 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         let inputs: Vec<_> = array
             .children
             .iter()
-            .map(|child| {
-                if let Some(child) = child.as_opt::<ConstantVTable>() {
-                    child.to_array()
-                } else {
-                    ConstantArray::new(child.scalar_at(index), 1).into_array()
-                }
-            })
+            .map(|child| ConstantArray::new(child.scalar_at(index), 1).into_array())
             .collect::<_>();
 
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let args = ExecutionArgs {
             inputs,
-            row_count: array.len,
-            ctx,
+            row_count: 1,
+            ctx: &mut ctx,
         };
 
         let result = array
