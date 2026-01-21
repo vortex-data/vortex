@@ -49,6 +49,34 @@ wheels = [
 ]
 
 [[package]]
+name = "apeye"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "apeye-core" },
+    { name = "domdf-python-tools" },
+    { name = "platformdirs" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4f/6b/cc65e31843d7bfda8313a9dc0c77a21e8580b782adca53c7cb3e511fe023/apeye-1.4.1.tar.gz", hash = "sha256:14ea542fad689e3bfdbda2189a354a4908e90aee4bf84c15ab75d68453d76a36", size = 99219, upload-time = "2023-08-14T15:32:41.381Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/89/7b/2d63664777b3e831ac1b1d8df5bbf0b7c8bee48e57115896080890527b1b/apeye-1.4.1-py3-none-any.whl", hash = "sha256:44e58a9104ec189bf42e76b3a7fe91e2b2879d96d48e9a77e5e32ff699c9204e", size = 107989, upload-time = "2023-08-14T15:32:40.064Z" },
+]
+
+[[package]]
+name = "apeye-core"
+version = "1.1.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "domdf-python-tools" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e5/4c/4f108cfd06923bd897bf992a6ecb6fb122646ee7af94d7f9a64abd071d4c/apeye_core-1.1.5.tar.gz", hash = "sha256:5de72ed3d00cc9b20fea55e54b7ab8f5ef8500eb33a5368bc162a5585e238a55", size = 96511, upload-time = "2024-01-30T17:45:48.727Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/77/9f/fa9971d2a0c6fef64c87ba362a493a4f230eff4ea8dfb9f4c7cbdf71892e/apeye_core-1.1.5-py3-none-any.whl", hash = "sha256:dc27a93f8c9e246b3b238c5ea51edf6115ab2618ef029b9f2d9a190ec8228fbf", size = 99286, upload-time = "2024-01-30T17:45:46.764Z" },
+]
+
+[[package]]
 name = "asttokens"
 version = "3.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -193,6 +221,20 @@ wheels = [
 ]
 
 [[package]]
+name = "dist-meta"
+version = "0.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "domdf-python-tools" },
+    { name = "handy-archives" },
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ab/b6/fb5d09760948c0292321aa292dd658fb6f17e9d9daca8064a060249aa543/dist_meta-0.9.0.tar.gz", hash = "sha256:fa16ebd5574744a09596ab342083a11d7209d8d05cf32891d1c985be7ec0cbd7", size = 18713, upload-time = "2025-02-12T17:04:52.611Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1d/59/74d2029a2c7b6bcdf065c53f7aa2c5c0d3f7959c3fe2e07cf7b07a25c8eb/dist_meta-0.9.0-py3-none-any.whl", hash = "sha256:1d38a7f5e83ab2fc5e1fb9af92d995ec27718377d000c7318367db85a2ba07db", size = 27595, upload-time = "2025-02-12T17:04:51.464Z" },
+]
+
+[[package]]
 name = "docs"
 version = "0.1.0"
 source = { virtual = "docs" }
@@ -201,6 +243,7 @@ dependencies = [
     { name = "hawkmoth" },
     { name = "libclang" },
     { name = "myst-parser" },
+    { name = "seed-intersphinx-mapping" },
     { name = "setuptools" },
     { name = "sphinx" },
     { name = "sphinx-autobuild" },
@@ -217,6 +260,7 @@ requires-dist = [
     { name = "hawkmoth", specifier = ">=0.20.0" },
     { name = "libclang", specifier = ">=18.1.1" },
     { name = "myst-parser", specifier = ">=4.0.0" },
+    { name = "seed-intersphinx-mapping", specifier = ">=1.3.0" },
     { name = "setuptools", specifier = ">=75.8.0" },
     { name = "sphinx", specifier = ">=8.0.2" },
     { name = "sphinx-autobuild", specifier = ">=2024.10.3" },
@@ -234,6 +278,31 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ae/ed/aefcc8cd0ba62a0560c3c18c33925362d46c6075480bfa4df87b28e169a9/docutils-0.21.2.tar.gz", hash = "sha256:3a6b18732edf182daa3cd12775bbb338cf5691468f91eeeb109deff6ebfa986f", size = 2204444, upload-time = "2024-04-23T18:57:18.24Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8f/d7/9322c609343d929e75e7e5e6255e614fcc67572cfd083959cdef3b7aad79/docutils-0.21.2-py3-none-any.whl", hash = "sha256:dafca5b9e384f0e419294eb4d2ff9fa826435bf15f15b7bd45723e8ad76811b2", size = 587408, upload-time = "2024-04-23T18:57:14.835Z" },
+]
+
+[[package]]
+name = "dom-toml"
+version = "2.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "domdf-python-tools" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ad/f6/edebb9290d3889d8ed460338dff752ab3764ec0727d81399e9328f38ac36/dom_toml-2.2.0.tar.gz", hash = "sha256:098d01b666bad39aa3d8cd916eea1c73c431a69e621511d3119c001604f27d9f", size = 12697, upload-time = "2026-01-02T21:19:05.839Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/d1/1a4664c9f615c5e6a56a2fc59e5f5bc1e89408af81955939e5b0eab8c02e/dom_toml-2.2.0-py3-none-any.whl", hash = "sha256:66455194679c2e77e5e3d97401f0f20e06a34b1506610d312eebef94fe198bc3", size = 17033, upload-time = "2026-01-02T21:19:04.943Z" },
+]
+
+[[package]]
+name = "domdf-python-tools"
+version = "3.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "natsort" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/36/8b/ab2d8a292bba8fe3135cacc8bfd3576710a14b8f2d0a8cde19130d5c9d21/domdf_python_tools-3.10.0.tar.gz", hash = "sha256:2ae308d2f4f1e9145f5f4ba57f840fbfd1c2983ee26e4824347789649d3ae298", size = 100458, upload-time = "2025-02-12T17:34:05.747Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/11/208f72084084d3f6a2ed5ebfdfc846692c3f7ad6dce65e400194924f7eed/domdf_python_tools-3.10.0-py3-none-any.whl", hash = "sha256:5e71c1be71bbcc1f881d690c8984b60e64298ec256903b3147f068bc33090c36", size = 126860, upload-time = "2025-02-12T17:34:04.093Z" },
 ]
 
 [[package]]
@@ -312,6 +381,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/01/ee/02a2c011bdab74c6fb3c75474d40b3052059d95df7e73351460c8588d963/h11-0.16.0.tar.gz", hash = "sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1", size = 101250, upload-time = "2025-04-24T03:35:25.427Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl", hash = "sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86", size = 37515, upload-time = "2025-04-24T03:35:24.344Z" },
+]
+
+[[package]]
+name = "handy-archives"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0d/c1/de653344a7be2aea0c3123d0ad1ea55fa56ced0e6336f98d5542a64d28e9/handy_archives-0.2.0.tar.gz", hash = "sha256:fba21101fd9e29d5e3b72823261aaae06b9350686f0d2067786d64dce73eb3f6", size = 8863, upload-time = "2023-07-31T14:38:43.566Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f9/e5/23451e1cee169259fbc98d2b2ed7b1c3711b707355896c9c3761325ddb01/handy_archives-0.2.0-py3-none-any.whl", hash = "sha256:8495e08f3cd1c452fe65570db1869db07f709149f85c7e9cd8f3f461df436318", size = 8965, upload-time = "2023-07-31T14:38:42.448Z" },
 ]
 
 [[package]]
@@ -675,6 +753,15 @@ wheels = [
 ]
 
 [[package]]
+name = "natsort"
+version = "8.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e2/a9/a0c57aee75f77794adaf35322f8b6404cbd0f89ad45c87197a937764b7d0/natsort-8.4.0.tar.gz", hash = "sha256:45312c4a0e5507593da193dedd04abb1469253b601ecaf63445ad80f0a1ea581", size = 76575, upload-time = "2023-06-20T04:17:19.925Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ef/82/7a9d0550484a62c6da82858ee9419f3dd1ccc9aa1c26a1e43da3ecd20b0d/natsort-8.4.0-py3-none-any.whl", hash = "sha256:4732914fb471f56b5cce04d7bae6f164a592c7712e1c85f9ef585e197299521c", size = 38268, upload-time = "2023-06-20T04:17:17.522Z" },
+]
+
+[[package]]
 name = "nodejs-wheel-binaries"
 version = "22.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -916,6 +1003,15 @@ wheels = [
 ]
 
 [[package]]
+name = "platformdirs"
+version = "4.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cf/86/0248f086a84f01b37aaec0fa567b397df1a119f73c16f6c7a9aac73ea309/platformdirs-4.5.1.tar.gz", hash = "sha256:61d5cdcc6065745cdd94f0f878977f8de9437be93de97c1c12f853c9c0cdcbda", size = 21715, upload-time = "2025-12-05T13:52:58.638Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/28/3bfe2fa5a7b9c46fe7e13c97bda14c895fb10fa2ebf1d0abb90e0cea7ee1/platformdirs-4.5.1-py3-none-any.whl", hash = "sha256:d03afa3963c806a9bed9d5125c8f4cb2fdaf74a55ab60e5d59b3fde758104d31", size = 18731, upload-time = "2025-12-05T13:52:56.823Z" },
+]
+
+[[package]]
 name = "pluggy"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1084,6 +1180,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
+]
+
+[[package]]
+name = "pypi-json"
+version = "0.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "apeye" },
+    { name = "packaging" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/96/f3/fcc8271d415fed916dde9d70baa59d825bc2d61f75f4b3644dda9f72854b/pypi_json-0.4.0.tar.gz", hash = "sha256:8ce9ecdb584b54704ef019a21e10c712729be0a12e564bcc5dbfecfd1b7e33f4", size = 9192, upload-time = "2023-07-24T09:19:01.33Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0b/0c/246389572f52cba2c736be8c646f2f868f1b9458a8e6d5fc675656b3e01b/pypi_json-0.4.0-py3-none-any.whl", hash = "sha256:956e1c80ea476ff9771f846d149aa7b433c42ca9158b0b0c1885239a50bfe0ac", size = 26914, upload-time = "2023-07-24T09:18:59.623Z" },
 ]
 
 [[package]]
@@ -1405,12 +1515,47 @@ wheels = [
 ]
 
 [[package]]
+name = "seed-intersphinx-mapping"
+version = "1.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "apeye" },
+    { name = "dist-meta" },
+    { name = "domdf-python-tools" },
+    { name = "packaging" },
+    { name = "pypi-json" },
+    { name = "requests" },
+    { name = "shippinglabel" },
+    { name = "sphinx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5e/63/789eff6566d13974c5fb3a46e4c6e48dd528c10fbff54485d824cfd8e2fe/seed_intersphinx_mapping-1.3.0.tar.gz", hash = "sha256:e3b35fb6cfc4f83ca61ab457fe3cc81a90970716a4ae7eb59058b46779c58fa0", size = 9375, upload-time = "2025-11-25T23:26:44.404Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/33/e939661c70d7902c22ebff32eb9ff58a8e6476634a1af0742f7025b43ea2/seed_intersphinx_mapping-1.3.0-py3-none-any.whl", hash = "sha256:43ce60205e11a7d79233205f9e2c6d4fc2b58a2923be3e0b3663138d00f0228c", size = 13854, upload-time = "2025-11-25T23:26:43.375Z" },
+]
+
+[[package]]
 name = "setuptools"
 version = "80.9.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/18/5d/3bf57dcd21979b887f014ea83c24ae194cfcd12b9e0fda66b957c69d1fca/setuptools-80.9.0.tar.gz", hash = "sha256:f36b47402ecde768dbfafc46e8e4207b4360c654f1f3bb84475f0a28628fb19c", size = 1319958, upload-time = "2025-05-27T00:56:51.443Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a3/dc/17031897dae0efacfea57dfd3a82fdd2a2aeb58e0ff71b77b87e44edc772/setuptools-80.9.0-py3-none-any.whl", hash = "sha256:062d34222ad13e0cc312a4c02d73f059e86a4acbfbdea8f8f76b28c99f306922", size = 1201486, upload-time = "2025-05-27T00:56:49.664Z" },
+]
+
+[[package]]
+name = "shippinglabel"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dist-meta" },
+    { name = "dom-toml" },
+    { name = "domdf-python-tools" },
+    { name = "packaging" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/43/fc/6d6e3d96d05d67c9edd0978b34e914f128d098d6140ebc713a814441bada/shippinglabel-2.3.0.tar.gz", hash = "sha256:25c0c3194c011c0355dff8f56cc0b31688f693b209f5849d44991d8a2ec91f2f", size = 24754, upload-time = "2025-05-08T14:12:44.846Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f2/25/67b56716355bed5477be57fed54c9d4d7c81518011bc1fa79b35bbf85702/shippinglabel-2.3.0-py3-none-any.whl", hash = "sha256:37811ae077f4a40e524efa013a136e3e2d295a96ad149a4e84b7788dd7f3b64a", size = 29992, upload-time = "2025-05-08T14:12:43.304Z" },
 ]
 
 [[package]]
