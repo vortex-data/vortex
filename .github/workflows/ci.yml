@@ -92,6 +92,7 @@ jobs:
     env:
       RUST_LOG: "info,uv=debug"
       MATURIN_PEP517_ARGS: "--profile dev"
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -130,6 +131,8 @@ jobs:
     name: "Python (wheel build)"
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v6
       - name: Rust Dependency Cache
@@ -204,6 +207,7 @@ jobs:
     env:
       # disable lints for build, they will be caught in Rust lint job.
       RUSTFLAGS: "-A warnings"
+      CARGO_INCREMENTAL: 0
     strategy:
       fail-fast: false
       matrix:
@@ -255,6 +259,8 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-min-deps
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -277,6 +283,8 @@ jobs:
       - image=ubuntu24-full-x64
       - extras=s3-cache
       - tag=rust-lint
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -325,6 +333,8 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
         shell: bash
+        env:
+          CARGO_INCREMENTAL: 0
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features --partition ${{ matrix.partition }}/2 -- -D warnings
@@ -455,6 +465,7 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: "true"
       # Skip slow tests that are too expensive under sanitizer
       VORTEX_SKIP_SLOW_TESTS: "1"
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -497,6 +508,8 @@ jobs:
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
+    env:
+      CARGO_INCREMENTAL: 0
     timeout-minutes: 120
     strategy:
       fail-fast: false
@@ -556,6 +569,8 @@ jobs:
       - extras=s3-cache
       - tag=java
     timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -591,6 +606,8 @@ jobs:
       - extras=s3-cache
       - image=ubuntu24-full-x64
       - tag=bench-codspeed-${{ matrix.shard }}
+    env:
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: runs-on/action@v2
         with:
@@ -632,6 +649,8 @@ jobs:
   cxx-test:
     name: "C++ build"
     timeout-minutes: 120
+    env: 
+      CARGO_INCREMENTAL: 0
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
@@ -685,6 +704,7 @@ jobs:
       MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-env-forward=RUST_BACKTRACE
       RUSTFLAGS: "-A warnings --cfg vortex_nightly"
       RUST_BACKTRACE: full
+      CARGO_INCREMENTAL: 0
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-rust
