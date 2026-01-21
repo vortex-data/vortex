@@ -232,7 +232,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }} 
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install wasm32 target
         if: ${{ matrix.config.target == 'wasm32-unknown-unknown' }}
         run: rustup target add wasm32-unknown-unknown
@@ -286,7 +286,7 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           toolchain: nightly
-          repo-token: ${{ secrets.GITHUB_TOKEN }}       
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Lint - Format
         run: cargo +nightly fmt --all --check
       - name: Rustc check
@@ -398,7 +398,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}   
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install grcov
         uses: taiki-e/install-action@grcov
       - name: Install nextest
@@ -533,7 +533,7 @@ jobs:
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}         
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
