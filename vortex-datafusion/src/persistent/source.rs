@@ -100,6 +100,8 @@ impl VortexSource {
     }
 
     /// Set a user-defined factory to create the underlying [`VortexReadAt`]
+    ///
+    /// [`VortexReadAt`]: vortex::io::VortexReadAt
     pub fn with_vortex_reader_factory(
         mut self,
         vortex_reader_factory: Arc<dyn VortexReaderFactory>,
