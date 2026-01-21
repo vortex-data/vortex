@@ -40,6 +40,8 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::register_default_encodings;
 use vortex_io::DefaultAllocator;
+use vortex_io::HostByteBufferPool;
+use vortex_io::PooledHostAllocator;
 use vortex_io::default_alloc_stats;
 use vortex_io::reset_default_alloc_stats;
 use vortex_io::session::RuntimeSessionExt;
@@ -54,6 +56,7 @@ const DEFAULT_ROWS: &[usize] = &[10_000_000];
 enum ScanType {
     DefaultZeroCopy,
     DefaultCopy,
+    DefaultCopyPooled,
     Pinned,
     Device,
 }
@@ -70,7 +73,7 @@ fn usage() -> &'static str {
 Flags:\n\
   --rows    Comma-separated row counts (default: 10000000)\n\
   --iters   Iterations per scan (default: 10)\n\
-  --scan    One of: default_zero_copy, default_copy, device, default, all\n"
+  --scan    One of: default_zero_copy, default_copy, default_copy_pooled, device, default, all\n"
 }
 
 fn parse_csv_usize(value: &str) -> Vec<usize> {
@@ -89,6 +92,7 @@ fn parse_scan_list(value: &str) -> Vec<ScanType> {
         match item.as_str() {
             "default_zero_copy" | "zero_copy" => scans.push(ScanType::DefaultZeroCopy),
             "default_copy" | "copy" => scans.push(ScanType::DefaultCopy),
+            "default_copy_pooled" | "copy_pooled" => scans.push(ScanType::DefaultCopyPooled),
             "default" => {
                 scans.push(ScanType::DefaultZeroCopy);
                 scans.push(ScanType::DefaultCopy);
@@ -99,6 +103,7 @@ fn parse_scan_list(value: &str) -> Vec<ScanType> {
                 scans = vec![
                     ScanType::DefaultZeroCopy,
                     ScanType::DefaultCopy,
+                    ScanType::DefaultCopyPooled,
                     ScanType::Device,
                 ];
                 break;
@@ -116,6 +121,7 @@ impl fmt::Display for ScanType {
         let name = match self {
             ScanType::DefaultZeroCopy => "default_zero_copy",
             ScanType::DefaultCopy => "default_copy",
+            ScanType::DefaultCopyPooled => "default_copy_pooled",
             ScanType::Pinned => "pinned",
             ScanType::Device => "device",
         };
@@ -166,7 +172,12 @@ fn parse_args() -> Result<Config, String> {
 
     let rows = rows.filter(|v| !v.is_empty()).unwrap_or_else(|| DEFAULT_ROWS.to_vec());
     let scans = scans.filter(|v| !v.is_empty()).unwrap_or_else(|| {
-        vec![ScanType::DefaultZeroCopy, ScanType::DefaultCopy, ScanType::Device]
+        vec![
+            ScanType::DefaultZeroCopy,
+            ScanType::DefaultCopy,
+            ScanType::DefaultCopyPooled,
+            ScanType::Device,
+        ]
     });
     if iterations == 0 {
         return Err("Iterations must be > 0".to_string());
@@ -240,6 +251,37 @@ fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> D
 
 fn scan_default_copy(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> Duration {
     let allocator = Arc::new(DefaultAllocator);
+
+    rt.block_on(async {
+        let file = session
+            .open_options()
+            .with_allocator(allocator)
+            .open_buffer(buffer.clone())
+            .expect("Failed to open file");
+
+        let start = Instant::now();
+        let result = file
+            .scan()
+            .expect("Failed to create scan")
+            .into_array_stream()
+            .expect("Failed to create stream")
+            .read_all()
+            .await
+            .expect("Scan failed");
+
+        let elapsed = start.elapsed();
+        assert!(!result.is_empty());
+        elapsed
+    })
+}
+
+fn scan_default_copy_pooled(
+    rt: &Runtime,
+    session: &VortexSession,
+    buffer: &ByteBuffer,
+    pool: &Arc<HostByteBufferPool>,
+) -> Duration {
+    let allocator = Arc::new(PooledHostAllocator::new(pool.clone()));
 
     rt.block_on(async {
         let file = session
@@ -357,7 +399,7 @@ fn format_throughput(bytes: usize, total: Duration, iterations: usize) -> Throug
     ThroughputRow { gb_per_s, ms_avg }
 }
 
-fn print_stats(pool: Option<&PinnedByteBufferPool>) {
+fn print_stats(pinned_pool: Option<&PinnedByteBufferPool>, host_pool: Option<&HostByteBufferPool>) {
     let align = alignment_copy_stats();
     println!(
         "    Alignment copies: {} ({} bytes)",
@@ -370,7 +412,14 @@ fn print_stats(pool: Option<&PinnedByteBufferPool>) {
             alloc.count, alloc.bytes
         );
     }
-    if let Some(pool) = pool {
+    if let Some(pool) = host_pool {
+        let stats = pool.stats();
+        println!(
+            "    Host pool: hits={}, misses={}, allocs={}, puts={}",
+            stats.hits, stats.misses, stats.allocs, stats.puts
+        );
+    }
+    if let Some(pool) = pinned_pool {
         let stats = pool.stats();
         println!(
             "    Pool reuse: hits={}, misses={}, allocs={}, puts={}",
@@ -410,6 +459,11 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     }
     let ctx = needs_cuda.then(|| CudaContext::new(0).expect("Failed to create CUDA context"));
+    let host_pool = config
+        .scans
+        .iter()
+        .any(|s| matches!(s, ScanType::DefaultCopyPooled))
+        .then(|| Arc::new(HostByteBufferPool::new()));
 
     let stream = ctx
         .as_ref()
@@ -436,7 +490,7 @@ fn main() -> ExitCode {
                 "  Default (zero-copy): {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
-            print_stats(None);
+            print_stats(None, None);
         }
         if config.scans.contains(&ScanType::DefaultCopy) {
             reset_default_alloc_stats();
@@ -448,7 +502,21 @@ fn main() -> ExitCode {
                 "  Default (copy):      {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
-            print_stats(None);
+            print_stats(None, None);
+        }
+        if config.scans.contains(&ScanType::DefaultCopyPooled) {
+            let pool = host_pool.as_ref().expect("Host pool required");
+            pool.reset_stats();
+            reset_default_alloc_stats();
+            reset_alignment_copy_stats();
+            let total = run_scan_iters(config.iterations, || {
+                scan_default_copy_pooled(&rt, &session, &buffer, pool)
+            });
+            println!(
+                "  Default (copy pooled): {}",
+                format_throughput(buffer.len(), total, config.iterations)
+            );
+            print_stats(None, Some(pool));
         }
         if config.scans.contains(&ScanType::Pinned) {
             let pool = pool.as_ref().expect("Pinned pool required");
@@ -462,7 +530,7 @@ fn main() -> ExitCode {
                 "  Pinned (host):       {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
-            print_stats(Some(pool));
+            print_stats(Some(pool), None);
         }
         if config.scans.contains(&ScanType::Device) {
             let pool = pool.as_ref().expect("Pinned pool required");
@@ -477,7 +545,7 @@ fn main() -> ExitCode {
                 "  Device (H2D):        {}",
                 format_throughput(buffer.len(), total, config.iterations)
             );
-            print_stats(Some(pool));
+            print_stats(Some(pool), None);
         }
         println!();
     }
