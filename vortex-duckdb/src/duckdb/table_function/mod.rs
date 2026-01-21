@@ -157,11 +157,12 @@ impl Connection {
             .map(|logical_type| logical_type.as_ptr())
             .collect::<Vec<_>>();
 
-        let param_names = T::named_parameters();
-        let (param_names_ptrs, param_types_ptr) = param_names
-            .into_iter()
-            .map(|(name, logical_type)| (name.as_ptr(), logical_type.as_ptr()))
-            .unzip::<_, _, Vec<_>, Vec<_>>();
+        // Keep the named parameters alive while we use their pointers
+        let named_params = T::named_parameters();
+        let (named_param_names, named_param_types): (Vec<_>, Vec<_>) =
+            named_params.into_iter().unzip();
+        let param_names_ptrs: Vec<_> = named_param_names.iter().map(|n| n.as_ptr()).collect();
+        let param_types_ptr: Vec<_> = named_param_types.iter().map(|t| t.as_ptr()).collect();
 
         let vtab = cpp::duckdb_vx_tfunc_vtab_t {
             name: name.as_ptr(),
