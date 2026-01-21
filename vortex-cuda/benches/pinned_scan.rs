@@ -45,6 +45,7 @@ use vortex_file::WriteOptionsSessionExt;
 use vortex_file::register_default_encodings;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::session::RuntimeSession;
+use vortex_io::DefaultAllocator;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
@@ -91,6 +92,34 @@ fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> D
     rt.block_on(async {
         let file = session
             .open_options()
+            .open_buffer(buffer.clone())
+            .expect("Failed to open file");
+
+        let start = Instant::now();
+
+        let result = file
+            .scan()
+            .expect("Failed to create scan")
+            .into_array_stream()
+            .expect("Failed to create stream")
+            .read_all()
+            .await
+            .expect("Scan failed");
+
+        let elapsed = start.elapsed();
+        assert!(result.len() > 0);
+        elapsed
+    })
+}
+
+/// Scan with default allocator but force a copy into an owned buffer.
+fn scan_default_copy(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> Duration {
+    let allocator = Arc::new(DefaultAllocator);
+
+    rt.block_on(async {
+        let file = session
+            .open_options()
+            .with_allocator(allocator)
             .open_buffer(buffer.clone())
             .expect("Failed to open file");
 
@@ -198,11 +227,20 @@ fn bench_scan_default(c: &mut Criterion) {
         let bytes = buffer.len();
 
         group.throughput(Throughput::Bytes(bytes as u64));
-        group.bench_with_input(BenchmarkId::new("default", label), &buffer, |b, buffer| {
+        group.bench_with_input(BenchmarkId::new("default_zero_copy", label), &buffer, |b, buffer| {
             b.iter_custom(|iters| {
                 let mut total = Duration::ZERO;
                 for _ in 0..iters {
                     total += scan_default(&rt, &session, buffer);
+                }
+                total
+            });
+        });
+        group.bench_with_input(BenchmarkId::new("default_copy", label), &buffer, |b, buffer| {
+            b.iter_custom(|iters| {
+                let mut total = Duration::ZERO;
+                for _ in 0..iters {
+                    total += scan_default_copy(&rt, &session, buffer);
                 }
                 total
             });
@@ -316,20 +354,35 @@ fn print_scan_comparison() {
     // Warmup
     println!("Warming up...");
     scan_default(&rt, &session, &buffer);
+    scan_default_copy(&rt, &session, &buffer);
     scan_pinned(&rt, &session, &buffer, &pool);
     scan_device(&rt, &session, &buffer, &pool, &stream);
 
-    // Default allocator
+    // Default allocator (zero-copy)
     println!(
-        "Running {} iterations with default allocator...",
+        "Running {} iterations with default allocator (zero-copy)...",
         iterations
     );
     let start = Instant::now();
     for _ in 0..iterations {
         scan_default(&rt, &session, &buffer);
     }
-    let default_time = start.elapsed();
-    let default_throughput = (buffer.len() * iterations) as f64 / default_time.as_secs_f64() / 1e9;
+    let default_zero_copy_time = start.elapsed();
+    let default_zero_copy_throughput =
+        (buffer.len() * iterations) as f64 / default_zero_copy_time.as_secs_f64() / 1e9;
+
+    // Default allocator (forced copy)
+    println!(
+        "Running {} iterations with default allocator (copy)...",
+        iterations
+    );
+    let start = Instant::now();
+    for _ in 0..iterations {
+        scan_default_copy(&rt, &session, &buffer);
+    }
+    let default_copy_time = start.elapsed();
+    let default_copy_throughput =
+        (buffer.len() * iterations) as f64 / default_copy_time.as_secs_f64() / 1e9;
 
     // Pinned allocator (host)
     println!(
@@ -358,9 +411,14 @@ fn print_scan_comparison() {
     println!();
     println!("Results:");
     println!(
-        "  Default allocator:        {:.2} GB/s ({:.2} ms avg)",
-        default_throughput,
-        default_time.as_secs_f64() * 1000.0 / iterations as f64
+        "  Default allocator (zero-copy): {:.2} GB/s ({:.2} ms avg)",
+        default_zero_copy_throughput,
+        default_zero_copy_time.as_secs_f64() * 1000.0 / iterations as f64
+    );
+    println!(
+        "  Default allocator (copy):      {:.2} GB/s ({:.2} ms avg)",
+        default_copy_throughput,
+        default_copy_time.as_secs_f64() * 1000.0 / iterations as f64
     );
     println!(
         "  Pinned allocator (host):  {:.2} GB/s ({:.2} ms avg)",
@@ -373,14 +431,23 @@ fn print_scan_comparison() {
         device_time.as_secs_f64() * 1000.0 / iterations as f64
     );
     println!();
-    println!("Ratios vs default:");
+    println!("Ratios vs default (copy):");
     println!(
         "  Pinned (host): {:.2}x",
-        pinned_throughput / default_throughput.max(0.001)
+        pinned_throughput / default_copy_throughput.max(0.001)
     );
     println!(
         "  Device (H2D):  {:.2}x",
-        device_throughput / default_throughput.max(0.001)
+        device_throughput / default_copy_throughput.max(0.001)
+    );
+    println!("Ratios vs default (zero-copy):");
+    println!(
+        "  Pinned (host): {:.2}x",
+        pinned_throughput / default_zero_copy_throughput.max(0.001)
+    );
+    println!(
+        "  Device (H2D):  {:.2}x",
+        device_throughput / default_zero_copy_throughput.max(0.001)
     );
     println!();
 }
