@@ -32,6 +32,7 @@ jobs:
           toolchain: nightly
           targets: "wasm32-wasip1"
           components: "rust-src"
+          enable-sccache: "false"
 
       - name: Build WASM fuzz target
         run: |

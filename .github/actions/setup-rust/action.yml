@@ -16,6 +16,10 @@ inputs:
   targets:
     description: "optional targets override (e.g. wasm32-unknown-unknown)"
     required: false
+  enable-sccache:
+    description: "Should sccache be enabled, true by default."
+    required: false
+    default: "true"
 
 runs:
   using: "composite"
@@ -44,6 +48,7 @@ runs:
         components: "${{ inputs.components }}"
 
     - name: Rust Compile Cache
+      if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
 
     - name: Install Protoc (for lance-encoding build step)
