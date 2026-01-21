@@ -70,10 +70,10 @@ fn row_counts() -> Vec<(usize, String)> {
     if let Some(list) = split_env_list("VORTEX_PINNED_SCAN_ROWS") {
         let mut rows = Vec::new();
         for item in list {
-            if let Ok(value) = item.parse::<usize>() {
-                if value > 0 {
-                    rows.push((value, format_row_label(value)));
-                }
+            if let Ok(value) = item.parse::<usize>()
+                && value > 0
+            {
+                rows.push((value, format_row_label(value)));
             }
         }
         if !rows.is_empty() {
