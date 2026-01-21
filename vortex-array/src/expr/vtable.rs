@@ -15,10 +15,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 
-use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::Executable;
@@ -563,7 +561,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
         {
-            vortex_ensure!(
+            vortex_error::vortex_ensure!(
                 result.dtype() == &expected_dtype,
                 "Expression execution {} returned vector of invalid dtype. Expected {}, got {}",
                 self.0.id(),
