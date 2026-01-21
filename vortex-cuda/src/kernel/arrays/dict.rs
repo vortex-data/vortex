@@ -20,7 +20,7 @@ impl CudaExecute for DictExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
-        _ctx: &mut CudaExecutionCtx,
+        ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let _dict_array = array
             .try_into::<DictVTable>()
@@ -28,5 +28,6 @@ impl CudaExecute for DictExecutor {
             .vortex_expect("Array is not a Dict array");
 
         todo!()
+        // execute_dict(dict_array, ctx).await
     }
 }
