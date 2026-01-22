@@ -147,7 +147,9 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         // Copy GPU result back to host for comparison
-        let gpu_host = gpu_result.into_primitive().buffer_handle().to_host().await;
+        let gpu_host = Buffer::<i32>::from_byte_buffer(
+            gpu_result.into_primitive().buffer_handle().to_host().await,
+        );
         let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_array.into_array());
