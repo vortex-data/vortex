@@ -444,7 +444,8 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2..3);
+            .slice(2..3)
+            .unwrap();
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 

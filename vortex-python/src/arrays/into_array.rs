@@ -57,7 +57,7 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArray {
             return Ok(PyIntoArray(PyVortex(ArrayRef::from_arrow(
                 make_array(arrow_array_data).as_ref(),
                 false,
-            ))));
+            )?)));
         }
 
         if ob.is_instance(&pa.getattr("Table")?)? {

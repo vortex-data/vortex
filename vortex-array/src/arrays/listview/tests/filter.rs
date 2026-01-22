@@ -97,7 +97,7 @@ fn test_filter_with_gaps() {
 
     // Verify the lists still read correctly.
     assert_arrays_eq!(
-        result_list.list_elements_at(0),
+        result_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9])
     );
 }
@@ -184,7 +184,7 @@ fn test_filter_extreme_offsets() {
     assert_eq!(result_list.elements().len(), 10000);
 
     // Verify we can still read the correct values.
-    let list0 = result_list.list_elements_at(0);
+    let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
         list0
             .scalar_at(0)

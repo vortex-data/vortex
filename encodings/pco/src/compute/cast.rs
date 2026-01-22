@@ -118,7 +118,7 @@ mod tests {
             Validity::from_iter([true, true, true, true, true, true]),
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        let sliced = pco.slice(1..5);
+        let sliced = pco.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
             &DType::Primitive(PType::U32, Nullability::NonNullable),
@@ -143,7 +143,7 @@ mod tests {
             Some(60),
         ]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
-        let sliced = pco.slice(1..5);
+        let sliced = pco.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
             &DType::Primitive(PType::U32, Nullability::NonNullable),

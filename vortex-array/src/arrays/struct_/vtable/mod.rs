@@ -147,11 +147,11 @@ impl VTable for StructVTable {
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let fields = array
+        let fields: Vec<_> = array
             .fields()
             .iter()
             .map(|field| field.slice(range.clone()))
-            .collect_vec();
+            .try_collect()?;
 
         // SAFETY: Slicing preserves all StructArray invariants
         Ok(Some(
@@ -160,7 +160,7 @@ impl VTable for StructVTable {
                     fields,
                     array.struct_fields().clone(),
                     range.len(),
-                    array.validity().slice(range),
+                    array.validity().slice(range)?,
                 )
             }
             .into_array(),

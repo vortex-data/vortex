@@ -180,7 +180,7 @@ impl VarBinArray {
                     .map(|o| (o[0].as_(), o[1].as_()))
                     .enumerate()
                 {
-                    if validity.is_null(i) {
+                    if validity.is_null(i)? {
                         continue;
                     }
 

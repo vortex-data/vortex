@@ -291,7 +291,7 @@ impl VTable for BitPackedVTable {
             BitPackedArray::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype.clone(),
-                array.validity().slice(range.clone()),
+                array.validity().slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))

@@ -218,16 +218,16 @@ impl FixedSizeListArray {
 
     /// Returns the elements of the fixed-size list scalar at the given index of the list array.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the index is out of bounds.
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
+    /// Returns an error if the index is out of bounds or the slice operation fails.
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
             "index out of bounds: the len is {} but the index is {index}",
             self.len
         );
-        debug_assert!(self.validity.is_valid(index));
+        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

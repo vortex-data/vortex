@@ -110,12 +110,12 @@ fn test_filter_with_nulls() {
     assert_eq!(filtered_fsl.list_size(), 2, "list_size should be preserved");
 
     // First list should be [1, 2] and valid.
-    let first = filtered_fsl.fixed_size_list_elements_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(first.scalar_at(0).unwrap(), 1i32.into());
     assert_eq!(first.scalar_at(1).unwrap(), 2i32.into());
 
     // Second list should be [5, 6] and valid.
-    let second = filtered_fsl.fixed_size_list_elements_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(second.scalar_at(0).unwrap(), 5i32.into());
     assert_eq!(second.scalar_at(1).unwrap(), 6i32.into());
 }
@@ -190,15 +190,15 @@ fn test_filter_nested_fixed_size_lists() {
     assert_eq!(filtered_inner.list_size(), 2);
 
     // Check the actual values.
-    let inner_list_0 = filtered_inner.fixed_size_list_elements_at(0);
+    let inner_list_0 = filtered_inner.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(inner_list_0.scalar_at(0).unwrap(), 7i32.into());
     assert_eq!(inner_list_0.scalar_at(1).unwrap(), 8i32.into());
 
-    let inner_list_1 = filtered_inner.fixed_size_list_elements_at(1);
+    let inner_list_1 = filtered_inner.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(inner_list_1.scalar_at(0).unwrap(), 9i32.into());
     assert_eq!(inner_list_1.scalar_at(1).unwrap(), 10i32.into());
 
-    let inner_list_2 = filtered_inner.fixed_size_list_elements_at(2);
+    let inner_list_2 = filtered_inner.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(inner_list_2.scalar_at(0).unwrap(), 11i32.into());
     assert_eq!(inner_list_2.scalar_at(1).unwrap(), 12i32.into());
 }
@@ -354,19 +354,19 @@ fn test_mask_expansion_threshold_boundary() {
     assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
 
     // Verify correct elements were kept.
-    let first = filtered_fsl.fixed_size_list_elements_at(0);
+    let first = filtered_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first.scalar_at(0).unwrap(),
         (5i32 * list_size as i32).into()
     );
 
-    let second = filtered_fsl.fixed_size_list_elements_at(1);
+    let second = filtered_fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(
         second.scalar_at(0).unwrap(),
         (25i32 * list_size as i32).into()
     );
 
-    let third = filtered_fsl.fixed_size_list_elements_at(2);
+    let third = filtered_fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(
         third.scalar_at(0).unwrap(),
         (75i32 * list_size as i32).into()
@@ -419,15 +419,15 @@ fn test_filter_large_list_size() {
     assert_eq!(filtered_fsl.elements().len(), 3 * list_size as usize);
 
     // Check that the correct lists were kept (indices 1, 3, 4 from original).
-    let list_0 = filtered_fsl.fixed_size_list_elements_at(0);
+    let list_0 = filtered_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(list_0.scalar_at(0).unwrap(), 100i64.into()); // Start of original list 1.
     assert_eq!(list_0.scalar_at(99).unwrap(), 199i64.into()); // End of original list 1.
 
-    let list_1 = filtered_fsl.fixed_size_list_elements_at(1);
+    let list_1 = filtered_fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(list_1.scalar_at(0).unwrap(), 300i64.into()); // Start of original list 3.
     assert_eq!(list_1.scalar_at(99).unwrap(), 399i64.into()); // End of original list 3.
 
-    let list_2 = filtered_fsl.fixed_size_list_elements_at(2);
+    let list_2 = filtered_fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(list_2.scalar_at(0).unwrap(), 400i64.into()); // Start of original list 4.
     assert_eq!(list_2.scalar_at(99).unwrap(), 499i64.into()); // End of original list 4.
 
@@ -441,7 +441,7 @@ fn test_filter_large_list_size() {
     assert_eq!(filtered_single_fsl.elements().len(), list_size as usize);
 
     // Verify it's the correct list (original list 2).
-    let single_list = filtered_single_fsl.fixed_size_list_elements_at(0);
+    let single_list = filtered_single_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(single_list.scalar_at(0).unwrap(), 200i64.into());
     assert_eq!(single_list.scalar_at(50).unwrap(), 250i64.into());
     assert_eq!(single_list.scalar_at(99).unwrap(), 299i64.into());

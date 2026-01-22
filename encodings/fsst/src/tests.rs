@@ -54,7 +54,7 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1..3);
+    let fsst_sliced = fsst_array.slice(1..3).unwrap();
     assert!(fsst_sliced.is::<FSSTVTable>());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(

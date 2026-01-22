@@ -29,7 +29,7 @@ impl Datum {
     pub fn try_new(array: &dyn Array) -> VortexResult<Self> {
         if array.is::<ConstantVTable>() {
             Ok(Self {
-                array: array.slice(0..1).into_arrow_preferred()?,
+                array: array.slice(0..1)?.into_arrow_preferred()?,
                 is_scalar: true,
             })
         } else {
@@ -55,7 +55,7 @@ impl Datum {
     ) -> VortexResult<Self> {
         if array.is::<ConstantVTable>() {
             Ok(Self {
-                array: array.slice(0..1).into_arrow(target_datatype)?,
+                array: array.slice(0..1)?.into_arrow(target_datatype)?,
                 is_scalar: true,
             })
         } else {

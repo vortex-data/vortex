@@ -113,7 +113,7 @@ impl VTable for ByteBoolVTable {
         Ok(Some(
             ByteBoolArray::new(
                 array.buffer().slice(range.clone()),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

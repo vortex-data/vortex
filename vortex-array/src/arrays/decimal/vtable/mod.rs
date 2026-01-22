@@ -153,7 +153,7 @@ impl VTable for DecimalVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let result = match_each_decimal_value_type!(array.values_type(), |D| {
             let sliced = array.buffer::<D>().slice(range.clone());
-            let validity = array.validity().clone().slice(range);
+            let validity = array.validity().clone().slice(range)?;
             // SAFETY: Slicing preserves all DecimalArray invariants
             unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
                 .into_array()

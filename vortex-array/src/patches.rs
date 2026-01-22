@@ -463,7 +463,7 @@ impl Patches {
             self.indices.len()
         };
 
-        let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx);
+        let chunk_indices = self.indices.slice(patches_start_idx..patches_end_idx)?;
         let result = Self::search_index_binary_search(&chunk_indices, index + self.offset)?;
 
         Ok(match result {
@@ -650,15 +650,19 @@ impl Patches {
             return Ok(None);
         }
 
-        let values = self.values().slice(slice_start_idx..slice_end_idx);
-        let indices = self.indices().slice(slice_start_idx..slice_end_idx);
+        let values = self.values().slice(slice_start_idx..slice_end_idx)?;
+        let indices = self.indices().slice(slice_start_idx..slice_end_idx)?;
 
-        let chunk_offsets = self.chunk_offsets.as_ref().map(|chunk_offsets| {
-            let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
-            let chunk_start_idx = (chunk_relative_offset + range.start) / PATCH_CHUNK_SIZE;
-            let chunk_end_idx = (chunk_relative_offset + range.end).div_ceil(PATCH_CHUNK_SIZE);
-            chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
-        });
+        let chunk_offsets = self
+            .chunk_offsets
+            .as_ref()
+            .map(|chunk_offsets| -> VortexResult<ArrayRef> {
+                let chunk_relative_offset = self.offset % PATCH_CHUNK_SIZE;
+                let chunk_start_idx = (chunk_relative_offset + range.start) / PATCH_CHUNK_SIZE;
+                let chunk_end_idx = (chunk_relative_offset + range.end).div_ceil(PATCH_CHUNK_SIZE);
+                chunk_offsets.slice(chunk_start_idx..chunk_end_idx)
+            })
+            .transpose()?;
 
         let offset_within_chunk = chunk_offsets
             .as_ref()
@@ -1217,7 +1221,8 @@ mod test {
             buffer![10u32, 11, 20].into_array(),
             buffer![100, 110, 200].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let filtered = patches
             .filter(&Mask::from_indices(100, vec![10, 20, 30]))
@@ -1236,7 +1241,8 @@ mod test {
             buffer![2u64, 9, 15].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take(
@@ -1267,7 +1273,8 @@ mod test {
             buffer![2u64, 9, 15].into_array(),
             buffer![33_i32, 44, 55].into_array(),
             Some(buffer![0u64].into_array()),
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take_search(
@@ -1299,7 +1306,8 @@ mod test {
             buffer![100u64, 500, 1200, 1800].into_array(),
             buffer![10_i32, 20, 30, 40].into_array(),
             Some(buffer![0u64, 2].into_array()),
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take_search(
@@ -1324,7 +1332,8 @@ mod test {
             buffer![2u64, 9, 15].into_array(),
             buffer![33_i32, 44, 55].into_array(),
             Some(buffer![0u64].into_array()),
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take_search(
@@ -1344,7 +1353,8 @@ mod test {
             buffer![5u64, 10, 20, 25].into_array(),
             buffer![100_i32, 200, 300, 400].into_array(),
             Some(buffer![0u64].into_array()),
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take_search(
@@ -1369,7 +1379,8 @@ mod test {
             BufferMut::from_iter(0..1500u64).into_array(),
             BufferMut::from_iter(0..1500i32).into_array(),
             Some(buffer![0u64, 1024u64].into_array()),
-        );
+        )
+        .unwrap();
 
         let taken = patches
             .take_search(
@@ -1387,7 +1398,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        let patches = Patches::new(101, 0, indices, values, None);
+        let patches = Patches::new(101, 0, indices, values, None).unwrap();
 
         let sliced = patches.slice(15..100).unwrap().unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
@@ -1399,7 +1410,7 @@ mod test {
         let values = buffer![15_u32, 135, 13531, 42].into_array();
         let indices = buffer![10_u64, 11, 50, 100].into_array();
 
-        let patches = Patches::new(101, 0, indices, values, None);
+        let patches = Patches::new(101, 0, indices, values, None).unwrap();
 
         let sliced = patches.slice(15..100).unwrap().unwrap();
         assert_eq!(sliced.array_len(), 100 - 15);
@@ -1420,7 +1431,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let mask = Mask::new_true(10);
         let masked = patches.mask(&mask).unwrap();
@@ -1435,7 +1447,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let mask = Mask::new_false(10);
         let masked = patches.mask(&mask).unwrap().unwrap();
@@ -1461,7 +1474,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that removes patches at indices 2 and 8 (but not 5)
         let mask = Mask::from_iter([
@@ -1485,7 +1499,8 @@ mod test {
             buffer![7u64, 10, 13].into_array(), // actual indices are 2, 5, 8
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that sets actual index 2 to null
         let mask = Mask::from_iter([
@@ -1507,7 +1522,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             PrimitiveArray::from_option_iter([Some(100i32), None, Some(300)]).into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Test masking removes patch at index 2
         let mask = Mask::from_iter([
@@ -1537,7 +1553,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Keep all indices (mask with indices 0-9)
         let mask = Mask::from_indices(10, (0..10).collect());
@@ -1558,7 +1575,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Filter out all (empty mask means keep nothing)
         let mask = Mask::from_indices(10, vec![]);
@@ -1574,7 +1592,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Keep indices 2, 5, 9 (so patches at 2 and 5 remain)
         let mask = Mask::from_indices(10, vec![2, 5, 9]);
@@ -1592,7 +1611,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let sliced = patches.slice(0..10).unwrap().unwrap();
 
@@ -1611,7 +1631,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Slice from 3 to 8 (includes patch at 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
@@ -1630,7 +1651,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Slice from 6 to 7 (no patches in this range)
         let sliced = patches.slice(6..7).unwrap();
@@ -1645,7 +1667,8 @@ mod test {
             buffer![7u64, 10, 13].into_array(), // actual indices are 2, 5, 8
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Slice from 3 to 8 (includes patch at actual index 5)
         let sliced = patches.slice(3..8).unwrap().unwrap();
@@ -1663,7 +1686,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let values = patches.values().to_primitive();
         assert_eq!(
@@ -1688,10 +1712,11 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
-        assert_eq!(patches.min_index(), 2);
-        assert_eq!(patches.max_index(), 8);
+        assert_eq!(patches.min_index().unwrap(), 2);
+        assert_eq!(patches.max_index().unwrap(), 8);
     }
 
     #[test]
@@ -1702,7 +1727,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Search for exact indices
         assert_eq!(patches.search_index(2).unwrap(), SearchResult::Found(0));
@@ -1725,7 +1751,8 @@ mod test {
             buffer![0u64, 9].into_array(),
             buffer![100i32, 200].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         let mask = Mask::from_iter([
             true, false, false, false, false, false, false, false, false, false,
@@ -1746,7 +1773,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that removes all patches
         let mask = Mask::from_iter([
@@ -1765,7 +1793,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that doesn't affect any patches
         let mask = Mask::from_iter([
@@ -1789,7 +1818,8 @@ mod test {
             buffer![2u64].into_array(),
             buffer![42i32].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that removes the single patch
         let mask = Mask::from_iter([false, false, true, false, false]);
@@ -1811,7 +1841,8 @@ mod test {
             buffer![3u64, 4, 5, 6].into_array(),
             buffer![100i32, 200, 300, 400].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that removes middle patches
         let mask = Mask::from_iter([
@@ -1832,7 +1863,8 @@ mod test {
             buffer![16u64, 17, 19].into_array(), // actual indices are 1, 2, 4
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask that removes the patch at actual index 2
         let mask = Mask::from_iter([
@@ -1854,7 +1886,8 @@ mod test {
             buffer![2u64, 5, 8].into_array(),
             buffer![100i32, 200, 300].into_array(),
             None,
-        );
+        )
+        .unwrap();
 
         // Mask with wrong length
         let mask = Mask::from_iter([false, false, true, false, false]);
@@ -1866,7 +1899,7 @@ mod test {
         let indices = buffer![100u64, 200, 3000, 3100].into_array();
         let values = buffer![10i32, 20, 30, 40].into_array();
         let chunk_offsets = buffer![0u64, 2, 2, 3].into_array();
-        let patches = Patches::new(4096, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(4096, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         assert!(patches.chunk_offsets.is_some());
 
@@ -1899,7 +1932,7 @@ mod test {
         let indices = buffer![100u64, 500, 1200, 1300, 1500, 1800, 2100, 2500].into_array();
         let values = buffer![10i32, 20, 30, 35, 40, 45, 50, 60].into_array();
         let chunk_offsets = buffer![0u64, 2, 6].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced = patches.slice(1000..2200).unwrap().unwrap();
 
@@ -1918,7 +1951,7 @@ mod test {
         let indices = buffer![100u64, 500, 1200, 1300, 1500, 1800, 2100, 2500].into_array();
         let values = buffer![10i32, 20, 30, 35, 40, 45, 50, 60].into_array();
         let chunk_offsets = buffer![0u64, 2, 6].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced = patches.slice(1300..2200).unwrap().unwrap();
 
@@ -1937,7 +1970,7 @@ mod test {
         let indices = buffer![100u64, 200, 3000, 3100].into_array();
         let values = buffer![10i32, 20, 30, 40].into_array();
         let chunk_offsets = buffer![0u64, 2].into_array();
-        let patches = Patches::new(4000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(4000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced = patches.slice(1000..2000).unwrap();
         assert!(sliced.is_none());
@@ -1948,7 +1981,7 @@ mod test {
         let indices = buffer![100u64, 1200, 1300, 2500].into_array();
         let values = buffer![10i32, 20, 30, 40].into_array();
         let chunk_offsets = buffer![0u64, 1, 3].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced = patches.slice(1100..1250).unwrap().unwrap();
 
@@ -1964,7 +1997,7 @@ mod test {
         let indices = buffer![100u64, 200, 1100, 1200, 2100, 2200].into_array();
         let values = buffer![10i32, 20, 30, 40, 50, 60].into_array();
         let chunk_offsets = buffer![0u64, 2, 4].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced = patches.slice(150..2150).unwrap().unwrap();
 
@@ -1982,7 +2015,7 @@ mod test {
         let indices = buffer![1023u64, 1024, 1025, 2047, 2048].into_array();
         let values = buffer![10i32, 20, 30, 40, 50].into_array();
         let chunk_offsets = buffer![0u64, 1, 4].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         assert_eq!(patches.search_index(1023).unwrap(), SearchResult::Found(0));
         assert_eq!(patches.search_index(1024).unwrap(), SearchResult::Found(1));
@@ -2005,7 +2038,7 @@ mod test {
         let indices = buffer![0u64, 1, 1023, 1024, 2047, 2048].into_array();
         let values = buffer![10i32, 20, 30, 40, 50, 60].into_array();
         let chunk_offsets = buffer![0u64, 3, 5].into_array();
-        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(3000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         // Slice at the very beginning
         let sliced = patches.slice(0..10).unwrap().unwrap();
@@ -2025,7 +2058,7 @@ mod test {
         let indices = buffer![100u64, 200, 300, 400, 500, 600].into_array();
         let values = buffer![10i32, 20, 30, 40, 50, 60].into_array();
         let chunk_offsets = buffer![0u64].into_array();
-        let patches = Patches::new(1000, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(1000, 0, indices, values, Some(chunk_offsets)).unwrap();
 
         let sliced1 = patches.slice(150..550).unwrap().unwrap();
         assert_eq!(sliced1.num_patches(), 4); // 200, 300, 400, 500
@@ -2046,7 +2079,7 @@ mod test {
         let chunk_offsets = buffer![0u64].into_array();
         let indices = buffer![1023u64].into_array();
         let values = buffer![42i32].into_array();
-        let patches = Patches::new(1024, 0, indices, values, Some(chunk_offsets));
+        let patches = Patches::new(1024, 0, indices, values, Some(chunk_offsets)).unwrap();
         assert_eq!(
             patches.search_index(2048).unwrap(),
             SearchResult::NotFound(1)

@@ -30,7 +30,6 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::stream::ArrayStreamAdapter;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteSummary;
 use vortex::io::ObjectStoreWriter;
@@ -121,8 +120,7 @@ impl FileSink for VortexSink {
             // We need to spawn work because there's a dependency between the different files. If one file has too many batches buffered,
             // the demux task might deadlock itself.
             file_write_tasks.spawn(async move {
-                let stream = ReceiverStream::new(rx)
-                    .map(move |rb| VortexResult::Ok(ArrayRef::from_arrow(rb, false)));
+                let stream = ReceiverStream::new(rx).map(move |rb| ArrayRef::from_arrow(rb, false));
 
                 let stream_adapter = ArrayStreamAdapter::new(dtype, stream);
 

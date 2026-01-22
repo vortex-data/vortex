@@ -256,8 +256,14 @@ fn canonicalize_sparse_fixed_size_list_inner<I: IntegerPType>(
         );
 
         // Append the patch value, handling null patches by appending defaults.
-        if values.validity().is_valid(patch_idx) {
-            let patch_list = values.fixed_size_list_elements_at(patch_idx);
+        if values
+            .validity()
+            .is_valid(patch_idx)
+            .vortex_expect("is_valid")
+        {
+            let patch_list = values
+                .fixed_size_list_elements_at(patch_idx)
+                .vortex_expect("fixed_size_list_elements_at");
             for i in 0..list_size as usize {
                 builder
                     .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
@@ -1020,7 +1026,7 @@ mod test {
         .into_array();
 
         // Slice to get lists 2..6, which are: [1], [2], [1], [2]
-        let lists = lists.slice(2..6);
+        let lists = lists.slice(2..6).unwrap();
 
         let indices = buffer![0u8, 3u8, 4u8, 5u8].into_array();
         let fill_value = Scalar::null(lists.dtype().clone());
@@ -1520,7 +1526,7 @@ mod test {
         // - Index 0: [2, 3, 4] (original list 1)
         // - Index 1: [5] (original list 2)
         // - Index 2: [6, 7] (original list 3)
-        let sliced = full_listview.slice(1..4);
+        let sliced = full_listview.slice(1..4).unwrap();
 
         // Create sparse array with indices [0, 1] and length 5
         // Expected result:
@@ -1531,7 +1537,7 @@ mod test {
         // - Index 4: null
         let indices = buffer![0u8, 1].into_array();
         // Extract only the values we need from the sliced array
-        let values = sliced.slice(0..2);
+        let values = sliced.slice(0..2).unwrap();
         let sparse =
             SparseArray::try_new(indices, values, 5, Scalar::null(sliced.dtype().clone())).unwrap();
 

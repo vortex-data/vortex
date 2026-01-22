@@ -89,9 +89,9 @@ impl VTable for ALPRDVTable {
         Ok(Some(unsafe {
             ALPRDArray::new_unchecked(
                 array.dtype().clone(),
-                array.left_parts().slice(range.clone()),
+                array.left_parts().slice(range.clone())?,
                 array.left_parts_dictionary().clone(),
-                array.right_parts().slice(range),
+                array.right_parts().slice(range)?,
                 array.right_bit_width(),
                 left_parts_exceptions,
             )

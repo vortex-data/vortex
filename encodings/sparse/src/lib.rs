@@ -572,13 +572,13 @@ mod test {
 
     #[test]
     pub fn scalar_at_sliced() {
-        let sliced = sparse_array(nullable_fill()).slice(2..7);
+        let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(usize::try_from(&sliced.scalar_at(0).unwrap()).unwrap(), 100);
     }
 
     #[test]
     pub fn validity_mask_sliced_null_fill() {
-        let sliced = sparse_array(nullable_fill()).slice(2..7);
+        let sliced = sparse_array(nullable_fill()).slice(2..7).unwrap();
         assert_eq!(
             sliced.validity_mask().unwrap(),
             Mask::from_iter(vec![true, false, false, true, false])
@@ -598,7 +598,8 @@ mod test {
             Scalar::primitive(1.0f32, Nullability::Nullable),
         )
         .unwrap()
-        .slice(2..7);
+        .slice(2..7)
+        .unwrap();
 
         assert_eq!(
             sliced.validity_mask().unwrap(),
@@ -608,13 +609,13 @@ mod test {
 
     #[test]
     pub fn scalar_at_sliced_twice() {
-        let sliced_once = sparse_array(nullable_fill()).slice(1..8);
+        let sliced_once = sparse_array(nullable_fill()).slice(1..8).unwrap();
         assert_eq!(
             usize::try_from(&sliced_once.scalar_at(1).unwrap()).unwrap(),
             100
         );
 
-        let sliced_twice = sliced_once.slice(1..6);
+        let sliced_twice = sliced_once.slice(1..6).unwrap();
         assert_eq!(
             usize::try_from(&sliced_twice.scalar_at(3).unwrap()).unwrap(),
             200

@@ -255,7 +255,9 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
                 let size: usize = new_sizes[i].as_();
 
                 if size > 0 {
-                    let list_elements = new_elements.slice(offset..offset + size);
+                    let list_elements = new_elements
+                        .slice(offset..offset + size)
+                        .vortex_expect("list builder slice");
                     builder.elements_builder.extend_from_array(&list_elements);
                     curr_offset += size;
                 }
@@ -365,8 +367,8 @@ mod tests {
 
         let list_array = list.to_listview();
 
-        assert_eq!(list_array.list_elements_at(0).len(), 3);
-        assert_eq!(list_array.list_elements_at(1).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
     }
 
     #[test]
@@ -417,9 +419,9 @@ mod tests {
 
         let list_array = list.to_listview();
 
-        assert_eq!(list_array.list_elements_at(0).len(), 3);
-        assert_eq!(list_array.list_elements_at(1).len(), 0);
-        assert_eq!(list_array.list_elements_at(2).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
     fn test_extend_builder_gen<O: IntegerPType>() {
@@ -434,8 +436,8 @@ mod tests {
 
         builder.extend_from_array(&list);
         builder.extend_from_array(&list);
-        builder.extend_from_array(&list.slice(0..0));
-        builder.extend_from_array(&list.slice(1..3));
+        builder.extend_from_array(&list.slice(0..0).unwrap());
+        builder.extend_from_array(&list.slice(1..3).unwrap());
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [

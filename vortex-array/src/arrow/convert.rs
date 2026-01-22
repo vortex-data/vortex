@@ -159,7 +159,10 @@ impl_from_arrow_primitive!(Float32Type);
 impl_from_arrow_primitive!(Float64Type);
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal32Type>, nullable: bool) -> VortexResult<Self> {
+    fn from_arrow(
+        array: &ArrowPrimitiveArray<Decimal32Type>,
+        nullable: bool,
+    ) -> VortexResult<Self> {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), nullable);
@@ -168,7 +171,10 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal32Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal64Type>, nullable: bool) -> VortexResult<Self> {
+    fn from_arrow(
+        array: &ArrowPrimitiveArray<Decimal64Type>,
+        nullable: bool,
+    ) -> VortexResult<Self> {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), nullable);
@@ -177,7 +183,10 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal64Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal128Type>, nullable: bool) -> VortexResult<Self> {
+    fn from_arrow(
+        array: &ArrowPrimitiveArray<Decimal128Type>,
+        nullable: bool,
+    ) -> VortexResult<Self> {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         let validity = nulls(array.nulls(), nullable);
@@ -186,7 +195,10 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal128Type>> for ArrayRef {
 }
 
 impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
-    fn from_arrow(array: &ArrowPrimitiveArray<Decimal256Type>, nullable: bool) -> VortexResult<Self> {
+    fn from_arrow(
+        array: &ArrowPrimitiveArray<Decimal256Type>,
+        nullable: bool,
+    ) -> VortexResult<Self> {
         let decimal_type = DecimalDType::new(array.precision(), array.scale());
         let buffer = Buffer::from_arrow_scalar_buffer(array.values().clone());
         // SAFETY: Our i256 implementation has the same bit-pattern representation of the
@@ -202,7 +214,10 @@ impl FromArrowArray<&ArrowPrimitiveArray<Decimal256Type>> for ArrayRef {
 macro_rules! impl_from_arrow_temporal {
     ($T:path) => {
         impl FromArrowArray<&ArrowPrimitiveArray<$T>> for ArrayRef {
-            fn from_arrow(value: &ArrowPrimitiveArray<$T>, nullable: bool) -> vortex_error::VortexResult<Self> {
+            fn from_arrow(
+                value: &ArrowPrimitiveArray<$T>,
+                nullable: bool,
+            ) -> vortex_error::VortexResult<Self> {
                 Ok(temporal_array(value, nullable))
             }
         }

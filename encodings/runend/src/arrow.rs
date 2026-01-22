@@ -41,8 +41,8 @@ where
             let slice_end = find_slice_end_index(ends.as_ref(), offset + len)?;
 
             (
-                ends.slice(slice_begin..slice_end),
-                values.slice(slice_begin..slice_end),
+                ends.slice(slice_begin..slice_end)?,
+                values.slice(slice_begin..slice_end)?,
             )
         };
 

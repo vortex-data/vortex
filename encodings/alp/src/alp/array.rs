@@ -177,7 +177,7 @@ impl VTable for ALPVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
             ALPArray::new(
-                array.encoded().slice(range.clone()),
+                array.encoded().slice(range.clone())?,
                 array.exponents(),
                 array
                     .patches()
@@ -499,7 +499,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -523,7 +523,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -553,7 +553,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -581,7 +581,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -612,7 +612,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -639,7 +639,7 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -686,7 +686,7 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_primitive = sliced_encoded.to_primitive();
 
@@ -742,7 +742,8 @@ mod tests {
             original_patches.indices().clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
-        );
+        )
+        .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
         let alp_without_chunk_offsets = ALPArray::new(
@@ -752,7 +753,7 @@ mod tests {
         );
 
         // The legacy decompress_into_array path should work correctly.
-        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone());
+        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone()).unwrap();
         let legacy_slice = result_legacy.as_slice::<f64>();
 
         // Verify the legacy path produces correct values.

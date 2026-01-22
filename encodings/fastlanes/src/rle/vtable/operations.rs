@@ -111,7 +111,7 @@ mod tests {
 
         let array = fixture::rle_array();
         let expected = PrimitiveArray::from_iter([10u32, 10, 20, 20, 20, 30, 10]);
-        assert_arrays_eq!(array.slice(0..7), expected);
+        assert_arrays_eq!(array.slice(0..7).unwrap(), expected);
     }
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
             Some(30),
             Some(10),
         ]);
-        assert_arrays_eq!(array.slice(0..7), expected);
+        assert_arrays_eq!(array.slice(0..7).unwrap(), expected);
     }
 
     #[test]
@@ -136,7 +136,7 @@ mod tests {
         use vortex_array::assert_arrays_eq;
 
         let array = fixture::rle_array();
-        let sliced = array.slice(2..6); // [20, 20, 20, 30]
+        let sliced = array.slice(2..6).unwrap(); // [20, 20, 20, 30]
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_iter([20u32, 20, 20, 30]);
@@ -148,7 +148,7 @@ mod tests {
         use vortex_array::assert_arrays_eq;
 
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(2..6); // [20, 20, null, 30]
+        let sliced = array.slice(2..6).unwrap(); // [20, 20, null, 30]
 
         assert_eq!(sliced.len(), 4);
         let expected = PrimitiveArray::from_option_iter([Some(20u32), Some(20), None, Some(30)]);
@@ -189,14 +189,14 @@ mod tests {
     #[test]
     #[should_panic]
     fn test_scalar_at_slice_out_of_bounds() {
-        let array = fixture::rle_array().slice(0..1);
+        let array = fixture::rle_array().slice(0..1).unwrap();
         array.scalar_at(1).unwrap();
     }
 
     #[test]
     fn test_slice_full_range() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(0..7);
+        let sliced = array.slice(0..7).unwrap();
 
         let expected = PrimitiveArray::from_option_iter([
             Some(10u32),
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn test_slice_partial_range() {
         let array = fixture::rle_array();
-        let sliced = array.slice(4..6); // [20, 30]
+        let sliced = array.slice(4..6).unwrap(); // [20, 30]
 
         let expected = buffer![20u32, 30].into_array();
         assert_arrays_eq!(sliced.to_array(), expected);
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn test_slice_single_element() {
         let array = fixture::rle_array();
-        let sliced = array.slice(5..6); // [30]
+        let sliced = array.slice(5..6).unwrap(); // [30]
 
         let expected = buffer![30u32].into_array();
         assert_arrays_eq!(sliced.to_array(), expected);
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn test_slice_empty_range() {
         let array = fixture::rle_array();
-        let sliced = array.slice(3..3);
+        let sliced = array.slice(3..3).unwrap();
 
         assert_eq!(sliced.len(), 0);
     }
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn test_slice_with_nulls() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(1..4); // [null, 20, 20]
+        let sliced = array.slice(1..4).unwrap(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.to_array(), expected.to_array());
@@ -248,7 +248,7 @@ mod tests {
     #[test]
     fn test_slice_decode_with_nulls() {
         let array = fixture::rle_array_with_nulls();
-        let sliced = array.slice(1..4).to_array().to_primitive(); // [null, 20, 20]
+        let sliced = array.slice(1..4).unwrap().to_array().to_primitive(); // [null, 20, 20]
 
         let expected = PrimitiveArray::from_option_iter([Option::<u32>::None, Some(20), Some(20)]);
         assert_arrays_eq!(sliced.to_array(), expected.to_array());
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_slice_preserves_dtype() {
         let array = fixture::rle_array();
-        let sliced = array.slice(1..4);
+        let sliced = array.slice(1..4).unwrap();
 
         assert_eq!(array.dtype(), sliced.dtype());
     }
@@ -271,14 +271,14 @@ mod tests {
         let encoded = RLEArray::encode(&array.to_primitive()).unwrap();
 
         // Slice across first and second chunk.
-        let slice = encoded.slice(500..1500);
+        let slice = encoded.slice(500..1500).unwrap();
         assert_arrays_eq!(
             slice,
             PrimitiveArray::from_iter(expected[500..1500].iter().copied())
         );
 
         // Slice across second and third chunk.
-        let slice = encoded.slice(1000..2000);
+        let slice = encoded.slice(1000..2000).unwrap();
         assert_arrays_eq!(
             slice,
             PrimitiveArray::from_iter(expected[1000..2000].iter().copied())

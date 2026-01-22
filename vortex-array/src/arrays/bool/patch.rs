@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
-        let sliced = arr.slice(4..12);
+        let sliced = arr.slice(4..12).unwrap();
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), 8);
         assert_eq!(values.as_slice(), &[255, 255]);
@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
-        let sliced = arr.slice(4..15);
+        let sliced = arr.slice(4..15).unwrap();
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), 11);
         assert_eq!(values.as_slice(), &[255, 255]);

@@ -407,7 +407,11 @@ impl ListViewArray {
     }
 
     /// Returns the elements at the given index from the list array.
-    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slice operation fails.
+    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)

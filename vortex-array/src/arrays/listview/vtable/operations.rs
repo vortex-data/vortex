@@ -13,7 +13,7 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<ListViewVTable> for ListViewVTable {
     fn scalar_at(array: &ListViewArray, index: usize) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let list = array.list_elements_at(index);
+        let list = array.list_elements_at(index)?;
         let children: Vec<Scalar> = (0..list.len())
             .map(|i| list.scalar_at(i))
             .collect::<VortexResult<_>>()?;

@@ -138,7 +138,7 @@ impl VTable for BoolVTable {
         Ok(Some(
             BoolArray::from_bit_buffer(
                 array.bit_buffer().slice(range.clone()),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

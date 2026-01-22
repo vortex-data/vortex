@@ -70,8 +70,8 @@ impl VTable for MaskedVTable {
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone());
-        let validity = array.validity.slice(range);
+        let child = array.child.slice(range.clone())?;
+        let validity = array.validity.slice(range)?;
 
         Ok(Some(
             MaskedArray {

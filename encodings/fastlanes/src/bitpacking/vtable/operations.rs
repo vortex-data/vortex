@@ -52,7 +52,11 @@ mod test {
             6,
         )
         .unwrap();
-        let sliced = arr.slice(1024..2048).as_::<BitPackedVTable>().clone();
+        let sliced = arr
+            .slice(1024..2048)
+            .unwrap()
+            .as_::<BitPackedVTable>()
+            .clone();
         assert_nth_scalar!(sliced, 0, 1024u32 % 64);
         assert_nth_scalar!(sliced, 1023, 2047u32 % 64);
         assert_eq!(sliced.offset(), 0);
@@ -67,7 +71,11 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let sliced = arr.slice(512..1434).as_::<BitPackedVTable>().clone();
+        let sliced = arr
+            .slice(512..1434)
+            .unwrap()
+            .as_::<BitPackedVTable>()
+            .clone();
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
@@ -82,7 +90,7 @@ mod test {
         )
         .unwrap();
 
-        let compressed = packed.slice(768..9999);
+        let compressed = packed.slice(768..9999).unwrap();
         assert_nth_scalar!(compressed, 0, (768 % 63) as u8);
         assert_nth_scalar!(compressed, compressed.len() - 1, (9998 % 63) as u8);
     }
@@ -95,7 +103,7 @@ mod test {
         )
         .unwrap();
 
-        let compressed = packed.slice(7168..9216);
+        let compressed = packed.slice(7168..9216).unwrap();
         assert_nth_scalar!(compressed, 0, (7168 % 63) as u8);
         assert_nth_scalar!(compressed, compressed.len() - 1, (9215 % 63) as u8);
     }
@@ -108,12 +116,20 @@ mod test {
         )
         .unwrap()
         .into_array();
-        let sliced = arr.slice(512..1434).as_::<BitPackedVTable>().clone();
+        let sliced = arr
+            .slice(512..1434)
+            .unwrap()
+            .as_::<BitPackedVTable>()
+            .clone();
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
-        let doubly_sliced = sliced.slice(127..911).as_::<BitPackedVTable>().clone();
+        let doubly_sliced = sliced
+            .slice(127..911)
+            .unwrap()
+            .as_::<BitPackedVTable>()
+            .clone();
         assert_nth_scalar!(doubly_sliced, 0, (512u32 + 127) % 64);
         assert_nth_scalar!(doubly_sliced, 783, (512u32 + 910) % 64);
         assert_eq!(doubly_sliced.offset(), 639);
@@ -131,7 +147,7 @@ mod test {
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
-        let sliced = array.slice(0..64);
+        let sliced = array.slice(0..64).unwrap();
         let sliced_bp = sliced.as_::<BitPackedVTable>();
         assert!(sliced_bp.patches().is_none());
     }
@@ -146,7 +162,7 @@ mod test {
 
         // Slice the array.
         // The resulting array will still have 3 1024-element chunks.
-        let sliced = array.slice(922..2061);
+        let sliced = array.slice(922..2061).unwrap();
 
         // Take one element from each chunk.
         // Chunk 1: physical indices  922-1023, logical indices    0-101

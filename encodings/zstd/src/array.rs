@@ -173,7 +173,7 @@ impl VTable for ZstdVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        array.decompress().execute(ctx)
+        array.decompress()?.execute(ctx)
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
@@ -493,7 +493,7 @@ impl ZstdArray {
         }
     }
 
-    pub fn decompress(&self) -> ArrayRef {
+    pub fn decompress(&self) -> VortexResult<ArrayRef> {
         // To start, we figure out which frames we need to decompress, and with
         // what row offset into the first such frame.
         let byte_width = self.byte_width();
@@ -570,7 +570,7 @@ impl ZstdArray {
         // Last, we slice the exact values requested out of the decompressed data.
         let mut slice_validity = self
             .unsliced_validity
-            .slice(self.slice_start..self.slice_stop);
+            .slice(self.slice_start..self.slice_stop)?;
 
         // NOTE: this block handles setting the output type when the validity and DType disagree.
         //
@@ -582,7 +582,7 @@ impl ZstdArray {
         // implied by the DType.
         if !self.dtype().is_nullable() && slice_validity != Validity::NonNullable {
             assert!(
-                slice_validity.all_valid(slice_n_rows),
+                slice_validity.all_valid(slice_n_rows)?,
                 "ZSTD array expects to be non-nullable but there are nulls after decompression"
             );
 
@@ -607,7 +607,7 @@ impl ZstdArray {
                     slice_n_rows,
                 );
 
-                primitive.into_array()
+                Ok(primitive.into_array())
             }
             DType::Binary(_) | DType::Utf8(_) => {
                 match slice_validity.to_mask(slice_n_rows).indices() {
@@ -621,7 +621,7 @@ impl ZstdArray {
                         );
 
                         // SAFETY: we properly construct the views inside `reconstruct_views`
-                        unsafe {
+                        Ok(unsafe {
                             VarBinViewArray::new_unchecked(
                                 valid_views,
                                 Arc::from([decompressed]),
@@ -629,12 +629,13 @@ impl ZstdArray {
                                 slice_validity,
                             )
                         }
-                        .into_array()
+                        .into_array())
                     }
-                    AllOr::None => {
-                        ConstantArray::new(Scalar::null(self.dtype.clone()), slice_n_rows)
-                            .into_array()
-                    }
+                    AllOr::None => Ok(ConstantArray::new(
+                        Scalar::null(self.dtype.clone()),
+                        slice_n_rows,
+                    )
+                    .into_array()),
                     AllOr::Some(valid_indices) => {
                         // the decompressed buffer is a bunch of interleaved u32 lengths
                         // and strings of those lengths, we need to reconstruct the
@@ -650,7 +651,7 @@ impl ZstdArray {
                         }
 
                         // SAFETY: we properly construct the views inside `reconstruct_views`
-                        unsafe {
+                        Ok(unsafe {
                             VarBinViewArray::new_unchecked(
                                 views.freeze(),
                                 Arc::from([decompressed]),
@@ -658,7 +659,7 @@ impl ZstdArray {
                                 slice_validity,
                             )
                         }
-                        .into_array()
+                        .into_array())
                     }
                 }
             }
@@ -774,7 +775,7 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
     fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress().scalar_at(0)
+        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }
 

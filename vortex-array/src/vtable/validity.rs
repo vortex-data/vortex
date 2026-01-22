@@ -57,7 +57,7 @@ pub struct ValidityVTableFromValiditySliceHelper;
 pub trait ValiditySliceHelper {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
 
-    fn sliced_validity(&self) -> Validity {
+    fn sliced_validity(&self) -> VortexResult<Validity> {
         let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
         unsliced_validity.slice(start..stop)
     }
@@ -68,7 +68,7 @@ where
     V::Array: ValiditySliceHelper,
 {
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(array.sliced_validity())
+        array.sliced_validity()
     }
 }
 
@@ -100,7 +100,7 @@ pub struct ValidityVTableFromChildSliceHelper;
 pub trait ValidityChildSliceHelper {
     fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize);
 
-    fn sliced_child_array(&self) -> ArrayRef {
+    fn sliced_child_array(&self) -> VortexResult<ArrayRef> {
         let (unsliced_validity, start, stop) = self.unsliced_child_and_slice();
         unsliced_validity.slice(start..stop)
     }
@@ -111,6 +111,6 @@ where
     V::Array: ValidityChildSliceHelper,
 {
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        array.sliced_child_array().validity()
+        array.sliced_child_array()?.validity()
     }
 }

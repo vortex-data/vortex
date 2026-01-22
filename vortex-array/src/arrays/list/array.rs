@@ -273,7 +273,7 @@ impl ListArray {
     pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let start = self.offset_at(index)?;
         let end = self.offset_at(index + 1)?;
-        Ok(self.elements().slice(start..end))
+        self.elements().slice(start..end)
     }
 
     /// Returns elements of the list array referenced by the offsets array.
@@ -283,7 +283,7 @@ impl ListArray {
     pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
         let start = self.offset_at(0)?;
         let end = self.offset_at(self.len())?;
-        Ok(self.elements().slice(start..end))
+        self.elements().slice(start..end)
     }
 
     /// Returns the offsets array.

@@ -127,7 +127,7 @@ impl VTable for VarBinViewVTable {
                 array.views().slice(range.clone()),
                 array.buffers().clone(),
                 array.dtype().clone(),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

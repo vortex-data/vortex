@@ -11,7 +11,7 @@ use crate::DeltaArray;
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
     fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = array.slice(index..index + 1).to_primitive();
+        let decompressed = array.slice(index..index + 1)?.to_primitive();
         decompressed.scalar_at(0)
     }
 }
@@ -31,7 +31,7 @@ mod tests {
     fn test_slice_non_jagged_array_first_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let actual = delta.slice(10..250);
+        let actual = delta.slice(10..250).unwrap();
         let expected = PrimitiveArray::from_iter(10u32..250).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -40,7 +40,7 @@ mod tests {
     fn test_slice_non_jagged_array_second_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let actual = delta.slice(1024 + 10..1024 + 250);
+        let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -49,7 +49,7 @@ mod tests {
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let actual = delta.slice(1000..1048);
+        let actual = delta.slice(1000..1048).unwrap();
         let expected = PrimitiveArray::from_iter(1000u32..1048).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -58,7 +58,7 @@ mod tests {
     fn test_slice_non_jagged_array_span_two_chunks_chunk_of_four() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        let actual = delta.slice(2040..2050);
+        let actual = delta.slice(2040..2050).unwrap();
         let expected = PrimitiveArray::from_iter(2040u32..2050).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -67,7 +67,7 @@ mod tests {
     fn test_slice_non_jagged_array_whole() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        let actual = delta.slice(0..4096);
+        let actual = delta.slice(0..4096).unwrap();
         let expected = PrimitiveArray::from_iter(0u32..4096).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -76,15 +76,15 @@ mod tests {
     fn test_slice_non_jagged_array_empty() {
         let delta = DeltaArray::try_from_vec((0u32..4096).collect()).unwrap();
 
-        let actual = delta.slice(0..0);
+        let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
 
-        let actual = delta.slice(4096..4096);
+        let actual = delta.slice(4096..4096).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
 
-        let actual = delta.slice(1024..1024);
+        let actual = delta.slice(1024..1024).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -93,7 +93,7 @@ mod tests {
     fn test_slice_jagged_array_second_chunk_of_two() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let actual = delta.slice(1024 + 10..1024 + 250);
+        let actual = delta.slice(1024 + 10..1024 + 250).unwrap();
         let expected = PrimitiveArray::from_iter((1024 + 10u32)..(1024 + 250)).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -102,15 +102,15 @@ mod tests {
     fn test_slice_jagged_array_empty() {
         let delta = DeltaArray::try_from_vec((0u32..4000).collect()).unwrap();
 
-        let actual = delta.slice(0..0);
+        let actual = delta.slice(0..0).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
 
-        let actual = delta.slice(4000..4000);
+        let actual = delta.slice(4000..4000).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
 
-        let actual = delta.slice(1024..1024);
+        let actual = delta.slice(1024..1024).unwrap();
         let expected = PrimitiveArray::from_iter(Vec::<u32>::new()).into_array();
         assert_arrays_eq!(actual, expected);
     }
@@ -119,8 +119,8 @@ mod tests {
     fn test_slice_of_slice_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(10..1013);
-        let sliced_again = sliced.slice(0..2);
+        let sliced = delta.slice(10..1013).unwrap();
+        let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
         assert_arrays_eq!(sliced_again, expected);
@@ -130,8 +130,8 @@ mod tests {
     fn test_slice_of_slice_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(10..1013);
-        let sliced_again = sliced.slice(0..2);
+        let sliced = delta.slice(10..1013).unwrap();
+        let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![10u32, 11]).into_array();
         assert_arrays_eq!(sliced_again, expected);
@@ -141,8 +141,8 @@ mod tests {
     fn test_slice_of_slice_second_chunk_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(1034..1050);
-        let sliced_again = sliced.slice(0..2);
+        let sliced = delta.slice(1034..1050).unwrap();
+        let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
         assert_arrays_eq!(sliced_again, expected);
@@ -152,8 +152,8 @@ mod tests {
     fn test_slice_of_slice_second_chunk_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(1034..1050);
-        let sliced_again = sliced.slice(0..2);
+        let sliced = delta.slice(1034..1050).unwrap();
+        let sliced_again = sliced.slice(0..2).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![1034u32, 1035]).into_array();
         assert_arrays_eq!(sliced_again, expected);
@@ -163,8 +163,8 @@ mod tests {
     fn test_slice_of_slice_spanning_two_chunks_of_non_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect()).unwrap();
 
-        let sliced = delta.slice(1010..1050);
-        let sliced_again = sliced.slice(5..20);
+        let sliced = delta.slice(1010..1050).unwrap();
+        let sliced_again = sliced.slice(5..20).unwrap();
 
         let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
         assert_arrays_eq!(sliced_again, expected);
@@ -174,8 +174,8 @@ mod tests {
     fn test_slice_of_slice_spanning_two_chunks_of_jagged() {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect()).unwrap();
 
-        let sliced = delta.slice(1010..1050);
-        let sliced_again = sliced.slice(5..20);
+        let sliced = delta.slice(1010..1050).unwrap();
+        let sliced_again = sliced.slice(5..20).unwrap();
 
         let expected = PrimitiveArray::from_iter(1015u32..1030).into_array();
         assert_arrays_eq!(sliced_again, expected);

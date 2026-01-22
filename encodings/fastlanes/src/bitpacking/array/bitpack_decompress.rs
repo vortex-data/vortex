@@ -345,7 +345,7 @@ mod tests {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023..1025);
+        let bitpacked = bitpacked.slice(1023..1025).unwrap();
         let actual = unpack_array(
             bitpacked.as_::<BitPackedVTable>(),
             &mut SESSION.create_execution_ctx(),
@@ -362,7 +362,7 @@ mod tests {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023..2049);
+        let bitpacked = bitpacked.slice(1023..2049).unwrap();
         let actual = unpack_array(
             bitpacked.as_::<BitPackedVTable>(),
             &mut SESSION.create_execution_ctx(),
@@ -648,7 +648,7 @@ mod tests {
         // Test with sliced array (offset > 0).
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None).unwrap();
-        let sliced = bitpacked.slice(500..1500);
+        let sliced = bitpacked.slice(500..1500).unwrap();
 
         // Test all three methods on the sliced array.
         let sliced_bp = sliced.as_::<BitPackedVTable>();

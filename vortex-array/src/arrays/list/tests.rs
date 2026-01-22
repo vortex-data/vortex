@@ -412,7 +412,7 @@ fn test_offset_to_0() {
             .as_list(),
         )
         .vortex_expect("operation should succeed in test");
-    let list = builder.finish().slice(2..4);
+    let list = builder.finish().slice(2..4).unwrap();
 
     // The sliced list should be a ListArray since we built it with ListBuilder
     // and slice doesn't change the encoding
@@ -620,7 +620,7 @@ fn test_list_of_lists() {
     assert_eq!(list_scalar.len(), 2);
 
     // Test slicing.
-    let sliced = list_of_lists.slice(1..3);
+    let sliced = list_of_lists.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListVTable>();
     assert_eq!(sliced_list.len(), 2);
 
@@ -878,7 +878,7 @@ fn test_recursive_compact_list_of_lists() {
 
     let original = create_list_of_lists_nullable(nested_data);
     // Slice to remove prefix - creates wasted space since offsets no longer reference early elements
-    let sliced = original.slice(1..3);
+    let sliced = original.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListVTable>();
 
     // Test non-recursive compaction: only resets outer list offsets
