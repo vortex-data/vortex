@@ -495,8 +495,8 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
-  gpu-test:
-    name: "GPU tests"
+  cuda-test:
+    name: "CUDA tests"
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
