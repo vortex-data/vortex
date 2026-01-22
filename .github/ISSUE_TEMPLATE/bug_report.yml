@@ -1,0 +1,49 @@
+name: Bug Report
+description: Report something that isn't working correctly
+labels: ["needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please fill out the sections below.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug
+      placeholder: Tell us what you expected vs what actually happened
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps to trigger the bug
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: version
+    attributes:
+      label: Environment
+      description: Version, OS, relevant dependencies
+      placeholder: |
+        - Vortex version:
+        - Python/Java version: 
+        - OS:
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, or anything else helpful
+    validations:
+      required: false
