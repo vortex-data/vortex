@@ -105,9 +105,8 @@ impl VTable for DynamicComparison {
                 ctx: args.ctx,
             });
         }
-        let ret_dtype = DType::Bool(
-            args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability(),
-        );
+        let ret_dtype =
+            DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ExecutionResult::Scalar(ConstantArray::new(
             Scalar::new(ret_dtype, data.default.into()),
