@@ -6,6 +6,7 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -73,7 +74,7 @@ pub fn bitpack_encode(
     // SAFETY: all components validated above
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             patches,
@@ -107,7 +108,7 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             None,

@@ -4,7 +4,6 @@
 use std::ops::Range;
 
 use vortex_buffer::Alignment;
-use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
@@ -91,7 +90,7 @@ impl VTable for DecimalVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_host_sync()?;
+        let values = buffers[0].clone();
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -108,13 +107,14 @@ impl VTable for DecimalVTable {
 
         match_each_decimal_value_type!(metadata.values_type(), |D| {
             // Check and reinterpret-cast the buffer
-            vortex_ensure!(
-                buffer.is_aligned(Alignment::of::<D>()),
-                "DecimalArray buffer not aligned for values type {:?}",
-                D::DECIMAL_TYPE
-            );
-            let buffer = Buffer::<D>::from_byte_buffer(buffer);
-            DecimalArray::try_new::<D>(buffer, *decimal_dtype, validity)
+            if let Some(buffer) = values.as_host_opt() {
+                vortex_ensure!(
+                    buffer.is_aligned(Alignment::of::<D>()),
+                    "DecimalArray buffer not aligned for values type {:?}",
+                    D::DECIMAL_TYPE
+                );
+            }
+            DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }
 

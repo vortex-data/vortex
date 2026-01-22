@@ -61,7 +61,7 @@ pub(crate) fn new_exporter(
 
     let exporter = if values_type == dest_values_type {
         match_each_decimal_value_type!(values_type, |D| {
-            let buffer = Buffer::<D>::from_byte_buffer(values);
+            let buffer = Buffer::<D>::from_byte_buffer(values.into_host_sync());
             Box::new(DecimalZeroCopyExporter {
                 values: buffer.clone(),
                 shared_buffer: VectorBuffer::new(buffer),
@@ -71,7 +71,7 @@ pub(crate) fn new_exporter(
         match_each_decimal_value_type!(values_type, |D| {
             match_each_decimal_value_type!(dest_values_type, |N| {
                 Box::new(DecimalExporter {
-                    values: Buffer::<D>::from_byte_buffer(values),
+                    values: Buffer::<D>::from_byte_buffer(values.into_host_sync()),
                     dest_value_type: PhantomData::<N>,
                 }) as Box<dyn ColumnExporter>
             })

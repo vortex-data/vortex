@@ -178,7 +178,9 @@ fn to_arrow_decimal256(array: DecimalArray) -> VortexResult<ArrowArrayRef> {
                 .into_iter()
                 .map(|x| vortex_scalar::i256::from_i128(x).into()),
         ),
-        DecimalType::I256 => Buffer::<i256>::from_byte_buffer(array.byte_buffer()),
+        DecimalType::I256 => {
+            Buffer::<i256>::from_byte_buffer(array.buffer_handle().clone().into_host_sync())
+        }
     };
     Ok(Arc::new(
         ArrowDecimal256Array::new(buffer.into_arrow_scalar_buffer(), null_buffer)
