@@ -7,6 +7,7 @@ pub(crate) mod parts;
 use bytes::Bytes;
 use pyo3::Bound;
 use pyo3::Python;
+use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::session::ArraySessionExt;
@@ -16,6 +17,7 @@ use vortex::ipc::messages::PollRead;
 
 use crate::SESSION;
 use crate::arrays::PyArrayRef;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::serde::context::PyArrayContext;
 use crate::serde::parts::PyArrayParts;
@@ -51,17 +53,17 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Array
 ///     The decoded Vortex array
 #[pyfunction]
-fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyResult<PyArrayRef> {
+fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyVortexResult<PyArrayRef> {
     let mut decoder = MessageDecoder::default();
 
     let mut dtype_buf = Bytes::from(dtype_bytes);
     let dtype = match decoder.read_next(&mut dtype_buf)? {
         PollRead::Some(DecoderMessage::DType(dtype)) => dtype,
         PollRead::Some(_) => {
-            return Err(PyValueError::new_err("Expected DType message"));
+            return Err(PyValueError::new_err("Expected DType message").into());
         }
         PollRead::NeedMore(_) => {
-            return Err(PyValueError::new_err("Incomplete DType message"));
+            return Err(PyValueError::new_err("Incomplete DType message").into());
         }
     };
 
@@ -71,10 +73,10 @@ fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyResult<PyAr
             parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
         }
         PollRead::Some(_) => {
-            return Err(PyValueError::new_err("Expected Array message"));
+            return Err(PyValueError::new_err("Expected Array message").into());
         }
         PollRead::NeedMore(_) => {
-            return Err(PyValueError::new_err("Incomplete Array message"));
+            return Err(PyValueError::new_err("Incomplete Array message").into());
         }
     };
 
@@ -102,9 +104,7 @@ fn decode_ipc_array_buffers<'py>(
     py: Python<'py>,
     array_buffers: Vec<Bound<'py, PyAny>>,
     dtype_buffers: Vec<Bound<'py, PyAny>>,
-) -> PyResult<PyArrayRef> {
-    use pyo3::buffer::PyBuffer;
-
+) -> PyVortexResult<PyArrayRef> {
     let mut decoder = MessageDecoder::default();
 
     // Concatenate dtype buffers
@@ -125,10 +125,10 @@ fn decode_ipc_array_buffers<'py>(
     let dtype = match decoder.read_next(&mut dtype_buf)? {
         PollRead::Some(DecoderMessage::DType(dtype)) => dtype,
         PollRead::Some(_) => {
-            return Err(PyValueError::new_err("Expected DType message"));
+            return Err(PyValueError::new_err("Expected DType message").into());
         }
         PollRead::NeedMore(_) => {
-            return Err(PyValueError::new_err("Incomplete DType message"));
+            return Err(PyValueError::new_err("Incomplete DType message").into());
         }
     };
 
@@ -151,10 +151,10 @@ fn decode_ipc_array_buffers<'py>(
             parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
         }
         PollRead::Some(_) => {
-            return Err(PyValueError::new_err("Expected Array message"));
+            return Err(PyValueError::new_err("Expected Array message").into());
         }
         PollRead::NeedMore(_) => {
-            return Err(PyValueError::new_err("Incomplete Array message"));
+            return Err(PyValueError::new_err("Incomplete Array message").into());
         }
     };
 

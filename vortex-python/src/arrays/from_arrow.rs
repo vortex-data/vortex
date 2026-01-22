@@ -7,7 +7,6 @@ use arrow_array::make_array;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
@@ -17,13 +16,13 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
-use vortex::error::VortexResult;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::error::PyVortexResult;
 
 /// Convert an Arrow object to a Vortex array.
-pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyResult<PyArrayRef> {
+pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArrayRef> {
     let pa = obj.py().import("pyarrow")?;
     let pa_array = pa.getattr("Array")?;
     let chunked_array = pa.getattr("ChunkedArray")?;
@@ -56,15 +55,14 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyResult<PyArrayRef> 
         let dtype = DType::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
-            .map(|b| b.map_err(VortexError::from))
-            .map_ok(|b| ArrayRef::from_arrow(b, false))
-            .collect::<VortexResult<Vec<_>>>()?;
+            .map(|b| -> PyVortexResult<_> {
+                Ok(ArrayRef::from_arrow(b.map_err(VortexError::from)?, false))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(chunks, dtype)?.into_array(),
         ))
     } else {
-        Err(PyValueError::new_err(
-            "Cannot convert object to Vortex array",
-        ))
+        Err(PyValueError::new_err("Cannot convert object to Vortex array").into())
     }
 }

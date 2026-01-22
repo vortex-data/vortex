@@ -9,6 +9,7 @@ use pyo3::Borrowed;
 use pyo3::FromPyObject;
 use pyo3::PyAny;
 use pyo3::PyErr;
+use pyo3::exceptions::PyRuntimeError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::types::PyAnyMethods;
 use vortex::array::ArrayRef;
@@ -17,6 +18,7 @@ use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType as _;
+use vortex::error::VortexError;
 use vortex::error::VortexResult;
 
 use crate::PyVortex;
@@ -64,9 +66,14 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArray {
             let vortex_iter = arrow_stream
                 .into_iter()
                 .map(|batch_result| -> VortexResult<_> {
-                    Ok(ArrayRef::from_arrow(batch_result?, false))
+                    Ok(ArrayRef::from_arrow(
+                        batch_result.map_err(VortexError::from)?,
+                        false,
+                    ))
                 });
-            let array = ArrayIteratorAdapter::new(dtype, vortex_iter).read_all()?;
+            let array = ArrayIteratorAdapter::new(dtype, vortex_iter)
+                .read_all()
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
             return Ok(PyIntoArray(PyVortex(array)));
         }
 
