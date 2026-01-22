@@ -148,12 +148,7 @@ impl HostByteBufferPool {
     }
 
     fn put(&self, buf: ByteBufferMut) -> VortexResult<()> {
-        let len = if self.round_len_pow2 {
-            buf.capacity()
-        } else {
-            buf.len()
-        };
-        let len = self.size_class_len(len);
+        let len = self.size_class_len(buf.len());
         let alignment = match self.fixed_alignment {
             Some(fixed) if fixed.is_aligned_to(buf.alignment()) => fixed,
             Some(_) => buf.alignment(),
