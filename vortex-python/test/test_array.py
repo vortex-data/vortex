@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 import pyarrow as pa
+import pytest
 
 import vortex
 
@@ -36,3 +37,9 @@ def test_empty_array():
     a = pa.array([], type=pa.uint8())
     primitive = vortex.array(a)
     assert primitive.to_arrow_array().type == pa.uint8()
+
+
+@pytest.mark.xfail(raises=IndexError)
+def test_scalar_at_out_of_bounds():
+    a = vortex.array([1, 2, 3])
+    _s = a.scalar_at(4)
