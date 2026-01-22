@@ -20,7 +20,7 @@ all-features = true
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
 arrow-buffer = { workspace = true }
-arrow-schema = { workspace = true, optional = true }
+arrow-schema = { workspace = true }
 flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }

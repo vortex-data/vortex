@@ -11,7 +11,6 @@ use crate::DType;
 use crate::DecimalDType;
 use crate::ExtDType;
 use crate::ExtID;
-use crate::ExtMetadata;
 use crate::PType;
 use crate::StructFields;
 use crate::field::Field;

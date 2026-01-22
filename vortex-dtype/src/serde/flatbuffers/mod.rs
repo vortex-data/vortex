@@ -20,7 +20,6 @@ use crate::DType;
 use crate::DecimalDType;
 use crate::ExtDType;
 use crate::ExtID;
-use crate::ExtMetadata;
 use crate::FieldDType;
 use crate::PType;
 use crate::StructFields;
@@ -303,6 +302,7 @@ impl WriteFlatBuffer for DType {
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
+                let metadata = ext.options_ref().serialize()?;
                 let metadata = ext.metadata().map(|m| fbb.create_vector(m.as_ref()));
                 fb::Extension::create(
                     fbb,

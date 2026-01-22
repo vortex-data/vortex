@@ -33,7 +33,7 @@ pub struct ExtDType<V: VTable>(Arc<ExtDTypeAdapter<V>>);
 impl<V: VTable> ExtDType<V> {
     /// Creates a new extension dtype with the given options and storage dtype.
     pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
-        V::validate(&options, &storage_dtype)?;
+        V::supports_storage_dtype(&options, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             storage_dtype,
             options,

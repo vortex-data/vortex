@@ -23,6 +23,7 @@ use arrow_schema::Schema;
 use arrow_schema::SchemaBuilder;
 use arrow_schema::SchemaRef;
 use arrow_schema::TimeUnit as ArrowTimeUnit;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -90,6 +91,37 @@ impl TryFromArrowType<&DataType> for DecimalDType {
                 value
             )),
         }
+    }
+}
+
+impl From<&ArrowTimeUnit> for TimeUnit {
+    fn from(value: &ArrowTimeUnit) -> Self {
+        (*value).into()
+    }
+}
+
+impl From<ArrowTimeUnit> for TimeUnit {
+    fn from(value: ArrowTimeUnit) -> Self {
+        match value {
+            ArrowTimeUnit::Second => Self::Seconds,
+            ArrowTimeUnit::Millisecond => Self::Milliseconds,
+            ArrowTimeUnit::Microsecond => Self::Microseconds,
+            ArrowTimeUnit::Nanosecond => Self::Nanoseconds,
+        }
+    }
+}
+
+impl TryFrom<TimeUnit> for ArrowTimeUnit {
+    type Error = VortexError;
+
+    fn try_from(value: TimeUnit) -> VortexResult<Self> {
+        Ok(match value {
+            TimeUnit::Seconds => Self::Second,
+            TimeUnit::Milliseconds => Self::Millisecond,
+            TimeUnit::Microseconds => Self::Microsecond,
+            TimeUnit::Nanoseconds => Self::Nanosecond,
+            _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
+        })
     }
 }
 
@@ -266,23 +298,9 @@ impl DType {
                 // Try and match against the known extension DTypes.
                 if let Some(temporal) = ext_dtype.try_options::<AnyTemporal>() {
                     return Ok(match temporal {
-                        TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => match unit {
-                            TimeUnit::Nanoseconds => {
-                                DataType::Timestamp(ArrowTimeUnit::Nanosecond, tz.clone())
-                            }
-                            TimeUnit::Microseconds => {
-                                DataType::Timestamp(ArrowTimeUnit::Microsecond, tz.clone())
-                            }
-                            TimeUnit::Milliseconds => {
-                                DataType::Timestamp(ArrowTimeUnit::Millisecond, tz.clone())
-                            }
-                            TimeUnit::Seconds => {
-                                DataType::Timestamp(ArrowTimeUnit::Second, tz.clone())
-                            }
-                            TimeUnit::Days => {
-                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
-                            }
-                        },
+                        TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => {
+                            DataType::Timestamp(ArrowTimeUnit::try_from(unit)?, tz.clone())
+                        }
                         TemporalOptions::Date(unit) => match unit {
                             TimeUnit::Days => DataType::Date32,
                             TimeUnit::Milliseconds => DataType::Date64,

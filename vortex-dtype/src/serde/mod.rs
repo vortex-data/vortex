@@ -3,7 +3,7 @@
 
 pub mod flatbuffers;
 
-mod proto;
+// mod proto;
 
 #[allow(clippy::module_inception)]
 #[cfg(feature = "serde")]

@@ -52,7 +52,7 @@ impl VTable for Time {
         Ok(TimeUnit::try_from(tag)?)
     }
 
-    fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn supports_storage_dtype(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
         let ptype = time_ptype(options)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", options))?;
 

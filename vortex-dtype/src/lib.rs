@@ -11,7 +11,6 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-#[cfg(feature = "arrow")]
 pub mod arrow;
 mod bigint;
 pub mod datetime;

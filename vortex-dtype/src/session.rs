@@ -7,12 +7,12 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::Date;
-use crate::DynVTable;
-use crate::ExtId;
-use crate::Time;
-use crate::Timestamp;
-use crate::VTable;
+use crate::ExtID;
+use crate::datetime::Date;
+use crate::datetime::Time;
+use crate::datetime::Timestamp;
+use crate::extension::DynVTable;
+use crate::extension::VTable;
 
 /// Session for managing extension dtypes.
 #[derive(Debug)]
@@ -37,10 +37,15 @@ impl DTypeSession {
     /// Register an extension DType with the Vortex session.
     pub fn register<V: VTable>(
         &self,
-        id: impl Into<ExtId>,
+        id: impl Into<ExtID>,
         vtable: impl Into<&'static dyn DynVTable>,
     ) {
         self.registry.register(id, vtable);
+    }
+
+    /// Return the registry of extension dtypes.
+    pub fn registry(&self) -> &Registry<&'static dyn DynVTable> {
+        &self.registry
     }
 }
 

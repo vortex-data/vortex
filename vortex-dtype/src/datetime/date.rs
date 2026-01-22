@@ -38,7 +38,7 @@ impl Date {
 impl VTable for Date {
     type Options = TimeUnit;
 
-    fn id(_options: &Self::Options) -> ExtId {
+    fn id(_options: &Self::Options) -> ExtID {
         Self::ID
     }
 
@@ -51,7 +51,7 @@ impl VTable for Date {
         Ok(TimeUnit::try_from(tag)?)
     }
 
-    fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn supports_storage_dtype(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
         let ptype = date_ptype(options)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", options))?;
 
