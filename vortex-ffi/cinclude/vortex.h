@@ -15,6 +15,56 @@
 #include <stdlib.h>
 
 /**
+ * Variant enum for Vortex primitive types.
+ */
+typedef enum {
+  /**
+   * Unsigned 8-bit integer
+   */
+  PTYPE_U8 = 0,
+  /**
+   * Unsigned 16-bit integer
+   */
+  PTYPE_U16 = 1,
+  /**
+   * Unsigned 32-bit integer
+   */
+  PTYPE_U32 = 2,
+  /**
+   * Unsigned 64-bit integer
+   */
+  PTYPE_U64 = 3,
+  /**
+   * Signed 8-bit integer
+   */
+  PTYPE_I8 = 4,
+  /**
+   * Signed 16-bit integer
+   */
+  PTYPE_I16 = 5,
+  /**
+   * Signed 32-bit integer
+   */
+  PTYPE_I32 = 6,
+  /**
+   * Signed 64-bit integer
+   */
+  PTYPE_I64 = 7,
+  /**
+   * 16-bit floating point number
+   */
+  PTYPE_F16 = 8,
+  /**
+   * 32-bit floating point number
+   */
+  PTYPE_F32 = 9,
+  /**
+   * 64-bit floating point number
+   */
+  PTYPE_F64 = 10,
+} vx_ptype;
+
+/**
  * The variant tag for a Vortex data type.
  */
 typedef enum {
@@ -91,54 +141,61 @@ typedef enum {
 } vx_log_level;
 
 /**
- * Variant enum for Vortex primitive types.
+ * Physical type enum, represents the in-memory physical layout but might represent a different logical type.
  */
-typedef enum {
+enum PType
+#ifdef __cplusplus
+  : uint8_t
+#endif // __cplusplus
+ {
   /**
-   * Unsigned 8-bit integer
+   * An 8-bit unsigned integer
    */
-  PTYPE_U8 = 0,
+  U8 = 0,
   /**
-   * Unsigned 16-bit integer
+   * A 16-bit unsigned integer
    */
-  PTYPE_U16 = 1,
+  U16 = 1,
   /**
-   * Unsigned 32-bit integer
+   * A 32-bit unsigned integer
    */
-  PTYPE_U32 = 2,
+  U32 = 2,
   /**
-   * Unsigned 64-bit integer
+   * A 64-bit unsigned integer
    */
-  PTYPE_U64 = 3,
+  U64 = 3,
   /**
-   * Signed 8-bit integer
+   * An 8-bit signed integer
    */
-  PTYPE_I8 = 4,
+  I8 = 4,
   /**
-   * Signed 16-bit integer
+   * A 16-bit signed integer
    */
-  PTYPE_I16 = 5,
+  I16 = 5,
   /**
-   * Signed 32-bit integer
+   * A 32-bit signed integer
    */
-  PTYPE_I32 = 6,
+  I32 = 6,
   /**
-   * Signed 64-bit integer
+   * A 64-bit signed integer
    */
-  PTYPE_I64 = 7,
+  I64 = 7,
   /**
-   * 16-bit floating point number
+   * A 16-bit floating point number
    */
-  PTYPE_F16 = 8,
+  F16 = 8,
   /**
-   * 32-bit floating point number
+   * A 32-bit floating point number
    */
-  PTYPE_F32 = 9,
+  F32 = 9,
   /**
-   * 64-bit floating point number
+   * A 64-bit floating point number
    */
-  PTYPE_F64 = 10,
-} vx_ptype;
+  F64 = 10,
+};
+#ifndef __cplusplus
+typedef uint8_t PType;
+#endif // __cplusplus
 
 /**
  * The logical types of elements in Vortex arrays.
@@ -166,6 +223,11 @@ typedef enum {
  * [`NonNullable`]: Nullability::NonNullable
  */
 typedef struct DType DType;
+
+/**
+ * Whether an instance of a DType can be `null or not
+ */
+typedef struct Nullability Nullability;
 
 /**
  * Base type for all Vortex arrays.
