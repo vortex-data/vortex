@@ -41,5 +41,5 @@ def test_empty_array():
 
 @pytest.mark.xfail(raises=IndexError)
 def test_scalar_at_out_of_bounds():
-    a = vortex.array([1, 2, 3])
-    _s = a.scalar_at(4)
+    a = vortex.array([10, 42, 999, 1992])
+    _s = a.scalar_at(10)
