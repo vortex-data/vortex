@@ -123,6 +123,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
@@ -285,6 +286,207 @@ mod tests {
         let expected: Vec<u32> = codes.iter().map(|&code| values[code as usize]).collect();
 
         assert_eq!(result_buf.as_slice(), expected.as_slice());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
+        if !has_nvcc() {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Dictionary values with nulls: [100, null, 300, 400]
+        let values =
+            PrimitiveArray::from_option_iter(vec![Some(100u32), None, Some(300), Some(400)]);
+
+        // Codes: indices into the values array (code 1 points to null)
+        let codes: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
+        if !has_nvcc() {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Dictionary values: [100, 200, 300, 400]
+        let values = PrimitiveArray::new(Buffer::from(vec![100u32, 200, 300, 400]), NonNullable);
+
+        // Codes with nulls: [0, null, 2, null, 0, 1]
+        let codes = PrimitiveArray::from_option_iter(vec![
+            Some(0u8),
+            None,
+            Some(2),
+            None,
+            Some(0),
+            Some(1),
+        ]);
+
+        let dict_array = DictArray::try_new(codes.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
+        if !has_nvcc() {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Dictionary values with nulls: [100, null, 300, 400]
+        let values =
+            PrimitiveArray::from_option_iter(vec![Some(100u32), None, Some(300), Some(400)]);
+
+        // Codes with nulls: [0, null, 1, 2, null, 3]
+        // Position 0: code=0 -> value=100 (valid)
+        // Position 1: code=null -> output=null
+        // Position 2: code=1 -> value=null -> output=null
+        // Position 3: code=2 -> value=300 (valid)
+        // Position 4: code=null -> output=null
+        // Position 5: code=3 -> value=400 (valid)
+        let codes = PrimitiveArray::from_option_iter(vec![
+            Some(0u8),
+            None,
+            Some(1),
+            Some(2),
+            None,
+            Some(3),
+        ]);
+
+        let dict_array = DictArray::try_new(codes.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
+        if !has_nvcc() {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Dictionary values with nulls (i64)
+        let values = PrimitiveArray::from_option_iter(vec![
+            Some(-1000i64),
+            None,
+            Some(2000),
+            None,
+            Some(4000),
+        ]);
+
+        // Codes with nulls (u16)
+        let codes = PrimitiveArray::from_option_iter(vec![
+            Some(0u16),
+            Some(1),
+            None,
+            Some(2),
+            Some(3),
+            None,
+            Some(4),
+            Some(0),
+        ]);
+
+        let dict_array = DictArray::try_new(codes.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
+        if !has_nvcc() {
+            return Ok(());
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Non-nullable values
+        let values = PrimitiveArray::new(Buffer::from(vec![10u32, 20, 30, 40, 50]), NonNullable);
+
+        // Non-nullable codes
+        let codes = PrimitiveArray::new(
+            Buffer::from(vec![0u8, 1, 2, 3, 4, 4, 3, 2, 1, 0]),
+            NonNullable,
+        );
+
+        let dict_array = DictArray::try_new(codes.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 }

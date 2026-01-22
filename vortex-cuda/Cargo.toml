@@ -33,6 +33,7 @@ vortex-utils = { workspace = true }
 [dev-dependencies]
 criterion = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 
