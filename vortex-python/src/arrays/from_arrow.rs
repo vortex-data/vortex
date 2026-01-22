@@ -16,9 +16,11 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
+use vortex::error::VortexResult;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::error::PyVortexError;
 use crate::error::PyVortexResult;
 
 /// Convert an Arrow object to a Vortex array.
@@ -39,9 +41,9 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArra
             .iter()
             .map(|a| {
                 let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
-                ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(|e| e.into())
+                ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(PyVortexError::from)
             })
-            .collect::<PyResult<Vec<_>>>()?;
+            .collect::<PyVortexResult<Vec<_>>>()?;
         let dtype: DType = obj
             .getattr("type")
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))
