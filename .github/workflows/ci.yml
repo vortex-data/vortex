@@ -323,7 +323,7 @@ jobs:
         shell: bash
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          cargo hack clippy --no-default-features -- -D warnings
+          cargo hack --no-dev-deps clippy --no-default-features -- -D warnings
 
   rust-semver:
     name: "Rust (semver checks)"
