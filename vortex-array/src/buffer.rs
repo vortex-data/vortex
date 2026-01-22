@@ -62,7 +62,7 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// This operation may fail, depending on the device implementation and the underlying hardware.
     fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
 
-    /// Attempts to copy the device buffer to a host buffer asynchronously.
+    /// Copies the device buffer to a host buffer asynchronously.
     ///
     /// Schedules an async copy and returns a future that completes when the copy is finished.
     ///
