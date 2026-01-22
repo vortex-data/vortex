@@ -125,15 +125,8 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
-        let result_buf = Buffer::<u8>::from_byte_buffer(
-            result
-                .as_primitive()
-                .buffer_handle()
-                .to_host_async()
-                .vortex_expect("failed to schedule async copy")
-                .await
-                .vortex_expect("async copy failed"),
-        );
+        let result_buf =
+            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
@@ -166,15 +159,8 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
-        let result_buf = Buffer::<u16>::from_byte_buffer(
-            result
-                .as_primitive()
-                .buffer_handle()
-                .to_host_async()
-                .vortex_expect("failed to schedule async copy")
-                .await
-                .vortex_expect("async copy failed"),
-        );
+        let result_buf =
+            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
@@ -210,15 +196,8 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
-        let result_buf = Buffer::<u32>::from_byte_buffer(
-            result
-                .as_primitive()
-                .buffer_handle()
-                .to_host_async()
-                .vortex_expect("failed to schedule async copy")
-                .await
-                .vortex_expect("async copy failed"),
-        );
+        let result_buf =
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
@@ -254,15 +233,8 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed");
 
-        let result_buf = Buffer::<u64>::from_byte_buffer(
-            result
-                .as_primitive()
-                .buffer_handle()
-                .to_host_async()
-                .vortex_expect("failed to schedule async copy")
-                .await
-                .vortex_expect("async copy failed"),
-        );
+        let result_buf =
+            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(

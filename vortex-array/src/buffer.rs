@@ -273,16 +273,17 @@ impl BufferHandle {
         }
     }
 
-    /// Asynchronously copies this buffer to a host-resident allocation.
+    /// Asynchronously copies the buffer to the host.
     ///
-    /// If the allocation is already host-resident, this trivially completes with success.
-    ///
-    /// If it is a device allocation, then this schedules an async copy operation
-    /// and returns a future that resolves when the copy completes.
+    /// This is a no-op if the buffer is already on the host.
     ///
     /// # Returns
     ///
     /// A future that resolves to the host buffer when the copy completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails to initiate.
     pub fn try_to_host(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match &self.0 {
             Inner::Host(b) => {
@@ -293,7 +294,7 @@ impl BufferHandle {
         }
     }
 
-    /// Returns a host-resident copy of the data in the buffer.
+    /// Asynchronously copies the buffer to the host.
     ///
     /// # Panics
     ///
