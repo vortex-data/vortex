@@ -324,7 +324,7 @@ impl DecimalArray {
         clippy::cognitive_complexity,
         reason = "complexity from nested match_each_* macros"
     )]
-    pub fn patch(self, patches: &Patches) -> Self {
+    pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
         let offset = patches.offset();
         let patch_indices = patches.indices().to_primitive();
         let patch_values = patches.values().to_decimal();
@@ -334,10 +334,10 @@ impl DecimalArray {
             offset,
             patch_indices.as_ref(),
             patch_values.validity(),
-        );
+        )?;
         assert_eq!(self.decimal_dtype(), patch_values.decimal_dtype());
 
-        match_each_integer_ptype!(patch_indices.ptype(), |I| {
+        Ok(match_each_integer_ptype!(patch_indices.ptype(), |I| {
             let patch_indices = patch_indices.as_slice::<I>();
             match_each_decimal_value_type!(patch_values.values_type(), |PatchDVT| {
                 let patch_values = patch_values.buffer::<PatchDVT>();
@@ -353,7 +353,7 @@ impl DecimalArray {
                     )
                 })
             })
-        })
+        }))
     }
 }
 

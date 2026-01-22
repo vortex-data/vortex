@@ -494,7 +494,7 @@ mod tests {
         assert_eq!(listview.list_elements_at(1).len(), 0);
 
         // Check null list.
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
@@ -595,8 +595,8 @@ mod tests {
         assert_eq!(listview.list_elements_at(1).len(), 0);
 
         // Next two are nulls.
-        assert!(!listview.validity().is_valid(2));
-        assert!(!listview.validity().is_valid(3));
+        assert!(!listview.validity().is_valid(2).unwrap());
+        assert!(!listview.validity().is_valid(3).unwrap());
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
@@ -651,7 +651,7 @@ mod tests {
         );
 
         // Third list: null (from source).
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(

@@ -491,7 +491,7 @@ pub(super) fn run_end_canonicalize(
                 bools,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute(ctx)?;
@@ -500,7 +500,7 @@ pub(super) fn run_end_canonicalize(
                 pvalues,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         _ => vortex_panic!("Only Primitive and Bool values are supported"),
     })

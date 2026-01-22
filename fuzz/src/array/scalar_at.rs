@@ -42,7 +42,9 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),
         Canonical::List(array) => {
-            let list = array.list_elements_at(index);
+            let list = array
+                .list_elements_at(index)
+                .vortex_expect("list_elements_at should succeed in fuzz test");
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     scalar_at_canonical_array(

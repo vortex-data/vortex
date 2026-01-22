@@ -17,7 +17,6 @@ use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
@@ -240,8 +239,7 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)
-            .vortex_expect("Input is a supported floating point array");
+        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
         let alp = alp_encoded.as_::<ALPVTable>();
         let alp_ints = alp.encoded().to_primitive();
 

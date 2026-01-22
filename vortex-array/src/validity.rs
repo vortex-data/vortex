@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -270,17 +271,17 @@ impl Validity {
         indices_offset: usize,
         indices: &dyn Array,
         patches: &Validity,
-    ) -> Self {
+    ) -> VortexResult<Self> {
         match (&self, patches) {
-            (Validity::NonNullable, Validity::NonNullable) => return Validity::NonNullable,
+            (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
-                vortex_panic!("Can't patch a non-nullable validity with nullable validity")
+                vortex_bail!("Can't patch a non-nullable validity with nullable validity")
             }
             (_, Validity::NonNullable) => {
-                vortex_panic!("Can't patch a nullable validity with non-nullable validity")
+                vortex_bail!("Can't patch a nullable validity with non-nullable validity")
             }
-            (Validity::AllValid, Validity::AllValid) => return Validity::AllValid,
-            (Validity::AllInvalid, Validity::AllInvalid) => return Validity::AllInvalid,
+            (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+            (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
             _ => {}
         };
 
@@ -311,9 +312,12 @@ impl Validity {
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,
-        );
+        )?;
 
-        Self::from_array(source.patch(&patches).into_array(), own_nullability)
+        Ok(Self::from_array(
+            source.patch(&patches)?.into_array(),
+            own_nullability,
+        ))
     }
 
     /// Convert into a nullable variant

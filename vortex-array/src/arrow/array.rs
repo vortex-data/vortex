@@ -88,7 +88,7 @@ impl VTable for ArrowVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())?
             .execute::<Canonical>(ctx)
     }
 }

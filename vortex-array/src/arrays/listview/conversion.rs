@@ -404,8 +404,8 @@ mod tests {
 
         // The resulting ListArray should have monotonic offsets.
         for i in 0..list_array.len() {
-            let start = list_array.offset_at(i);
-            let end = list_array.offset_at(i + 1);
+            let start = list_array.offset_at(i)?;
+            let end = list_array.offset_at(i + 1)?;
             assert!(end >= start, "Offsets should be monotonic after conversion");
         }
 
@@ -424,7 +424,7 @@ mod tests {
 
         // All sublists should be empty.
         for i in 0..list_array.len() {
-            assert_eq!(list_array.list_elements_at(i).len(), 0);
+            assert_eq!(list_array.list_elements_at(i)?.len(), 0);
         }
 
         // Round-trip.

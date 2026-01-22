@@ -317,7 +317,7 @@ pub(crate) fn arrow_boolean(
         BooleanOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(ArrayRef::from_arrow(&array, nullable))
+    ArrayRef::from_arrow(&array, nullable)
 }
 
 #[cfg(test)]

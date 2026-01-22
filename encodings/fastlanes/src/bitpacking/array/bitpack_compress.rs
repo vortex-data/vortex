@@ -220,7 +220,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u16::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -230,7 +230,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u32::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -240,7 +240,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -250,7 +250,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     };
 
@@ -263,7 +263,7 @@ fn gather_patches_impl<T, P>(
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
-) -> Option<Patches>
+) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
     P: IntegerPType,
@@ -288,15 +288,17 @@ where
         }
     }
 
-    (!indices.is_empty()).then(|| {
-        Patches::new(
+    if indices.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(Patches::new(
             data.len(),
             0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
             Some(chunk_offsets.into_array()),
-        )
-    })
+        )?))
+    }
 }
 
 pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {

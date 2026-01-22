@@ -164,13 +164,16 @@ mod test {
                 ByteBuffer::copy_from_aligned([0u8; 128], Alignment::of::<u32>()),
                 DType::Primitive(PType::U32, true.into()),
                 Validity::AllInvalid,
-                Some(Patches::new(
-                    8,
-                    0,
-                    buffer![1u32].into_array(),
-                    PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
-                    None,
-                )),
+                Some(
+                    Patches::new(
+                        8,
+                        0,
+                        buffer![1u32].into_array(),
+                        PrimitiveArray::new(buffer![999u32], Validity::AllValid).to_array(),
+                        None,
+                    )
+                    .unwrap(),
+                ),
                 1,
                 8,
                 0,

@@ -25,7 +25,7 @@ use crate::match_each_alp_float_ptype;
 /// # Returns
 ///
 /// A `PrimitiveArray` containing the decompressed floating-point values with all patches applied.
-pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
+pub fn decompress_into_array(array: ALPArray) -> VortexResult<PrimitiveArray> {
     let (encoded, exponents, patches, dtype) = array.into_parts();
     if let Some(ref patches) = patches
         && let Some(chunk_offsets) = patches.chunk_offsets()
@@ -38,7 +38,7 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
         let patches_chunk_offsets = chunk_offsets.as_ref().to_primitive();
         let patches_indices = patches.indices().to_primitive();
         let patches_values = patches.values().to_primitive();
-        decompress_chunked_core(
+        Ok(decompress_chunked_core(
             prim_encoded,
             exponents,
             &patches_indices,
@@ -46,7 +46,7 @@ pub fn decompress_into_array(array: ALPArray) -> PrimitiveArray {
             &patches_chunk_offsets,
             patches,
             dtype,
-        )
+        ))
     } else {
         let encoded_prim = encoded.to_primitive();
         // We need to drop ALPArray here in case converting encoded buffer into
@@ -86,9 +86,7 @@ pub fn execute_decompress(array: ALPArray, ctx: &mut ExecutionCtx) -> VortexResu
         ))
     } else {
         let encoded = encoded.execute::<PrimitiveArray>(ctx)?;
-        Ok(decompress_unchunked_core(
-            encoded, exponents, patches, dtype,
-        ))
+        decompress_unchunked_core(encoded, exponents, patches, dtype)
     }
 }
 
@@ -157,7 +155,7 @@ fn decompress_unchunked_core(
     exponents: Exponents,
     patches: Option<Patches>,
     dtype: DType,
-) -> PrimitiveArray {
+) -> VortexResult<PrimitiveArray> {
     let validity = encoded.validity().clone();
     let ptype = dtype.as_ptype();
 
@@ -171,6 +169,6 @@ fn decompress_unchunked_core(
     if let Some(patches) = patches {
         decoded.patch(&patches)
     } else {
-        decoded
+        Ok(decoded)
     }
 }

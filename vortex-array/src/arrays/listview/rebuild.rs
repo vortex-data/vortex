@@ -334,9 +334,9 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity().is_valid(0));
-        assert!(!flattened.validity().is_valid(1));
-        assert!(flattened.validity().is_valid(2));
+        assert!(flattened.validity().is_valid(0)?);
+        assert!(!flattened.validity().is_valid(1)?);
+        assert!(flattened.validity().is_valid(2)?);
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(

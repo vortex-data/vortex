@@ -84,13 +84,13 @@ impl ArrowDatum for Datum {
 /// # Error
 ///
 /// The provided array must have length
-pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> ArrayRef
+pub fn from_arrow_array_with_len<A>(array: A, len: usize, nullable: bool) -> VortexResult<ArrayRef>
 where
     ArrayRef: FromArrowArray<A>,
 {
-    let array = ArrayRef::from_arrow(array, nullable);
+    let array = ArrayRef::from_arrow(array, nullable)?;
     if array.len() == len {
-        return array;
+        return Ok(array);
     }
 
     if array.len() != 1 {
@@ -102,11 +102,11 @@ where
         );
     }
 
-    ConstantArray::new(
+    Ok(ConstantArray::new(
         array
             .scalar_at(0)
             .vortex_expect("array of length 1 must support scalar_at(0)"),
         len,
     )
-    .into_array()
+    .into_array())
 }

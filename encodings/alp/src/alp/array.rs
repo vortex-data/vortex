@@ -34,7 +34,6 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -101,20 +100,14 @@ impl VTable for ALPVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children.get(1, &p.indices_dtype(), p.len())?;
-                let values = children.get(2, dtype, p.len())?;
+                let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(2, dtype, p.len()?)?;
                 let chunk_offsets = p
-                    .chunk_offsets_dtype()
+                    .chunk_offsets_dtype()?
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Ok::<_, VortexError>(Patches::new(
-                    len,
-                    p.offset(),
-                    indices,
-                    values,
-                    chunk_offsets,
-                ))
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -167,7 +160,7 @@ impl VTable for ALPVTable {
                 indices,
                 values,
                 chunk_offsets,
-            ));
+            )?);
         }
 
         Ok(())
@@ -657,7 +650,7 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().is_valid(idx);
+            let result_valid = result_primitive.validity().is_valid(idx).unwrap();
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),

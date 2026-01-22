@@ -25,9 +25,9 @@ impl IsConstantKernel for ListVTable {
 
         // We can first quickly check if all of the list lengths are equal. If not, then we know the
         // array cannot be constant.
-        let first_list_len = array.offset_at(1) - array.offset_at(0);
+        let first_list_len = array.offset_at(1)? - array.offset_at(0)?;
         for i in 1..manual_check_until {
-            let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
+            let current_list_len = array.offset_at(i + 1)? - array.offset_at(i)?;
             if current_list_len != first_list_len {
                 return Ok(Some(false));
             }

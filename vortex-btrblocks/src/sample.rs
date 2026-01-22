@@ -8,7 +8,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ChunkedArray;
-use vortex_error::VortexExpect;
 
 pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> ArrayRef {
     if input.len() <= (sample_size as usize) * (sample_count as usize) {
@@ -30,7 +29,7 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
             .collect(),
         input.dtype().clone(),
     )
-    .vortex_expect("sample")
+    .expect("sample slices should form valid chunked array")
     .into_array()
 }
 

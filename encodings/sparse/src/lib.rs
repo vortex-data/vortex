@@ -113,18 +113,17 @@ impl VTable for SparseVTable {
                 children.len()
             )
         }
-        assert_eq!(
-            metadata.0.patches.offset(),
-            0,
+        vortex_ensure!(
+            metadata.0.patches.offset()? == 0,
             "Patches must start at offset 0"
         );
 
         let patch_indices = children.get(
             0,
-            &metadata.0.patches.indices_dtype(),
-            metadata.0.patches.len(),
+            &metadata.0.patches.indices_dtype()?,
+            metadata.0.patches.len()?,
         )?;
-        let patch_values = children.get(1, dtype, metadata.0.patches.len())?;
+        let patch_values = children.get(1, dtype, metadata.0.patches.len()?)?;
 
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
@@ -154,7 +153,7 @@ impl VTable for SparseVTable {
             patch_indices,
             patch_values,
             array.patches.chunk_offsets().clone(),
-        );
+        )?;
 
         Ok(())
     }
@@ -231,7 +230,7 @@ impl SparseArray {
 
         Ok(Self {
             // TODO(0ax1): handle chunk offsets
-            patches: Patches::new(len, 0, indices, values, None),
+            patches: Patches::new(len, 0, indices, values, None)?,
             fill_value,
             stats_set: Default::default(),
         })
@@ -268,13 +267,10 @@ impl SparseArray {
     }
 
     #[inline]
-    pub fn resolved_patches(&self) -> Patches {
+    pub fn resolved_patches(&self) -> VortexResult<Patches> {
         let patches = self.patches();
-        let indices_offset = Scalar::from(patches.offset())
-            .cast(patches.indices().dtype())
-            .vortex_expect("Patches offset must cast to the indices dtype");
-        let indices = sub_scalar(patches.indices(), indices_offset)
-            .vortex_expect("must be able to subtract offset from indices");
+        let indices_offset = Scalar::from(patches.offset()).cast(patches.indices().dtype())?;
+        let indices = sub_scalar(patches.indices(), indices_offset)?;
 
         Patches::new(
             patches.array_len(),

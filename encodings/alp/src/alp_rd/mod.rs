@@ -266,6 +266,7 @@ impl RDEncoder {
                 // TODO(0ax1): handle chunk offsets
                 None,
             )
+            .vortex_expect("Patches construction in encode")
         });
 
         ALPRDArray::try_new(
