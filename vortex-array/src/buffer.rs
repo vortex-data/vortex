@@ -283,7 +283,7 @@ impl BufferHandle {
     ///
     /// # Errors
     ///
-    /// Returns an error if the async copy operation fails to initiate.
+    /// Returns an error if the async copy operation fails.
     pub fn try_to_host(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match &self.0 {
             Inner::Host(b) => {
@@ -304,7 +304,7 @@ impl BufferHandle {
     ///
     /// # Errors
     ///
-    /// Returns an error if the async copy operation fails to initiate.
+    /// Returns an error if the async copy operation fails.
     pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match self.0 {
             Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
