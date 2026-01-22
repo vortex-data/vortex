@@ -24,7 +24,7 @@ mod field_names;
 mod native_dtype;
 mod nullability;
 mod ptype;
-mod serde;
+pub(crate) mod serde;
 pub mod session;
 mod struct_;
 
@@ -57,8 +57,6 @@ pub mod flatbuffers {
     //! This module contains the code to serialize and deserialize DTypes to and from flatbuffers.
 
     pub use vortex_flatbuffers::dtype::*;
-
-    pub use super::serde::flatbuffers::*;
 }
 
 #[cfg(test)]

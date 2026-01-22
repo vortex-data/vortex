@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod flatbuffers;
+pub(crate) mod flatbuffers;
 
-// mod proto;
+mod proto;
 
 #[allow(clippy::module_inception)]
 #[cfg(feature = "serde")]

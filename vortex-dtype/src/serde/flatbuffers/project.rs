@@ -17,7 +17,10 @@ use crate::flatbuffers as fb;
 /// Convert name references in projection list into index references.
 ///
 /// This is mostly useful if you want to deduplicate multiple projections against serialized schema.
-pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> VortexResult<usize> {
+pub(super) fn resolve_field<'a, 'b: 'a>(
+    fb: fb::Struct_<'b>,
+    field: &'a Field,
+) -> VortexResult<usize> {
     match field {
         Field::Name(n) => {
             let names = fb
@@ -33,7 +36,7 @@ pub fn resolve_field<'a, 'b: 'a>(fb: fb::Struct_<'b>, field: &'a Field) -> Vorte
 }
 
 /// Deserialize single field out of a struct dtype and as a top level dtype
-pub fn extract_field(
+pub(super) fn extract_field(
     fb_dtype: fb::DType<'_>,
     field: &Field,
     buffer: &FlatBuffer,
@@ -47,7 +50,7 @@ pub fn extract_field(
 }
 
 /// Deserialize flatbuffer schema selecting only columns defined by projection
-pub fn project_and_deserialize(
+pub(super) fn project_and_deserialize(
     fb_dtype: fb::DType<'_>,
     projection: &[Field],
     buffer: &FlatBuffer,

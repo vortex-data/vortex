@@ -19,7 +19,7 @@ use crate::DType;
 use crate::FieldName;
 use crate::FieldNames;
 use crate::PType;
-use crate::flatbuffers::ViewedDType;
+use crate::serde::flatbuffers::ViewedDType;
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
