@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         GCSConfig,
         GCSCredential,
         GCSCredentialProvider,
+        ObjectStore,
         RetryConfig,
         S3Config,
         S3Credential,
@@ -62,4 +63,5 @@ __all__ = [
     "S3Store",
     # Utility
     "from_url",
+    "ObjectStore",
 ]

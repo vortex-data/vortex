@@ -58,7 +58,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
-/// store : vortex.store.ObjectStore | None, optional
+/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
 ///     Pre-configured object store with credentials and settings.
 ///     If provided, uses this store's configuration.
 ///     If None, checks session registry for matching URL pattern.
