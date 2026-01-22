@@ -10556,7 +10556,6 @@ dependencies = [
  "vortex-mask",
  "vortex-scalar",
  "vortex-session",
- "vortex-vector",
 ]
 
 [[package]]

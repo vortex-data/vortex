@@ -11,12 +11,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -30,9 +31,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_vector::binaryview::BinaryVector;
-use vortex_vector::binaryview::BinaryView;
-use vortex_vector::binaryview::StringVector;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -50,7 +48,6 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         Exact::new()
     }
 
-    // TODO(joe); remove Vector usage!
     fn execute_parent(
         &self,
         array: &FSSTArray,
@@ -101,21 +98,14 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             )
         });
 
-        let dtype = array.dtype();
-        let canonical = match dtype {
-            DType::Binary(_) => unsafe {
-                BinaryVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
-            }
-            .into_array(array.dtype())
-            .to_array()
-            .execute::<Canonical>(ctx)?,
-            DType::Utf8(_) => unsafe {
-                StringVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
-            }
-            .into_array(array.dtype())
-            .to_array()
-            .execute::<Canonical>(ctx)?,
-            _ => unreachable!("Not a supported FSST DType"),
+        // SAFETY: FSST already validates the bytes for binary/UTF-8.
+        let canonical = unsafe {
+            Canonical::VarBinView(VarBinViewArray::new_unchecked(
+                views,
+                Arc::from(vec![buffer]),
+                array.dtype().clone(),
+                Validity::from_mask(validity, array.dtype().nullability()),
+            ))
         };
 
         Ok(Some(canonical))
