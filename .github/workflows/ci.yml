@@ -239,8 +239,6 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        env:
-          CARGO_INCREMENTAL: 1
         run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
         run: |
@@ -323,8 +321,6 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Lint - Clippy No Default Features
         shell: bash
-        env:
-          CARGO_INCREMENTAL: 1
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack clippy --no-default-features -- -D warnings
