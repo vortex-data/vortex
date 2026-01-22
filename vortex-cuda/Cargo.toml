@@ -31,7 +31,7 @@ vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
 tokio = { workspace = true, features = ["rt", "macros"] }
 
 [build-dependencies]
