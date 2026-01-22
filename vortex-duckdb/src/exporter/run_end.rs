@@ -65,7 +65,7 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
 
         // Find the run that contains the start offset.
         let start_run_idx = ends_slice
-            .search_sorted(&offset, SearchSortedSide::Right)
+            .search_sorted(&offset, SearchSortedSide::Right)?
             .to_ends_index(ends_slice.len());
 
         // Find the final run in case we can short-circuit and return a constant vector.
@@ -73,13 +73,13 @@ impl<E: IntegerPType> ColumnExporter for RunEndExporter<E> {
             .search_sorted(
                 &offset.add(E::from_usize(len).vortex_expect("len out of bounds")),
                 SearchSortedSide::Right,
-            )
+            )?
             .to_ends_index(ends_slice.len());
 
         if start_run_idx == end_run_idx {
             // NOTE(ngates): would be great if we could just export and set type == CONSTANT
             // self.values_exporter.export(start_run_idx, 1, vector, cache);
-            let constant = self.values.scalar_at(start_run_idx);
+            let constant = self.values.scalar_at(start_run_idx)?;
             let value = constant.try_to_duckdb_scalar()?;
             vector.reference_value(&value);
             return Ok(());

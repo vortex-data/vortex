@@ -48,7 +48,7 @@ fn scalar_at_struct_simple(bencher: Bencher) {
         .with_inputs(|| (&struct_array, &indices))
         .bench_refs(|(array, indices)| {
             for &idx in indices.iter() {
-                divan::black_box(array.scalar_at(idx));
+                divan::black_box(array.scalar_at(idx).unwrap());
             }
         });
 }
@@ -83,7 +83,7 @@ fn scalar_at_struct_wide(bencher: Bencher) {
         .with_inputs(|| (&struct_array, &indices))
         .bench_refs(|(array, indices)| {
             for &idx in indices.iter() {
-                divan::black_box(array.scalar_at(idx));
+                divan::black_box(array.scalar_at(idx).unwrap());
             }
         });
 }

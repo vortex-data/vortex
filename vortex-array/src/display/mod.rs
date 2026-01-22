@@ -238,7 +238,11 @@ impl dyn Array + '_ {
                 write!(
                     f,
                     "{}",
-                    (0..self.len()).map(|i| self.scalar_at(i)).format(sep)
+                    (0..self.len())
+                        .map(|i| self
+                            .scalar_at(i)
+                            .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string()))
+                        .format(sep)
                 )?;
                 write!(f, "]")
             }
@@ -255,8 +259,10 @@ impl dyn Array + '_ {
                 let DType::Struct(sf, _) = self.dtype() else {
                     // For non-struct arrays, simply display a single column table without header.
                     for row_idx in 0..self.len() {
-                        let value = self.scalar_at(row_idx);
-                        builder.push_record([value.to_string()]);
+                        let value = self
+                            .scalar_at(row_idx)
+                            .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
+                        builder.push_record([value]);
                     }
 
                     let mut table = builder.build();
@@ -269,14 +275,16 @@ impl dyn Array + '_ {
                 builder.push_record(sf.names().iter().map(|name| name.to_string()));
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx) {
+                    if !self.is_valid(row_idx).unwrap_or(false) {
                         let null_row = vec!["null".to_string(); sf.names().len()];
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
                         for field_array in struct_.fields().iter() {
-                            let value = field_array.scalar_at(row_idx);
-                            row.push(value.to_string());
+                            let value = field_array
+                                .scalar_at(row_idx)
+                                .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());
+                            row.push(value);
                         }
                         builder.push_record(row);
                     }
@@ -291,7 +299,7 @@ impl dyn Array + '_ {
                 }
 
                 for row_idx in 0..self.len() {
-                    if !self.is_valid(row_idx) {
+                    if !self.is_valid(row_idx).unwrap_or(false) {
                         table.modify(
                             (1 + row_idx, 0),
                             tabled::settings::Span::column(sf.names().len() as isize),

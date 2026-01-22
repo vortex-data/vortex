@@ -111,8 +111,8 @@ impl VTable for FSSTVTable {
         if buffers.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
         }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host()?);
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -190,7 +190,7 @@ impl VTable for FSSTVTable {
         // from it instead.
         let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask());
+        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask()?);
         Ok(())
     }
 

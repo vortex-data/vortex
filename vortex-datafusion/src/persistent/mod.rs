@@ -7,6 +7,7 @@ mod cache;
 mod format;
 pub mod metrics;
 mod opener;
+mod reader;
 mod sink;
 mod source;
 mod stream;
@@ -15,6 +16,8 @@ pub use access_plan::VortexAccessPlan;
 pub use format::VortexFormat;
 pub use format::VortexFormatFactory;
 pub use format::VortexOptions;
+pub use reader::DefaultVortexReaderFactory;
+pub use reader::VortexReaderFactory;
 pub use source::VortexSource;
 
 #[cfg(test)]

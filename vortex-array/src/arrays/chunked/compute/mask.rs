@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use itertools::Itertools as _;
+use vortex_buffer::BitBuffer;
+use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_mask::AllOr;
@@ -12,18 +14,20 @@ use vortex_scalar::Scalar;
 use super::filter::ChunkFilter;
 use super::filter::chunk_filters;
 use super::filter::find_chunk_idx;
-use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::MaskKernel;
 use crate::compute::MaskKernelAdapter;
 use crate::compute::cast;
 use crate::compute::mask;
 use crate::register_kernel;
+use crate::validity::Validity;
 
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -54,15 +58,24 @@ fn mask_indices(
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut new_chunks = Vec::with_capacity(array.nchunks());
     let mut current_chunk_id = 0;
-    let mut chunk_indices = Vec::new();
+    let mut chunk_indices = Vec::<usize>::new();
 
     let chunk_offsets = array.chunk_offsets();
 
     for &set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets);
+        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets)?;
         if chunk_id != current_chunk_id {
-            let chunk = array.chunk(current_chunk_id);
-            let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
+            let chunk = array.chunk(current_chunk_id).clone();
+            let chunk_len = chunk.len();
+            // chunk_indices contains indices to null out, but chunk.mask() expects
+            // mask=true to mean "retain". So we create a mask with bits set at indices
+            // to null, then invert it to get mask=true at indices to retain.
+            let mask = BoolArray::new(
+                !BitBuffer::from_indices(chunk_len, &chunk_indices),
+                Validity::NonNullable,
+            )
+            .into_array();
+            let masked_chunk = chunk.mask(mask)?;
             // Advance the chunk forward, reset the chunk indices buffer.
             chunk_indices = Vec::new();
             new_chunks.push(masked_chunk);
@@ -70,8 +83,8 @@ fn mask_indices(
 
             while current_chunk_id < chunk_id {
                 // Chunks that are not affected by the mask, must still be casted to the correct dtype.
-                let chunk = array.chunk(current_chunk_id);
-                new_chunks.push(cast(chunk, new_dtype)?);
+                let chunk = array.chunk(current_chunk_id).cast(new_dtype.clone())?;
+                new_chunks.push(chunk);
                 current_chunk_id += 1;
             }
         }
@@ -80,8 +93,16 @@ fn mask_indices(
     }
 
     if !chunk_indices.is_empty() {
-        let chunk = array.chunk(current_chunk_id);
-        let masked_chunk = mask(chunk, &Mask::from_indices(chunk.len(), chunk_indices))?;
+        let chunk = array.chunk(current_chunk_id).clone();
+        let chunk_len = chunk.len();
+        // Same inversion as above: invert the mask so mask=true means "retain"
+        let masked_chunk = chunk.mask(
+            BoolArray::new(
+                !BitBufferMut::from_indices(chunk_len, &chunk_indices).freeze(),
+                Validity::NonNullable,
+            )
+            .into_array(),
+        )?;
         new_chunks.push(masked_chunk);
         current_chunk_id += 1;
     }

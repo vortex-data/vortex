@@ -53,8 +53,8 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,
     indices_array: &PrimitiveArray,
 ) -> VortexResult<ArrayRef> {
-    let data_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let data_validity = array.validity_mask()?;
+    let indices_validity = indices_array.validity_mask()?;
 
     if !indices_validity.all_true() || !data_validity.all_true() {
         return _take_nullable::<I, O, OutputOffsetType>(array, indices_array);
@@ -117,8 +117,8 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
     let offsets_array = array.offsets().to_primitive();
     let offsets: &[O] = offsets_array.as_slice();
     let indices: &[I] = indices_array.as_slice();
-    let data_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let data_validity = array.validity_mask()?;
+    let indices_validity = indices_array.validity_mask()?;
 
     let mut new_offsets = PrimitiveBuilder::<OutputOffsetType>::with_capacity(
         Nullability::NonNullable,
@@ -228,9 +228,9 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0));
+        assert!(result.is_valid(0).unwrap());
         assert_eq!(
-            result.scalar_at(0),
+            result.scalar_at(0).unwrap(),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -238,11 +238,11 @@ mod test {
             )
         );
 
-        assert!(result.is_invalid(1));
+        assert!(result.is_invalid(1).unwrap());
 
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(2).unwrap());
         assert_eq!(
-            result.scalar_at(2),
+            result.scalar_at(2).unwrap(),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -250,9 +250,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(3));
+        assert!(result.is_valid(3).unwrap());
         assert_eq!(
-            result.scalar_at(3),
+            result.scalar_at(3).unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::Nullable)
         );
     }
@@ -308,9 +308,9 @@ mod test {
 
         let element_dtype: Arc<DType> = Arc::new(I32.into());
 
-        assert!(result.is_valid(0));
+        assert!(result.is_valid(0).unwrap());
         assert_eq!(
-            result.scalar_at(0),
+            result.scalar_at(0).unwrap(),
             Scalar::list(
                 element_dtype.clone(),
                 vec![3i32.into()],
@@ -318,9 +318,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(1));
+        assert!(result.is_valid(1).unwrap());
         assert_eq!(
-            result.scalar_at(1),
+            result.scalar_at(1).unwrap(),
             Scalar::list(
                 element_dtype.clone(),
                 vec![0i32.into(), 5.into()],
@@ -328,9 +328,9 @@ mod test {
             )
         );
 
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(2).unwrap());
         assert_eq!(
-            result.scalar_at(2),
+            result.scalar_at(2).unwrap(),
             Scalar::list(element_dtype, vec![], Nullability::NonNullable)
         );
     }
@@ -416,8 +416,8 @@ mod test {
 
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 2);
-        assert!(result_view.is_valid(0));
-        assert!(result_view.is_valid(1));
+        assert!(result_view.is_valid(0).unwrap());
+        assert!(result_view.is_valid(1).unwrap());
     }
 
     #[test]
@@ -437,9 +437,9 @@ mod test {
 
         let result_view = result.to_listview();
         assert_eq!(result_view.len(), 3);
-        assert!(result_view.is_valid(0));
-        assert!(result_view.is_invalid(1));
-        assert!(result_view.is_valid(2));
+        assert!(result_view.is_valid(0).unwrap());
+        assert!(result_view.is_invalid(1).unwrap());
+        assert!(result_view.is_valid(2).unwrap());
     }
 
     /// Regression test for validity length mismatch bug.

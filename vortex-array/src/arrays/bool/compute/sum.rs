@@ -16,7 +16,7 @@ use crate::register_kernel;
 
 impl SumKernel for BoolVTable {
     fn sum(&self, array: &BoolArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let true_count: Option<u64> = match array.validity_mask().bit_buffer() {
+        let true_count: Option<u64> = match array.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 // All-valid
                 Some(array.bit_buffer().true_count() as u64)

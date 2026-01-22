@@ -143,7 +143,7 @@ impl ListViewArray {
 
         let mut n_elements = NewOffset::zero();
         for index in 0..len {
-            if !self.is_valid(index) {
+            if !self.is_valid(index)? {
                 // For NULL lists, place them after the previous item's data to maintain the
                 // no-overlap invariant for zero-copy to `ListArray` arrays.
                 new_offsets.push(n_elements);
@@ -391,7 +391,7 @@ mod tests {
 
         // Note that element at index 2 (97) is preserved as a gap.
         let all_elements = trimmed.elements().to_primitive();
-        assert_eq!(all_elements.scalar_at(2), 97i32.into());
+        assert_eq!(all_elements.scalar_at(2).unwrap(), 97i32.into());
         Ok(())
     }
 
@@ -431,10 +431,10 @@ mod tests {
         let exact = rebuilt.rebuild(ListViewRebuildMode::MakeExact)?;
 
         // Verify the result is still valid
-        assert!(exact.is_valid(0));
-        assert!(exact.is_valid(1));
-        assert!(!exact.is_valid(2));
-        assert!(!exact.is_valid(3));
+        assert!(exact.is_valid(0).unwrap());
+        assert!(exact.is_valid(1).unwrap());
+        assert!(!exact.is_valid(2).unwrap());
+        assert!(!exact.is_valid(3).unwrap());
 
         // Verify data is preserved
         assert_arrays_eq!(

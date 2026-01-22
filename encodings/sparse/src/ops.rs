@@ -2,17 +2,18 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::SparseArray;
 use crate::SparseVTable;
 
 impl OperationsVTable<SparseVTable> for SparseVTable {
-    fn scalar_at(array: &SparseArray, index: usize) -> Scalar {
-        array
+    fn scalar_at(array: &SparseArray, index: usize) -> VortexResult<Scalar> {
+        Ok(array
             .patches()
-            .get_patched(index)
-            .unwrap_or_else(|| array.fill_scalar().clone())
+            .get_patched(index)?
+            .unwrap_or_else(|| array.fill_scalar().clone()))
     }
 }
 

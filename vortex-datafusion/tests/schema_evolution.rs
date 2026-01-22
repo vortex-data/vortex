@@ -526,3 +526,100 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_schema_evolution_struct_field_order() {
+    let (ctx, store) = make_session_ctx();
+
+    // File1: labels = {region, service} - service at position 1
+    let file1_labels: ArrowArrayRef = Arc::new(StructArray::new(
+        Fields::from(vec![
+            Field::new("region", DataType::Utf8, true),
+            Field::new("service", DataType::Utf8, true),
+        ]),
+        vec![
+            create_array!(Utf8, vec![Some("us-east"), Some("us-west")]),
+            create_array!(Utf8, vec![Some("api"), Some("api")]),
+        ],
+        None,
+    ));
+    write_file(
+        &store,
+        "reorder/file1.vortex",
+        &RecordBatch::try_from_iter([("labels", file1_labels)]).unwrap(),
+    )
+    .await;
+
+    // File2: labels = {service, instance, job} - service at position 0
+    let file2_labels: ArrowArrayRef = Arc::new(StructArray::new(
+        Fields::from(vec![
+            Field::new("service", DataType::Utf8, true),
+            Field::new("instance", DataType::Utf8, true),
+            Field::new("job", DataType::Utf8, true),
+        ]),
+        vec![
+            create_array!(Utf8, vec![Some("api"), Some("api")]),
+            create_array!(Utf8, vec![Some("host-0"), Some("host-1")]),
+            create_array!(Utf8, vec![Some("scraper"), Some("scraper")]),
+        ],
+        None,
+    ));
+    write_file(
+        &store,
+        "reorder/file2.vortex",
+        &RecordBatch::try_from_iter([("labels", file2_labels)]).unwrap(),
+    )
+    .await;
+
+    let target_schema = Arc::new(Schema::new(vec![Field::new(
+        "labels",
+        DataType::Struct(Fields::from(vec![
+            Field::new("region", DataType::Utf8, true),
+            Field::new("service", DataType::Utf8, true),
+            Field::new("instance", DataType::Utf8, true),
+            Field::new("job", DataType::Utf8, true),
+        ])),
+        true,
+    )]));
+
+    let table_url = ListingTableUrl::parse("s3://in-memory/reorder").unwrap();
+    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
+        .with_session_config_options(ctx.state().config())
+        .with_file_extension("vortex");
+    let table = Arc::new(
+        ListingTable::try_new(
+            ListingTableConfig::new(table_url)
+                .with_listing_options(list_opts)
+                .with_schema(target_schema),
+        )
+        .unwrap(),
+    );
+
+    let result = ctx
+        .read_table(table)
+        .unwrap()
+        .select(vec![
+            get_field(col("labels"), "region").alias("region"),
+            get_field(col("labels"), "service").alias("service"),
+            get_field(col("labels"), "instance").alias("instance"),
+            get_field(col("labels"), "job").alias("job"),
+        ])
+        .unwrap()
+        .collect()
+        .await
+        .unwrap();
+
+    assert_batches_sorted_eq!(
+        [
+            "+---------+---------+----------+---------+",
+            "| region  | service | instance | job     |",
+            "+---------+---------+----------+---------+",
+            "| us-east | api     |          |         |",
+            "| us-west | api     |          |         |",
+            "|         | api     | host-0   | scraper |",
+            "|         | api     | host-1   | scraper |",
+            "+---------+---------+----------+---------+",
+        ],
+        &result
+    );
+}

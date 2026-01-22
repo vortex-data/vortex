@@ -15,20 +15,17 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::Datum;
-use vortex_vector::Scalar as VectorScalar;
-use vortex_vector::bool::BoolScalar;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::compute::Operator;
-use crate::compute::compare;
 use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -94,50 +91,27 @@ impl VTable for DynamicComparison {
         ))
     }
 
-    fn evaluate(
-        &self,
-        dynamic: &DynamicComparisonExpr,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        if let Some(value) = dynamic.rhs.scalar() {
-            let lhs = expr.child(0).evaluate(scope)?;
-            let rhs = ConstantArray::new(value, scope.len());
-            return compare(lhs.as_ref(), rhs.as_ref(), dynamic.operator);
-        }
-
-        // Otherwise, we return the default value.
-        let lhs = expr.return_dtype(scope.dtype())?;
-        Ok(ConstantArray::new(
-            Scalar::new(
-                DType::Bool(lhs.nullability() | dynamic.rhs.dtype.nullability()),
-                dynamic.default.into(),
-            ),
-            scope.len(),
-        )
-        .into_array())
-    }
-
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
         if let Some(scalar) = data.rhs.scalar() {
-            let [lhs]: [Datum; _] = args
-                .datums
+            let [lhs]: [ArrayRef; _] = args
+                .inputs
                 .try_into()
                 .map_err(|_| vortex_error::vortex_err!("Wrong arg count for DynamicComparison"))?;
-            let rhs_vector_scalar = scalar.to_vector_scalar();
-            let rhs = Datum::Scalar(rhs_vector_scalar);
+            let rhs = ConstantArray::new(scalar, args.row_count).into_array();
 
             return Binary.bind(data.operator.into()).execute(ExecutionArgs {
-                datums: vec![lhs, rhs],
-                dtypes: args.dtypes,
+                inputs: vec![lhs, rhs],
                 row_count: args.row_count,
-                return_dtype: args.return_dtype,
+                ctx: args.ctx,
             });
         }
+        let ret_dtype =
+            DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
-        Ok(Datum::Scalar(VectorScalar::Bool(BoolScalar::new(Some(
-            data.default,
-        )))))
+        Ok(ExecutionResult::Scalar(ConstantArray::new(
+            Scalar::new(ret_dtype, data.default.into()),
+            args.row_count,
+        )))
     }
 
     fn stat_falsification(
@@ -339,5 +313,108 @@ impl DynamicExprUpdates {
         }
 
         guard.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicI32;
+    use std::sync::atomic::Ordering;
+
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
+    use crate::expr::exprs::root::root;
+
+    #[test]
+    fn return_dtype_bool() -> VortexResult<()> {
+        let expr = dynamic(
+            Operator::Lt,
+            || Some(5i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        assert_eq!(
+            expr.return_dtype(&input_dtype)?,
+            DType::Bool(Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn execute_with_value() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || Some(5i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_without_value_default_true() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_without_value_default_false() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            false,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_value_flips() -> VortexResult<()> {
+        let threshold = Arc::new(AtomicI32::new(5));
+        let threshold_clone = threshold.clone();
+        let expr = dynamic(
+            Operator::Lt,
+            move || Some(threshold_clone.load(Ordering::SeqCst).into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let input = buffer![1i32, 5, 10].into_array();
+
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+
+        threshold.store(10, Ordering::SeqCst);
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]));
+
+        Ok(())
     }
 }

@@ -91,7 +91,7 @@ impl VTable for DecimalVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let buffer = buffers[0].clone().try_to_host()?;
+        let buffer = buffers[0].clone().try_to_host_sync()?;
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())

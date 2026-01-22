@@ -208,8 +208,8 @@ impl VTable for ChunkedVTable {
             }
         }
 
-        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start);
-        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end);
+        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start)?;
+        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end)?;
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk);

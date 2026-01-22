@@ -118,6 +118,11 @@ impl BitBuffer {
         }
     }
 
+    /// Create a bit buffer of `len` with `indices` set as true.
+    pub fn from_indices(len: usize, indices: &[usize]) -> BitBuffer {
+        BitBufferMut::from_indices(len, indices).freeze()
+    }
+
     /// Create a new empty `BitBuffer`.
     pub fn empty() -> Self {
         Self::new_set(0)

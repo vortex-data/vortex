@@ -173,13 +173,14 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
+        let scalar_idx =
+            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
 
         match scalar_idx {
             Some(idx) => {
-                let scalar = stats.source().scalar_at(idx);
+                let scalar = stats.source().scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid() {
+                if !stats.source().all_valid()? {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)

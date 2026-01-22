@@ -6,6 +6,7 @@ use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexResult;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 
@@ -13,8 +14,8 @@ use crate::RunEndArray;
 use crate::RunEndVTable;
 
 impl OperationsVTable<RunEndVTable> for RunEndVTable {
-    fn scalar_at(array: &RunEndArray, index: usize) -> Scalar {
-        array.values().scalar_at(array.find_physical_index(index))
+    fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
+        array.values().scalar_at(array.find_physical_index(index)?)
     }
 }
 
@@ -22,11 +23,11 @@ impl OperationsVTable<RunEndVTable> for RunEndVTable {
 ///
 /// If the index exists in the array we want to take that position (as we are searching from the right)
 /// otherwise we want to take the next one
-pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> usize {
+pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> VortexResult<usize> {
     let result = array
         .as_primitive_typed()
-        .search_sorted(&PValue::from(index), SearchSortedSide::Right);
-    match result {
+        .search_sorted(&PValue::from(index), SearchSortedSide::Right)?;
+    Ok(match result {
         SearchResult::Found(i) => i,
         SearchResult::NotFound(i) => {
             if i == array.len() {
@@ -35,7 +36,7 @@ pub(crate) fn find_slice_end_index(array: &dyn Array, index: usize) -> usize {
                 i + 1
             }
         }
-    }
+    })
 }
 
 #[cfg(test)]
@@ -149,7 +150,8 @@ mod tests {
     fn ree_scalar_at_end() {
         let scalar = RunEndArray::encode(buffer![1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5].into_array())
             .unwrap()
-            .scalar_at(11);
+            .scalar_at(11)
+            .unwrap();
         assert_eq!(scalar, 5.into());
     }
 

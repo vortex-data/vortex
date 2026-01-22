@@ -131,13 +131,12 @@ impl Validity {
         match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => {
-                let scalar = a.scalar_at(index);
-                scalar
-                    .as_bool()
-                    .value()
-                    .vortex_expect("Validity must be non-nullable")
-            }
+            Self::Array(a) => a
+                .scalar_at(index)
+                .vortex_expect("Validity array must support scalar_at")
+                .as_bool()
+                .value()
+                .vortex_expect("Validity must be non-nullable"),
         }
     }
 
@@ -156,7 +155,7 @@ impl Validity {
 
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity_mask().bit_buffer() {
+            Self::NonNullable => match indices.validity_mask()?.bit_buffer() {
                 AllOr::All => {
                     if indices.dtype().is_nullable() {
                         Ok(Self::AllValid)
@@ -167,7 +166,7 @@ impl Validity {
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
-            Self::AllValid => match indices.validity_mask().bit_buffer() {
+            Self::AllValid => match indices.validity_mask()?.bit_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -360,8 +359,11 @@ impl Validity {
 
     /// Create Validity by copying the given array's validity.
     #[inline]
-    pub fn copy_from_array(array: &dyn Array) -> Self {
-        Validity::from_mask(array.validity_mask(), array.dtype().nullability())
+    pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
+        Ok(Validity::from_mask(
+            array.validity_mask()?,
+            array.dtype().nullability(),
+        ))
     }
 
     /// Create Validity from boolean array with given nullability of the array.

@@ -3,13 +3,14 @@
 
 use vortex_array::ToCanonical;
 use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use super::DeltaVTable;
 use crate::DeltaArray;
 
 impl OperationsVTable<DeltaVTable> for DeltaVTable {
-    fn scalar_at(array: &DeltaArray, index: usize) -> Scalar {
+    fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
         let decompressed = array.slice(index..index + 1).to_primitive();
         decompressed.scalar_at(0)
     }
@@ -196,7 +197,7 @@ mod tests {
         let delta = DeltaArray::try_from_vec((0u32..2048).collect())
             .unwrap()
             .into_array();
-        delta.scalar_at(2048);
+        delta.scalar_at(2048).unwrap();
     }
     #[test]
     fn test_scalar_at_jagged_array() {
@@ -214,7 +215,7 @@ mod tests {
         let delta = DeltaArray::try_from_vec((0u32..2000).collect())
             .unwrap()
             .into_array();
-        delta.scalar_at(2000);
+        delta.scalar_at(2000).unwrap();
     }
 
     #[rstest]

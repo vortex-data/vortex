@@ -13,11 +13,11 @@ use crate::arrays::BoolArray;
 use crate::arrow::null_buffer::to_null_buffer;
 
 /// Convert a canonical BoolArray directly to Arrow.
-pub fn canonical_bool_to_arrow(array: &BoolArray) -> ArrowArrayRef {
-    Arc::new(ArrowBooleanArray::new(
+pub fn canonical_bool_to_arrow(array: &BoolArray) -> VortexResult<ArrowArrayRef> {
+    Ok(Arc::new(ArrowBooleanArray::new(
         array.bit_buffer().clone().into(),
-        to_null_buffer(array.validity_mask()),
-    ))
+        to_null_buffer(array.validity_mask()?),
+    )))
 }
 
 pub(super) fn to_arrow_bool(
@@ -25,5 +25,5 @@ pub(super) fn to_arrow_bool(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let bool_array = array.execute::<BoolArray>(ctx)?;
-    Ok(canonical_bool_to_arrow(&bool_array))
+    canonical_bool_to_arrow(&bool_array)
 }

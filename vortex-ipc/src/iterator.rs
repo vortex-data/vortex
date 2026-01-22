@@ -82,7 +82,7 @@ impl<R: Read> Iterator for SyncIPCReader<R> {
 
 /// A trait for converting an [`ArrayIterator`] into an IPC stream.
 pub trait ArrayIteratorIPC {
-    fn into_ipc(self) -> ArrayIteratorIPCBytes
+    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized;
 
@@ -92,24 +92,24 @@ pub trait ArrayIteratorIPC {
 }
 
 impl<I: ArrayIterator + 'static> ArrayIteratorIPC for I {
-    fn into_ipc(self) -> ArrayIteratorIPCBytes
+    fn into_ipc(self) -> VortexResult<ArrayIteratorIPCBytes>
     where
         Self: Sized,
     {
         let mut encoder = MessageEncoder::default();
-        let buffers = encoder.encode(EncoderMessage::DType(self.dtype()));
-        ArrayIteratorIPCBytes {
+        let buffers = encoder.encode(EncoderMessage::DType(self.dtype()))?;
+        Ok(ArrayIteratorIPCBytes {
             inner: Box::new(self),
             encoder,
             buffers,
-        }
+        })
     }
 
     fn write_ipc<W: Write>(self, mut write: W) -> VortexResult<W>
     where
         Self: Sized,
     {
-        let mut stream = self.into_ipc();
+        let mut stream = self.into_ipc()?;
         for buffer in &mut stream {
             write.write_all(buffer?.as_ref())?;
         }
@@ -145,11 +145,12 @@ impl Iterator for ArrayIteratorIPCBytes {
         }
 
         // Or else try to serialize the next array
-        match self.inner.next()? {
-            Ok(chunk) => {
-                self.buffers
-                    .extend(self.encoder.encode(EncoderMessage::Array(&chunk)));
-            }
+        match self
+            .inner
+            .next()?
+            .and_then(|chunk| self.encoder.encode(EncoderMessage::Array(&chunk)))
+        {
+            Ok(buffers) => self.buffers.extend(buffers),
             Err(e) => return Some(Err(e)),
         }
 
@@ -184,6 +185,7 @@ mod test {
         let ipc_buffer = array
             .to_array_iterator()
             .into_ipc()
+            .unwrap()
             .collect_to_buffer()
             .unwrap();
 

@@ -22,7 +22,7 @@ pub fn format_indices<I: IntoIterator<Item = usize>>(indices: I) -> impl Display
 #[macro_export]
 macro_rules! assert_nth_scalar {
     ($arr:expr, $n:expr, $expected:expr) => {
-        assert_eq!($arr.scalar_at($n), $expected.try_into().unwrap());
+        assert_eq!($arr.scalar_at($n).unwrap(), $expected.try_into().unwrap());
     };
 }
 
@@ -52,7 +52,7 @@ macro_rules! assert_arrays_eq {
         }
         let n = left.len();
         let mismatched_indices = (0..n)
-            .filter(|i| left.scalar_at(*i) != right.scalar_at(*i))
+            .filter(|i| left.scalar_at(*i).unwrap() != right.scalar_at(*i).unwrap())
             .collect::<Vec<_>>();
         if mismatched_indices.len() != 0 {
             panic!(

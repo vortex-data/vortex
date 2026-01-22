@@ -310,7 +310,6 @@ where
     #[inline(always)]
     fn vortex_expect(self, msg: &'static str) -> Self::Output {
         self.map_err(|err| err.into())
-            .inspect_err(|e| println!("got a big ERROR {e}"))
             .unwrap_or_else(|e| vortex_panic!(e.with_context(msg.to_string())))
     }
 }

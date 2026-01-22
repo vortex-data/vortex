@@ -43,7 +43,7 @@ impl SumKernel for DecimalVTable {
             .decimal_value()
             .vortex_expect("cannot be null");
 
-        match array.validity_mask() {
+        match array.validity_mask()? {
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }

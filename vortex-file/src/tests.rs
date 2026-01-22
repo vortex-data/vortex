@@ -23,6 +23,7 @@ use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::arrays::TemporalArray;
 use vortex_array::arrays::VarBinArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::assert_arrays_eq;
@@ -52,10 +53,14 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
+use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::PType::I32;
 use vortex_dtype::StructFields;
+use vortex_dtype::datetime::TIMESTAMP_ID;
+use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
@@ -1098,10 +1103,10 @@ async fn test_repeated_projection() {
 
     assert_eq!(
         (0..actual.len())
-            .map(|index| actual.scalar_at(index))
+            .map(|index| actual.scalar_at(index).unwrap())
             .collect_vec(),
         (0..expected.len())
-            .map(|index| expected.scalar_at(index))
+            .map(|index| expected.scalar_at(index).unwrap())
             .collect_vec()
     );
 }
@@ -1252,12 +1257,12 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
 
     assert_eq!(result.len(), 3);
     assert_eq!(result.fields().len(), 1);
-    assert!(result.all_valid());
+    assert!(result.all_valid()?);
 
     let nested_struct = result.field_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
-    assert!(nested_struct.all_invalid());
+    assert!(nested_struct.all_invalid()?);
 
     Ok(())
 }
@@ -1586,6 +1591,48 @@ async fn test_writer_with_statistics() -> VortexResult<()> {
 
     assert!(summary.footer().statistics().is_some());
     assert_eq!(summary.row_count(), 5);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
+    // Write file with MILLISECONDS timestamps
+    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
+        .into_array();
+    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+
+    let mut buf = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .write(&mut buf, temporal.into_array().to_array_stream())
+        .await?;
+
+    // Read with SECONDS filter scalar
+    let seconds_ext_dtype = Arc::new(ExtDType::new(
+        TIMESTAMP_ID.clone(),
+        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
+        Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
+    ));
+    let filter_expr = gt(
+        root(),
+        lit(Scalar::extension(
+            seconds_ext_dtype,
+            Scalar::from(1704153600i64),
+        )),
+    );
+
+    let stream = SESSION
+        .open_options()
+        .open_buffer(buf)?
+        .scan()?
+        .with_filter(filter_expr)
+        .into_array_stream()?;
+
+    let results = stream.try_collect::<Vec<_>>().await;
+
+    let err = results.err().unwrap();
+    println!("Expected error: {}", err);
 
     Ok(())
 }

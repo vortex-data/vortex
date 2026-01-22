@@ -102,6 +102,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///
 /// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
 /// ```
+// TODO(joe): ensure that list_contains_scalar from (548303761b4270b583ef34f6ca6e3c2b134a242a)
+// is implemented here.
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     LIST_CONTAINS_FN
         .invoke(&InvocationArgs {
@@ -136,7 +138,7 @@ impl ComputeFnVTable for ListContains {
             );
         };
 
-        if value.all_invalid() || array.all_invalid() {
+        if value.all_invalid()? || array.all_invalid()? {
             return Ok(Output::Array(
                 ConstantArray::new(
                     Scalar::null(DType::Bool(Nullability::Nullable)),
@@ -258,7 +260,7 @@ fn list_contains_scalar(
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<ConstantVTable>() {
         let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
-        return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
+        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
     let list_array = array.to_listview();

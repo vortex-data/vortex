@@ -142,7 +142,7 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
 }
 
 impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> Scalar {
+    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
         todo!()
     }
 }
@@ -152,7 +152,7 @@ impl ValidityVTable<PythonVTable> for PythonVTable {
         todo!()
     }
 
-    fn validity_mask(_array: &PythonArray) -> Mask {
+    fn validity_mask(_array: &PythonArray) -> VortexResult<Mask> {
         todo!()
     }
 }

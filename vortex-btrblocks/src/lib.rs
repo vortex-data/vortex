@@ -494,7 +494,7 @@ impl BtrBlocksCompressor {
                     .unwrap_or_default()
                     {
                         return Ok(ConstantArray::new(
-                            temporal_array.as_ref().scalar_at(0),
+                            temporal_array.as_ref().scalar_at(0)?,
                             ext_array.len(),
                         )
                         .into_array());

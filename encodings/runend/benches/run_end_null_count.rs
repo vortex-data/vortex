@@ -53,7 +53,7 @@ fn null_count_run_end(bencher: Bencher, (n, run_step, valid_density): (usize, us
 
     bencher
         .with_inputs(|| &array)
-        .bench_refs(|array| array.invalid_count());
+        .bench_refs(|array| array.invalid_count().unwrap());
 }
 
 fn fixture(n: usize, run_step: usize, valid_density: f64) -> RunEndArray {

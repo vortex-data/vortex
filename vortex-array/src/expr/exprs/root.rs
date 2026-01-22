@@ -8,13 +8,12 @@ use vortex_dtype::FieldPath;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
 
-use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -65,16 +64,11 @@ impl VTable for Root {
         vortex_bail!("Root expression does not support return_dtype")
     }
 
-    fn evaluate(
+    fn execute(
         &self,
-        _options: &Self::Options,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(scope.clone())
-    }
-
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
+        _data: &Self::Options,
+        _args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         vortex_bail!("Root expression is not executable")
     }
 

@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices_nulls_zeroed = match indices.validity_mask() {
+        let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
                 return Ok(ConstantArray::new(

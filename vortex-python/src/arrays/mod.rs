@@ -551,8 +551,7 @@ impl PyArray {
     /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
     /// Traceback (most recent call last):
     /// ...
-    /// pyo3_runtime.PanicException: index 10 out of bounds
-    /// ...
+    /// ValueError: index 10 out of bounds from 0 to 4
     /// ```
     ///
     /// Unlike Python, negative indices are not supported:
@@ -567,7 +566,7 @@ impl PyArray {
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        PyScalar::init(py, slf.scalar_at(index))
+        PyScalar::init(py, slf.scalar_at(index)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.
@@ -690,12 +689,12 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let buffers = encoder.encode(EncoderMessage::Array(&*array));
+        let buffers = encoder.encode(EncoderMessage::Array(&*array))?;
 
         // Return buffers as a list instead of concatenating
         let array_buffers: Vec<Vec<u8>> = buffers.iter().map(|b| b.to_vec()).collect();
 
-        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
         let dtype_buffers: Vec<Vec<u8>> = dtype_buffers.iter().map(|b| b.to_vec()).collect();
 
         let vortex_module = PyModule::import(py, "vortex")?;
@@ -722,8 +721,8 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let array_buffers = encoder.encode(EncoderMessage::Array(&*array));
-        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let array_buffers = encoder.encode(EncoderMessage::Array(&*array))?;
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 
         let pickle_module = PyModule::import(py, "pickle")?;
         let pickle_buffer_class = pickle_module.getattr("PickleBuffer")?;

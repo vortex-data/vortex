@@ -43,12 +43,22 @@ impl fmt::Display for StatsDisplay<'_> {
                 write!(f, "nulls={}", nc)?;
             }
         } else if self.0.dtype().is_nullable() {
-            if self.0.all_valid() {
-                sep(f)?;
-                f.write_str("all_valid")?;
-            } else if self.0.all_invalid() {
-                sep(f)?;
-                f.write_str("all_invalid")?;
+            match self.0.all_valid() {
+                Ok(true) => {
+                    sep(f)?;
+                    f.write_str("all_valid")?;
+                }
+                Ok(false) => {
+                    if self.0.all_invalid().unwrap_or(false) {
+                        sep(f)?;
+                        f.write_str("all_invalid")?;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check validity: {e}");
+                    sep(f)?;
+                    f.write_str("validity_failed")?;
+                }
             }
         }
 

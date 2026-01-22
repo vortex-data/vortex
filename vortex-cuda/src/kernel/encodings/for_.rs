@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,8 +12,8 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::FoRVTable;
 
 use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
@@ -24,39 +23,32 @@ use crate::launch_cuda_kernel;
 
 /// CUDA executor for frame-of-reference.
 #[derive(Debug)]
-pub struct ForExecutor;
+pub struct FoRExecutor;
 
 #[async_trait]
-impl CudaExecute for ForExecutor {
+impl CudaExecute for FoRExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let for_array = array
-            .as_any()
-            .downcast_ref::<FoRArray>()
-            .ok_or_else(|| vortex_err!("Array is not a FOR array"))?;
+            .try_into::<FoRVTable>()
+            .ok()
+            .vortex_expect("Array is not a FOR array");
 
-        execute_for(for_array, ctx).await
+        // Excludes f16 support.
+        match_each_native_simd_ptype!(for_array.ptype(), |T| {
+            execute_for_typed::<T>(for_array, ctx).await
+        })
     }
-}
-
-async fn execute_for(array: &FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    if array.is_empty() {
-        return array.to_array().to_canonical();
-    }
-
-    // Excludes f16 support.
-    match_each_native_simd_ptype!(array.ptype(), |T| {
-        execute_for_typed::<T>(array, ctx).await
-    })
 }
 
 async fn execute_for_typed<P: DeviceRepr + NativePType>(
-    array: &FoRArray,
+    array: FoRArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    assert!(!array.is_empty());
     let reference = array
         .reference_scalar()
         .as_primitive()
@@ -65,7 +57,13 @@ async fn execute_for_typed<P: DeviceRepr + NativePType>(
 
     let encoded = array.encoded().clone().execute_cuda(ctx).await?;
     let (dtype, buffer_handle, validity, ..) = encoded.into_primitive().into_parts();
-    let device_buffer_handle = ctx.ensure_on_device::<P>(&buffer_handle)?;
+
+    let device_buffer_handle = if buffer_handle.is_on_device() {
+        buffer_handle
+    } else {
+        ctx.copy_buffer_to_device_async::<P>(buffer_handle)?.await?
+    };
+
     let cuda_view = device_buffer_handle.cuda_view::<P>()?;
     let array_len = array.len() as u64;
 
@@ -108,12 +106,12 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        // Create u8 offset values that cycle through 0-255, creating 5000 elements
+        // Create u8 offset values that cycle through 0-245, creating 5000 elements
         #[allow(clippy::cast_possible_truncation)]
-        let input_data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
+        let input_data: Vec<u8> = (0..5000).map(|i| (i % 246) as u8).collect();
 
         let for_array = FoRArray::try_new(
             PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
@@ -122,19 +120,18 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
-            input_data
-                .iter()
-                .map(|&val| val.wrapping_add(10))
-                .collect::<Vec<u8>>()
+            input_data.iter().map(|&val| val + 10).collect::<Vec<u8>>()
         );
     }
 
@@ -144,7 +141,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u16 offset values that cycle through 0-5000, creating 5000 elements
@@ -157,18 +154,20 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(1000))
+                .map(|&val| val + 1000)
                 .collect::<Vec<u16>>()
         );
     }
@@ -179,7 +178,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u32 offset values that cycle through 0-5000, creating 5000 elements
@@ -192,18 +191,20 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(100000))
+                .map(|&val| val + 100000)
                 .collect::<Vec<u32>>()
         );
     }
@@ -214,7 +215,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u64 offset values that cycle through 0-5000, creating 5000 elements
@@ -227,18 +228,20 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(1000000u64))
+                .map(|&val| val + 1000000u64)
                 .collect::<Vec<u64>>()
         );
     }

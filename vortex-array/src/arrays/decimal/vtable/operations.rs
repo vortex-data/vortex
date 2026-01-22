@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexResult;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
@@ -10,14 +11,14 @@ use crate::arrays::DecimalVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn scalar_at(array: &DecimalArray, index: usize) -> Scalar {
-        match_each_decimal_value_type!(array.values_type(), |D| {
+    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
+        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
             Scalar::decimal(
                 DecimalValue::from(array.buffer::<D>()[index]),
                 array.decimal_dtype(),
                 array.dtype().nullability(),
             )
-        })
+        }))
     }
 }
 
@@ -72,7 +73,7 @@ mod tests {
         );
 
         assert_eq!(
-            array.scalar_at(0),
+            array.scalar_at(0).unwrap(),
             Scalar::decimal(
                 DecimalValue::I128(100),
                 DecimalDType::new(3, 2),
