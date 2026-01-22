@@ -4,10 +4,10 @@
 //! CUDA stream utility functions.
 
 use cudarc::driver::CudaStream;
-use cudarc::driver::DriverError;
 use cudarc::driver::result::stream;
-use cudarc::driver::sys;
 use kanal::Sender;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 /// Registers a callback and asynchronously waits for its completion.
 ///
@@ -20,12 +20,17 @@ use kanal::Sender;
 /// # Arguments
 ///
 /// * `stream` - The CUDA stream to wait on
-pub async fn await_stream_callback(stream: &CudaStream) -> Result<(), DriverError> {
+///
+/// # Errors
+///
+/// Returns an error if registering the stream callback fails or if the callback
+/// channel closes unexpectedly.
+pub async fn await_stream_callback(stream: &CudaStream) -> VortexResult<()> {
     let rx = register_stream_callback(stream)?;
 
     rx.recv()
         .await
-        .map_err(|_| DriverError(sys::CUresult::CUDA_ERROR_UNKNOWN))
+        .map_err(|e| vortex_err!("CUDA stream callback channel closed unexpectedly: {}", e))
 }
 
 /// Registers a host function callback on the stream.
@@ -38,7 +43,7 @@ pub async fn await_stream_callback(stream: &CudaStream) -> Result<(), DriverErro
 /// # Errors
 ///
 /// Returns an error if registering the host callback function fails.
-fn register_stream_callback(stream: &CudaStream) -> Result<kanal::AsyncReceiver<()>, DriverError> {
+fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncReceiver<()>> {
     let (tx, rx) = kanal::bounded::<()>(1);
 
     let tx_ptr = Box::into_raw(Box::new(tx));
@@ -66,10 +71,11 @@ fn register_stream_callback(stream: &CudaStream) -> Result<kanal::AsyncReceiver<
             callback,
             tx_ptr as *mut std::ffi::c_void,
         )
-        .inspect_err(|_| {
+        .map_err(|err| {
             // SAFETY: Registration failed, so the callback will never run.
             // We have unique ownership and can therefore free it.
             drop(Box::from_raw(tx_ptr));
+            vortex_err!("Failed to register CUDA stream callback: {}", err)
         })?;
     }
 

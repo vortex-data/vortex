@@ -83,7 +83,7 @@ impl PrimitiveArray {
             )
         }
 
-        Buffer::from_byte_buffer(self.buffer_handle().to_host())
+        Buffer::from_byte_buffer(self.buffer_handle().to_host_sync())
     }
 
     /// Consume the array and get a host Buffer containing the data values.
@@ -96,7 +96,7 @@ impl PrimitiveArray {
             )
         }
 
-        Buffer::from_byte_buffer(self.buffer.into_host())
+        Buffer::from_byte_buffer(self.buffer.into_host_sync())
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
@@ -115,7 +115,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host());
+        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
         buffer.try_into_mut()
     }
 }

@@ -100,7 +100,7 @@ impl VTable for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let buffer = buffers[0].clone().try_to_host()?;
+        let buffer = buffers[0].clone().try_to_host_sync()?;
         let bits = BitBuffer::new_with_offset(buffer, len, metadata.offset as usize);
 
         BoolArray::try_new(bits, validity)

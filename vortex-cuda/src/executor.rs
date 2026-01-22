@@ -151,9 +151,7 @@ impl CudaExecutionCtx {
 
         Ok(Box::pin(async move {
             // Await async copy completion using callback-based async wait.
-            await_stream_callback(&stream)
-                .await
-                .map_err(|e| vortex_err!("CUDA stream wait failed: {}", e))?;
+            await_stream_callback(&stream).await?;
 
             // Keep source memory alive until copy completes.
             let _keep_alive = handle;

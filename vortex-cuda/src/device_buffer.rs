@@ -120,6 +120,8 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// Returns an error if the CUDA memory copy operation fails.
     fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
         let mut host_buffer = BufferMut::<T>::with_capacity_aligned(self.len, alignment);
+
+        // Add offset to device pointer to account for any previous slicing operations.
         let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
 
         // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
@@ -159,6 +161,8 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         let stream = self.inner.stream();
+
+        // Add offset to device pointer to account for any previous slicing operations.
         let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
 
         let mut host_buffer: BufferMut<T> = BufferMut::with_capacity_aligned(self.len, alignment);
@@ -180,9 +184,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let cuda_slice = Arc::clone(&self.inner);
 
         Ok(Box::pin(async move {
-            await_stream_callback(cuda_slice.stream())
-                .await
-                .map_err(|e| vortex_err!("CUDA stream wait failed: {}", e))?;
+            await_stream_callback(cuda_slice.stream()).await?;
 
             // Keep device memory alive until copy completes.
             let _keep_alive = cuda_slice;

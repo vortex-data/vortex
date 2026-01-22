@@ -72,8 +72,8 @@ fn test_take_all(array: &dyn Array) {
     ) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
             assert_eq!(
-                orig_prim.buffer_handle().to_host(),
-                result_prim.buffer_handle().to_host()
+                orig_prim.buffer_handle().to_host_sync(),
+                result_prim.buffer_handle().to_host_sync()
             );
         }
         _ => {

@@ -131,11 +131,11 @@ impl VTable for PcoVTable {
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
         let chunk_metas = buffers[..metadata.0.chunks.len()]
             .iter()
-            .map(|b| b.clone().try_to_host())
+            .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
         let pages = buffers[metadata.0.chunks.len()..]
             .iter()
-            .map(|b| b.clone().try_to_host())
+            .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata

@@ -231,8 +231,8 @@ impl BufferHandle {
     /// result in a panic.
     ///
     /// See also: [`try_to_host`][Self::try_to_host].
-    pub fn to_host(&self) -> ByteBuffer {
-        self.try_to_host()
+    pub fn to_host_sync(&self) -> ByteBuffer {
+        self.try_to_host_sync()
             .vortex_expect("to_host: copy from device to host failed")
     }
 
@@ -245,8 +245,8 @@ impl BufferHandle {
     /// # Panics
     ///
     /// See the panic documentation on [`to_host`][Self::to_host].
-    pub fn into_host(self) -> ByteBuffer {
-        self.try_into_host()
+    pub fn into_host_sync(self) -> ByteBuffer {
+        self.try_into_host_sync()
             .vortex_expect("into_host: copy from device to host failed")
     }
 
@@ -256,7 +256,7 @@ impl BufferHandle {
     ///
     /// If it is a device allocation, then this issues an operation that attempts to copy the data
     /// from the device into a host-resident buffer, and returns a handle to that buffer.
-    pub fn try_to_host(&self) -> VortexResult<ByteBuffer> {
+    pub fn try_to_host_sync(&self) -> VortexResult<ByteBuffer> {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
@@ -266,7 +266,7 @@ impl BufferHandle {
     /// Attempts to load this buffer into a host-resident allocation, consuming the handle.
     ///
     /// See also [`try_to_host`][Self::try_to_host].
-    pub fn try_into_host(self) -> VortexResult<ByteBuffer> {
+    pub fn try_into_host_sync(self) -> VortexResult<ByteBuffer> {
         match self.0 {
             Inner::Host(b) => Ok(b),
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
@@ -283,7 +283,7 @@ impl BufferHandle {
     /// # Returns
     ///
     /// A future that resolves to the host buffer when the copy completes.
-    pub fn to_host_async(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+    pub fn try_to_host(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match &self.0 {
             Inner::Host(b) => {
                 let buffer = b.clone();
@@ -291,6 +291,22 @@ impl BufferHandle {
             }
             Inner::Device(device) => device.copy_to_host_async(ALIGNMENT_TO_HOST_COPY),
         }
+    }
+
+    /// Returns a host-resident copy of the data in the buffer.
+    ///
+    /// # Panics
+    ///
+    /// Any errors triggered by the copying from device to host will result in a panic.
+    pub fn to_host(&self) -> BoxFuture<'static, ByteBuffer> {
+        let future = self
+            .try_to_host()
+            .vortex_expect("to_host: failed to initiate copy from device to host");
+        Box::pin(async move {
+            future
+                .await
+                .vortex_expect("to_host: copy from device to host failed")
+        })
     }
 }
 

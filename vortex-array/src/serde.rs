@@ -491,7 +491,7 @@ impl ArrayParts {
         segment: BufferHandle,
     ) -> VortexResult<Self> {
         // TODO: this can also work with device buffers.
-        let segment = segment.try_to_host()?;
+        let segment = segment.try_to_host_sync()?;
         // We align each buffer individually, so we remove alignment requirements on the buffer.
         let segment = segment.aligned(Alignment::none());
 
@@ -612,6 +612,6 @@ impl TryFrom<BufferHandle> for ArrayParts {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
-        Self::try_from(value.try_to_host()?)
+        Self::try_from(value.try_to_host_sync()?)
     }
 }

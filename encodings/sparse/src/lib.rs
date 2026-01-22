@@ -131,7 +131,7 @@ impl VTable for SparseVTable {
         }
         let fill_value = Scalar::new(
             dtype.clone(),
-            ScalarValue::from_protobytes(&buffers[0].clone().try_to_host()?)?,
+            ScalarValue::from_protobytes(&buffers[0].clone().try_to_host_sync()?)?,
         );
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
