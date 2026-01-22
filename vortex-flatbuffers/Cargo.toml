@@ -29,6 +29,7 @@ layout = ["array"]
 [dependencies]
 flatbuffers = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-error = { workspace = true }
 
 [lints]
 workspace = true

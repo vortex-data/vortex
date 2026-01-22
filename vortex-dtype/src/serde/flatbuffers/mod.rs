@@ -212,7 +212,7 @@ impl WriteFlatBuffer for DType {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let dtype_union = match self {
             Self::Null => fb::Null::create(fbb, &fb::NullArgs {}).as_union_value(),
             Self::Bool(n) => fb::Bool::create(
@@ -264,7 +264,7 @@ impl WriteFlatBuffer for DType {
                 let dtypes = st
                     .fields()
                     .map(|dtype| dtype.write_flatbuffer(fbb))
-                    .collect_vec();
+                    .collect::<VortexResult<Vec<_>>>()?;
                 let dtypes = Some(fbb.create_vector(&dtypes));
 
                 fb::Struct_::create(
@@ -278,7 +278,7 @@ impl WriteFlatBuffer for DType {
                 .as_union_value()
             }
             Self::List(edt, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb));
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
                 fb::List::create(
                     fbb,
                     &fb::ListArgs {
@@ -289,7 +289,7 @@ impl WriteFlatBuffer for DType {
                 .as_union_value()
             }
             Self::FixedSizeList(edt, size, n) => {
-                let element_type = Some(edt.as_ref().write_flatbuffer(fbb));
+                let element_type = Some(edt.as_ref().write_flatbuffer(fbb)?);
                 fb::FixedSizeList::create(
                     fbb,
                     &fb::FixedSizeListArgs {
@@ -302,7 +302,7 @@ impl WriteFlatBuffer for DType {
             }
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
-                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb));
+                let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
                 let metadata = ext.metadata().map(|m| fbb.create_vector(m.as_ref()));
                 fb::Extension::create(
                     fbb,
@@ -329,13 +329,13 @@ impl WriteFlatBuffer for DType {
             Self::Extension { .. } => fb::Type::Extension,
         };
 
-        fb::DType::create(
+        Ok(fb::DType::create(
             fbb,
             &fb::DTypeArgs {
                 type_type: dtype_type,
                 type_: Some(dtype_union),
             },
-        )
+        ))
     }
 }
 
@@ -394,7 +394,7 @@ mod test {
     use crate::serde::flatbuffers::ViewedDType;
 
     fn roundtrip_dtype(dtype: DType) {
-        let bytes = dtype.write_flatbuffer_bytes();
+        let bytes = dtype.write_flatbuffer_bytes().unwrap();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
         let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), FlatBuffer::from(bytes.clone()));
 
