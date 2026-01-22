@@ -8,18 +8,18 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::DType;
-use crate::ExtId;
+use crate::ExtDType;
 use crate::Nullability;
 use crate::PType;
-use crate::VTable;
 use crate::datetime::TimeUnit;
-use crate::v2::ExtDType;
+use crate::extension::ExtID;
+use crate::extension::VTable;
 
 /// Date DType.
 pub struct Date;
 
 impl Date {
-    pub const ID: ExtId = ExtId::new_ref("vortex.date");
+    pub const ID: ExtID = ExtID::new_ref("vortex.date");
 
     /// Creates a new Date extension dtype with the given time unit and nullability.
     ///
@@ -28,6 +28,10 @@ impl Date {
         let ptype = date_ptype(&time_unit)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", time_unit))?;
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
+    }
+
+    pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
+        Self::try_new(time_unit, nullability).vortex_expect("failed to create date dtype")
     }
 }
 

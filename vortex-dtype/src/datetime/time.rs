@@ -1,24 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::DType;
-use crate::ExtId;
+use crate::ExtDType;
 use crate::Nullability;
 use crate::PType;
-use crate::VTable;
 use crate::datetime::TimeUnit;
-use crate::v2::ExtDType;
+use crate::extension::ExtID;
+use crate::extension::VTable;
 
 /// Time DType.
 pub struct Time;
 
 impl Time {
-    pub const ID: ExtId = ExtId::new_ref("vortex.time");
+    pub const ID: ExtID = ExtID::new_ref("vortex.time");
 
     /// Creates a new Time extension dtype with the given time unit and nullability.
     ///
@@ -28,12 +29,17 @@ impl Time {
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", time_unit))?;
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
     }
+
+    /// Creates a new Time extension dtype with the given time unit and nullability.
+    pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
+        Self::try_new(time_unit, nullability).vortex_expect("failed to create time dtype")
+    }
 }
 
 impl VTable for Time {
     type Options = TimeUnit;
 
-    fn id(_options: &Self::Options) -> ExtId {
+    fn id(_options: &Self::Options) -> ExtID {
         Self::ID
     }
 

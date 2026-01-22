@@ -18,23 +18,9 @@ use vortex_error::vortex_panic;
 
 use crate::DType;
 use crate::ExtDType;
-use crate::ExtID;
-use crate::ExtMetadata;
 use crate::Nullability;
 use crate::PType;
 use crate::datetime::unit::TimeUnit;
-
-/// ID for the Vortex time type.
-pub static TIME_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.time"));
-/// ID for the Vortex date type.
-pub static DATE_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.date"));
-/// ID for the Vortex timestamp type.
-pub static TIMESTAMP_ID: LazyLock<ExtID> = LazyLock::new(|| ExtID::from("vortex.timestamp"));
-
-/// Check if an `ExtID` is one of the temporal types.
-pub fn is_temporal_ext_type(id: &ExtID) -> bool {
-    [&DATE_ID as &ExtID, &TIME_ID, &TIMESTAMP_ID].contains(&id)
-}
 
 /// Metadata for TemporalArray.
 ///

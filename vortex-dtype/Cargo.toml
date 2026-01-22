@@ -51,7 +51,6 @@ serde_test = { workspace = true }
 workspace = true
 
 [features]
-default = ["arrow"]
+default = []
 arbitrary = ["dep:arbitrary", "dep:primitive-types"]
-arrow = ["dep:arrow-schema"]
 serde = ["dep:serde"]

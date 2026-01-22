@@ -5,6 +5,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::sync::Arc;
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,18 +15,18 @@ use vortex_error::vortex_panic;
 use vortex_session::VortexSession;
 
 use crate::DType;
+use crate::ExtDType;
 use crate::Nullability;
 use crate::PType;
-use crate::VTable;
 use crate::datetime::TimeUnit;
-use crate::extension::vtable::ExtId;
-use crate::v2::ExtDType;
+use crate::extension::ExtID;
+use crate::extension::VTable;
 
 /// Timestamp DType.
 pub struct Timestamp;
 
 impl Timestamp {
-    pub const ID: ExtId = ExtId::new_ref("vortex.timestamp");
+    pub const ID: ExtID = ExtID::new_ref("vortex.timestamp");
 
     /// Creates a new Timestamp extension dtype with the given time unit and nullability.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
@@ -35,7 +36,7 @@ impl Timestamp {
     /// Creates a new Timestamp extension dtype with the given time unit, timezone, and nullability.
     pub fn new_with_tz(
         time_unit: TimeUnit,
-        timezone: Option<String>,
+        timezone: Option<Arc<str>>,
         nullability: Nullability,
     ) -> ExtDType<Self> {
         ExtDType::try_new(
@@ -55,7 +56,7 @@ pub struct TimestampOptions {
     /// The time unit of the timestamp.
     pub unit: TimeUnit,
     /// The timezone of the timestamp, if any.
-    pub tz: Option<String>,
+    pub tz: Option<Arc<str>>,
 }
 
 impl Display for TimestampOptions {
@@ -70,7 +71,7 @@ impl Display for TimestampOptions {
 impl VTable for Timestamp {
     type Options = TimestampOptions;
 
-    fn id(_options: &Self::Options) -> ExtId {
+    fn id(_options: &Self::Options) -> ExtID {
         Self::ID
     }
 
@@ -111,9 +112,10 @@ impl VTable for Timestamp {
 
         // Attempt to load from len-prefixed bytes
         let tz_bytes = &data[3..][..tz_len];
-        let tz = str::from_utf8(tz_bytes)
+        let tz: Arc<str> = str::from_utf8(tz_bytes)
             .map_err(|e| vortex_err!("timezone is not valid utf8 string: {e}"))?
-            .to_string();
+            .to_string()
+            .into();
         Ok(TimestampOptions {
             unit: time_unit,
             tz: Some(tz),

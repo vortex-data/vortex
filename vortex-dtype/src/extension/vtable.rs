@@ -7,16 +7,13 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use arcref::ArcRef;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
 use crate::DType;
-use crate::v2::ExtDType;
-use crate::v2::ExtDTypeRef;
-
-/// A reference-counted string representing an extension type identifier.
-pub type ExtId = ArcRef<str>;
+use crate::ExtDType;
+use crate::ExtID;
+use crate::extension::ExtDTypeRef;
 
 /// The public API for defining new extension DTypes.
 pub trait VTable: 'static + Sized + Send + Sync {
@@ -24,7 +21,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
     /// Returns the ID for this extension type.
-    fn id(options: &Self::Options) -> ExtId;
+    fn id(options: &Self::Options) -> ExtID;
 
     /// Serialize the options into a byte vector.
     fn serialize(options: &Self::Options) -> VortexResult<Vec<u8>>;
@@ -75,8 +72,8 @@ impl<V: VTable> From<V> for &'static dyn DynVTable {
 }
 
 mod private {
+    use super::VTable;
     use super::VTableAdapter;
-    use crate::VTable;
 
     pub trait Sealed {}
     impl<V: VTable> Sealed for VTableAdapter<V> {}

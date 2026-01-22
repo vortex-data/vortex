@@ -18,6 +18,7 @@ use crate::FieldName;
 use crate::PType;
 use crate::StructFields;
 use crate::decimal::DecimalDType;
+use crate::extension::ExtDTypeRef;
 use crate::nullability::Nullability;
 
 /// The logical types of elements in Vortex arrays.
@@ -93,8 +94,8 @@ pub enum DType {
 
     /// A user-defined extension type.
     ///
-    /// See [`ExtDType`] for more information.
-    Extension(Arc<ExtDType>),
+    /// See [`ExtDTypeRef`] for more information.
+    Extension(ExtDTypeRef),
 }
 
 /// This trait is implemented by native Rust types that can be converted

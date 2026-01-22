@@ -1,209 +1,234 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod temporal;
-pub mod v2;
+mod matcher;
 mod vtable;
 
+use std::any::Any;
+use std::any::type_name;
+use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
-pub use temporal::*;
+use arcref::ArcRef;
+pub use matcher::*;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 pub use vtable::*;
 
 use crate::DType;
-use crate::Nullability;
 
 /// A unique identifier for an extension type
-#[derive(Debug, Clone, PartialEq, Eq, Ord, PartialOrd, Hash)]
-#[cfg_attr(feature = "serde", derive(::serde::Serialize, ::serde::Deserialize))]
-pub struct ExtID(Arc<str>);
+pub type ExtID = ArcRef<str>;
 
-impl ExtID {
-    /// Constructs a new `ExtID` from a string
-    pub fn new(value: Arc<str>) -> Self {
-        Self(value)
-    }
-}
+/// An extension data type.
+#[derive(Clone)]
+pub struct ExtDType<V: VTable>(Arc<ExtDTypeAdapter<V>>);
 
-impl Display for ExtID {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl AsRef<str> for ExtID {
-    fn as_ref(&self) -> &str {
-        self.0.as_ref()
-    }
-}
-
-impl From<&str> for ExtID {
-    fn from(value: &str) -> Self {
-        Self(value.into())
-    }
-}
-
-/// Opaque metadata for an extension type
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExtMetadata(Arc<[u8]>);
-
-impl ExtMetadata {
-    /// Constructs a new `ExtMetadata` from a byte slice
-    pub fn new(value: Arc<[u8]>) -> Self {
-        Self(value)
-    }
-}
-
-impl AsRef<[u8]> for ExtMetadata {
-    fn as_ref(&self) -> &[u8] {
-        self.0.as_ref()
-    }
-}
-
-impl From<&[u8]> for ExtMetadata {
-    fn from(value: &[u8]) -> Self {
-        Self(value.into())
-    }
-}
-
-/// A type descriptor for an extension type
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct ExtDType {
-    id: ExtID,
-    storage_dtype: Arc<DType>,
-    metadata: Option<ExtMetadata>,
-}
-
-impl ExtDType {
-    /// Creates a new `ExtDType`.
-    ///
-    /// Extension data types in Vortex allows library users to express additional semantic meaning
-    /// on top of a set of scalar values. Metadata can optionally be provided for the extension type
-    /// to allow for parameterized types.
-    ///
-    /// A simple example would be if one wanted to create a `vortex.temperature` extension type. The
-    /// canonical encoding for such values would be `f64`, and the metadata can contain an optional
-    /// temperature unit, allowing downstream users to be sure they properly account for Celsius
-    /// and Fahrenheit conversions.
-    ///
-    /// ```
-    /// use std::sync::Arc;
-    /// use vortex_dtype::{DType, ExtDType, ExtID, ExtMetadata, Nullability, PType};
-    ///
-    /// #[repr(u8)]
-    /// enum TemperatureUnit {
-    ///     C = 0u8,
-    ///     F = 1u8,
-    /// }
-    ///
-    /// // Make a new extension type that encodes the unit for a set of nullable `f64`.
-    /// pub fn create_temperature_type(unit: TemperatureUnit) -> ExtDType {
-    ///     ExtDType::new(
-    ///         ExtID::new("vortex.temperature".into()),
-    ///         Arc::new(DType::Primitive(PType::F64, Nullability::Nullable)),
-    ///         Some(ExtMetadata::new([unit as u8].into()))
-    ///     )
-    /// }
-    /// ```
-    pub fn new(id: ExtID, storage_dtype: Arc<DType>, metadata: Option<ExtMetadata>) -> Self {
-        assert!(
-            !matches!(storage_dtype.as_ref(), &DType::Extension(_)),
-            "ExtDType cannot have Extension storage_dtype"
-        );
-
-        Self {
-            id,
+impl<V: VTable> ExtDType<V> {
+    /// Creates a new extension dtype with the given options and storage dtype.
+    pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
+        V::validate(&options, &storage_dtype)?;
+        Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             storage_dtype,
-            metadata,
+            options,
+            vtable: PhantomData,
+        })))
+    }
+
+    /// Returns the identifier of the extension type.
+    pub fn id(&self) -> ExtID {
+        self.0.id()
+    }
+
+    /// Returns the options of the extension type.
+    pub fn options(&self) -> &V::Options {
+        &self.0.options
+    }
+
+    /// Erase the concrete type information, returning a type-erased extension dtype.
+    pub fn erase(self) -> ExtDTypeRef {
+        ExtDTypeRef(self.0)
+    }
+}
+
+/// Type-erased extension dtype - for heterogeneous storage
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ExtDTypeRef(Arc<dyn ExtDTypeImpl>);
+
+impl ExtDTypeRef {
+    /// Returns the identifier of the extension type.
+    pub fn id(&self) -> ExtID {
+        self.0.id()
+    }
+
+    /// Returns the untyped options of the extension type.
+    pub fn options_ref(&self) -> ExtDTypeOptions<'_> {
+        ExtDTypeOptions { ext_dtype: self }
+    }
+
+    /// Returns the storage dtype of the extension type.
+    pub fn storage_dtype(&self) -> &DType {
+        self.0.storage_dtype()
+    }
+}
+
+/// Methods for downcasting type-erased extension dtypes.
+impl ExtDTypeRef {
+    /// Check if the extension dtype is of the concrete type.
+    pub fn is<M: Matcher>(&self) -> bool {
+        M::matches(&self)
+    }
+
+    /// Downcast to the concrete options type.
+    pub fn try_options<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(&self)
+    }
+
+    /// Downcast to the concrete options type.
+    pub fn options<M: Matcher>(&self) -> M::Match<'_> {
+        self.try_options::<M>()
+            .vortex_expect("Failed to downcast DynExtDType")
+    }
+
+    /// Downcast to the concrete options type.
+    ///
+    /// Returns `Err(self)` if the downcast fails.
+    pub fn try_downcast<V: VTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
+        // Check if the concrete type matches
+        if self.0.as_any().is::<ExtDTypeAdapter<V>>() {
+            // SAFETY: type matches and ExtDTypeImpl<V> is the only implementor
+            let ptr = Arc::into_raw(self.0) as *const ExtDTypeAdapter<V>;
+            let inner = unsafe { Arc::from_raw(ptr) };
+            Ok(ExtDType(inner))
+        } else {
+            Err(self)
         }
     }
 
-    /// Returns the `ExtID` for this extension type
-    #[inline]
-    pub fn id(&self) -> &ExtID {
-        &self.id
-    }
-
-    /// Returns the `ExtMetadata` for this extension type, if it exists
-    #[inline]
-    pub fn storage_dtype(&self) -> &DType {
-        self.storage_dtype.as_ref()
-    }
-
-    /// Returns a new `ExtDType` with the given nullability
-    pub fn with_nullability(&self, nullability: Nullability) -> Self {
-        Self::new(
-            self.id.clone(),
-            Arc::new(self.storage_dtype.with_nullability(nullability)),
-            self.metadata.clone(),
-        )
-    }
-
-    /// Returns the `ExtMetadata` for this extension type, if it exists
-    #[inline]
-    pub fn metadata(&self) -> Option<&ExtMetadata> {
-        self.metadata.as_ref()
-    }
-
-    /// Check if `self` and `other` are equal, ignoring the storage nullability
-    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
-        self.id() == other.id()
-            && self.metadata() == other.metadata()
-            && self
-                .storage_dtype()
-                .eq_ignore_nullability(other.storage_dtype())
+    /// Downcast to the concrete options type.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the downcast fails.
+    pub fn downcast<V: VTable>(self) -> ExtDType<V> {
+        self.try_downcast::<V>()
+            .map_err(|this| {
+                vortex_err!(
+                    "Failed to downcast DynExtDType {} to {}",
+                    this.0.id(),
+                    type_name::<V>(),
+                )
+            })
+            .vortex_expect("Failed to downcast DynExtDType")
     }
 }
 
-#[cfg(test)]
-mod test {
-    use std::sync::Arc;
+/// Wrapper for type-erased extension dtype options.
+pub struct ExtDTypeOptions<'a> {
+    pub(super) ext_dtype: &'a ExtDTypeRef,
+}
 
-    use super::ExtDType;
-    use super::ExtID;
-    use crate::DType;
-    use crate::Nullability;
-    use crate::PType;
+impl ExtDTypeOptions<'_> {
+    /// Serialize the options into a byte vector.
+    pub fn serialize(&self) -> VortexResult<Vec<u8>> {
+        self.ext_dtype.0.options_serialize()
+    }
+}
 
-    #[test]
-    fn different_ids_are_not_equal() {
-        let storage_dtype = Arc::from(DType::Bool(Nullability::NonNullable));
-        let one = ExtDType::new(ExtID::new(Arc::from("one")), storage_dtype.clone(), None);
-        let two = ExtDType::new(ExtID::new(Arc::from("two")), storage_dtype, None);
+impl Display for ExtDTypeOptions<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.ext_dtype.0.options_display(f)
+    }
+}
 
-        assert_ne!(one, two);
+impl Debug for ExtDTypeOptions<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.ext_dtype.0.options_debug(f)
+    }
+}
+
+impl PartialEq for ExtDTypeOptions<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.ext_dtype.0.options_eq(other.ext_dtype.0.options_any())
+    }
+}
+impl Eq for ExtDTypeOptions<'_> {}
+
+impl Hash for ExtDTypeOptions<'_> {
+    fn hash<H: Hasher>(&self, mut state: &mut H) {
+        self.ext_dtype.0.options_hash(&mut state);
+    }
+}
+
+/// An object-safe trait encapsulating the behavior for extension DTypes.
+trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
+    fn as_any(&self) -> &dyn Any;
+    fn id(&self) -> ExtID;
+    fn storage_dtype(&self) -> &DType;
+    fn options_any(&self) -> &dyn Any;
+    fn options_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn options_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn options_eq(&self, other: &dyn Any) -> bool;
+    fn options_hash(&self, state: &mut dyn Hasher);
+    fn options_serialize(&self) -> VortexResult<Vec<u8>>;
+}
+
+struct ExtDTypeAdapter<V: VTable> {
+    storage_dtype: DType,
+    options: V::Options,
+    vtable: PhantomData<V>,
+}
+
+impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    #[test]
-    fn same_id_different_storage_types_are_not_equal() {
-        let one = ExtDType::new(
-            ExtID::new(Arc::from("one")),
-            Arc::from(DType::Bool(Nullability::NonNullable)),
-            None,
-        );
-        let two = ExtDType::new(
-            ExtID::new(Arc::from("one")),
-            Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            None,
-        );
-
-        assert_ne!(one, two);
+    fn id(&self) -> ExtID {
+        V::id(&self.options)
     }
 
-    #[test]
-    fn same_id_different_nullability_are_not_equal() {
-        let nullable_u8 = Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable));
-        let one = ExtDType::new(ExtID::new(Arc::from("one")), nullable_u8.clone(), None);
-        let two = ExtDType::new(
-            ExtID::new(Arc::from("one")),
-            Arc::from(nullable_u8.as_nullable()),
-            None,
-        );
-
-        assert_ne!(one, two);
+    fn storage_dtype(&self) -> &DType {
+        &self.storage_dtype
     }
+
+    fn options_any(&self) -> &dyn Any {
+        &self.options
+    }
+
+    fn options_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <V::Options as Debug>::fmt(&self.options, f)
+    }
+
+    fn options_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <V::Options as Display>::fmt(&self.options, f)
+    }
+
+    fn options_eq(&self, other: &dyn Any) -> bool {
+        let Some(other) = other.downcast_ref::<V::Options>() else {
+            return false;
+        };
+        <V::Options as PartialEq>::eq(&self.options, other)
+    }
+
+    fn options_hash(&self, mut state: &mut dyn Hasher) {
+        <V::Options as Hash>::hash(&self.options, &mut state);
+    }
+
+    fn options_serialize(&self) -> VortexResult<Vec<u8>> {
+        V::serialize(&self.options)
+    }
+}
+
+mod private {
+    use super::ExtDTypeAdapter;
+
+    pub trait Sealed {}
+    impl<V: super::VTable> Sealed for ExtDTypeAdapter<V> {}
 }
