@@ -748,6 +748,7 @@ mod tests {
     use crate::expr::exprs::cast::cast;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::get_item_list::get_item_list;
     use crate::expr::exprs::is_null::is_null;
     use crate::expr::exprs::list_contains::list_contains;
     use crate::expr::exprs::literal::lit;

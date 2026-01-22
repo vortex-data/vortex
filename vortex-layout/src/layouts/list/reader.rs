@@ -15,9 +15,11 @@ use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::FixedSizeListArray;
 use vortex_array::arrays::ListArray;
 use vortex_array::expr::Expression;
+use vortex_array::expr::get_item;
 use vortex_array::expr::root;
 use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
+use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
@@ -361,17 +363,28 @@ impl LayoutReader for ListReader {
         expr: &Expression,
         mask: MaskFuture,
     ) -> VortexResult<ArrayFuture> {
-        // If the expression is a simple column access or select, we can push it down to the elements.
-        let is_pushdown = matches!(
-            expr.vtable().id().as_ref(),
-            "vortex.get_item" | "vortex.select"
-        );
+        // If the expression is a simple element projection, we can push it down to the elements.
+        //
+        // NOTE: `vortex.get_item_list` is a temporary list-of-struct projection expression;
+        // when pushing down we construct the element projection and pass it into the elements reader.
+        let (is_pushdown, element_expr) = if expr.id().as_ref() == "vortex.get_item_list"
+            && expr.child(0).id().as_ref() == "vortex.root"
+        {
+            let field_name = expr
+                .options()
+                .as_any()
+                .downcast_ref::<FieldName>()
+                .vortex_expect("vortex.get_item_list options must be a FieldName");
+            (true, get_item(field_name.clone(), root()))
+        } else if expr.id().as_ref() == "vortex.select" {
+            (true, expr.clone())
+        } else {
+            (false, root())
+        };
 
         let row_range = row_range.clone();
         let expr = expr.clone();
-        let root_expr = root();
-        let list_fut =
-            self.list_slice_future(row_range, if is_pushdown { &expr } else { &root_expr })?;
+        let list_fut = self.list_slice_future(row_range, &element_expr)?;
 
         Ok(Box::pin(async move {
             let (mut array, mask) = try_join!(list_fut, mask)?;

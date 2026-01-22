@@ -31,9 +31,11 @@ use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
+use crate::expr::SimplifyCtx;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::exprs::get_item_list::get_item_list;
 use crate::expr::exprs::root::root;
 use crate::expr::lit;
 use crate::expr::stats::Stat;
@@ -123,6 +125,30 @@ impl VTable for GetItem {
             Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
         }?
         .execute(args.ctx)
+    }
+
+    fn simplify(
+        &self,
+        field_name: &FieldName,
+        expr: &Expression,
+        ctx: &dyn SimplifyCtx,
+    ) -> VortexResult<Option<Expression>> {
+        let child = expr.child(0);
+        let child_dtype = ctx.return_dtype(child)?;
+
+        let element_dtype = match child_dtype {
+            DType::List(element_dtype, _) => Some(element_dtype),
+            DType::FixedSizeList(element_dtype, ..) => Some(element_dtype),
+            _ => None,
+        };
+
+        if let Some(element_dtype) = element_dtype
+            && element_dtype.as_struct_fields_opt().is_some()
+        {
+            Ok(Some(get_item_list(field_name.clone(), child.clone())))
+        } else {
+            Ok(None)
+        }
     }
 
     fn reduce(
@@ -257,10 +283,12 @@ mod tests {
 
     use crate::Array;
     use crate::IntoArray;
+    use crate::arrays::FixedSizeListArray;
     use crate::arrays::ListArray;
     use crate::arrays::StructArray;
     use crate::expr::exprs::binary::checked_add;
     use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::get_item_list::get_item_list;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
@@ -366,9 +394,7 @@ mod tests {
         .into_array();
 
         // Regression for nested field projection on list-of-struct: `items.a`.
-        // The key path here is `Array::apply(...)`, which must be able to infer the correct return
-        // dtype for `GetItem` when its input is a list with struct elements.
-        let projection = get_item("a", get_item("items", root()));
+        let projection = get_item_list("a", get_item("items", root()));
         let out = data.apply(&projection).expect("apply");
 
         assert_eq!(
@@ -391,6 +417,73 @@ mod tests {
         assert_eq!(
             out.scalar_at(3).as_list().elements().unwrap().to_vec(),
             vec![Scalar::primitive(3i32, NonNullable)]
+        );
+    }
+
+    #[test]
+    fn get_item_fixed_size_list_of_struct() {
+        let n_lists: usize = 3;
+        let list_size: u32 = 2;
+        let n_elements = n_lists * list_size as usize;
+
+        let struct_elems = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                buffer![1i32, 2, 3, 4, 5, 6].into_array(),
+                buffer![10i64, 20, 30, 40, 50, 60].into_array(),
+            ],
+            n_elements,
+            Validity::from_iter([true, false, true, true, false, true]),
+        )
+        .unwrap()
+        .into_array();
+
+        let items = FixedSizeListArray::try_new(
+            struct_elems,
+            list_size,
+            Validity::from_iter([true, false, true]),
+            n_lists,
+        )
+        .unwrap()
+        .into_array();
+
+        let ids = buffer![0i32, 1, 2].into_array();
+
+        let data = StructArray::new(
+            FieldNames::from(["id", "items"]),
+            vec![ids, items],
+            n_lists,
+            Validity::NonNullable,
+        )
+        .into_array();
+
+        // FixedSizeList-of-struct projection: `items.a`, including struct-level nulls inside the list.
+        let projection = get_item_list("a", get_item("items", root()));
+        let out = data.apply(&projection).expect("apply");
+
+        assert_eq!(
+            out.dtype(),
+            &DType::FixedSizeList(
+                Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
+                list_size,
+                Nullability::Nullable
+            )
+        );
+
+        assert_eq!(
+            out.scalar_at(0).as_list().elements().unwrap().to_vec(),
+            vec![
+                Scalar::primitive(1i32, Nullability::Nullable),
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+            ]
+        );
+        assert!(out.scalar_at(1).is_null());
+        assert_eq!(
+            out.scalar_at(2).as_list().elements().unwrap().to_vec(),
+            vec![
+                Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
+                Scalar::primitive(6i32, Nullability::Nullable),
+            ]
         );
     }
 
