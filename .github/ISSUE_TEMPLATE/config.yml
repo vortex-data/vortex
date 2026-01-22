@@ -1,4 +1,4 @@
-blank_issues_enabled: false
+blank_issues_enabled: true
 contact_links:
   - name: Features, Questions
     url: https://github.com/vortex-data/vortex/discussions/new/choose
