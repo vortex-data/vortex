@@ -294,6 +294,24 @@ impl BufferHandle {
         }
     }
 
+    /// Asynchronously copies the buffer to the host, consuming the handle.
+    ///
+    /// This is a no-op if the buffer is already on the host.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the host buffer when the copy completes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the async copy operation fails to initiate.
+    pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        match self.0 {
+            Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
+            Inner::Device(device) => device.copy_to_host_async(ALIGNMENT_TO_HOST_COPY),
+        }
+    }
+
     /// Asynchronously copies the buffer to the host.
     ///
     /// # Panics
@@ -307,6 +325,22 @@ impl BufferHandle {
             future
                 .await
                 .vortex_expect("to_host: copy from device to host failed")
+        })
+    }
+
+    /// Asynchronously copies the buffer to the host, consuming the handle.
+    ///
+    /// # Panics
+    ///
+    /// Any errors triggered by the copying from device to host will result in a panic.
+    pub fn into_host(self) -> BoxFuture<'static, ByteBuffer> {
+        let future = self
+            .try_into_host()
+            .vortex_expect("into_host: failed to initiate copy from device to host");
+        Box::pin(async move {
+            future
+                .await
+                .vortex_expect("into_host: copy from device to host failed")
         })
     }
 }
