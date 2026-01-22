@@ -186,7 +186,11 @@ impl VTable for ALPVTable {
             ALPArray::new(
                 array.encoded().slice(range.clone()),
                 array.exponents(),
-                array.patches().and_then(|p| p.slice(range)),
+                array
+                    .patches()
+                    .map(|p| p.slice(range))
+                    .transpose()?
+                    .flatten(),
             )
             .into_array(),
         ))
@@ -349,7 +353,7 @@ impl ALPArray {
     ///     None
     /// ).unwrap();
     ///
-    /// assert_eq!(value.scalar_at(0), 0f32.into());
+    /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```
     pub fn try_new(
         encoded: ArrayRef,
@@ -696,7 +700,7 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity_mask().value(idx);
+            let result_valid = result_primitive.validity_mask().unwrap().value(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),

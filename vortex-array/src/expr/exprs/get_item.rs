@@ -115,7 +115,7 @@ impl VTable for GetItem {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
+            Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
         }?
         .execute(args.ctx)
     }
@@ -296,7 +296,7 @@ mod tests {
         let get_item = get_item("a", root());
         let item = get_item.evaluate(&st).unwrap();
         assert_eq!(
-            item.scalar_at(0),
+            item.scalar_at(0).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
     }

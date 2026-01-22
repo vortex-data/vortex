@@ -702,7 +702,10 @@ mod tests {
         );
 
         // ...and the result is masked with the validity of the parent StructArray
-        assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
+        assert_eq!(
+            result.scalar_at(0).unwrap(),
+            Scalar::null(result.dtype().clone()),
+        );
         assert_nth_scalar!(result, 1, 2);
         assert_nth_scalar!(result, 2, 3);
     }
@@ -729,19 +732,30 @@ mod tests {
 
         // Struct scalars holding the "c" field value scalars
         assert_eq!(
-            result.scalar_at(0).as_struct().field_by_idx(0).unwrap(),
+            result
+                .scalar_at(0)
+                .unwrap()
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap(),
             Scalar::primitive(4, Nullability::Nullable)
         );
         assert!(
             result
                 .scalar_at(1)
+                .unwrap()
                 .as_struct()
                 .field_by_idx(0)
                 .unwrap()
                 .is_null(),
         );
         assert_eq!(
-            result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
+            result
+                .scalar_at(2)
+                .unwrap()
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap(),
             Scalar::primitive(6, Nullability::Nullable)
         );
     }

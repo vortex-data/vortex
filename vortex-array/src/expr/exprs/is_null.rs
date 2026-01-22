@@ -174,7 +174,7 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i),
+                result.scalar_at(i).unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }
@@ -228,7 +228,7 @@ mod tests {
 
         for (i, expected_value) in expected.iter().enumerate() {
             assert_eq!(
-                result.scalar_at(i),
+                result.scalar_at(i).unwrap(),
                 Scalar::bool(*expected_value, Nullability::NonNullable)
             );
         }

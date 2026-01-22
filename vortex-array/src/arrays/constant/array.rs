@@ -29,4 +29,8 @@ impl ConstantArray {
     pub fn scalar(&self) -> &Scalar {
         &self.scalar
     }
+
+    pub fn into_parts(self) -> Scalar {
+        self.scalar
+    }
 }

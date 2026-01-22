@@ -18,7 +18,7 @@ use vortex_scalar::Scalar;
 /// This implementation manually extracts the scalar value from each canonical type
 /// without using the scalar_at method, to serve as an independent baseline for testing.
 pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
-    if canonical.as_ref().is_invalid(index) {
+    if canonical.as_ref().is_invalid(index)? {
         return Ok(Scalar::null(canonical.as_ref().dtype().clone()));
     }
     Ok(match canonical {

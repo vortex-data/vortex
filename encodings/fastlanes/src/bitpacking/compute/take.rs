@@ -224,11 +224,11 @@ mod test {
             .enumerate()
             .for_each(|(ti, i)| {
                 assert_eq!(
-                    u32::try_from(&packed.scalar_at(*i as usize)).unwrap(),
+                    u32::try_from(&packed.scalar_at(*i as usize).unwrap()).unwrap(),
                     values[*i as usize]
                 );
                 assert_eq!(
-                    u32::try_from(&taken.scalar_at(ti)).unwrap(),
+                    u32::try_from(&taken.scalar_at(ti).unwrap()).unwrap(),
                     values[*i as usize]
                 );
             });
@@ -263,7 +263,7 @@ mod test {
             taken_primitive,
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), None, Some(4)])
         );
-        assert_eq!(taken_primitive.to_primitive().invalid_count(), 1);
+        assert_eq!(taken_primitive.to_primitive().invalid_count().unwrap(), 1);
     }
 
     #[rstest]

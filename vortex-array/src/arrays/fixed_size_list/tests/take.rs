@@ -53,25 +53,25 @@ fn test_take_basic_smoke_test() {
     // First list should be the original third list [5, 6].
     let first = result_fsl.fixed_size_list_elements_at(0);
     assert_eq!(
-        first.scalar_at(0),
+        first.scalar_at(0).unwrap(),
         5i32.into(),
         "Wrong value at [2][0] after take"
     );
     assert_eq!(
-        first.scalar_at(1),
+        first.scalar_at(1).unwrap(),
         6i32.into(),
         "Wrong value at [2][1] after take"
     );
 
     // Second list should be the original first list [1, 2].
     let second = result_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(second.scalar_at(0), 1i32.into());
-    assert_eq!(second.scalar_at(1), 2i32.into());
+    assert_eq!(second.scalar_at(0).unwrap(), 1i32.into());
+    assert_eq!(second.scalar_at(1).unwrap(), 2i32.into());
 
     // Third list should be the original second list [3, 4].
     let third = result_fsl.fixed_size_list_elements_at(2);
-    assert_eq!(third.scalar_at(0), 3i32.into());
-    assert_eq!(third.scalar_at(1), 4i32.into());
+    assert_eq!(third.scalar_at(0).unwrap(), 3i32.into());
+    assert_eq!(third.scalar_at(1).unwrap(), 4i32.into());
 }
 
 // Parameterized test for FSL-specific degenerate (list_size=0) cases.
@@ -118,7 +118,7 @@ fn test_take_degenerate_lists(
 
     // Check nullability of results.
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result_fsl.scalar_at(i).is_null(), *expected_null);
+        assert_eq!(result_fsl.scalar_at(i).unwrap().is_null(), *expected_null);
     }
 }
 
@@ -139,13 +139,13 @@ fn test_take_large_list_size() {
     // First list should be [200..300].
     let first = result_fsl.fixed_size_list_elements_at(0);
     for i in 0..100i32 {
-        assert_eq!(first.scalar_at(i as usize), (200 + i).into());
+        assert_eq!(first.scalar_at(i as usize).unwrap(), (200 + i).into());
     }
 
     // Second list should be [0..100].
     let second = result_fsl.fixed_size_list_elements_at(1);
     for i in 0..100i32 {
-        assert_eq!(second.scalar_at(i as usize), i.into());
+        assert_eq!(second.scalar_at(i as usize).unwrap(), i.into());
     }
 }
 
@@ -164,19 +164,19 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
     assert_eq!(result_fsl.list_size(), 2);
 
     // First list should be [3, 4].
-    assert!(!result_fsl.scalar_at(0).is_null());
+    assert!(!result_fsl.scalar_at(0).unwrap().is_null());
     let first = result_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 3i32.into());
-    assert_eq!(first.scalar_at(1), 4i32.into());
+    assert_eq!(first.scalar_at(0).unwrap(), 3i32.into());
+    assert_eq!(first.scalar_at(1).unwrap(), 4i32.into());
 
     // Second list should be null.
-    assert!(result_fsl.scalar_at(1).is_null());
+    assert!(result_fsl.scalar_at(1).unwrap().is_null());
 
     // Third list should be [1, 2].
-    assert!(!result_fsl.scalar_at(2).is_null());
+    assert!(!result_fsl.scalar_at(2).unwrap().is_null());
     let third = result_fsl.fixed_size_list_elements_at(2);
-    assert_eq!(third.scalar_at(0), 1i32.into());
-    assert_eq!(third.scalar_at(1), 2i32.into());
+    assert_eq!(third.scalar_at(0).unwrap(), 1i32.into());
+    assert_eq!(third.scalar_at(1).unwrap(), 2i32.into());
 }
 
 // Parameterized test for nullable array scenarios that are specific to FSL's implementation.
@@ -240,6 +240,6 @@ fn test_take_nullable_arrays_fsl_specific(
 
     // Check nullability of results.
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result_fsl.scalar_at(i).is_null(), *expected_null);
+        assert_eq!(result_fsl.scalar_at(i).unwrap().is_null(), *expected_null);
     }
 }

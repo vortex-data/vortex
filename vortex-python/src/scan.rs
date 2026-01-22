@@ -67,7 +67,7 @@ impl PyRepeatedScan {
             if array.is_empty() {
                 continue;
             }
-            let scalar = array.scalar_at(0);
+            let scalar = array.scalar_at(0)?;
             return PyScalar::init(slf.py(), scalar);
         }
 

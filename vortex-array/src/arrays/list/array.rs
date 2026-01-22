@@ -262,6 +262,7 @@ impl ListArray {
             .unwrap_or_else(|| {
                 self.offsets()
                     .scalar_at(index)
+                    .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("index must fit in usize")
@@ -311,7 +312,7 @@ impl ListArray {
         }
 
         let offsets = self.offsets();
-        let first_offset = offsets.scalar_at(0);
+        let first_offset = offsets.scalar_at(0)?;
         let adjusted_offsets = sub_scalar(offsets, first_offset)?;
 
         Self::try_new(elements, adjusted_offsets, self.validity.clone())

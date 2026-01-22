@@ -57,7 +57,7 @@ use crate::buffer::BufferHandle;
 /// let sliced = array.slice(1..3);
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0);
+/// let value = sliced.scalar_at(0).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.

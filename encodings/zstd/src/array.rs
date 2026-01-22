@@ -216,12 +216,12 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
 }
 
 fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
+    let mask = parray.validity_mask()?;
     Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
-    let mask = vbv.validity_mask();
+    let mask = vbv.validity_mask()?;
     let buffer_and_value_byte_indices = match mask.bit_buffer() {
         AllOr::None => (Buffer::empty(), Vec::new()),
         _ => {
@@ -773,7 +773,7 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
 }
 
 impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn scalar_at(array: &ZstdArray, index: usize) -> Scalar {
+    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

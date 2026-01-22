@@ -1,15 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
-    fn scalar_at(array: &ChunkedArray, index: usize) -> Scalar {
-        let (chunk_index, chunk_offset) = array.find_chunk_idx(index);
+    fn scalar_at(array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
+        let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
         array.chunk(chunk_index).scalar_at(chunk_offset)
     }
 }
@@ -105,8 +107,8 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0), 1u64.into());
-        assert_eq!(array.scalar_at(1), 2u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
     }
 
     #[test]
@@ -121,10 +123,10 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0), 1u64.into());
-        assert_eq!(array.scalar_at(1), 2u64.into());
-        assert_eq!(array.scalar_at(2), 3u64.into());
-        assert_eq!(array.scalar_at(3), 4u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
     }
 
     #[test]
@@ -139,9 +141,9 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0), 1u64.into());
-        assert_eq!(array.scalar_at(1), 2u64.into());
-        assert_eq!(array.scalar_at(2), 3u64.into());
-        assert_eq!(array.scalar_at(3), 4u64.into());
+        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
+        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
+        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
     }
 }

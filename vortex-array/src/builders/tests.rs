@@ -97,8 +97,8 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
 
     // Compare each element.
     for i in 0..num_elements {
-        let scalar_zeros = array_zeros.scalar_at(i);
-        let scalar_manual = array_manual.scalar_at(i);
+        let scalar_zeros = array_zeros.scalar_at(i).unwrap();
+        let scalar_manual = array_manual.scalar_at(i).unwrap();
 
         assert_eq!(
             scalar_zeros, scalar_manual,
@@ -203,7 +203,7 @@ fn test_append_defaults_behavior(#[case] dtype: DType, #[case] should_be_null: b
     assert_eq!(array.len(), 3);
 
     for i in 0..3 {
-        let scalar = array.scalar_at(i);
+        let scalar = array.scalar_at(i).unwrap();
         if should_be_null {
             assert!(scalar.is_null(), "Element at index {} should be null", i);
         } else {
@@ -258,8 +258,8 @@ where
 
     // Compare each element.
     for i in 0..array_direct.len() {
-        let scalar_direct = array_direct.scalar_at(i);
-        let scalar_indirect = array_indirect.scalar_at(i);
+        let scalar_direct = array_direct.scalar_at(i).unwrap();
+        let scalar_indirect = array_indirect.scalar_at(i).unwrap();
 
         assert_eq!(
             scalar_direct, scalar_indirect,
@@ -553,13 +553,13 @@ fn test_append_scalar_comprehensive(#[case] dtype: DType) {
 
     // Verify each scalar matches.
     for (i, expected_scalar) in scalars.iter().enumerate() {
-        let actual_scalar = array.scalar_at(i);
+        let actual_scalar = array.scalar_at(i).unwrap();
         assert_scalars_equal(&actual_scalar, expected_scalar, &dtype, i);
     }
 
     // If nullable, verify the last element is null.
     if dtype.is_nullable() {
-        let null_scalar = array.scalar_at(num_elements);
+        let null_scalar = array.scalar_at(num_elements).unwrap();
         assert!(
             null_scalar.is_null(),
             "Last element should be null for nullable dtype"
@@ -704,16 +704,16 @@ fn test_append_scalar_mixed_nulls(#[case] dtype: DType) {
     assert_eq!(array.len(), 5);
 
     // Check the pattern.
-    assert!(!array.scalar_at(0).is_null());
-    assert!(array.scalar_at(1).is_null());
-    assert!(!array.scalar_at(2).is_null());
-    assert!(array.scalar_at(3).is_null());
-    assert!(!array.scalar_at(4).is_null());
+    assert!(!array.scalar_at(0).unwrap().is_null());
+    assert!(array.scalar_at(1).unwrap().is_null());
+    assert!(!array.scalar_at(2).unwrap().is_null());
+    assert!(array.scalar_at(3).unwrap().is_null());
+    assert!(!array.scalar_at(4).unwrap().is_null());
 
     // Verify non-null values match.
-    assert_scalars_equal(&array.scalar_at(0), &test_scalars[0], &dtype, 0);
-    assert_scalars_equal(&array.scalar_at(2), &test_scalars[1], &dtype, 2);
-    assert_scalars_equal(&array.scalar_at(4), &test_scalars[2], &dtype, 4);
+    assert_scalars_equal(&array.scalar_at(0).unwrap(), &test_scalars[0], &dtype, 0);
+    assert_scalars_equal(&array.scalar_at(2).unwrap(), &test_scalars[1], &dtype, 2);
+    assert_scalars_equal(&array.scalar_at(4).unwrap(), &test_scalars[2], &dtype, 4);
 }
 
 /// Test that `append_scalar` correctly rejects scalars with wrong dtype.
@@ -764,7 +764,7 @@ fn test_append_scalar_repeated_same_instance() {
 
     // All values should be 42.
     for i in 0..5 {
-        let actual = array.scalar_at(i);
+        let actual = array.scalar_at(i).unwrap();
         assert_eq!(
             actual.as_primitive().typed_value::<i32>(),
             Some(42),

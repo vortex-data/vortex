@@ -58,7 +58,14 @@ fn test_cast_identity(array: &dyn Array) {
 
     // Verify values are unchanged
     for i in 0..array.len().min(10) {
-        assert_eq!(array.scalar_at(i), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -84,7 +91,12 @@ fn test_cast_from_null(array: &dyn Array) {
 
         // Verify all values are null
         for i in 0..array.len().min(10) {
-            assert!(result.scalar_at(i).is_null());
+            assert!(
+                result
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+                    .is_null()
+            );
         }
     }
 
@@ -100,14 +112,25 @@ fn test_cast_from_null(array: &dyn Array) {
 }
 
 fn test_cast_to_non_nullable(array: &dyn Array) {
-    if array.invalid_count() == 0 {
+    if array
+        .invalid_count()
+        .vortex_expect("invalid_count should succeed in conformance test")
+        == 0
+    {
         let non_nullable = cast(array, &array.dtype().as_nonnullable())
             .vortex_expect("arrays without nulls can cast to non-nullable");
         assert_eq!(non_nullable.dtype(), &array.dtype().as_nonnullable());
         assert_eq!(non_nullable.len(), array.len());
 
         for i in 0..array.len().min(10) {
-            assert_eq!(array.scalar_at(i), non_nullable.scalar_at(i));
+            assert_eq!(
+                array
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test"),
+                non_nullable
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+            );
         }
 
         let back_to_nullable = cast(&non_nullable, array.dtype())
@@ -116,7 +139,14 @@ fn test_cast_to_non_nullable(array: &dyn Array) {
         assert_eq!(back_to_nullable.len(), array.len());
 
         for i in 0..array.len().min(10) {
-            assert_eq!(array.scalar_at(i), back_to_nullable.scalar_at(i));
+            assert_eq!(
+                array
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test"),
+                back_to_nullable
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+            );
         }
     } else {
         if &DType::Null == array.dtype() {
@@ -142,7 +172,14 @@ fn test_cast_to_nullable(array: &dyn Array) {
     assert_eq!(nullable.len(), array.len());
 
     for i in 0..array.len().min(10) {
-        assert_eq!(array.scalar_at(i), nullable.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            nullable
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 
     let back = cast(&nullable, array.dtype())
@@ -151,7 +188,13 @@ fn test_cast_to_nullable(array: &dyn Array) {
     assert_eq!(back.len(), array.len());
 
     for i in 0..array.len().min(10) {
-        assert_eq!(array.scalar_at(i), back.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            back.scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -223,10 +266,21 @@ fn test_cast_to_primitive(array: &dyn Array, target_ptype: PType, test_round_tri
             array.display_values(),
         )
     });
-    assert_eq!(array.validity_mask(), casted.validity_mask());
+    assert_eq!(
+        array
+            .validity_mask()
+            .vortex_expect("validity_mask should succeed in conformance test"),
+        casted
+            .validity_mask()
+            .vortex_expect("validity_mask should succeed in conformance test")
+    );
     for i in 0..array.len().min(10) {
-        let original = array.scalar_at(i);
-        let casted = casted.scalar_at(i);
+        let original = array
+            .scalar_at(i)
+            .vortex_expect("scalar_at should succeed in conformance test");
+        let casted = casted
+            .scalar_at(i)
+            .vortex_expect("scalar_at should succeed in conformance test");
         assert_eq!(
             original
                 .cast(casted.dtype())

@@ -186,11 +186,21 @@ fn test_filter_extreme_offsets() {
     // Verify we can still read the correct values.
     let list0 = result_list.list_elements_at(0);
     assert_eq!(
-        list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         4999
     );
     assert_eq!(
-        list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(1)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         5000
     );
 

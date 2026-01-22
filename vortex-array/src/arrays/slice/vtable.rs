@@ -157,7 +157,7 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
 }
 
 impl OperationsVTable<SliceVTable> for SliceVTable {
-    fn scalar_at(array: &SliceArray, index: usize) -> Scalar {
+    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
     }
 }
@@ -167,8 +167,8 @@ impl ValidityVTable<SliceVTable> for SliceVTable {
         Ok(array.child.validity()?.slice(array.range.clone()))
     }
 
-    fn validity_mask(array: &SliceArray) -> Mask {
-        array.child.validity_mask().slice(array.range.clone())
+    fn validity_mask(array: &SliceArray) -> VortexResult<Mask> {
+        Ok(array.child.validity_mask()?.slice(array.range.clone()))
     }
 }
 

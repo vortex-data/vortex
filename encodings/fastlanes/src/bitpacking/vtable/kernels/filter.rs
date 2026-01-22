@@ -144,7 +144,7 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
 ) -> VortexResult<PVectorMut<U>> {
     let values = filter_with_indices(array, selection.indices());
     let validity = array
-        .validity_mask()
+        .validity_mask()?
         .filter(&Mask::Values(selection.clone()))
         .into_mut();
 

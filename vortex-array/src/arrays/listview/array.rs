@@ -371,6 +371,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
                     .scalar_at(index)
+                    .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -398,6 +399,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
                     .scalar_at(index)
+                    .vortex_expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")

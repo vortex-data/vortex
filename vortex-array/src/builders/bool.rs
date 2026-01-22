@@ -7,6 +7,7 @@ use std::mem;
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -117,7 +118,11 @@ impl ArrayBuilder for BoolBuilder {
         let bool_array = array.to_bool();
 
         self.inner.append_buffer(bool_array.bit_buffer());
-        self.nulls.append_validity_mask(bool_array.validity_mask());
+        self.nulls.append_validity_mask(
+            bool_array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, additional: usize) {

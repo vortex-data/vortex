@@ -54,7 +54,7 @@ fn test_basic_listview_comprehensive() {
     );
 
     // Test scalar_at which returns entire lists as Scalar values.
-    let first_scalar = listview.scalar_at(0);
+    let first_scalar = listview.scalar_at(0).unwrap();
     assert_eq!(
         first_scalar,
         Scalar::list(
@@ -138,9 +138,9 @@ fn test_from_list_array() -> VortexResult<()> {
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0));
-    assert!(list_view.is_invalid(1));
-    assert!(list_view.is_valid(2));
+    assert!(list_view.is_valid(0).unwrap());
+    assert!(list_view.is_invalid(1).unwrap());
+    assert!(list_view.is_valid(2).unwrap());
 
     // Check third list.
     assert_arrays_eq!(
@@ -197,9 +197,18 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         assert_eq!(listview.list_elements_at(2).len(), 3);
     } else if const_offsets {
         // All lists start at offset 0, different sizes (overlapping).
-        assert_eq!(listview.list_elements_at(0).scalar_at(0), 1i32.into());
-        assert_eq!(listview.list_elements_at(1).scalar_at(0), 1i32.into());
-        assert_eq!(listview.list_elements_at(2).scalar_at(0), 1i32.into());
+        assert_eq!(
+            listview.list_elements_at(0).scalar_at(0).unwrap(),
+            1i32.into()
+        );
+        assert_eq!(
+            listview.list_elements_at(1).scalar_at(0).unwrap(),
+            1i32.into()
+        );
+        assert_eq!(
+            listview.list_elements_at(2).scalar_at(0).unwrap(),
+            1i32.into()
+        );
     }
 }
 

@@ -24,7 +24,7 @@ impl MaskedArray {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }
 
-        if !child.all_valid() {
+        if !child.all_valid()? {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 

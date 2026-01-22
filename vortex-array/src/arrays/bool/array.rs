@@ -42,7 +42,7 @@ use crate::validity::Validity;
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let value = array.scalar_at(0);
+/// let value = array.scalar_at(0).unwrap();
 /// assert_eq!(value, true.into());
 /// ```
 #[derive(Clone, Debug)]
@@ -188,12 +188,14 @@ impl BoolArray {
 
     pub fn to_mask(&self) -> Mask {
         self.maybe_to_mask()
+            .vortex_expect("failed to check validity")
             .vortex_expect("cannot convert nullable boolean array to mask")
     }
 
-    pub fn maybe_to_mask(&self) -> Option<Mask> {
-        self.all_valid()
-            .then(|| Mask::from_buffer(self.bit_buffer().clone()))
+    pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
+        Ok(self
+            .all_valid()?
+            .then(|| Mask::from_buffer(self.bit_buffer().clone())))
     }
 
     pub fn to_mask_fill_null_false(&self) -> Mask {
@@ -206,7 +208,10 @@ impl BoolArray {
             }
         }
         // Extract a boolean buffer, treating null values to false
-        let buffer = match self.validity_mask() {
+        let buffer = match self
+            .validity_mask()
+            .unwrap_or_else(|_| Mask::new_true(self.len()))
+        {
             Mask::AllTrue(_) => self.bit_buffer().clone(),
             Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.bit_buffer(),
@@ -270,7 +275,7 @@ mod tests {
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
     }
 
@@ -280,9 +285,9 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(!scalar);
     }
 
@@ -290,19 +295,19 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = arr.scalar_at(2);
+        let scalar = arr.scalar_at(2).unwrap();
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&arr.scalar_at(3)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
         assert!(!scalar);
 
-        let scalar = arr.scalar_at(4);
+        let scalar = arr.scalar_at(4).unwrap();
         assert!(scalar.is_null());
     }
 

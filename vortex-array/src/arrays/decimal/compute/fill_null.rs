@@ -88,7 +88,7 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]
