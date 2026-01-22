@@ -133,11 +133,31 @@ impl VTable for ScalarFnVTable {
             ctx,
         };
 
-        array
+        let result = array
             .scalar_fn
             .execute(args)?
             .into_array()
-            .execute::<Canonical>(ctx)
+            .execute::<Canonical>(ctx)?;
+
+        debug_assert_eq!(
+            result.dtype(),
+            &array.dtype,
+            "Scalar function {} returned dtype {:?} but expected {:?}",
+            array.scalar_fn,
+            result.dtype(),
+            array.dtype
+        );
+
+        debug_assert_eq!(
+            result.len(),
+            array.len(),
+            "Scalar function {} returned len {:?} but expected {:?}",
+            array.scalar_fn,
+            result.len(),
+            array.len()
+        );
+
+        Ok(result)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

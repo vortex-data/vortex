@@ -45,9 +45,17 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             }
             ExecutionResult::Scalar(constant) => constant.scalar().clone(),
         };
+
+        debug_assert_eq!(
+            scalar.dtype(),
+            &array.dtype,
+            "Scalar function {} returned dtype {:?} but expected {:?}",
+            array.scalar_fn,
+            scalar.dtype(),
+            array.dtype
+        );
+
         scalar
-            .cast(&array.dtype)
-            .vortex_expect("scalar dtype must be castable to array dtype")
     }
 }
 
@@ -57,13 +65,12 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
 
-    use crate::Array;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::expr::Operator;
     use crate::expr::ScalarFn;
-    use crate::expr::exprs::binary::Binary;
-    use crate::expr::exprs::operators::Operator;
+    use crate::expr::binary::Binary;
 
     #[test]
     fn test_scalar_at_add() -> VortexResult<()> {
@@ -100,9 +107,11 @@ mod tests {
         use crate::validity::Validity;
 
         let lhs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
-        let rhs =
-            PrimitiveArray::new(buffer![10i32, 20, 30], Validity::from_iter([true, false, true]))
-                .into_array();
+        let rhs = PrimitiveArray::new(
+            buffer![10i32, 20, 30],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
 
         let scalar_fn = ScalarFn::new(Binary, Operator::Add);
         let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
