@@ -16,6 +16,7 @@ use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
 
+use crate::runtime::Handle;
 use crate::WriteTarget;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
@@ -232,10 +233,64 @@ impl VortexReadAt for ByteBuffer {
                     buffer.len()
                 );
             }
-            target
-                .as_mut_slice()
-                .copy_from_slice(&buffer.as_ref()[start..end]);
-            target.into_handle()
+            let len = end - start;
+            if let Some(handle) = Handle::find() {
+                const MIN_CHUNK_BYTES: usize = 16 * 1024 * 1024;
+                const MAX_TASKS: usize = 8;
+
+                let tasks = {
+                    let dst_ptr = target.as_mut_slice().as_mut_ptr() as usize;
+                    let src_ptr = unsafe { buffer.as_ref().as_ptr().add(start) as usize };
+                    let chunks = len.div_ceil(MIN_CHUNK_BYTES);
+                    let tasks = std::thread::available_parallelism()
+                        .map(|n| n.get())
+                        .unwrap_or(1)
+                        .min(MAX_TASKS)
+                        .min(chunks.max(1));
+                    let chunk_len = len.div_ceil(tasks);
+                    let mut tasks_vec = Vec::with_capacity(tasks);
+
+                    for i in 0..tasks {
+                        let chunk_start = i * chunk_len;
+                        if chunk_start >= len {
+                            break;
+                        }
+                        let chunk_end = (chunk_start + chunk_len).min(len);
+                        let copy_len = chunk_end - chunk_start;
+                        let task = handle.spawn_blocking(move || {
+                            // SAFETY: ranges are non-overlapping and within bounds.
+                            unsafe {
+                                let src_ptr = src_ptr as *const u8;
+                                let dst_ptr = dst_ptr as *mut u8;
+                                std::ptr::copy_nonoverlapping(
+                                    src_ptr.add(chunk_start),
+                                    dst_ptr.add(chunk_start),
+                                    copy_len,
+                                );
+                            }
+                        });
+                        tasks_vec.push(task);
+                    }
+                    tasks_vec
+                };
+
+                if tasks.len() <= 1 {
+                    target
+                        .as_mut_slice()
+                        .copy_from_slice(&buffer.as_ref()[start..end]);
+                    return target.into_handle();
+                }
+
+                for task in tasks {
+                    task.await;
+                }
+                target.into_handle()
+            } else {
+                target
+                    .as_mut_slice()
+                    .copy_from_slice(&buffer.as_ref()[start..end]);
+                target.into_handle()
+            }
         }
         .boxed()
     }
