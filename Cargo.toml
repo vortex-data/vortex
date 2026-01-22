@@ -225,6 +225,7 @@ walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 xshell = "0.2.6"
+xz2 = "0.1.7"
 zigzag = "0.1.0"
 zip = "6.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [

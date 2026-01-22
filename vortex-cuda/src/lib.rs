@@ -21,6 +21,8 @@ pub use kernel::launch_cuda_kernel_impl;
 pub use session::CudaSession;
 use vortex_array::arrays::DictVTable;
 use vortex_fastlanes::FoRVTable;
+#[cfg(feature = "nvcomp")]
+pub use vortex_nvcomp as nvcomp;
 
 /// Check if the NVIDIA CUDA Compiler is available.
 pub fn has_nvcc() -> bool {

@@ -1,0 +1,26 @@
+[package]
+name = "vortex-nvcomp"
+authors.workspace = true
+description = "Rust bindings to NVIDIA nvCOMP compression library"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+links = "nvcomp"
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[build-dependencies]
+bindgen = { workspace = true }
+reqwest = { workspace = true }
+tar = { workspace = true }
+xz2 = { workspace = true }
