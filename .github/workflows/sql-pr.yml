@@ -28,7 +28,7 @@ jobs:
       - uses: actions-ecosystem/action-remove-labels@v1
         if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
         with:
-          labels: benchmark-sql
+          labels: action/benchmark-sql
           fail_on_error: true
 
   sql:

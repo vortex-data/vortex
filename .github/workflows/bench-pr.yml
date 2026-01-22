@@ -30,7 +30,7 @@ jobs:
       - uses: actions-ecosystem/action-remove-labels@v1
         if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
         with:
-          labels: benchmark
+          labels: action/benchmark
           fail_on_error: true
 
   bench:
