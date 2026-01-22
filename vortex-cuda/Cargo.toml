@@ -39,3 +39,7 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 [[bench]]
 name = "for_cuda"
 harness = false
+
+[[bench]]
+name = "dict_cuda"
+harness = false

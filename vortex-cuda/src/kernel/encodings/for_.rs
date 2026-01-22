@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;

@@ -89,11 +89,17 @@ chrono = "0.4.42"
 clap = "4.5"
 criterion = "0.7"
 crossterm = "0.29"
-cudarc = { version = "0.18.2", features = [
+cudarc = { version = "0.18.2", default-features = false, features = [
     # 12.8 matches the CUDA toolkit version pre-installed on the lambda.ai GPU base
     # image. The version does not have to match exactly. Lower toolkit versions can
     # be specified if a later toolkit version is installed on the system.
     "cuda-12080",
+    "driver",
+    "nvrtc",
+    "std",
+    # Use dynamic-loading to avoid link-time dependencies on libcuda.so.
+    # The CUDA driver library is loaded at runtime instead.
+    "dynamic-loading",
 ] }
 dashmap = "6.1.0"
 datafusion = { version = "52", default-features = false, features = ["sql"] }

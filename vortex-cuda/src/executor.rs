@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::mem::size_of;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use cudarc::driver::CudaEvent;
@@ -38,6 +39,15 @@ pub struct CudaKernelEvents {
     pub before_launch: CudaEvent,
     /// Event recorded after kernel launch.
     pub after_launch: CudaEvent,
+}
+
+impl CudaKernelEvents {
+    pub fn duration(&self) -> VortexResult<Duration> {
+        self.before_launch
+            .elapsed_ms(&self.after_launch) // synchronizes
+            .map_err(|e| vortex_err!("failed to get elapsed time: {}", e))
+            .map(|f| Duration::from_secs_f32(f / 1000.0))
+    }
 }
 
 /// CUDA execution context.
