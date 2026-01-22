@@ -11679,6 +11679,7 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build 0.14.3",
+ "serde_json",
  "xshell",
 ]
 
