@@ -4,18 +4,23 @@
 //! Generate optimal workspace member ordering for cargo-hack.
 //!
 //! Orders packages by topological sort, prioritizing packages with more dependents
-//! at each level to maximize Cargo cache reuse.
+//! at each level to maximize Cargo cache reuse when using tools like `cargo-hack`.
+//! which executes commands per crate by their order in the members array.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
 
 #[derive(Debug, Clone)]
 struct Package {
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     name: String,
     path: String,
     normal_deps: HashSet<String>,
@@ -72,7 +77,7 @@ pub fn sort_workspace(check_only: bool) -> Result<()> {
         let path = if let Some(idx) = manifest_path.find("/vortex/") {
             manifest_path[idx + 8..]
                 .strip_suffix("/Cargo.toml")
-                .unwrap_or(&manifest_path[idx + 8..])
+                .unwrap_or_else(|| &manifest_path[idx + 8..])
                 .to_string()
         } else {
             name.clone()
@@ -90,10 +95,7 @@ pub fn sort_workspace(check_only: bool) -> Result<()> {
                 // Only consider normal dependencies (kind is null in JSON)
                 if dep["kind"].is_null() {
                     normal_deps.insert(dep_name.to_string());
-                    reverse_deps
-                        .get_mut(dep_name)
-                        .unwrap()
-                        .insert(name.clone());
+                    reverse_deps.get_mut(dep_name).unwrap().insert(name.clone());
                 }
             }
         }
@@ -140,11 +142,13 @@ pub fn sort_workspace(check_only: bool) -> Result<()> {
 
         sorted_pkgs.push(pkg.clone());
 
-        for dependent in reverse_deps.get(&pkg).unwrap_or(&HashSet::new()) {
-            let deg = in_degree.get_mut(dependent).unwrap();
-            *deg -= 1;
-            if *deg == 0 {
-                queue.push_back(dependent.clone());
+        if let Some(dependents) = reverse_deps.get(&pkg) {
+            for dependent in dependents {
+                let deg = in_degree.get_mut(dependent).unwrap();
+                *deg -= 1;
+                if *deg == 0 {
+                    queue.push_back(dependent.clone());
+                }
             }
         }
     }

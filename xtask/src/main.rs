@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(clippy::disallowed_types)]
+#![allow(clippy::unwrap_used)]
+
 mod check_deps;
 mod generate_fbs;
 mod generate_proto;

@@ -6,11 +6,14 @@
 //! Dev-dependencies are allowed to form cycles (this is common for test utilities),
 //! but normal dependencies must form a DAG.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Context;
+use anyhow::Result;
+use anyhow::bail;
 
 #[derive(Debug)]
 struct Package {
@@ -128,7 +131,15 @@ pub fn check_deps() -> Result<()> {
                     .iter()
                     .filter(|d| cycle.contains(*d))
                     .collect();
-                eprintln!("  {} -> {:?}", pkg, cycle_deps);
+                eprintln!(
+                    "  {} -> [{}]",
+                    pkg,
+                    cycle_deps
+                        .iter()
+                        .map(|s| s.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
             eprintln!();
         }
@@ -150,13 +161,18 @@ pub fn check_deps() -> Result<()> {
                 eprintln!("WARNING: Dev-dependency cycle detected (allowed but noted):");
                 for pkg in cycle {
                     let p = &pkg_map[pkg];
-                    let cycle_deps: Vec<_> = p
-                        .dev_deps
-                        .iter()
-                        .filter(|d| cycle.contains(*d))
-                        .collect();
+                    let cycle_deps: Vec<_> =
+                        p.dev_deps.iter().filter(|d| cycle.contains(*d)).collect();
                     if !cycle_deps.is_empty() {
-                        eprintln!("  {} --(dev)--> {:?}", pkg, cycle_deps);
+                        eprintln!(
+                            "  {} --(dev)--> [{}]",
+                            pkg,
+                            cycle_deps
+                                .iter()
+                                .map(|s| s.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        );
                     }
                 }
                 eprintln!();
@@ -178,6 +194,9 @@ pub fn check_deps() -> Result<()> {
 }
 
 /// Find strongly connected components using Tarjan's algorithm.
+///
+/// See: <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm>
+///
 /// If `include_dev` is true, dev dependencies are included in the graph.
 fn find_cycles(pkg_map: &HashMap<String, Package>, include_dev: bool) -> Vec<Vec<String>> {
     let mut index_counter = 0;
@@ -187,6 +206,7 @@ fn find_cycles(pkg_map: &HashMap<String, Package>, include_dev: bool) -> Vec<Vec
     let mut on_stack: HashSet<String> = HashSet::new();
     let mut sccs = Vec::new();
 
+    #[allow(clippy::too_many_arguments)]
     fn strongconnect(
         v: &str,
         pkg_map: &HashMap<String, Package>,
