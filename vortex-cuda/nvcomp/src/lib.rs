@@ -12,10 +12,10 @@
 //! nvCOMP is only available on Linux x86_64 and ARM64. On other platforms,
 //! this crate compiles but provides no functionality.
 
-#[cfg(target_os = "linux")]
+#[cfg(nvcomp_available)]
 pub mod sys;
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, nvcomp_available))]
 mod tests {
     use super::sys;
 

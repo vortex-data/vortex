@@ -25,11 +25,14 @@ fn cuda_headers_available(cuda_include: &str) -> bool {
 fn generate_stub(reason: &str) {
     println!("cargo:warning=nvCOMP bindings not generated: {}", reason);
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let stub = format!("//! nvCOMP is not available: {}\n", reason);
+    let stub = format!("// nvCOMP is not available: {}\n", reason);
     fs::write(out_dir.join("sys.rs"), stub).unwrap();
 }
 
 fn main() {
+    // Declare the cfg so rustc doesn't warn about unexpected cfg.
+    println!("cargo::rustc-check-cfg=cfg(nvcomp_available)");
+
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let nvcomp_dir = manifest_dir.join("sdk");
 
@@ -130,6 +133,9 @@ fn main() {
     // Write to OUT_DIR
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
+
+    // Signal that nvCOMP bindings are available for conditional compilation.
+    println!("cargo:rustc-cfg=nvcomp_available");
 
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
     println!(
