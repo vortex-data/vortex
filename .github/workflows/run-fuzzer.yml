@@ -1,0 +1,169 @@
+name: Run Fuzzer
+
+on:
+  workflow_call:
+    inputs:
+      fuzz_target:
+        description: "The cargo fuzz target name (e.g., file_io, array_ops, compress_roundtrip)"
+        required: true
+        type: string
+      max_time:
+        description: "Maximum fuzzing time in seconds"
+        required: false
+        type: number
+        default: 7200
+    outputs:
+      crashes_found:
+        description: "Whether crashes were found"
+        value: ${{ jobs.fuzz.outputs.crashes_found }}
+      first_crash_name:
+        description: "Name of the first crash file"
+        value: ${{ jobs.fuzz.outputs.first_crash_name }}
+      artifact_url:
+        description: "URL of the uploaded crash artifacts"
+        value: ${{ jobs.fuzz.outputs.artifact_url }}
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID:
+        required: true
+      R2_FUZZ_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  fuzz:
+    name: "Run ${{ inputs.fuzz_target }}"
+    timeout-minutes: 230  # almost 4 hours
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8g.large
+      - image=ubuntu24-full-arm64
+      - disk=large
+      - extras=s3-cache
+      - tag=${{ inputs.fuzz_target }}-fuzz
+    outputs:
+      crashes_found: ${{ steps.check.outputs.crashes_found }}
+      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
+      artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+      AWS_REGION: "us-east-1"
+      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Restore corpus
+        shell: bash
+        run: |
+          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+
+          # Try to get ETag for optimistic locking on upload
+          if aws s3api head-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --query ETag --output text > current_etag 2>/dev/null; then
+            echo "Found existing corpus at s3://vortex-fuzz-corpus/$CORPUS_KEY"
+          else
+            echo ""
+            echo "=========================================="
+            echo "WARNING: No existing corpus found for ${{ inputs.fuzz_target }}"
+            echo "This is expected for new fuzzers. Starting with empty corpus."
+            echo "=========================================="
+            echo ""
+            echo '""' > current_etag
+          fi
+
+          # Try to download corpus
+          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+            echo "Downloaded corpus successfully"
+            tar -xf "$CORPUS_KEY"
+          else
+            echo "Creating empty corpus directory"
+            mkdir -p "$CORPUS_DIR"
+          fi
+
+      - name: Run fuzzing target
+        id: fuzz
+        run: |
+          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
+            cargo +nightly fuzz run --release --debug-assertions \
+            ${{ inputs.fuzz_target }} -- \
+            -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
+            2>&1 | tee fuzz_output.log
+        continue-on-error: true
+
+      - name: Check for crashes
+        id: check
+        run: |
+          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
+            echo "crashes_found=true" >> $GITHUB_OUTPUT
+
+            # Get the first crash file only
+            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
+
+            if [ -n "$FIRST_CRASH" ]; then
+              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
+              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
+
+              # Count all crashes for reporting
+              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
+              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
+              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
+            fi
+          else
+            echo "crashes_found=false" >> $GITHUB_OUTPUT
+            echo "crash_count=0" >> $GITHUB_OUTPUT
+            echo "No crashes found"
+          fi
+
+      - name: Archive crash artifacts
+        id: upload_artifacts
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ inputs.fuzz_target }}-crash-artifacts
+          path: fuzz/artifacts
+          retention-days: 30
+
+      - name: Archive fuzzer output log
+        if: steps.check.outputs.crashes_found == 'true'
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ inputs.fuzz_target }}-logs
+          path: fuzz_output.log
+          retention-days: 30
+
+      - name: Persist corpus
+        shell: bash
+        run: |
+          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+
+          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
+
+          ETAG=$(cat current_etag)
+          if [ "$ETAG" = '""' ] || [ -z "$ETAG" ]; then
+            # New corpus, no ETag check needed
+            aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
+          else
+            # Existing corpus, use optimistic locking
+            aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32 --if-match "$ETAG"
+          fi
+
+      - name: Fail job if fuzz run found a bug
+        if: steps.check.outputs.crashes_found == 'true'
+        run: exit 1

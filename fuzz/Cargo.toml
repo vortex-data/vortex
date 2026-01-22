@@ -39,6 +39,7 @@ vortex-error = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-runend = { workspace = true, features = ["arbitrary"] }
 vortex-scalar = { workspace = true, features = ["arbitrary"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -73,3 +74,11 @@ name = "array_ops_wasm"
 path = "fuzz_targets/array_ops_wasm.rs"
 test = false
 required-features = ["wasmfuzz"]
+
+[[bin]]
+bench = false
+doc = false
+name = "compress_roundtrip"
+path = "fuzz_targets/compress_roundtrip.rs"
+test = false
+required-features = ["native"]

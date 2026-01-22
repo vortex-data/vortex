@@ -10576,6 +10576,7 @@ dependencies = [
  "vortex-io",
  "vortex-layout",
  "vortex-mask",
+ "vortex-runend",
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
@@ -10768,6 +10769,7 @@ dependencies = [
 name = "vortex-runend"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "arrow-array 57.2.0",
  "codspeed-divan-compat",
  "itertools 0.14.0",

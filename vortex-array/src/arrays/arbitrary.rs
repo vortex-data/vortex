@@ -328,7 +328,11 @@ fn random_bool(
     Ok(BoolArray::from_bit_buffer(BitBuffer::from(v), validity).into_array())
 }
 
-fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {
+pub fn random_validity(
+    u: &mut Unstructured,
+    nullability: Nullability,
+    len: usize,
+) -> Result<Validity> {
     match nullability {
         Nullability::NonNullable => Ok(Validity::NonNullable),
         Nullability::Nullable => Ok(match u.int_in_range(0..=2)? {

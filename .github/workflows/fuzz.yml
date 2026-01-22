@@ -13,102 +13,17 @@ on:
   workflow_dispatch: { }
 
 jobs:
+  # ============================================================================
+  # IO Fuzzer
+  # ============================================================================
   io_fuzz:
     name: "IO Fuzz"
-    timeout-minutes: 230  # almost 4 hours
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=io-fuzz
-    outputs:
-      crashes_found: ${{ steps.check.outputs.crashes_found }}
-      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
-      artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-      - name: Install llvm
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
-      - name: Restore corpus
-        shell: bash
-        run: |
-          aws s3api head-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --query ETag --output text > current_etag
-          aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst .
-          tar -xf io_corpus.tar.zst
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Run fuzzing target
-        id: fuzz
-        run: |
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions file_io -- -max_total_time=7200 -rss_limit_mb=0 2>&1 | tee fuzz_output.log
-        continue-on-error: true
-      - name: Check for crashes
-        id: check
-        run: |
-          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
-            echo "crashes_found=true" >> $GITHUB_OUTPUT
-
-            # Get the first crash file only
-            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
-
-            if [ -n "$FIRST_CRASH" ]; then
-              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
-              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
-
-              # Count all crashes for reporting
-              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
-            fi
-          else
-            echo "crashes_found=false" >> $GITHUB_OUTPUT
-            echo "crash_count=0" >> $GITHUB_OUTPUT
-            echo "No crashes found"
-          fi
-      - name: Archive crash artifacts
-        id: upload_artifacts
-        if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
-        with:
-          name: io-fuzzing-crash-artifacts
-          path: fuzz/artifacts
-          retention-days: 30
-      - name: Archive fuzzer output log
-        if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
-        with:
-          name: io-fuzzing-logs
-          path: fuzz_output.log
-          retention-days: 30
-      - name: Persist corpus
-        shell: bash
-        run: |
-          tar -acf io_corpus.tar.zst fuzz/corpus/file_io
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --body io_corpus.tar.zst --checksum-algorithm CRC32 --if-match "$(cat current_etag)"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Fail job if fuzz run found a bug
-        if: steps.check.outputs.crashes_found == 'true'
-        run: exit 1
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: file_io
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
 
   report-io-fuzz-failures:
     name: "Report IO Fuzz Failures"
@@ -124,8 +39,8 @@ jobs:
       fuzz_target: file_io
       crash_file: ${{ needs.io_fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.io_fuzz.outputs.artifact_url }}
-      artifact_name: io-fuzzing-crash-artifacts
-      logs_artifact_name: io-fuzzing-logs
+      artifact_name: file_io-crash-artifacts
+      logs_artifact_name: file_io-logs
       branch: ${{ github.ref_name }}
       commit: ${{ github.sha }}
     secrets:
@@ -146,102 +61,17 @@ jobs:
       issue_number: ${{ needs.report-io-fuzz-failures.outputs.issue_number }}
     secrets: inherit
 
+  # ============================================================================
+  # Array Operations Fuzzer
+  # ============================================================================
   ops_fuzz:
     name: "Array Operations Fuzz"
-    timeout-minutes: 230  # almost 4 hours
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=ops-fuzz
-    outputs:
-      crashes_found: ${{ steps.check.outputs.crashes_found }}
-      first_crash_name: ${{ steps.check.outputs.first_crash_name }}
-      artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-      - name: Install llvm
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
-      - name: Restore corpus
-        shell: bash
-        run: |
-          aws s3api head-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --query ETag --output text > current_etag
-          aws s3 cp s3://vortex-fuzz-corpus/array_ops_corpus.tar.zst .
-          tar -xf array_ops_corpus.tar.zst
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Run fuzzing target
-        id: fuzz
-        run: |
-          RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 cargo +nightly fuzz run --release --debug-assertions array_ops -- -max_total_time=7200 -rss_limit_mb=0 2>&1 | tee fuzz_output.log
-        continue-on-error: true
-      - name: Check for crashes
-        id: check
-        run: |
-          if [ -d "fuzz/artifacts" ] && [ "$(ls -A fuzz/artifacts 2>/dev/null)" ]; then
-            echo "crashes_found=true" >> $GITHUB_OUTPUT
-
-            # Get the first crash file only
-            FIRST_CRASH=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | head -1)
-
-            if [ -n "$FIRST_CRASH" ]; then
-              echo "first_crash=$FIRST_CRASH" >> $GITHUB_OUTPUT
-              echo "first_crash_name=$(basename $FIRST_CRASH)" >> $GITHUB_OUTPUT
-
-              # Count all crashes for reporting
-              CRASH_COUNT=$(find fuzz/artifacts -type f \( -name "crash-*" -o -name "leak-*" -o -name "timeout-*" -o -name "oom-*" \) | wc -l)
-              echo "crash_count=$CRASH_COUNT" >> $GITHUB_OUTPUT
-              echo "Found $CRASH_COUNT crash(es), will process first: $(basename $FIRST_CRASH)"
-            fi
-          else
-            echo "crashes_found=false" >> $GITHUB_OUTPUT
-            echo "crash_count=0" >> $GITHUB_OUTPUT
-            echo "No crashes found"
-          fi
-      - name: Archive crash artifacts
-        id: upload_artifacts
-        if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
-        with:
-          name: operations-fuzzing-crash-artifacts
-          path: fuzz/artifacts
-          retention-days: 30
-      - name: Archive fuzzer output log
-        if: steps.check.outputs.crashes_found == 'true'
-        uses: actions/upload-artifact@v5
-        with:
-          name: ops-fuzzing-logs
-          path: fuzz_output.log
-          retention-days: 30
-      - name: Persist corpus
-        shell: bash
-        run: |
-          tar -acf array_ops_corpus.tar.zst fuzz/corpus/array_ops
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --body array_ops_corpus.tar.zst --checksum-algorithm CRC32 --if-match "$(cat current_etag)"
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Fail job if fuzz run found a bug
-        if: steps.check.outputs.crashes_found == 'true'
-        run: exit 1
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: array_ops
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
 
   report-ops-fuzz-failures:
     name: "Report Array Operations Fuzz Failures"
@@ -257,10 +87,22 @@ jobs:
       fuzz_target: array_ops
       crash_file: ${{ needs.ops_fuzz.outputs.first_crash_name }}
       artifact_url: ${{ needs.ops_fuzz.outputs.artifact_url }}
-      artifact_name: operations-fuzzing-crash-artifacts
-      logs_artifact_name: ops-fuzzing-logs
+      artifact_name: array_ops-crash-artifacts
+      logs_artifact_name: array_ops-logs
       branch: ${{ github.ref_name }}
       commit: ${{ github.sha }}
     secrets:
       claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
       gh_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================================
+  # Compress Roundtrip Fuzzer
+  # ============================================================================
+  compress_fuzz:
+    name: "Compress Roundtrip Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: compress_roundtrip
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
