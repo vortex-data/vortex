@@ -722,8 +722,8 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let array_buffers = encoder.encode(EncoderMessage::Array(&*array));
-        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let array_buffers = encoder.encode(EncoderMessage::Array(&*array))?;
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 
         let pickle_module = PyModule::import(py, "pickle")?;
         let pickle_buffer_class = pickle_module.getattr("PickleBuffer")?;
