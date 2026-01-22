@@ -8,18 +8,25 @@ from .store import (
     AzureStore,
     GCSStore,
     HTTPStore,
+    LocalStore,
+    MemoryStore,
     S3Store,
 )
 
 def read_url(
     url: str,
     *,
-    store=None,
+    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     projection: list[str] | list[int] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,
 ) -> Array: ...
-def write(iter: IntoArrayIterator, path: str, *, store: AzureStore | HTTPStore | GCSStore | S3Store | None) -> None: ...
+def write(
+    iter: IntoArrayIterator,
+    path: str,
+    *,
+    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+) -> None: ...
 
 class VortexWriteOptions:
     @staticmethod
@@ -28,5 +35,8 @@ class VortexWriteOptions:
     def compact() -> VortexWriteOptions: ...
     @staticmethod
     def write(
-        iter: IntoArrayIterator, path: str, *, store: AzureStore | HTTPStore | GCSStore | S3Store | None
+        iter: IntoArrayIterator,
+        path: str,
+        *,
+        store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
     ) -> VortexWriteOptions: ...

@@ -64,6 +64,9 @@ include = [
     { path = "python/vortex/py.typed", format = "sdist" },
 ]
 
+[tool.basedpyright]
+exclude = ["python/vortex/_lib/store/**.pyi"]
+
 [dependency-groups]
 dev = [
     "basedpyright>=1.31",

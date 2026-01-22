@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
-from ._lib import exceptions, store
+from ._lib import store  # pyright: ignore[reportMissingModuleSource]
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
     AlpArray,
     AlpRdArray,
@@ -83,13 +83,14 @@ from .scan import RepeatedScan
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
 # Resolve the installed distribution version so it is available as vortex.__version__.
+
 __version__ = "unknown"
 try:
-    from importlib import metadata as _metadata
+    import importlib.metadata
 
     # Try to read the installed distribution version for the Python package name.
-    __version__ = _metadata.version("vortex-data")
-except _metadata.PackageNotFoundError:
+    __version__ = importlib.metadata.version("vortex-data")
+except importlib.metadata.PackageNotFoundError:
     # If the distribution is not installed, keep the unknown fallback.
     pass
 
@@ -97,7 +98,6 @@ __all__ = [
     # --- Modules ---
     "arrays",
     "dataset",
-    "exceptions",
     "expr",
     "file",
     "scan",

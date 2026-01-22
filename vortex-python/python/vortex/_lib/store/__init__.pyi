@@ -1,7 +1,7 @@
 # TODO: move to reusable types package
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Self, TypeAlias, Unpack, overload
+from typing import Self, TypeAlias, Unpack, overload
 
 from ._aws import S3Config as S3Config
 from ._aws import S3Credential as S3Credential
@@ -69,8 +69,8 @@ def from_url(  # type: ignore[misc] # docstring in pyi file
     config: S3Config | GCSConfig | AzureConfig | None = None,
     client_options: ClientConfig | None = None,
     retry_config: RetryConfig | None = None,
-    credential_provider: Callable | None = None,
-    **kwargs: Any,
+    credential_provider: Callable[..., object] | None = None,
+    **kwargs: object,
 ) -> ObjectStore:
     """Easy construction of store by URL, identifying the relevant store.
 
@@ -172,8 +172,8 @@ class LocalStore:
         ```
         """
 
-    def __eq__(self, value: object) -> bool: ...
-    def __getnewargs_ex__(self): ...
+    def __eq__(self, value: object, /) -> bool: ...  # pyright: ignore[reportImplicitOverride]
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, object]]: ...
     @property
     def prefix(self) -> Path | None:
         """Get the prefix applied to all operations in this store, if any."""
