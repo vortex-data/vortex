@@ -12,6 +12,7 @@ pub mod arrow;
 mod compress;
 mod dataset;
 pub(crate) mod dtype;
+mod error;
 mod expr;
 mod file;
 mod io;
