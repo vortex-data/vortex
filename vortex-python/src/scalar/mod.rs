@@ -64,7 +64,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Base class for Vortex scalar types.
 #[pyclass(name = "Scalar", module = "vortex", subclass, frozen, eq, hash)]
 #[derive(Clone, PartialEq, Eq, Hash)]
-pub(crate) struct PyScalar(Scalar);
+pub struct PyScalar(Scalar);
 
 /// A marker trait indicating a PyO3 class is a subclass of a Vortex `Scalar`.
 pub trait ScalarSubclass: PyClass<BaseType = PyScalar> {
