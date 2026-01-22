@@ -35,7 +35,7 @@ body:
       description: Version, OS, relevant dependencies
       placeholder: |
         - Vortex version:
-        - Python/Java version: 
+        - Python/Java version:
         - OS:
     validations:
       required: true
