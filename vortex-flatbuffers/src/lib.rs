@@ -135,6 +135,7 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ConstByteBuffer;
+use vortex_error::VortexResult;
 
 /// We define a const-aligned byte buffer for flatbuffers with 8-byte alignment.
 ///
@@ -176,22 +177,24 @@ pub trait WriteFlatBuffer {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>>;
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>>;
 }
 
 /// Extension trait for types that can be written as FlatBuffer root objects.
 pub trait WriteFlatBufferExt: WriteFlatBuffer + FlatBufferRoot {
     /// Writes self as a FlatBuffer root object into a [`FlatBuffer`] byte buffer.
-    fn write_flatbuffer_bytes(&self) -> FlatBuffer;
+    fn write_flatbuffer_bytes(&self) -> VortexResult<FlatBuffer>;
 }
 
 impl<F: WriteFlatBuffer + FlatBufferRoot> WriteFlatBufferExt for F {
-    fn write_flatbuffer_bytes(&self) -> FlatBuffer {
+    fn write_flatbuffer_bytes(&self) -> VortexResult<FlatBuffer> {
         let mut fbb = FlatBufferBuilder::new();
-        let root_offset = self.write_flatbuffer(&mut fbb);
+        let root_offset = self.write_flatbuffer(&mut fbb)?;
         fbb.finish_minimal(root_offset);
         let (vec, start) = fbb.collapse();
         let end = vec.len();
-        FlatBuffer::align_from(ByteBuffer::from(vec).slice(start..end))
+        Ok(FlatBuffer::align_from(
+            ByteBuffer::from(vec).slice(start..end),
+        ))
     }
 }

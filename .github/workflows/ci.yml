@@ -209,17 +209,13 @@ jobs:
       matrix:
         config:
           - name: "all-features"
-            command: "build"
             args: "--all-features --all-targets"
           - name: "default features"
-            command: "build"
             args: "--all-targets"
           - name: "with tokio dispatcher"
-            command: "build"
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
-            command: "build"
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
@@ -239,7 +235,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+        run: ${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
@@ -299,19 +295,15 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
-    name: "Rust (lint, no default, ${{ matrix.partition }}/2)"
+    name: "Rust (lint, no default)"
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        partition: [1, 2]
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-lint-no-default-${{ matrix.partition }}
+      - tag=rust-lint-no-default
     steps:
       - uses: runs-on/action@v2
         with:
@@ -326,8 +318,8 @@ jobs:
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
-          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          cargo hack clippy --no-default-features --partition ${{ matrix.partition }}/2 -- -D warnings
+          cargo hack --no-dev-deps --ignore-private clippy --no-default-features -- -D warnings
+
 
   rust-semver:
     name: "Rust (semver checks)"

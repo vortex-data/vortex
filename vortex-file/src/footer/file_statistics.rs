@@ -14,6 +14,7 @@ use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use vortex_array::stats::StatsSet;
 use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
@@ -54,15 +55,19 @@ impl WriteFlatBuffer for FileStatistics {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let field_stats = self.0.iter().map(|s| s.write_flatbuffer(fbb)).collect_vec();
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        let field_stats = self
+            .0
+            .iter()
+            .map(|s| s.write_flatbuffer(fbb))
+            .collect::<VortexResult<Vec<_>>>()?;
         let field_stats = fbb.create_vector(field_stats.as_slice());
 
-        fb::FileStatistics::create(
+        Ok(fb::FileStatistics::create(
             fbb,
             &fb::FileStatisticsArgs {
                 field_stats: Some(field_stats),
             },
-        )
+        ))
     }
 }

@@ -689,12 +689,12 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let buffers = encoder.encode(EncoderMessage::Array(&*array));
+        let buffers = encoder.encode(EncoderMessage::Array(&*array))?;
 
         // Return buffers as a list instead of concatenating
         let array_buffers: Vec<Vec<u8>> = buffers.iter().map(|b| b.to_vec()).collect();
 
-        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
         let dtype_buffers: Vec<Vec<u8>> = dtype_buffers.iter().map(|b| b.to_vec()).collect();
 
         let vortex_module = PyModule::import(py, "vortex")?;
@@ -721,8 +721,8 @@ impl PyArray {
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
         let mut encoder = MessageEncoder::default();
-        let array_buffers = encoder.encode(EncoderMessage::Array(&*array));
-        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()));
+        let array_buffers = encoder.encode(EncoderMessage::Array(&*array))?;
+        let dtype_buffers = encoder.encode(EncoderMessage::DType(array.dtype()))?;
 
         let pickle_module = PyModule::import(py, "pickle")?;
         let pickle_buffer_class = pickle_module.getattr("PickleBuffer")?;

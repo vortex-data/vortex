@@ -239,7 +239,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
 
         Ok(fba::ArrayNode::create(
             fbb,

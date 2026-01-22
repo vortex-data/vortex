@@ -22,7 +22,7 @@ impl<W: AsyncWrite + Unpin> AsyncMessageWriter<W> {
     }
 
     pub async fn write_message(&mut self, message: EncoderMessage<'_>) -> VortexResult<()> {
-        for buffer in self.encoder.encode(message) {
+        for buffer in self.encoder.encode(message)? {
             self.write.write_all(&buffer).await?;
         }
         Ok(())
