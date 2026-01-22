@@ -13,6 +13,13 @@
 //! this crate compiles but provides no functionality.
 
 #[cfg(nvcomp_available)]
+#[expect(
+    non_upper_case_globals,
+    non_camel_case_types,
+    non_snake_case,
+    dead_code,
+    clippy::all
+)]
 pub mod sys;
 
 #[cfg(all(test, nvcomp_available))]
