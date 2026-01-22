@@ -35,7 +35,7 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             .execute(args)
             .vortex_expect("todo vortex result return");
 
-        match result {
+        let scalar = match result {
             ExecutionResult::Array(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
@@ -43,7 +43,89 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
                 );
                 arr.as_ref().scalar_at(0)
             }
-            ExecutionResult::Scalar(scalar) => scalar.scalar().clone(),
-        }
+            ExecutionResult::Scalar(constant) => constant.scalar().clone(),
+        };
+        scalar
+            .cast(&array.dtype)
+            .vortex_expect("scalar dtype must be castable to array dtype")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+    use vortex_scalar::Scalar;
+
+    use crate::Array;
+    use crate::IntoArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::expr::ScalarFn;
+    use crate::expr::exprs::binary::Binary;
+    use crate::expr::exprs::operators::Operator;
+
+    #[test]
+    fn test_scalar_at_add() -> VortexResult<()> {
+        let lhs = buffer![1i32, 2, 3].into_array();
+        let rhs = buffer![10i32, 20, 30].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        assert_eq!(scalar_fn_array.scalar_at(0), Scalar::from(11i32));
+        assert_eq!(scalar_fn_array.scalar_at(1), Scalar::from(22i32));
+        assert_eq!(scalar_fn_array.scalar_at(2), Scalar::from(33i32));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_mul() -> VortexResult<()> {
+        let lhs = buffer![2i32, 3, 4].into_array();
+        let rhs = buffer![5i32, 6, 7].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Mul);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        assert_eq!(scalar_fn_array.scalar_at(0), Scalar::from(10i32));
+        assert_eq!(scalar_fn_array.scalar_at(1), Scalar::from(18i32));
+        assert_eq!(scalar_fn_array.scalar_at(2), Scalar::from(28i32));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_with_nullable() -> VortexResult<()> {
+        use crate::validity::Validity;
+
+        let lhs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
+        let rhs =
+            PrimitiveArray::new(buffer![10i32, 20, 30], Validity::from_iter([true, false, true]))
+                .into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        assert_eq!(scalar_fn_array.scalar_at(0), Scalar::from(11i32));
+        assert!(scalar_fn_array.scalar_at(1).is_null());
+        assert_eq!(scalar_fn_array.scalar_at(2), Scalar::from(33i32));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_at_comparison() -> VortexResult<()> {
+        let lhs = buffer![1i32, 5, 3].into_array();
+        let rhs = buffer![2i32, 5, 1].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Eq);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        assert_eq!(scalar_fn_array.scalar_at(0), Scalar::from(false));
+        assert_eq!(scalar_fn_array.scalar_at(1), Scalar::from(true));
+        assert_eq!(scalar_fn_array.scalar_at(2), Scalar::from(false));
+
+        Ok(())
     }
 }
