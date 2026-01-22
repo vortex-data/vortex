@@ -19,7 +19,6 @@ version = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
-serde_json = { workspace = true }
 xshell = { workspace = true }
 
 [lints]
