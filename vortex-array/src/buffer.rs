@@ -76,7 +76,7 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     fn copy_to_host_async(
         &self,
         alignment: Alignment,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>;
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>>;
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
@@ -270,6 +270,26 @@ impl BufferHandle {
         match self.0 {
             Inner::Host(b) => Ok(b),
             Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+        }
+    }
+
+    /// Asynchronously copies this buffer to a host-resident allocation.
+    ///
+    /// If the allocation is already host-resident, this trivially completes with success.
+    ///
+    /// If it is a device allocation, then this schedules an async copy operation
+    /// and returns a future that resolves when the copy completes.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the host buffer when the copy completes.
+    pub fn to_host_async(&self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        match &self.0 {
+            Inner::Host(b) => {
+                let buffer = b.clone();
+                Ok(Box::pin(async move { Ok(buffer) }))
+            }
+            Inner::Device(device) => device.copy_to_host_async(ALIGNMENT_TO_HOST_COPY),
         }
     }
 }

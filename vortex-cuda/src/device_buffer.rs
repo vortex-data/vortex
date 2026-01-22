@@ -153,11 +153,11 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     ///
     /// # Returns
     ///
-    /// A future that resolves to the host buffer handle when the copy completes.
+    /// A future that resolves to the host buffer when the copy completes.
     fn copy_to_host_async(
         &self,
         alignment: Alignment,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         let stream = self.inner.stream();
         let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
 
@@ -192,8 +192,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
                 host_buffer.set_len(len);
             }
 
-            let byte_buffer = host_buffer.freeze().into_byte_buffer();
-            Ok(BufferHandle::new_host(byte_buffer))
+            Ok(host_buffer.freeze().into_byte_buffer())
         }))
     }
 
