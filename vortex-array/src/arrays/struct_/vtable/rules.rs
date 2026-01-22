@@ -50,38 +50,27 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let target_fields = parent.options.as_struct_fields();
-        let source_field_count = array.fields.len();
-        let target_field_count = target_fields.nfields();
+        let mut new_fields = Vec::with_capacity(target_fields.nfields());
 
-        // Target must have at least as many fields as source
-        vortex_ensure!(
-            target_field_count >= source_field_count,
-            "Cannot cast struct: target has fewer fields ({}) than source ({})",
-            target_field_count,
-            source_field_count
-        );
-
-        let mut new_fields = Vec::with_capacity(target_field_count);
-
-        // Cast existing source fields to target types
-        for (field_array, field_dtype) in array
-            .fields
-            .iter()
-            .zip(target_fields.fields().take(source_field_count))
+        for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields())
         {
-            new_fields.push(field_array.cast(field_dtype)?);
-        }
-
-        // Add null arrays for any extra target fields (schema evolution)
-        for field_dtype in target_fields.fields().skip(source_field_count) {
-            vortex_ensure!(
-                field_dtype.is_nullable(),
-                "Cannot add non-nullable field during struct cast (schema evolution only supports nullable fields)"
-            );
-            new_fields.push(
-                ConstantArray::new(vortex_scalar::Scalar::null(field_dtype), array.len())
-                    .into_array(),
-            );
+            match array.field_by_name(target_name).ok() {
+                Some(field) => {
+                    new_fields.push(field.cast(target_dtype)?);
+                }
+                None => {
+                    // Not found - create NULL array (schema evolution)
+                    vortex_ensure!(
+                        target_dtype.is_nullable(),
+                        "Cannot add non-nullable field '{}' during struct cast",
+                        target_name
+                    );
+                    new_fields.push(
+                        ConstantArray::new(vortex_scalar::Scalar::null(target_dtype), array.len())
+                            .into_array(),
+                    );
+                }
+            }
         }
 
         let validity = if parent.options.is_nullable() {
@@ -144,5 +133,62 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
                     .map(Some)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::StructFields;
+    use vortex_scalar::Scalar;
+
+    use crate::IntoArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::StructArray;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
+    use crate::canonical::ToCanonical;
+    use crate::validity::Validity;
+
+    #[test]
+    fn test_struct_cast_field_reorder() {
+        // Source: {a, b}, Target: {c, b, a} - reordered + new null field
+        let source = StructArray::try_new(
+            FieldNames::from(["a", "b"]),
+            vec![
+                VarBinViewArray::from_iter_str(["A"]).into_array(),
+                VarBinViewArray::from_iter_str(["B"]).into_array(),
+            ],
+            1,
+            Validity::NonNullable,
+        )
+        .unwrap();
+
+        let utf8_null = DType::Utf8(Nullability::Nullable);
+        let target = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["c", "b", "a"]),
+                vec![utf8_null.clone(); 3],
+            ),
+            Nullability::NonNullable,
+        );
+
+        // Use ArrayBuiltins::cast which goes through the optimizer and applies StructCastPushDownRule
+        let result = source.into_array().cast(target).unwrap().to_struct();
+        assert_arrays_eq!(
+            result.field_by_name("a").unwrap(),
+            VarBinViewArray::from_iter_nullable_str([Some("A")])
+        );
+        assert_arrays_eq!(
+            result.field_by_name("b").unwrap(),
+            VarBinViewArray::from_iter_nullable_str([Some("B")])
+        );
+        assert_arrays_eq!(
+            result.field_by_name("c").unwrap(),
+            ConstantArray::new(Scalar::null(utf8_null), 1)
+        );
     }
 }
