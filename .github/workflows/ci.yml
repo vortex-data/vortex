@@ -677,9 +677,11 @@ jobs:
       - name: Install Codspeed
         run: cargo install --force cargo-codspeed --locked
       - name: Build benchmarks
-        run: cargo codspeed build -p vortex-cuda --profile bench -m walltime
+        run: cargo codspeed -m walltime build -p vortex-cuda --profile bench
       - name: Run benchmarks
         uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
+        env:
+          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
         with:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
