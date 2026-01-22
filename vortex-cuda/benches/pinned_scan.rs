@@ -136,9 +136,9 @@ fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> D
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(result.len() > 0);
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -164,9 +164,9 @@ fn scan_default_copy(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer)
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(result.len() > 0);
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -197,9 +197,9 @@ fn scan_pinned(
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(result.len() > 0);
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -234,9 +234,9 @@ fn scan_device(
         // Synchronize to ensure all H2D transfers complete
         allocator.synchronize().expect("Failed to synchronize");
 
-        let elapsed = start.elapsed();
         assert!(result.len() > 0);
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 

@@ -244,9 +244,9 @@ fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> D
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(!result.is_empty());
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -270,9 +270,9 @@ fn scan_default_copy(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer)
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(!result.is_empty());
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -301,9 +301,9 @@ fn scan_default_copy_pooled(
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(!result.is_empty());
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -332,9 +332,9 @@ fn scan_pinned(
             .await
             .expect("Scan failed");
 
-        let elapsed = start.elapsed();
         assert!(!result.is_empty());
-        elapsed
+        drop(result);
+        start.elapsed()
     })
 }
 
@@ -464,7 +464,7 @@ fn main() -> ExitCode {
         .scans
         .iter()
         .any(|s| matches!(s, ScanType::DefaultCopyPooled))
-        .then(|| Arc::new(HostByteBufferPool::with_fixed_alignment(Alignment::new(4096), 4)));
+        .then(|| Arc::new(HostByteBufferPool::with_fixed_alignment_pow2(Alignment::new(4096), 4)));
 
     let stream = ctx
         .as_ref()

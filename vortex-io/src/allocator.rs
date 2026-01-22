@@ -71,6 +71,7 @@ pub struct HostByteBufferPool {
     max_keep_per_key: usize,
     buckets: Mutex<HashMap<(usize, Alignment), Vec<ByteBufferMut>>>,
     fixed_alignment: Option<Alignment>,
+    round_len_pow2: bool,
     hits: AtomicU64,
     misses: AtomicU64,
     allocs: AtomicU64,
@@ -89,6 +90,7 @@ impl HostByteBufferPool {
             max_keep_per_key: max_keep_per_key.max(1),
             buckets: Mutex::new(HashMap::new()),
             fixed_alignment: None,
+            round_len_pow2: false,
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
             allocs: AtomicU64::new(0),
@@ -103,29 +105,55 @@ impl HostByteBufferPool {
         pool
     }
 
+    /// Create a new pool with fixed alignment and power-of-two length bucketing.
+    pub fn with_fixed_alignment_pow2(alignment: Alignment, max_keep_per_key: usize) -> Self {
+        let mut pool = Self::with_limits(max_keep_per_key);
+        pool.fixed_alignment = Some(alignment);
+        pool.round_len_pow2 = true;
+        pool
+    }
+
+    fn size_class_len(&self, len: usize) -> usize {
+        if !self.round_len_pow2 {
+            return len;
+        }
+        if len == 0 {
+            0
+        } else {
+            len.next_power_of_two()
+        }
+    }
+
     fn get(&self, len: usize, alignment: Alignment) -> VortexResult<ByteBufferMut> {
+        let key_len = self.size_class_len(len);
         let key_alignment = match self.fixed_alignment {
             Some(fixed) if fixed.is_aligned_to(alignment) => fixed,
             Some(_) => alignment,
             None => alignment,
         };
         let mut buckets = self.buckets.lock();
-        if let Some(bucket) = buckets.get_mut(&(len, key_alignment))
+        if let Some(bucket) = buckets.get_mut(&(key_len, key_alignment))
             && let Some(mut buf) = bucket.pop()
         {
+            debug_assert!(buf.capacity() >= len);
             unsafe { buf.set_len(len) };
             self.hits.fetch_add(1, Ordering::Relaxed);
             return Ok(buf);
         }
         self.misses.fetch_add(1, Ordering::Relaxed);
         self.allocs.fetch_add(1, Ordering::Relaxed);
-        let mut buf = ByteBufferMut::with_capacity_aligned(len, key_alignment);
+        let mut buf = ByteBufferMut::with_capacity_aligned(key_len, key_alignment);
         unsafe { buf.set_len(len) };
         Ok(buf)
     }
 
     fn put(&self, buf: ByteBufferMut) -> VortexResult<()> {
-        let len = buf.len();
+        let len = if self.round_len_pow2 {
+            buf.capacity()
+        } else {
+            buf.len()
+        };
+        let len = self.size_class_len(len);
         let alignment = match self.fixed_alignment {
             Some(fixed) if fixed.is_aligned_to(buf.alignment()) => fixed,
             Some(_) => buf.alignment(),
