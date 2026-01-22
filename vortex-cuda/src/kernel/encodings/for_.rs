@@ -114,6 +114,81 @@ mod tests {
     use crate::session::CudaSession;
 
     #[tokio::test]
+    async fn test_cuda_for_decompression_u8() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        #[allow(clippy::cast_possible_truncation)]
+        let input_data: Vec<u8> = (0..5000).map(|i| (i % 246) as u8).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data), NonNullable).into_array(),
+            10u8.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decode on CPU
+        let cpu_result = for_array
+            .to_canonical()
+            .vortex_expect("CPU canonicalize failed");
+
+        // Decode on GPU
+        let gpu_result = FoRDecoder
+            .execute(for_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Copy GPU result back to host for comparison
+        let gpu_host = Buffer::<u8>::from_byte_buffer(
+            gpu_result.into_primitive().buffer_handle().to_host().await,
+        );
+        let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_array.into_array());
+    }
+
+    #[tokio::test]
+    async fn test_cuda_for_decompression_u16() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let input_data: Vec<u16> = (0..5000).map(|i| (i % 5000) as u16).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data), NonNullable).into_array(),
+            1000u16.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decode on CPU
+        let cpu_result = for_array
+            .to_canonical()
+            .vortex_expect("CPU canonicalize failed");
+
+        // Decode on GPU
+        let gpu_result = FoRDecoder
+            .execute(for_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Copy GPU result back to host for comparison
+        let gpu_host = Buffer::<u16>::from_byte_buffer(
+            gpu_result.into_primitive().buffer_handle().to_host().await,
+        );
+        let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_array.into_array());
+    }
+
+    #[tokio::test]
     async fn test_cuda_for_decompression_u32() {
         if !has_nvcc() {
             return;
@@ -143,6 +218,43 @@ mod tests {
 
         // Copy GPU result back to host for comparison
         let gpu_host = Buffer::<u32>::from_byte_buffer(
+            gpu_result.into_primitive().buffer_handle().to_host().await,
+        );
+        let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_array.into_array());
+    }
+
+    #[tokio::test]
+    async fn test_cuda_for_decompression_u64() {
+        if !has_nvcc() {
+            return;
+        }
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let input_data: Vec<u64> = (0..5000).map(|i| (i % 5000) as u64).collect();
+
+        let for_array = FoRArray::try_new(
+            PrimitiveArray::new(Buffer::from(input_data), NonNullable).into_array(),
+            1000000u64.into(),
+        )
+        .vortex_expect("failed to create FoR array");
+
+        // Decode on CPU
+        let cpu_result = for_array
+            .to_canonical()
+            .vortex_expect("CPU canonicalize failed");
+
+        // Decode on GPU
+        let gpu_result = FoRDecoder
+            .execute(for_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed");
+
+        // Copy GPU result back to host for comparison
+        let gpu_host = Buffer::<u64>::from_byte_buffer(
             gpu_result.into_primitive().buffer_handle().to_host().await,
         );
         let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
