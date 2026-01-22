@@ -677,7 +677,7 @@ jobs:
       - name: Install Codspeed
         run: cargo install --force cargo-codspeed --locked
       - name: Build benchmarks
-        run: cargo codspeed build -p vortex-cuda --profile bench
+        run: cargo codspeed build -p vortex-cuda --profile bench -m walltime
       - name: Run benchmarks
         uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
         with:
