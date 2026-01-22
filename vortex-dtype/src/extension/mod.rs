@@ -58,8 +58,31 @@ impl<V: VTable> ExtDType<V> {
 }
 
 /// Type-erased extension dtype - for heterogeneous storage
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone)]
 pub struct ExtDTypeRef(Arc<dyn ExtDTypeImpl>);
+
+impl Debug for ExtDTypeRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExtDType")
+            .field("id", &self.id())
+            .field("options", &self.options_ref())
+            .finish()
+    }
+}
+
+impl PartialEq for ExtDTypeRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id() && self.options_ref() == other.options_ref()
+    }
+}
+impl Eq for ExtDTypeRef {}
+
+impl Hash for ExtDTypeRef {
+    fn hash<H: Hasher>(&self, mut state: &mut H) {
+        self.id().hash(&mut state);
+        self.options_ref().hash(&mut state);
+    }
+}
 
 impl ExtDTypeRef {
     /// Returns the identifier of the extension type.

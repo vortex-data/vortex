@@ -3,7 +3,6 @@
 
 use std::fmt::Display;
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use jiff::Timestamp;
 use jiff::Zoned;

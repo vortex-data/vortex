@@ -14,10 +14,12 @@ use crate::datetime::Timestamp;
 use crate::extension::DynVTable;
 use crate::extension::VTable;
 
+pub type ExtDTypeRegistry = Registry<&'static dyn DynVTable>;
+
 /// Session for managing extension dtypes.
 #[derive(Debug)]
 pub struct DTypeSession {
-    registry: Registry<&'static dyn DynVTable>,
+    registry: ExtDTypeRegistry,
 }
 
 impl Default for DTypeSession {
@@ -44,7 +46,7 @@ impl DTypeSession {
     }
 
     /// Return the registry of extension dtypes.
-    pub fn registry(&self) -> &Registry<&'static dyn DynVTable> {
+    pub fn registry(&self) -> &ExtDTypeRegistry {
         &self.registry
     }
 }

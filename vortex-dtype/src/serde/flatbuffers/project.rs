@@ -7,6 +7,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
+use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::StructFields;
@@ -72,6 +73,7 @@ fn read_field(
     fb_struct: fb::Struct_,
     idx: usize,
     buffer: &FlatBuffer,
+    session: &VortexSession,
 ) -> VortexResult<(Arc<str>, DType)> {
     let name = fb_struct
         .names()
@@ -82,7 +84,7 @@ fn read_field(
         .ok_or_else(|| vortex_err!("Missing field dtypes"))?
         .get(idx);
 
-    let dtype = DType::try_from_view(fb_dtype, buffer.clone())?;
+    let dtype = DType::try_from_view(fb_dtype, buffer.clone(), session)?;
 
     Ok((name.into(), dtype))
 }

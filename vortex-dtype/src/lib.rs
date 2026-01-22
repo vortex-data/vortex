@@ -60,3 +60,15 @@ pub mod flatbuffers {
 
     pub use super::serde::flatbuffers::*;
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
+
+    use crate::session::DTypeSession;
+
+    pub(crate) static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<DTypeSession>());
+}

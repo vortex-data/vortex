@@ -18,7 +18,6 @@ use vortex_flatbuffers::dtype as fbd;
 
 use crate::DType;
 use crate::DecimalDType;
-use crate::ExtDType;
 use crate::ExtID;
 use crate::FieldDType;
 use crate::PType;
@@ -27,22 +26,28 @@ use crate::flatbuffers as fb;
 
 mod project;
 pub use project::*;
+use vortex_session::VortexSession;
+
+use crate::session::DTypeSessionExt;
 
 /// A lazily evaluated DType, parsed on access from an underlying flatbuffer.
-#[derive(Debug, Clone, PartialOrd, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub(crate) struct ViewedDType {
     /// Underlying flatbuffer
     flatbuffer: FlatBuffer,
     /// Location of the dtype data inside the underlying buffer
     flatbuffer_loc: usize,
+    /// The Vortex session used to resolve extensions
+    session: VortexSession,
 }
 
 impl ViewedDType {
     /// Create a [`ViewedDType`] from a buffer and a flatbuffer location
-    fn from_fb_loc(location: usize, buffer: FlatBuffer) -> Self {
+    fn from_fb_loc(location: usize, buffer: FlatBuffer, session: VortexSession) -> Self {
         Self {
             flatbuffer: buffer,
             flatbuffer_loc: location,
+            session,
         }
     }
 
@@ -59,7 +64,11 @@ impl ViewedDType {
 
 impl StructFields {
     /// Creates a new instance from a flatbuffer-defined object and its underlying buffer.
-    fn from_fb(fb_struct: fbd::Struct_<'_>, buffer: FlatBuffer) -> VortexResult<Self> {
+    fn from_fb(
+        fb_struct: fbd::Struct_<'_>,
+        buffer: FlatBuffer,
+        session: VortexSession,
+    ) -> VortexResult<Self> {
         let names = fb_struct
             .names()
             .ok_or_else(|| vortex_err!("failed to parse struct names from flatbuffer"))?
@@ -70,7 +79,13 @@ impl StructFields {
             .dtypes()
             .ok_or_else(|| vortex_err!("failed to parse struct dtypes from flatbuffer"))?
             .iter()
-            .map(|dt| FieldDType::from(ViewedDType::from_fb_loc(dt._tab.loc(), buffer.clone())))
+            .map(|dt| {
+                FieldDType::from(ViewedDType::from_fb_loc(
+                    dt._tab.loc(),
+                    buffer.clone(),
+                    session.clone(),
+                ))
+            })
             .collect::<Vec<_>>();
 
         Ok(StructFields::from_fields(names, dtypes))
@@ -79,8 +94,12 @@ impl StructFields {
 
 impl DType {
     /// Create a new
-    pub fn try_from_view(fb: fbd::DType, buffer: FlatBuffer) -> VortexResult<Self> {
-        let vdt = ViewedDType::from_fb_loc(fb._tab.loc(), buffer);
+    pub fn try_from_view(
+        fb: fbd::DType,
+        buffer: FlatBuffer,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let vdt = ViewedDType::from_fb_loc(fb._tab.loc(), buffer, session.clone());
         Self::try_from(vdt)
     }
 }
@@ -139,6 +158,7 @@ impl TryFrom<ViewedDType> for DType {
                 let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
                     list_element._tab.loc(),
                     vfdt.buffer().clone(),
+                    vfdt.session.clone(),
                 ))?;
                 Ok(Self::List(
                     Arc::new(element_dtype),
@@ -156,6 +176,7 @@ impl TryFrom<ViewedDType> for DType {
                 let element_dtype = Self::try_from(ViewedDType::from_fb_loc(
                     list_element._tab.loc(),
                     vfdt.buffer().clone(),
+                    vfdt.session.clone(),
                 ))?;
                 Ok(Self::FixedSizeList(
                     Arc::new(element_dtype),
@@ -167,7 +188,8 @@ impl TryFrom<ViewedDType> for DType {
                 let fb_struct = fb
                     .type__as_struct_()
                     .ok_or_else(|| vortex_err!("failed to parse struct from flatbuffer"))?;
-                let struct_dtype = StructFields::from_fb(fb_struct, vfdt.buffer().clone())?;
+                let struct_dtype =
+                    StructFields::from_fb(fb_struct, vfdt.buffer().clone(), vfdt.session.clone())?;
 
                 Ok(Self::Struct(struct_dtype, fb_struct.nullable().into()))
             }
@@ -179,21 +201,36 @@ impl TryFrom<ViewedDType> for DType {
                     ExtID::from(fb_ext.id().ok_or_else(|| {
                         vortex_err!("failed to parse extension id from flatbuffer")
                     })?);
-                let metadata = fb_ext.metadata().map(|m| ExtMetadata::from(m.bytes()));
                 let storage_dtype = fb_ext.storage_dtype().ok_or_else(|| {
                     vortex_err!(
                 InvalidSerde: "storage_dtype must be present on DType fbs message")
                 })?;
-                let storage_view =
-                    ViewedDType::from_fb_loc(storage_dtype._tab.loc(), vfdt.buffer().clone());
+                let storage_view = ViewedDType::from_fb_loc(
+                    storage_dtype._tab.loc(),
+                    vfdt.buffer().clone(),
+                    vfdt.session.clone(),
+                );
+                let storage_dtype = DType::try_from(storage_view)
+                    .map_err(|e| vortex_err!("failed to create DType from fbs message: {e}"))?;
 
-                Ok(Self::Extension(Arc::new(ExtDType::new(
-                    id,
-                    Arc::new(DType::try_from(storage_view).map_err(|e| {
-                        vortex_err!("failed to create DType from fbs message: {e}")
-                    })?),
-                    metadata,
-                ))))
+                let vtable = vfdt
+                    .session
+                    .dtypes()
+                    .registry()
+                    .find(&id)
+                    .ok_or_else(|| vortex_err!("No such DType extension ID: {}", id))?;
+                let ext_dtype = vtable.deserialize(
+                    fb_ext
+                        .metadata()
+                        .ok_or_else(|| {
+                            vortex_err!("failed to parse extension metadata from flatbuffer")
+                        })?
+                        .bytes(),
+                    storage_dtype,
+                    &vfdt.session,
+                )?;
+
+                Ok(Self::Extension(ext_dtype))
             }
             // This is here to fail to compile if another variant is included.
             #[allow(clippy::wildcard_in_or_patterns)]
@@ -302,8 +339,7 @@ impl WriteFlatBuffer for DType {
             Self::Extension(ext) => {
                 let id = Some(fbb.create_string(ext.id().as_ref()));
                 let storage_dtype = Some(ext.storage_dtype().write_flatbuffer(fbb)?);
-                let metadata = ext.options_ref().serialize()?;
-                let metadata = ext.metadata().map(|m| fbb.create_vector(m.as_ref()));
+                let metadata = Some(fbb.create_vector(&ext.options_ref().serialize()?));
                 fb::Extension::create(
                     fbb,
                     &fb::ExtensionArgs {
@@ -392,11 +428,16 @@ mod test {
     use crate::flatbuffers as fb;
     use crate::nullability::Nullability;
     use crate::serde::flatbuffers::ViewedDType;
+    use crate::test::SESSION;
 
     fn roundtrip_dtype(dtype: DType) {
         let bytes = dtype.write_flatbuffer_bytes().unwrap();
         let root_fb = root::<fb::DType>(&bytes).unwrap();
-        let view = ViewedDType::from_fb_loc(root_fb._tab.loc(), FlatBuffer::from(bytes.clone()));
+        let view = ViewedDType::from_fb_loc(
+            root_fb._tab.loc(),
+            FlatBuffer::from(bytes.clone()),
+            SESSION.clone(),
+        );
 
         let deserialized = DType::try_from(view).unwrap();
         assert_eq!(dtype, deserialized);
