@@ -568,7 +568,7 @@ impl PyArray {
     /// OverflowError: can't convert negative int to unsigned
     /// ```
     // TODO(ngates): return a vortex.Scalar
-    fn scalar_at(slf: Bound<Self>, index: usize) -> Result<Bound<PyScalar>, PyVortexError> {
+    fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
         Ok(PyScalar::init(py, slf.scalar_at(index)?)?)
@@ -690,7 +690,7 @@ impl PyArray {
     /// the data needed for pickle to reconstruct the array.
     fn __reduce__<'py>(
         slf: &'py Bound<'py, Self>,
-    ) -> Result<(Bound<'py, PyAny>, Bound<'py, PyAny>), PyVortexError> {
+    ) -> PyVortexResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
         let py = slf.py();
         let array = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
 
@@ -717,7 +717,7 @@ impl PyArray {
     fn __reduce_ex__<'py>(
         slf: &'py Bound<'py, Self>,
         protocol: i32,
-    ) -> Result<(Bound<'py, PyAny>, Bound<'py, PyAny>), PyVortexError> {
+    ) -> PyVortexResult<(Bound<'py, PyAny>, Bound<'py, PyAny>)> {
         let py = slf.py();
 
         if protocol < 5 {
