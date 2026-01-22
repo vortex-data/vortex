@@ -11,7 +11,7 @@ use vortex::error::vortex_err;
 use vortex::scalar::StructScalar;
 
 use crate::PyVortex;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::scalar::AsScalarRef;
 use crate::scalar::PyScalar;
 use crate::scalar::ScalarSubclass;
@@ -27,7 +27,7 @@ impl ScalarSubclass for PyStructScalar {
 #[pymethods]
 impl PyStructScalar {
     /// Return the child scalar with the given field name.
-    pub fn field(self_: PyRef<'_, Self>, name: &str) -> Result<Py<PyAny>, PyVortexError> {
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyVortexResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .field(name)

@@ -14,10 +14,10 @@ pub(crate) use python::*;
 use vortex::array::vtable::ArrayId;
 pub(crate) use vtable::*;
 
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Extract the array id from a Python class `id` attribute.
-pub fn id_from_obj(cls: &Bound<PyAny>) -> Result<ArrayId, PyVortexError> {
+pub fn id_from_obj(cls: &Bound<PyAny>) -> PyVortexResult<ArrayId> {
     Ok(ArrayId::new_arc(
         cls.getattr("id")
             .map_err(|_| {

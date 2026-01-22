@@ -8,7 +8,7 @@ use vortex::array::ArrayRef;
 use vortex::scan::RepeatedScan;
 
 use crate::RUNTIME;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
 use crate::scalar::PyScalar;
@@ -36,7 +36,7 @@ impl PyRepeatedScan {
         slf: Bound<Self>,
         start: Option<u64>,
         stop: Option<u64>,
-    ) -> Result<PyArrayIterator, PyVortexError> {
+    ) -> PyVortexResult<PyArrayIterator> {
         let row_count = slf.get().row_count;
         let row_range = match (start, stop) {
             (Some(start), Some(stop)) => Some(start..stop),
@@ -50,7 +50,7 @@ impl PyRepeatedScan {
         )))
     }
 
-    fn scalar_at(slf: Bound<Self>, index: u64) -> Result<Bound<PyScalar>, PyVortexError> {
+    fn scalar_at(slf: Bound<Self>, index: u64) -> PyVortexResult<Bound<PyScalar>> {
         let row_count = slf.get().row_count;
         if index >= row_count {
             return Err(PyIndexError::new_err(format!(

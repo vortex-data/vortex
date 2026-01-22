@@ -29,7 +29,7 @@ use crate::TOKIO_RUNTIME;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::arrow::ToPyArrow;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::object_store_urls::object_store_from_url;
@@ -134,7 +134,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'py, PyExpr>>,
         indices: Option<PyArrayRef>,
         row_range: Option<(u64, u64)>,
-    ) -> Result<PyArrayRef, PyVortexError> {
+    ) -> PyVortexResult<PyArrayRef> {
         let array = read_array_from_reader(
             &self.vxf,
             projection_from_python(columns)?,
@@ -152,7 +152,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> Result<Py<PyAny>, PyVortexError> {
+    ) -> PyVortexResult<Py<PyAny>> {
         let mut scan = self_
             .vxf
             .scan()?
@@ -178,7 +178,7 @@ impl PyVortexDataset {
         row_filter: Option<&Bound<'_, PyExpr>>,
         split_by: Option<usize>,
         row_range: Option<(u64, u64)>,
-    ) -> Result<usize, PyVortexError> {
+    ) -> PyVortexResult<usize> {
         if row_filter.is_none() {
             let row_count = match row_range {
                 Some(range) => range.1 - range.0,
@@ -210,7 +210,7 @@ impl PyVortexDataset {
 
     /// The natural splits of this Dataset.
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> Result<Vec<(u64, u64)>, PyVortexError> {
+    pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
             .splits()?
@@ -221,6 +221,6 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(py: Python, url: &str) -> Result<PyVortexDataset, PyVortexError> {
+pub fn dataset_from_url(py: Python, url: &str) -> PyVortexResult<PyVortexDataset> {
     Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
 }

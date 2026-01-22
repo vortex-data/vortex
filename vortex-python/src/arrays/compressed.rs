@@ -19,7 +19,7 @@ use crate::PyVortex;
 use crate::arrays::PyArrayRef;
 use crate::arrays::native::EncodingSubclass;
 use crate::arrays::native::PyNativeArray;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Concrete class for arrays with `vortex.alp` encoding.
 #[pyclass(name = "AlpArray", module = "vortex", extends=PyNativeArray, frozen)]
@@ -88,7 +88,7 @@ impl EncodingSubclass for PyZigZagArray {
 #[pymethods]
 impl PyZigZagArray {
     #[staticmethod]
-    pub fn encode(array: PyArrayRef) -> Result<PyArrayRef, PyVortexError> {
+    pub fn encode(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
         Ok(PyVortex(
             zigzag_encode(array.inner().clone().to_primitive())?.into_array(),
         ))

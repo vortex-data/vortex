@@ -47,7 +47,7 @@ use crate::dtype::null::PyNullDType;
 use crate::dtype::primitive::PyPrimitiveDType;
 use crate::dtype::struct_::PyStructDType;
 use crate::dtype::utf8::PyUtf8DType;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::python_repr::PythonRepr;
 
@@ -154,11 +154,11 @@ impl PyDType {
 
 #[pymethods]
 impl PyDType {
-    fn to_arrow_type(&self, py: Python) -> Result<Py<PyAny>, PyVortexError> {
+    fn to_arrow_type(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
         Ok(self.0.to_arrow_dtype()?.to_pyarrow(py)?)
     }
 
-    fn to_arrow_schema(&self, py: Python) -> Result<Py<PyAny>, PyVortexError> {
+    fn to_arrow_schema(&self, py: Python) -> PyVortexResult<Py<PyAny>> {
         Ok(self.0.to_arrow_schema()?.to_pyarrow(py)?)
     }
 

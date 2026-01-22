@@ -29,7 +29,7 @@ use crate::arrays::PyArray;
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
 use crate::dataset::PyVortexDataset;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
@@ -112,7 +112,7 @@ pub fn read_url<'py>(
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
-) -> Result<PyArrayRef, PyVortexError> {
+) -> PyVortexResult<PyArrayRef> {
     let dataset = py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?;
     dataset.to_array(projection, row_filter, indices, row_range)
 }
@@ -169,7 +169,7 @@ pub fn read_url<'py>(
 /// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
 #[pyo3(signature = (iter, path))]
-pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> Result<(), PyVortexError> {
+pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyVortexResult<()> {
     py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let file = File::create(path).await?;
@@ -288,7 +288,7 @@ impl PyVortexWriteOptions {
         py: Python,
         iter: PyIntoArrayIterator,
         path: &str,
-    ) -> Result<(), PyVortexError> {
+    ) -> PyVortexResult<()> {
         py.detach(|| {
             TOKIO_RUNTIME.block_on(async move {
                 let file = File::create(path).await?;

@@ -31,7 +31,7 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
@@ -50,11 +50,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(signature = (path, *, without_segment_cache = false))]
-pub fn open(
-    py: Python,
-    path: &str,
-    without_segment_cache: bool,
-) -> Result<PyVortexFile, PyVortexError> {
+pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyVortexResult<PyVortexFile> {
     let vxf = py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
@@ -94,7 +90,7 @@ impl PyVortexFile {
         expr: Option<PyExpr>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> Result<PyArrayIterator, PyVortexError> {
+    ) -> PyVortexResult<PyArrayIterator> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -114,7 +110,7 @@ impl PyVortexFile {
         expr: Option<PyExpr>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> Result<PyRepeatedScan, PyVortexError> {
+    ) -> PyVortexResult<PyRepeatedScan> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -136,7 +132,7 @@ impl PyVortexFile {
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         batch_size: Option<usize>,
-    ) -> Result<Py<PyAny>, PyVortexError> {
+    ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
 
         let reader = slf.py().detach(|| {
@@ -157,12 +153,12 @@ impl PyVortexFile {
         Ok(rbr.into_pyarrow(slf.py())?)
     }
 
-    fn to_dataset(slf: Bound<Self>) -> Result<PyVortexDataset, PyVortexError> {
+    fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
 
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> Result<Vec<(u64, u64)>, PyVortexError> {
+    pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
             .splits()?

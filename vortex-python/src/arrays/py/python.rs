@@ -10,7 +10,7 @@ use vortex::dtype::DType;
 use crate::arrays::PyArray;
 use crate::arrays::py::id_from_obj;
 use crate::dtype::PyDType;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Base class for implementing a Vortex encoding in Python.
 ///
@@ -32,7 +32,7 @@ impl PyPythonArray {
         cls: &Bound<'_, PyType>,
         len: usize,
         dtype: PyDType,
-    ) -> Result<PyClassInitializer<Self>, PyVortexError> {
+    ) -> PyVortexResult<PyClassInitializer<Self>> {
         let id = id_from_obj(cls)?;
         Ok(PyClassInitializer::from(PyArray).add_subclass(Self {
             id,

@@ -12,6 +12,9 @@ pub enum PyVortexError {
     Vortex(VortexError),
 }
 
+/// A [`Result`] alias where the error is [`PyVortexError`].
+pub type PyVortexResult<T> = Result<T, PyVortexError>;
+
 impl From<PyErr> for PyVortexError {
     fn from(value: PyErr) -> Self {
         Self::Py(value)

@@ -5,7 +5,7 @@ use pyo3::prelude::*;
 use vortex::compressor::BtrBlocksCompressor;
 
 use crate::arrays::PyArrayRef;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::install_module;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -50,7 +50,7 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 ///    >>> str(vx.compress(a))
 ///    'vortex.alp(f64?, len=1000)'
 #[pyfunction]
-pub fn compress(array: PyArrayRef) -> Result<PyArrayRef, PyVortexError> {
+pub fn compress(array: PyArrayRef) -> PyVortexResult<PyArrayRef> {
     let compressed = BtrBlocksCompressor::default().compress(array.inner())?;
     Ok(PyArrayRef::from(compressed))
 }

@@ -21,7 +21,7 @@ use vortex::dtype::PType;
 use vortex::dtype::StructFields;
 
 use crate::dtype::PyDType;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Construct the data type for a column containing only the null value.
 ///
@@ -261,7 +261,7 @@ pub(super) fn dtype_decimal(
     precision: u8,
     scale: i8,
     nullable: bool,
-) -> Result<Bound<'_, PyDType>, PyVortexError> {
+) -> PyVortexResult<Bound<'_, PyDType>> {
     let decimal_type = DType::Decimal(DecimalDType::try_new(precision, scale)?, nullable.into());
     Ok(PyDType::init(py, decimal_type)?)
 }

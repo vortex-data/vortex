@@ -19,10 +19,10 @@ use vortex::error::VortexError;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Convert an Arrow object to a Vortex array.
-pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> Result<PyArrayRef, PyVortexError> {
+pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArrayRef> {
     let pa = obj.py().import("pyarrow")?;
     let pa_array = pa.getattr("Array")?;
     let chunked_array = pa.getattr("ChunkedArray")?;
@@ -55,7 +55,7 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> Result<PyArrayRef, Py
         let dtype = DType::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
-            .map(|b| -> Result<_, PyVortexError> {
+            .map(|b| -> PyVortexResult<_> {
                 Ok(ArrayRef::from_arrow(b.map_err(VortexError::from)?, false))
             })
             .collect::<Result<Vec<_>, _>>()?;

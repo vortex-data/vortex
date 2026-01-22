@@ -17,7 +17,7 @@ use vortex::buffer::ByteBuffer;
 use crate::SESSION;
 use crate::arrays::PyArrayRef;
 use crate::dtype::PyDType;
-use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 use crate::serde::context::PyArrayContext;
 
 /// ArrayParts is a parsed representation of a serialized array.
@@ -44,7 +44,7 @@ impl From<ArrayParts> for PyArrayParts {
 impl PyArrayParts {
     /// Parse a serialized array into its parts.
     #[staticmethod]
-    fn parse(data: &[u8]) -> Result<PyArrayParts, PyVortexError> {
+    fn parse(data: &[u8]) -> PyVortexResult<PyArrayParts> {
         // TODO(ngates): create a buffer from a slice of bytes?
         let buffer = ByteBuffer::copy_from(data);
         Ok(PyArrayParts(ArrayParts::try_from(buffer)?))
@@ -60,7 +60,7 @@ impl PyArrayParts {
         ctx: &PyArrayContext,
         dtype: PyDType,
         len: usize,
-    ) -> Result<PyArrayRef, PyVortexError> {
+    ) -> PyVortexResult<PyArrayRef> {
         Ok(PyArrayRef::from(self.0.decode(
             dtype.inner(),
             len,
@@ -87,7 +87,7 @@ impl PyArrayParts {
     fn buffers<'py>(
         slf: PyRef<'py, Self>,
         py: Python<'py>,
-    ) -> Result<Vec<Bound<'py, PyAny>>, PyVortexError> {
+    ) -> PyVortexResult<Vec<Bound<'py, PyAny>>> {
         if slf.nbuffers() == 0 {
             return Ok(Vec::new());
         }
