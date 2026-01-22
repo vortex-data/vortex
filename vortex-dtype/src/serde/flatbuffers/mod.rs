@@ -226,7 +226,6 @@ impl TryFrom<ViewedDType> for DType {
                         })?
                         .bytes(),
                     storage_dtype,
-                    &vfdt.session,
                 )?;
 
                 Ok(Self::Extension(ext_dtype))

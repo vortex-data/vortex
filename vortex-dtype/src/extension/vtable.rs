@@ -8,7 +8,6 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
-use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::ExtDType;
@@ -27,7 +26,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn serialize(options: &Self::Options) -> VortexResult<Vec<u8>>;
 
     /// Deserialize the options from a byte slice.
-    fn deserialize(data: &[u8], session: &VortexSession) -> VortexResult<Self::Options>;
+    fn deserialize(data: &[u8]) -> VortexResult<Self::Options>;
 
     /// Validate that the given storage type is compatible with this extension type.
     fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
@@ -39,12 +38,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
 /// A dynamic vtable for extension types, used for type-erased deserialization.
 pub trait DynVTable: 'static + Send + Sync + Debug + private::Sealed {
     /// Deserialize an extension type from serialized options.
-    fn deserialize(
-        &self,
-        data: &[u8],
-        storage_dtype: DType,
-        session: &VortexSession,
-    ) -> VortexResult<ExtDTypeRef>;
+    fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
 }
 
 /// Adapter to convert a strongly typed VTable into a DynVTable.
@@ -57,13 +51,8 @@ impl<V: VTable> Debug for VTableAdapter<V> {
 }
 
 impl<V: VTable> DynVTable for VTableAdapter<V> {
-    fn deserialize(
-        &self,
-        data: &[u8],
-        storage_dtype: DType,
-        session: &VortexSession,
-    ) -> VortexResult<ExtDTypeRef> {
-        let options = V::deserialize(data, session)?;
+    fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
+        let options = V::deserialize(data)?;
         Ok(ExtDType::<V>::try_new(options, storage_dtype)?.erase())
     }
 }

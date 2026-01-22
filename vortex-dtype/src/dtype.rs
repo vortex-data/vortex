@@ -44,6 +44,7 @@ use crate::nullability::Nullability;
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
     /// A logical null type.
     ///
