@@ -557,7 +557,7 @@ impl PyArray {
     /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
     /// Traceback (most recent call last):
     /// ...
-    /// ValueError: index 10 out of bounds from 0 to 4
+    /// IndexError: Index 10 out of bounds from 0 to 4
     /// ```
     ///
     /// Unlike Python, negative indices are not supported:
