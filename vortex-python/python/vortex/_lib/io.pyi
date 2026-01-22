@@ -4,19 +4,12 @@
 from ..type_aliases import IntoArrayIterator
 from .arrays import Array
 from .expr import Expr
-from .store import (
-    AzureStore,
-    GCSStore,
-    HTTPStore,
-    LocalStore,
-    MemoryStore,
-    S3Store,
-)
+from .store import ObjectStore
 
 def read_url(
     url: str,
     *,
-    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    store: ObjectStore | None = None,
     projection: list[str] | list[int] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,
@@ -25,7 +18,7 @@ def write(
     iter: IntoArrayIterator,
     path: str,
     *,
-    store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+    store: ObjectStore | None = None,
 ) -> None: ...
 
 class VortexWriteOptions:
@@ -38,5 +31,5 @@ class VortexWriteOptions:
         iter: IntoArrayIterator,
         path: str,
         *,
-        store: AzureStore | GCSStore | HTTPStore | LocalStore | MemoryStore | S3Store | None = None,
+        store: ObjectStore | None = None,
     ) -> VortexWriteOptions: ...

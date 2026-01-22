@@ -1,30 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from vortex._lib.store import (  # pyright: ignore[reportMissingModuleSource]
-    AzureAccessKey,
-    AzureBearerToken,
-    AzureConfig,
-    AzureCredential,
-    AzureCredentialProvider,
-    AzureSASToken,
+from typing import TYPE_CHECKING
+
+from ._lib.store import (  # pyright: ignore[reportMissingModuleSource]
     AzureStore,
-    BackoffConfig,
-    ClientConfig,
-    GCSConfig,
-    GCSCredential,
-    GCSCredentialProvider,
     GCSStore,
     HTTPStore,
     LocalStore,
     MemoryStore,
-    RetryConfig,
-    S3Config,
-    S3Credential,
-    S3CredentialProvider,
     S3Store,
     from_url,
 )
+
+if TYPE_CHECKING:
+    from ._lib.store import (  # pyright: ignore[reportMissingModuleSource]
+        AzureAccessKey,
+        AzureBearerToken,
+        AzureConfig,
+        AzureCredential,
+        AzureCredentialProvider,
+        AzureSASToken,
+        BackoffConfig,
+        ClientConfig,
+        GCSConfig,
+        GCSCredential,
+        GCSCredentialProvider,
+        RetryConfig,
+        S3Config,
+        S3Credential,
+        S3CredentialProvider,
+    )
 
 __all__ = [
     # Azure
