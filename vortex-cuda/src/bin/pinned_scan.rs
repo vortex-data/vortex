@@ -78,6 +78,10 @@ struct Config {
     buffered_bytes: u64,
     coalesce_min_bytes: u64,
     chunk_rows: usize,
+    sweep_buffered_bytes: Vec<u64>,
+    sweep_coalesce_min_bytes: Vec<u64>,
+    sweep_row_block_rows: Vec<usize>,
+    sweep_chunk_rows: Vec<usize>,
 }
 
 fn usage() -> &'static str {
@@ -90,7 +94,11 @@ Flags:\n\
   --row-block-rows     Rows per row block (default: 8192)\n\
   --buffered-bytes     Buffered segment target in bytes (default: 2097152)\n\
   --coalesce-min-bytes Minimum coalesced segment size in bytes (default: 1048576)\n\
-  --chunk-rows         Rows per generated chunk (default: 1000000)\n"
+  --chunk-rows         Rows per generated chunk (default: 1000000)\n\
+  --sweep-buffered-bytes    Comma-separated buffered bytes values to sweep\n\
+  --sweep-coalesce-min-bytes Comma-separated coalesce min bytes values to sweep\n\
+  --sweep-row-block-rows    Comma-separated row block sizes to sweep\n\
+  --sweep-chunk-rows        Comma-separated chunk row sizes to sweep\n"
 }
 
 fn parse_csv_usize(value: &str) -> Vec<usize> {
@@ -99,6 +107,16 @@ fn parse_csv_usize(value: &str) -> Vec<usize> {
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .filter_map(|s| s.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .collect()
+}
+
+fn parse_csv_u64(value: &str) -> Vec<u64> {
+    value
+        .split(',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| s.parse::<u64>().ok())
         .filter(|v| *v > 0)
         .collect()
 }
@@ -154,6 +172,10 @@ fn parse_args() -> Result<Config, String> {
     let mut buffered_bytes = DEFAULT_BUFFERED_BYTES;
     let mut coalesce_min_bytes = DEFAULT_COALESCE_MIN_BYTES;
     let mut chunk_rows = DEFAULT_CHUNK_ROWS;
+    let mut sweep_buffered_bytes = Vec::new();
+    let mut sweep_coalesce_min_bytes = Vec::new();
+    let mut sweep_row_block_rows = Vec::new();
+    let mut sweep_chunk_rows = Vec::new();
 
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -204,6 +226,30 @@ fn parse_args() -> Result<Config, String> {
                     .parse::<usize>()
                     .map_err(|_| "Invalid value for --chunk-rows".to_string())?;
             }
+            "--sweep-buffered-bytes" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --sweep-buffered-bytes".to_string())?;
+                sweep_buffered_bytes = parse_csv_u64(&value);
+            }
+            "--sweep-coalesce-min-bytes" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --sweep-coalesce-min-bytes".to_string())?;
+                sweep_coalesce_min_bytes = parse_csv_u64(&value);
+            }
+            "--sweep-row-block-rows" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --sweep-row-block-rows".to_string())?;
+                sweep_row_block_rows = parse_csv_usize(&value);
+            }
+            "--sweep-chunk-rows" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --sweep-chunk-rows".to_string())?;
+                sweep_chunk_rows = parse_csv_usize(&value);
+            }
             "--help" | "-h" => return Err(usage().to_string()),
             _ if arg.starts_with("--rows=") => {
                 let value = arg.trim_start_matches("--rows=");
@@ -243,6 +289,22 @@ fn parse_args() -> Result<Config, String> {
                     .parse::<usize>()
                     .map_err(|_| "Invalid value for --chunk-rows".to_string())?;
             }
+            _ if arg.starts_with("--sweep-buffered-bytes=") => {
+                let value = arg.trim_start_matches("--sweep-buffered-bytes=");
+                sweep_buffered_bytes = parse_csv_u64(value);
+            }
+            _ if arg.starts_with("--sweep-coalesce-min-bytes=") => {
+                let value = arg.trim_start_matches("--sweep-coalesce-min-bytes=");
+                sweep_coalesce_min_bytes = parse_csv_u64(value);
+            }
+            _ if arg.starts_with("--sweep-row-block-rows=") => {
+                let value = arg.trim_start_matches("--sweep-row-block-rows=");
+                sweep_row_block_rows = parse_csv_usize(value);
+            }
+            _ if arg.starts_with("--sweep-chunk-rows=") => {
+                let value = arg.trim_start_matches("--sweep-chunk-rows=");
+                sweep_chunk_rows = parse_csv_usize(value);
+            }
             _ => return Err(format!("Unknown argument: {arg}\n{}", usage())),
         }
     }
@@ -271,6 +333,10 @@ fn parse_args() -> Result<Config, String> {
         buffered_bytes,
         coalesce_min_bytes,
         chunk_rows,
+        sweep_buffered_bytes,
+        sweep_coalesce_min_bytes,
+        sweep_row_block_rows,
+        sweep_chunk_rows,
     })
 }
 
@@ -293,17 +359,25 @@ fn create_session(rt: &Runtime) -> VortexSession {
     rt.block_on(async { session.with_tokio() })
 }
 
+#[derive(Clone, Copy)]
+struct WriteParams {
+    row_block_size: usize,
+    buffered_bytes: u64,
+    coalesce_min_bytes: u64,
+    chunk_rows: usize,
+}
+
 fn create_vortex_buffer(
     rt: &Runtime,
     session: &VortexSession,
     num_rows: usize,
-    config: &Config,
+    params: WriteParams,
 ) -> ByteBuffer {
     let dtype = PrimitiveArray::new(Buffer::from(Vec::<i64>::new()), Validity::NonNullable)
         .into_array()
         .dtype()
         .clone();
-    let chunk_rows = config.chunk_rows.max(1);
+    let chunk_rows = params.chunk_rows.max(1);
     let stream = stream::unfold(
         (num_rows, StdRng::seed_from_u64(0xC0FFEE)),
         move |(remaining, mut rng)| async move {
@@ -323,9 +397,9 @@ fn create_vortex_buffer(
     );
     let array_stream = ArrayStreamAdapter::new(dtype, stream);
     let strategy = WriteStrategyBuilder::new()
-        .with_row_block_size(config.row_block_size)
-        .with_buffered_bytes(config.buffered_bytes)
-        .with_coalesce_min_bytes(config.coalesce_min_bytes)
+        .with_row_block_size(params.row_block_size)
+        .with_buffered_bytes(params.buffered_bytes)
+        .with_coalesce_min_bytes(params.coalesce_min_bytes)
         .build();
 
     let mut buf = ByteBufferMut::empty();
@@ -592,84 +666,123 @@ fn main() -> ExitCode {
         .map(|ctx| Arc::new(ctx.new_stream().expect("Failed to create stream")));
     let pool = ctx.as_ref().map(|ctx| Arc::new(PinnedByteBufferPool::new(ctx.clone())));
 
+    let buffered_values = if config.sweep_buffered_bytes.is_empty() {
+        vec![config.buffered_bytes]
+    } else {
+        config.sweep_buffered_bytes.clone()
+    };
+    let coalesce_values = if config.sweep_coalesce_min_bytes.is_empty() {
+        vec![config.coalesce_min_bytes]
+    } else {
+        config.sweep_coalesce_min_bytes.clone()
+    };
+    let row_block_values = if config.sweep_row_block_rows.is_empty() {
+        vec![config.row_block_size]
+    } else {
+        config.sweep_row_block_rows.clone()
+    };
+    let chunk_values = if config.sweep_chunk_rows.is_empty() {
+        vec![config.chunk_rows]
+    } else {
+        config.sweep_chunk_rows.clone()
+    };
+
     for num_rows in &config.rows {
         let label = format_row_label(*num_rows);
         println!("Rows: {} ({})", num_rows, label);
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows, &config);
-        println!(
-            "  File size: {:.2} MB ({} bytes)",
-            buffer.len() as f64 / 1e6,
-            buffer.len()
-        );
+        for buffered_bytes in &buffered_values {
+            for coalesce_min_bytes in &coalesce_values {
+                for row_block_size in &row_block_values {
+                    for chunk_rows in &chunk_values {
+                        let params = WriteParams {
+                            row_block_size: *row_block_size,
+                            buffered_bytes: *buffered_bytes,
+                            coalesce_min_bytes: *coalesce_min_bytes,
+                            chunk_rows: *chunk_rows,
+                        };
+                        println!(
+                            "  Params: buffered={} coalesce={} row_block={} chunk_rows={}",
+                            buffered_bytes, coalesce_min_bytes, row_block_size, chunk_rows
+                        );
+                        let buffer = create_vortex_buffer(&rt, &session, *num_rows, params);
+                        println!(
+                            "  File size: {:.2} MB ({} bytes)",
+                            buffer.len() as f64 / 1e6,
+                            buffer.len()
+                        );
 
-        if config.scans.contains(&ScanType::DefaultZeroCopy) {
-            reset_default_alloc_stats();
-            reset_alignment_copy_stats();
-            let total = run_scan_iters(config.iterations, || {
-                scan_default(&rt, &session, &buffer)
-            });
-            println!(
-                "  Default (zero-copy): {}",
-                format_throughput(buffer.len(), total, config.iterations)
-            );
-            print_stats(None, None);
+                        if config.scans.contains(&ScanType::DefaultZeroCopy) {
+                            reset_default_alloc_stats();
+                            reset_alignment_copy_stats();
+                            let total = run_scan_iters(config.iterations, || {
+                                scan_default(&rt, &session, &buffer)
+                            });
+                            println!(
+                                "  Default (zero-copy): {}",
+                                format_throughput(buffer.len(), total, config.iterations)
+                            );
+                            print_stats(None, None);
+                        }
+                        if config.scans.contains(&ScanType::DefaultCopy) {
+                            reset_default_alloc_stats();
+                            reset_alignment_copy_stats();
+                            let total = run_scan_iters(config.iterations, || {
+                                scan_default_copy(&rt, &session, &buffer)
+                            });
+                            println!(
+                                "  Default (copy):      {}",
+                                format_throughput(buffer.len(), total, config.iterations)
+                            );
+                            print_stats(None, None);
+                        }
+                        if config.scans.contains(&ScanType::DefaultCopyPooled) {
+                            let pool = host_pool.as_ref().expect("Host pool required");
+                            pool.reset_stats();
+                            reset_default_alloc_stats();
+                            reset_alignment_copy_stats();
+                            let total = run_scan_iters(config.iterations, || {
+                                scan_default_copy_pooled(&rt, &session, &buffer, pool)
+                            });
+                            println!(
+                                "  Default (copy pooled): {}",
+                                format_throughput(buffer.len(), total, config.iterations)
+                            );
+                            print_stats(None, Some(pool));
+                        }
+                        if config.scans.contains(&ScanType::Pinned) {
+                            let pool = pool.as_ref().expect("Pinned pool required");
+                            pool.reset_stats();
+                            reset_default_alloc_stats();
+                            reset_alignment_copy_stats();
+                            let total = run_scan_iters(config.iterations, || {
+                                scan_pinned(&rt, &session, &buffer, pool)
+                            });
+                            println!(
+                                "  Pinned (host):       {}",
+                                format_throughput(buffer.len(), total, config.iterations)
+                            );
+                            print_stats(Some(pool), None);
+                        }
+                        if config.scans.contains(&ScanType::Device) {
+                            let pool = pool.as_ref().expect("Pinned pool required");
+                            let stream = stream.as_ref().expect("CUDA stream required");
+                            pool.reset_stats();
+                            reset_default_alloc_stats();
+                            reset_alignment_copy_stats();
+                            let total = run_scan_iters(config.iterations, || {
+                                scan_device(&rt, &session, &buffer, pool, stream)
+                            });
+                            println!(
+                                "  Device (H2D):        {}",
+                                format_throughput(buffer.len(), total, config.iterations)
+                            );
+                            print_stats(Some(pool), None);
+                        }
+                        println!();
+                    }
+                }
+            }
         }
-        if config.scans.contains(&ScanType::DefaultCopy) {
-            reset_default_alloc_stats();
-            reset_alignment_copy_stats();
-            let total = run_scan_iters(config.iterations, || {
-                scan_default_copy(&rt, &session, &buffer)
-            });
-            println!(
-                "  Default (copy):      {}",
-                format_throughput(buffer.len(), total, config.iterations)
-            );
-            print_stats(None, None);
-        }
-        if config.scans.contains(&ScanType::DefaultCopyPooled) {
-            let pool = host_pool.as_ref().expect("Host pool required");
-            pool.reset_stats();
-            reset_default_alloc_stats();
-            reset_alignment_copy_stats();
-            let total = run_scan_iters(config.iterations, || {
-                scan_default_copy_pooled(&rt, &session, &buffer, pool)
-            });
-            println!(
-                "  Default (copy pooled): {}",
-                format_throughput(buffer.len(), total, config.iterations)
-            );
-            print_stats(None, Some(pool));
-        }
-        if config.scans.contains(&ScanType::Pinned) {
-            let pool = pool.as_ref().expect("Pinned pool required");
-            pool.reset_stats();
-            reset_default_alloc_stats();
-            reset_alignment_copy_stats();
-            let total = run_scan_iters(config.iterations, || {
-                scan_pinned(&rt, &session, &buffer, pool)
-            });
-            println!(
-                "  Pinned (host):       {}",
-                format_throughput(buffer.len(), total, config.iterations)
-            );
-            print_stats(Some(pool), None);
-        }
-        if config.scans.contains(&ScanType::Device) {
-            let pool = pool.as_ref().expect("Pinned pool required");
-            let stream = stream.as_ref().expect("CUDA stream required");
-            pool.reset_stats();
-            reset_default_alloc_stats();
-            reset_alignment_copy_stats();
-            let total = run_scan_iters(config.iterations, || {
-                scan_device(&rt, &session, &buffer, pool, stream)
-            });
-            println!(
-                "  Device (H2D):        {}",
-                format_throughput(buffer.len(), total, config.iterations)
-            );
-            print_stats(Some(pool), None);
-        }
-        println!();
     }
     ExitCode::SUCCESS
 }
