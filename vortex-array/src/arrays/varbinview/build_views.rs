@@ -9,6 +9,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::NativePType;
 pub use vortex_vector::binaryview::BinaryView;
+pub use vortex_vector::binaryview::Inlined;
 
 /// Convert an offsets buffer to a buffer of element lengths.
 #[inline]

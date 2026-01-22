@@ -13,8 +13,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_vector::binaryview::BinaryView;
 
+use crate::arrays::build_views::BinaryView;
 use crate::builders::ArrayBuilder;
 use crate::builders::VarBinViewBuilder;
 use crate::stats::ArrayStats;

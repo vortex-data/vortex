@@ -92,10 +92,6 @@ pub mod utils {
     pub use vortex_utils::*;
 }
 
-pub mod vector {
-    pub use vortex_vector::*;
-}
-
 pub mod encodings {
     pub mod alp {
         pub use vortex_alp::*;

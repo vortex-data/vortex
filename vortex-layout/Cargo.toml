@@ -52,7 +52,6 @@ vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true, features = ["dashmap"] }
-vortex-vector = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]

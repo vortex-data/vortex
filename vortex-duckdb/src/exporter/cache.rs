@@ -6,7 +6,6 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
-use vortex::vector::Vector as VxVector;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::duckdb::Vector;
@@ -20,8 +19,6 @@ use crate::duckdb::Vector;
 pub struct ConversionCache {
     pub values_cache: DashMap<usize, (ArrayRef, Arc<Mutex<Vector>>)>,
     pub canonical_cache: DashMap<usize, (ArrayRef, Canonical)>,
-    // Use for `USE_VORTEX_OPERATORS` will replace canonical_cache.
-    pub vector_cache: DashMap<usize, (ArrayRef, VxVector)>,
     // A value which must be unique for a given DuckDB operator.
     instance_id: u64,
 }
