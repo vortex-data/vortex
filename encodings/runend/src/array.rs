@@ -15,7 +15,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::search_sorted::SearchSorted;
@@ -38,7 +37,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
 use crate::compress::runend_decode_bools;
@@ -455,6 +453,7 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             }),
         })
     }
+<<<<<<< HEAD
 
     fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
         Ok(match array.values().validity_mask()? {
@@ -476,6 +475,8 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             }
         })
     }
+=======
+>>>>>>> 3bbdd0070 (Make flatbuffer writer fallible)
 }
 
 pub(super) fn run_end_canonicalize(

@@ -399,10 +399,6 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
     }
-
-    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
-        Ok(Mask::AllTrue(array.len()))
-    }
 }
 
 impl VisitorVTable<SequenceVTable> for SequenceVTable {

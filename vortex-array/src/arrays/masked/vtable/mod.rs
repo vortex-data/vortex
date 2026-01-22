@@ -125,7 +125,7 @@ impl VTable for MaskedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let validity_mask = array.validity_mask();
+        let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {

@@ -12,7 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -166,10 +165,6 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 impl ValidityVTable<SliceVTable> for SliceVTable {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
         array.child.validity()?.slice(array.range.clone())
-    }
-
-    fn validity_mask(array: &SliceArray) -> VortexResult<Mask> {
-        Ok(array.child.validity_mask()?.slice(array.range.clone()))
     }
 }
 

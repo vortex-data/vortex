@@ -5,7 +5,6 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::IntoArray;
@@ -51,9 +50,5 @@ impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
             }
             .into_array(),
         ))
-    }
-
-    fn validity_mask(array: &ChunkedArray) -> VortexResult<Mask> {
-        array.chunks().iter().map(|a| a.validity_mask()).collect()
     }
 }
