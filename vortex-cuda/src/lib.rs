@@ -15,12 +15,16 @@ pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
+use kernel::ALPDecoder;
 use kernel::DictExecutor;
-use kernel::FoRExecutor;
+use kernel::FoRDecoder;
+use kernel::ZigZagDecoder;
 pub use kernel::launch_cuda_kernel_impl;
 pub use session::CudaSession;
+use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_fastlanes::FoRVTable;
+use vortex_zigzag::ZigZagVTable;
 
 /// Check if the NVIDIA CUDA Compiler is available.
 pub fn has_nvcc() -> bool {
@@ -33,6 +37,8 @@ pub fn has_nvcc() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     tracing::info!("Registering CUDA kernels");
-    session.register_kernel(FoRVTable::ID, &FoRExecutor);
+    session.register_kernel(ALPVTable::ID, &ALPDecoder);
+    session.register_kernel(FoRVTable::ID, &FoRDecoder);
     session.register_kernel(DictVTable::ID, &DictExecutor);
+    session.register_kernel(ZigZagVTable::ID, &ZigZagDecoder);
 }
