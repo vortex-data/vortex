@@ -320,8 +320,6 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Dependency Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         env:
