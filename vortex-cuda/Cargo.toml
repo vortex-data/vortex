@@ -20,6 +20,7 @@ workspace = true
 async-trait = { workspace = true }
 bytes = { workspace = true }
 cudarc = { workspace = true }
+futures = { workspace = true }
 parking_lot = { workspace = true }
 rand = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
@@ -38,7 +39,6 @@ vortex-utils = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
-futures = { workspace = true }
 vortex-scan = { workspace = true }
 
 [build-dependencies]

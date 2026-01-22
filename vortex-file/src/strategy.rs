@@ -31,6 +31,8 @@ const ONE_MEG: u64 = 1 << 20;
 pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
+    buffered_bytes: u64,
+    coalesce_min_bytes: u64,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
 }
 
@@ -47,6 +49,8 @@ impl WriteStrategyBuilder {
         Self {
             compressor: None,
             row_block_size: 8192,
+            buffered_bytes: 2 * ONE_MEG,
+            coalesce_min_bytes: ONE_MEG,
             field_writers: HashMap::new(),
         }
     }
@@ -63,6 +67,18 @@ impl WriteStrategyBuilder {
     /// Override the row block size used to determine the zone map sizes.
     pub fn with_row_block_size(mut self, row_block_size: usize) -> Self {
         self.row_block_size = row_block_size;
+        self
+    }
+
+    /// Override the target buffered segment size in bytes.
+    pub fn with_buffered_bytes(mut self, buffered_bytes: u64) -> Self {
+        self.buffered_bytes = buffered_bytes;
+        self
+    }
+
+    /// Override the minimum coalesced block size in bytes.
+    pub fn with_coalesce_min_bytes(mut self, coalesce_min_bytes: u64) -> Self {
+        self.coalesce_min_bytes = coalesce_min_bytes;
         self
     }
 
@@ -83,7 +99,7 @@ impl WriteStrategyBuilder {
         // 7. for each chunk create a flat layout
         let chunked = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
         // 6. buffer chunks so they end up with closer segment ids physically
-        let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
+        let buffered = BufferedStrategy::new(chunked, self.buffered_bytes);
         // 5. compress each chunk
         let compressing = if let Some(ref compressor) = self.compressor {
             CompressingStrategy::new_opaque(buffered, compressor.clone())
@@ -95,7 +111,7 @@ impl WriteStrategyBuilder {
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
-                block_size_minimum: ONE_MEG,
+                block_size_minimum: self.coalesce_min_bytes,
                 block_len_multiple: self.row_block_size,
                 canonicalize: true,
             },

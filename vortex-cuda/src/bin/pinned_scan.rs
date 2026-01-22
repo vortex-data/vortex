@@ -18,14 +18,17 @@ use std::time::Duration;
 use std::time::Instant;
 
 use cudarc::driver::CudaContext;
-use rand::rng;
-use rand::seq::SliceRandom;
+use futures::stream;
+use futures::StreamExt;
+use rand::RngCore;
+use rand::SeedableRng;
+use rand::rngs::StdRng;
 use tokio::runtime::Runtime;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
-use vortex_array::stream::ArrayStreamExt;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
@@ -39,6 +42,7 @@ use vortex_cuda::PinnedDeviceAllocator;
 use vortex_cuda::has_nvcc;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
+use vortex_file::WriteStrategyBuilder;
 use vortex_file::register_default_encodings;
 use vortex_io::DefaultAllocator;
 use vortex_io::HostByteBufferPool;
@@ -52,6 +56,10 @@ use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 const DEFAULT_ROWS: &[usize] = &[10_000_000];
+const DEFAULT_ROW_BLOCK_SIZE: usize = 8192;
+const DEFAULT_BUFFERED_BYTES: u64 = 2 * 1024 * 1024;
+const DEFAULT_COALESCE_MIN_BYTES: u64 = 1024 * 1024;
+const DEFAULT_CHUNK_ROWS: usize = 1_000_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum ScanType {
@@ -66,6 +74,10 @@ struct Config {
     rows: Vec<usize>,
     iterations: usize,
     scans: Vec<ScanType>,
+    row_block_size: usize,
+    buffered_bytes: u64,
+    coalesce_min_bytes: u64,
+    chunk_rows: usize,
 }
 
 fn usage() -> &'static str {
@@ -74,7 +86,11 @@ fn usage() -> &'static str {
 Flags:\n\
   --rows    Comma-separated row counts (default: 10000000)\n\
   --iters   Iterations per scan (default: 10)\n\
-  --scan    One of: default_zero_copy, default_copy, default_copy_pooled, device, default, all\n"
+  --scan    One of: default_zero_copy, default_copy, default_copy_pooled, device, default, all\n\
+  --row-block-rows     Rows per row block (default: 8192)\n\
+  --buffered-bytes     Buffered segment target in bytes (default: 2097152)\n\
+  --coalesce-min-bytes Minimum coalesced segment size in bytes (default: 1048576)\n\
+  --chunk-rows         Rows per generated chunk (default: 1000000)\n"
 }
 
 fn parse_csv_usize(value: &str) -> Vec<usize> {
@@ -134,6 +150,10 @@ fn parse_args() -> Result<Config, String> {
     let mut rows: Option<Vec<usize>> = None;
     let mut iterations: usize = 10;
     let mut scans: Option<Vec<ScanType>> = None;
+    let mut row_block_size = DEFAULT_ROW_BLOCK_SIZE;
+    let mut buffered_bytes = DEFAULT_BUFFERED_BYTES;
+    let mut coalesce_min_bytes = DEFAULT_COALESCE_MIN_BYTES;
+    let mut chunk_rows = DEFAULT_CHUNK_ROWS;
 
     let mut args = env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -152,6 +172,38 @@ fn parse_args() -> Result<Config, String> {
                 let value = args.next().ok_or_else(|| "Missing value for --scan".to_string())?;
                 scans = Some(parse_scan_list(&value));
             }
+            "--row-block-rows" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --row-block-rows".to_string())?;
+                row_block_size = value
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid value for --row-block-rows".to_string())?;
+            }
+            "--buffered-bytes" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --buffered-bytes".to_string())?;
+                buffered_bytes = value
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid value for --buffered-bytes".to_string())?;
+            }
+            "--coalesce-min-bytes" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --coalesce-min-bytes".to_string())?;
+                coalesce_min_bytes = value
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid value for --coalesce-min-bytes".to_string())?;
+            }
+            "--chunk-rows" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "Missing value for --chunk-rows".to_string())?;
+                chunk_rows = value
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid value for --chunk-rows".to_string())?;
+            }
             "--help" | "-h" => return Err(usage().to_string()),
             _ if arg.starts_with("--rows=") => {
                 let value = arg.trim_start_matches("--rows=");
@@ -166,6 +218,30 @@ fn parse_args() -> Result<Config, String> {
             _ if arg.starts_with("--scan=") => {
                 let value = arg.trim_start_matches("--scan=");
                 scans = Some(parse_scan_list(value));
+            }
+            _ if arg.starts_with("--row-block-rows=") => {
+                let value = arg.trim_start_matches("--row-block-rows=");
+                row_block_size = value
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid value for --row-block-rows".to_string())?;
+            }
+            _ if arg.starts_with("--buffered-bytes=") => {
+                let value = arg.trim_start_matches("--buffered-bytes=");
+                buffered_bytes = value
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid value for --buffered-bytes".to_string())?;
+            }
+            _ if arg.starts_with("--coalesce-min-bytes=") => {
+                let value = arg.trim_start_matches("--coalesce-min-bytes=");
+                coalesce_min_bytes = value
+                    .parse::<u64>()
+                    .map_err(|_| "Invalid value for --coalesce-min-bytes".to_string())?;
+            }
+            _ if arg.starts_with("--chunk-rows=") => {
+                let value = arg.trim_start_matches("--chunk-rows=");
+                chunk_rows = value
+                    .parse::<usize>()
+                    .map_err(|_| "Invalid value for --chunk-rows".to_string())?;
             }
             _ => return Err(format!("Unknown argument: {arg}\n{}", usage())),
         }
@@ -183,11 +259,18 @@ fn parse_args() -> Result<Config, String> {
     if iterations == 0 {
         return Err("Iterations must be > 0".to_string());
     }
+    if row_block_size == 0 || chunk_rows == 0 {
+        return Err("Row sizes must be > 0".to_string());
+    }
 
     Ok(Config {
         rows,
         iterations,
         scans,
+        row_block_size,
+        buffered_bytes,
+        coalesce_min_bytes,
+        chunk_rows,
     })
 }
 
@@ -210,16 +293,47 @@ fn create_session(rt: &Runtime) -> VortexSession {
     rt.block_on(async { session.with_tokio() })
 }
 
-fn create_vortex_buffer(rt: &Runtime, session: &VortexSession, num_rows: usize) -> ByteBuffer {
-    let mut data: Vec<i64> = (0..num_rows as i64).collect();
-    data.shuffle(&mut rng());
-    let array = PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
+fn create_vortex_buffer(
+    rt: &Runtime,
+    session: &VortexSession,
+    num_rows: usize,
+    config: &Config,
+) -> ByteBuffer {
+    let dtype = PrimitiveArray::new(Buffer::from(Vec::<i64>::new()), Validity::NonNullable)
+        .into_array()
+        .dtype()
+        .clone();
+    let chunk_rows = config.chunk_rows.max(1);
+    let stream = stream::unfold(
+        (num_rows, StdRng::seed_from_u64(0xC0FFEE)),
+        move |(remaining, mut rng)| async move {
+            if remaining == 0 {
+                None
+            } else {
+                let len = remaining.min(chunk_rows);
+                let mut data = Vec::with_capacity(len);
+                for _ in 0..len {
+                    data.push(rng.next_u64() as i64);
+                }
+                let array =
+                    PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
+                Some((Ok(array), (remaining - len, rng)))
+            }
+        },
+    );
+    let array_stream = ArrayStreamAdapter::new(dtype, stream);
+    let strategy = WriteStrategyBuilder::new()
+        .with_row_block_size(config.row_block_size)
+        .with_buffered_bytes(config.buffered_bytes)
+        .with_coalesce_min_bytes(config.coalesce_min_bytes)
+        .build();
 
     let mut buf = ByteBufferMut::empty();
     rt.block_on(async {
         session
             .write_options()
-            .write(&mut buf, array.to_array_stream())
+            .with_strategy(strategy)
+            .write(&mut buf, array_stream)
             .await
             .expect("Failed to write Vortex file");
     });
@@ -235,17 +349,18 @@ fn scan_default(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> D
             .expect("Failed to open file");
 
         let start = Instant::now();
-        let result = file
+        let mut stream = file
             .scan()
             .expect("Failed to create scan")
             .into_array_stream()
-            .expect("Failed to create stream")
-            .read_all()
-            .await
-            .expect("Scan failed");
+            .expect("Failed to create stream");
 
-        assert!(!result.is_empty());
-        drop(result);
+        let mut saw_any = false;
+        while let Some(chunk) = stream.next().await {
+            let _chunk = chunk.expect("Scan failed");
+            saw_any = true;
+        }
+        assert!(saw_any);
         start.elapsed()
     })
 }
@@ -261,17 +376,18 @@ fn scan_default_copy(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer)
             .expect("Failed to open file");
 
         let start = Instant::now();
-        let result = file
+        let mut stream = file
             .scan()
             .expect("Failed to create scan")
             .into_array_stream()
-            .expect("Failed to create stream")
-            .read_all()
-            .await
-            .expect("Scan failed");
+            .expect("Failed to create stream");
 
-        assert!(!result.is_empty());
-        drop(result);
+        let mut saw_any = false;
+        while let Some(chunk) = stream.next().await {
+            let _chunk = chunk.expect("Scan failed");
+            saw_any = true;
+        }
+        assert!(saw_any);
         start.elapsed()
     })
 }
@@ -292,17 +408,18 @@ fn scan_default_copy_pooled(
             .expect("Failed to open file");
 
         let start = Instant::now();
-        let result = file
+        let mut stream = file
             .scan()
             .expect("Failed to create scan")
             .into_array_stream()
-            .expect("Failed to create stream")
-            .read_all()
-            .await
-            .expect("Scan failed");
+            .expect("Failed to create stream");
 
-        assert!(!result.is_empty());
-        drop(result);
+        let mut saw_any = false;
+        while let Some(chunk) = stream.next().await {
+            let _chunk = chunk.expect("Scan failed");
+            saw_any = true;
+        }
+        assert!(saw_any);
         start.elapsed()
     })
 }
@@ -323,17 +440,18 @@ fn scan_pinned(
             .expect("Failed to open file");
 
         let start = Instant::now();
-        let result = file
+        let mut stream = file
             .scan()
             .expect("Failed to create scan")
             .into_array_stream()
-            .expect("Failed to create stream")
-            .read_all()
-            .await
-            .expect("Scan failed");
+            .expect("Failed to create stream");
 
-        assert!(!result.is_empty());
-        drop(result);
+        let mut saw_any = false;
+        while let Some(chunk) = stream.next().await {
+            let _chunk = chunk.expect("Scan failed");
+            saw_any = true;
+        }
+        assert!(saw_any);
         start.elapsed()
     })
 }
@@ -355,19 +473,22 @@ fn scan_device(
             .expect("Failed to open file");
 
         let start = Instant::now();
-        let result = file
+        let mut stream = file
             .scan()
             .expect("Failed to create scan")
             .into_array_stream()
-            .expect("Failed to create stream")
-            .read_all()
-            .await
-            .expect("Scan failed");
+            .expect("Failed to create stream");
+
+        let mut saw_any = false;
+        while let Some(chunk) = stream.next().await {
+            let _chunk = chunk.expect("Scan failed");
+            saw_any = true;
+        }
 
         allocator.synchronize().expect("Failed to synchronize");
 
         let elapsed = start.elapsed();
-        assert!(!result.is_empty());
+        assert!(saw_any);
         elapsed
     })
 }
@@ -474,7 +595,7 @@ fn main() -> ExitCode {
     for num_rows in &config.rows {
         let label = format_row_label(*num_rows);
         println!("Rows: {} ({})", num_rows, label);
-        let buffer = create_vortex_buffer(&rt, &session, *num_rows);
+        let buffer = create_vortex_buffer(&rt, &session, *num_rows, &config);
         println!(
             "  File size: {:.2} MB ({} bytes)",
             buffer.len() as f64 / 1e6,
