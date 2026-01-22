@@ -25,7 +25,6 @@ use crate::StructFields;
 use crate::flatbuffers as fb;
 
 mod project;
-pub use project::*;
 use vortex_session::VortexSession;
 
 use crate::session::DTypeSessionExt;

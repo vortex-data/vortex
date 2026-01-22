@@ -202,7 +202,6 @@ mod tests {
     use crate::DecimalDType;
     use crate::ExtDType;
     use crate::ExtID;
-    use crate::ExtMetadata;
     use crate::Field;
     use crate::FieldPath;
     use crate::Nullability;

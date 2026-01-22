@@ -299,7 +299,7 @@ impl DType {
                 if let Some(temporal) = ext_dtype.try_options::<AnyTemporal>() {
                     return Ok(match temporal {
                         TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => {
-                            DataType::Timestamp(ArrowTimeUnit::try_from(unit)?, tz.clone())
+                            DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
                         }
                         TemporalOptions::Date(unit) => match unit {
                             TimeUnit::Days => DataType::Date32,

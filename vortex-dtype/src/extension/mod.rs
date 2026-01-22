@@ -22,6 +22,7 @@ use vortex_error::vortex_err;
 pub use vtable::*;
 
 use crate::DType;
+use crate::Nullability;
 
 /// A unique identifier for an extension type
 pub type ExtID = ArcRef<str>;
@@ -33,7 +34,7 @@ pub struct ExtDType<V: VTable>(Arc<ExtDTypeAdapter<V>>);
 impl<V: VTable> ExtDType<V> {
     /// Creates a new extension dtype with the given options and storage dtype.
     pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
-        V::supports_storage_dtype(&options, &storage_dtype)?;
+        V::validate(&options, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             storage_dtype,
             options,
@@ -98,6 +99,14 @@ impl ExtDTypeRef {
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         self.0.storage_dtype()
+    }
+
+    /// Returns a new ExtDTypeRef with the given nullability.
+    pub fn with_nullability(&self, nullability: Nullability) -> Self {
+        if self.storage_dtype().nullability() == nullability {
+            return self.clone();
+        }
+        self.0.with_nullability(nullability)
     }
 }
 
@@ -200,6 +209,7 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn options_eq(&self, other: &dyn Any) -> bool;
     fn options_hash(&self, state: &mut dyn Hasher);
     fn options_serialize(&self) -> VortexResult<Vec<u8>>;
+    fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
 }
 
 struct ExtDTypeAdapter<V: VTable> {
@@ -246,6 +256,12 @@ impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
 
     fn options_serialize(&self) -> VortexResult<Vec<u8>> {
         V::serialize(&self.options)
+    }
+
+    fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
+        let storage_dtype = self.storage_dtype.with_nullability(nullability);
+        ExtDType::<V>::try_new(self.options.clone(), storage_dtype)
+            .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erase()
     }
 }
 

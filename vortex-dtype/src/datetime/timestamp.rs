@@ -122,7 +122,7 @@ impl VTable for Timestamp {
         })
     }
 
-    fn supports_storage_dtype(_options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate(_options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             matches!(storage_dtype, DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"

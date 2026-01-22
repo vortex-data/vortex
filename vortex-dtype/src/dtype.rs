@@ -12,7 +12,6 @@ use itertools::Itertools;
 use static_assertions::const_assert_eq;
 use vortex_error::vortex_panic;
 
-use crate::ExtDType;
 use crate::FieldDType;
 use crate::FieldName;
 use crate::PType;
@@ -45,7 +44,6 @@ use crate::nullability::Nullability;
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
     /// A logical null type.
     ///
@@ -111,7 +109,9 @@ pub trait NativeDType {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-const_assert_eq!(size_of::<DType>(), 16);
+
+// Temporarily replace theassertion with:
+const _: [(); size_of::<DType>()] = [(); 0];
 
 #[cfg(target_arch = "wasm32")]
 const_assert_eq!(size_of::<DType>(), 12);
@@ -165,7 +165,7 @@ impl DType {
             Struct(sf, _) => Struct(sf.clone(), nullability),
             List(edt, _) => List(edt.clone(), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
-            Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
+            Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
     }
 
@@ -195,9 +195,9 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
-            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
-                lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
-            }
+            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => lhs_extdtype
+                .storage_dtype()
+                .eq_ignore_nullability(rhs_extdtype.storage_dtype()),
             _ => false,
         }
     }
@@ -453,7 +453,7 @@ impl DType {
     }
 
     /// Downcast a `DType` to an `ExtDType`
-    pub fn as_extension(&self) -> &Arc<ExtDType> {
+    pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
             vortex_panic!("DType is not an Extension")
         };
@@ -494,17 +494,20 @@ impl Display for DType {
             ),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
-            Extension(ext) => write!(
-                f,
-                "ext({}, {}{}){}",
-                ext.id(),
-                ext.storage_dtype()
-                    .with_nullability(Nullability::NonNullable),
-                ext.metadata()
-                    .map(|m| format!(", {m:?}"))
-                    .unwrap_or_else(|| "".to_string()),
-                ext.storage_dtype().nullability(),
-            ),
+            Extension(ext) => {
+                write!(
+                    f,
+                    "ext({}, {}",
+                    ext.id(),
+                    ext.storage_dtype()
+                        .with_nullability(Nullability::NonNullable)
+                )?;
+                let options = format!("{}", ext.options_ref());
+                if !options.is_empty() {
+                    write!(f, ", {}", options)?;
+                }
+                write!(f, "){}", ext.storage_dtype().nullability())
+            }
         }
     }
 }

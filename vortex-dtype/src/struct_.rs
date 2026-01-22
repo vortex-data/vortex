@@ -52,7 +52,7 @@ impl From<PType> for FieldDType {
     }
 }
 
-#[derive(Debug, Clone, Eq)]
+#[derive(Debug, Clone)]
 enum FieldDTypeInner {
     /// Owned DType instance
     // TODO(ngates): we should consider making this an Arc<DType>.

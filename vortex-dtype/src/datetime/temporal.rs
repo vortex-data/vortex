@@ -17,6 +17,7 @@ use vortex_error::vortex_panic;
 
 use crate::DType;
 use crate::ExtDType;
+use crate::ExtID;
 use crate::Nullability;
 use crate::PType;
 use crate::datetime::unit::TimeUnit;

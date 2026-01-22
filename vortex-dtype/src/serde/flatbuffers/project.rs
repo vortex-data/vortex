@@ -40,12 +40,13 @@ pub(super) fn extract_field(
     fb_dtype: fb::DType<'_>,
     field: &Field,
     buffer: &FlatBuffer,
+    session: &VortexSession,
 ) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
         .ok_or_else(|| vortex_err!("The top-level type should be a struct"))?;
     let idx = resolve_field(fb_struct, field)?;
-    let (_, dtype) = read_field(fb_struct, idx, buffer)?;
+    let (_, dtype) = read_field(fb_struct, idx, buffer, session)?;
     Ok(dtype)
 }
 
@@ -54,6 +55,7 @@ pub(super) fn project_and_deserialize(
     fb_dtype: fb::DType<'_>,
     projection: &[Field],
     buffer: &FlatBuffer,
+    session: &VortexSession,
 ) -> VortexResult<DType> {
     let fb_struct = fb_dtype
         .type__as_struct_()
@@ -63,7 +65,7 @@ pub(super) fn project_and_deserialize(
     let struct_dtype = projection
         .iter()
         .map(|f| resolve_field(fb_struct, f))
-        .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer)))
+        .map(|idx| idx.and_then(|i| read_field(fb_struct, i, buffer, session)))
         .collect::<VortexResult<Vec<_>>>()?;
 
     Ok(DType::Struct(

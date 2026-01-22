@@ -30,7 +30,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     fn deserialize(data: &[u8], session: &VortexSession) -> VortexResult<Self::Options>;
 
     /// Validate that the given storage type is compatible with this extension type.
-    fn supports_storage_dtype(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
+    fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
 
     // TODO(ngates): add conversion vtable for Arrow extension types.
     // type ArrowConversion: ArrowConversion<Self>;
