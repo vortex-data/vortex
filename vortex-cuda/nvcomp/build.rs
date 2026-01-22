@@ -32,6 +32,7 @@ fn generate_stub(reason: &str) {
 fn main() {
     // Declare the cfg so rustc doesn't warn about unexpected cfg.
     println!("cargo::rustc-check-cfg=cfg(nvcomp_available)");
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let nvcomp_dir = manifest_dir.join("sdk");
@@ -68,6 +69,15 @@ fn main() {
 
     let include_dir = nvcomp_dir.join("include");
     let lib_dir = nvcomp_dir.join("lib");
+
+    println!(
+        "cargo:rerun-if-changed={}",
+        include_dir.join("nvcomp.h").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        include_dir.join("nvcomp/zstd.h").display()
+    );
 
     if !include_dir.exists() {
         println!("cargo:warning=Downloading nvCOMP SDK from {}", url);
@@ -133,14 +143,4 @@ fn main() {
 
     // Signal that nvCOMP bindings are available for conditional compilation.
     println!("cargo:rustc-cfg=nvcomp_available");
-
-    println!("cargo:rerun-if-env-changed=CUDA_PATH");
-    println!(
-        "cargo:rerun-if-changed={}",
-        include_dir.join("nvcomp.h").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        include_dir.join("nvcomp/zstd.h").display()
-    );
 }
