@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "vortex-bench",
+    "encodings/*",
     "fuzz",
     "vortex",
     "vortex-array",
@@ -31,7 +31,7 @@ members = [
     "vortex-utils",
     "vortex-vector",
     "benchmarks/*",
-    "encodings/*",
+    "vortex-bench",
     "xtask",
 ]
 exclude = ["java/testfiles", "wasm-test"]
