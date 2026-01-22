@@ -310,17 +310,22 @@ jobs:
       - tag=rust-lint-no-default
     steps:
       - uses: runs-on/action@v2
-        with:
-          sccache: s3
       - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
+      - name: Rust Dependency Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref_name == 'develop' }}
       - name: Rust Lint - Clippy No Default Features
         shell: bash
+        env:
+          CARGO_INCREMENTAL: 1
         run: |
           # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
           cargo hack --no-dev-deps clippy --no-default-features -- -D warnings
