@@ -9,6 +9,8 @@ use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::builders::UninitRange;
 use vortex_array::patches::Patches;
+use vortex_array::vectors::PVectorMut;
+use vortex_array::vectors::PrimitiveVectorMut;
 use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
@@ -19,8 +21,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
-use vortex_vector::primitive::PVectorMut;
-use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::BitPackedArray;
 use crate::unpack_iter::BitPacked;
@@ -230,12 +230,12 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
+    use vortex_array::vectors::VectorMutOps;
     use vortex_buffer::Buffer;
     use vortex_buffer::BufferMut;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
     use vortex_session::VortexSession;
-    use vortex_vector::VectorMutOps;
 
     use super::*;
     use crate::BitPackedVTable;

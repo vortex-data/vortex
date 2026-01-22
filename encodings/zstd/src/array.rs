@@ -23,6 +23,7 @@ use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
@@ -54,7 +55,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;

@@ -11,6 +11,9 @@ use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_vector::Vector;
+// Re-export commonly used vector types from vortex-vector
+pub use vortex_vector::VectorMut;
+pub use vortex_vector::VectorMutOps;
 use vortex_vector::VectorOps;
 use vortex_vector::binaryview::BinaryViewType;
 use vortex_vector::binaryview::BinaryViewVector;
@@ -20,8 +23,10 @@ use vortex_vector::decimal::DecimalVector;
 use vortex_vector::fixed_size_list::FixedSizeListVector;
 use vortex_vector::listview::ListViewVector;
 use vortex_vector::null::NullVector;
-use vortex_vector::primitive::PVector;
-use vortex_vector::primitive::PrimitiveVector;
+pub use vortex_vector::primitive::PVector;
+pub use vortex_vector::primitive::PVectorMut;
+pub use vortex_vector::primitive::PrimitiveVector;
+pub use vortex_vector::primitive::PrimitiveVectorMut;
 use vortex_vector::struct_::StructVector;
 
 use crate::ArrayRef;

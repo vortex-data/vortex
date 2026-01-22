@@ -21,7 +21,10 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
+use vortex_array::vectors::PVector;
 use vortex_array::vectors::VectorIntoArray;
+use vortex_array::vectors::VectorMut;
+use vortex_array::vectors::VectorMutOps;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
@@ -48,9 +51,6 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
-use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
 
