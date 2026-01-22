@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
-use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -42,7 +41,6 @@ use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
