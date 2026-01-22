@@ -118,7 +118,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// # Errors
     ///
     /// Returns an error if the CUDA memory copy operation fails.
-    fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
         let mut host_buffer = BufferMut::<T>::with_capacity_aligned(self.len, alignment);
 
         // Add offset to device pointer to account for any previous slicing operations.
@@ -156,7 +156,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// # Returns
     ///
     /// A future that resolves to the host buffer when the copy completes.
-    fn copy_to_host_async(
+    fn copy_to_host(
         &self,
         alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {

@@ -60,7 +60,7 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// # Errors
     ///
     /// This operation may fail, depending on the device implementation and the underlying hardware.
-    fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer>;
 
     /// Attempts to copy the device buffer to a host buffer asynchronously.
     ///
@@ -73,7 +73,7 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// # Errors
     ///
     /// Returns an error if the async copy operation fails.
-    fn copy_to_host_async(
+    fn copy_to_host(
         &self,
         alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>>;
@@ -259,7 +259,7 @@ impl BufferHandle {
     pub fn try_to_host_sync(&self) -> VortexResult<ByteBuffer> {
         match &self.0 {
             Inner::Host(b) => Ok(b.clone()),
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
@@ -269,7 +269,7 @@ impl BufferHandle {
     pub fn try_into_host_sync(self) -> VortexResult<ByteBuffer> {
         match self.0 {
             Inner::Host(b) => Ok(b),
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host_sync(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
@@ -290,7 +290,7 @@ impl BufferHandle {
                 let buffer = b.clone();
                 Ok(Box::pin(async move { Ok(buffer) }))
             }
-            Inner::Device(device) => device.copy_to_host_async(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
@@ -308,7 +308,7 @@ impl BufferHandle {
     pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match self.0 {
             Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
-            Inner::Device(device) => device.copy_to_host_async(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
         }
     }
 
