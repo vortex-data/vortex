@@ -75,6 +75,7 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
     }
 
     let (values_dtype, values_buffer, values_validity, ..) = values.into_parts();
+    let output_validity = values_validity.take(codes.as_ref())?;
     let (_codes_dtype, codes_buffer, _codes_validity, ..) = codes.into_parts();
 
     // Get device buffers for values and codes
@@ -114,7 +115,7 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         vortex_array::buffer::BufferHandle::new_device(std::sync::Arc::new(output_device)),
         values_dtype.as_ptype(),
-        values_validity,
+        output_validity,
     )))
 }
 
