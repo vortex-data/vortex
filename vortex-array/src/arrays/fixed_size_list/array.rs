@@ -34,6 +34,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::{FixedSizeListArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::IntoArray;
@@ -54,8 +55,10 @@ use crate::validity::Validity;
 /// assert_eq!(fixed_list_array.list_size(), 2);
 ///
 /// // Access individual lists
-/// let first_list = fixed_list_array.fixed_size_list_elements_at(0);
+/// let first_list = fixed_list_array.fixed_size_list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {

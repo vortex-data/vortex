@@ -223,7 +223,7 @@ mod test {
         let chunks: Vec<_> = reader
             .map(|record_batch| {
                 let batch = record_batch?;
-                Ok(ArrayRef::from_arrow(batch, false)?)
+                ArrayRef::from_arrow(batch, false)
             })
             .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();

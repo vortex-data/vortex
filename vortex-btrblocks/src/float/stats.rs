@@ -13,6 +13,7 @@ use vortex_array::arrays::PrimitiveVTable;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
@@ -83,7 +84,7 @@ impl CompressorStats for FloatStats {
 
     fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .expect("FloatStats::generate_opts should not fail")
+            .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -165,7 +166,7 @@ where
     let mut runs = 1;
     let head_idx = validity
         .first()
-        .expect("All null masks have been handled before");
+        .vortex_expect("All null masks have been handled before");
     let buff = array.to_buffer::<T>();
     let mut prev = buff[head_idx];
 

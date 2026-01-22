@@ -13,6 +13,7 @@ use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::builders::dict::dict_encode;
 use vortex_array::compute::is_constant;
 use vortex_array::vtable::ValidityHelper;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_fsst::FSSTArray;
@@ -90,7 +91,7 @@ impl CompressorStats for StringStats {
 
     fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
         Self::generate_opts_fallible(input, opts)
-            .expect("StringStats::generate_opts should not fail")
+            .vortex_expect("StringStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &VarBinViewArray {

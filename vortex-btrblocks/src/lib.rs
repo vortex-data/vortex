@@ -53,6 +53,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::datetime::TemporalMetadata;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
 use crate::decimal::compress_decimal;
@@ -188,7 +189,7 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
         let sample_count = usize::max(
             (source_len / 100)
-                / usize::try_from(SAMPLE_SIZE).expect("SAMPLE_SIZE must fit in usize"),
+                / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize"),
             10,
         );
 
@@ -202,7 +203,7 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
             SAMPLE_SIZE,
             sample_count
                 .try_into()
-                .expect("sample count must fit in u32"),
+                .vortex_expect("sample count must fit in u32"),
         )
     };
 

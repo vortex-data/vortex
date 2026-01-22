@@ -31,6 +31,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::IntoArray;
 ///
@@ -38,12 +39,14 @@ use crate::validity::Validity;
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1..3);
+/// let sliced = array.slice(1..3)?;
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
 /// let value = array.scalar_at(0).unwrap();
 /// assert_eq!(value, true.into());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
