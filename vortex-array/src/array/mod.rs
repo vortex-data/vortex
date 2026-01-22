@@ -550,7 +550,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => a.scalar_at(index)?.as_bool().value(),
+            Validity::Array(a) => a
+                .scalar_at(index)?
+                .as_bool()
+                .value()
+                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
         }
     }
 
@@ -586,7 +590,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
                 let sum = compute::sum(&a)?;
-                sum.as_primitive().as_::<usize>()?
+                sum.as_primitive()
+                    .as_::<usize>()
+                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
             }
         };
         vortex_ensure!(count <= self.len(), "Valid count exceeds array length");
