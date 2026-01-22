@@ -164,7 +164,7 @@ impl BufferHandle {
     /// let values = buffer![1u32, 2u32, 3u32, 4u32];
     /// let handle = BufferHandle::new_host(values.into_byte_buffer());
     /// let sliced = handle.slice_typed::<u32>(1..4);
-    /// let result = Buffer::<u32>::from_byte_buffer(sliced.to_host());
+    /// let result = Buffer::<u32>::from_byte_buffer(sliced.to_host_sync());
     /// assert_eq!(result, buffer![2, 3, 4]);
     /// ```
     pub fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Self {
