@@ -483,11 +483,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = V::slice(&self.0, range.clone())
-            .vortex_expect("cannot fail")
+        let sliced = V::slice(&self.0, range.clone())?
             .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
-            .optimize()
-            .vortex_expect("cannot fail for now");
+            .optimize()?;
 
         assert_eq!(
             sliced.len(),
@@ -552,11 +550,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a
-                .scalar_at(index)?
-                .as_bool()
-                .value()
-                .vortex_expect("validity must be non-nullable")),
+            Validity::Array(a) => a.scalar_at(index)?.as_bool().value(),
         }
     }
 
@@ -592,9 +586,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             Validity::AllInvalid => 0,
             Validity::Array(a) => {
                 let sum = compute::sum(&a)?;
-                sum.as_primitive()
-                    .as_::<usize>()
-                    .vortex_expect("Sum must be non-nullable")
+                sum.as_primitive().as_::<usize>()?
             }
         };
         vortex_ensure!(count <= self.len(), "Valid count exceeds array length");

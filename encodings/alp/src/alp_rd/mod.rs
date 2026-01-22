@@ -178,6 +178,7 @@ impl RDEncoder {
     /// Encode a set of floating point values with ALP-RD.
     ///
     /// Each value will be split into a left and right component, which are compressed individually.
+    // TODO(joe): make fallible
     pub fn encode(&self, array: &PrimitiveArray) -> ALPRDArray {
         match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array) })
     }
