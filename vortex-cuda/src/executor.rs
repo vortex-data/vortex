@@ -15,7 +15,6 @@ use cudarc::driver::DevicePtrMut;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::result::memcpy_htod_async;
-use cudarc::driver::sys;
 use futures::future::BoxFuture;
 use vortex_array::Array;
 use vortex_array::ArrayRef;

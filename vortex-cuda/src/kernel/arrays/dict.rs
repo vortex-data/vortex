@@ -158,7 +158,7 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         // Expected: lookup each code in values
         let expected: Vec<u32> = codes
@@ -199,7 +199,7 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         // Expected: lookup each code in values
         let dict_values = [1000000u64, 2000000, 3000000, 4000000, 5000000];
@@ -238,7 +238,7 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<i32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<i32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         // Expected: lookup each code in values
         let dict_values = [-100i32, 0, 100, 200];
@@ -279,7 +279,7 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
         // Expected: lookup each code in values
         let expected: Vec<u32> = codes.iter().map(|&code| values[code as usize]).collect();
