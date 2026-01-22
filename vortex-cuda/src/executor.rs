@@ -92,6 +92,11 @@ impl CudaExecutionCtx {
         self.cuda_session.load_function(module_name, ptypes)
     }
 
+    /// Returns a reference to the CUDA stream.
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
+    }
+
     /// Returns a launch builder for a CUDA kernel function.
     ///
     /// Arguments can be added to the kernel launch with `.arg(buffer)`.
@@ -104,7 +109,7 @@ impl CudaExecutionCtx {
     }
 
     /// Copies host data to the device, returning a [`CudaDeviceBuffer`].
-    pub fn copy_buffer_to_device<T: DeviceRepr>(
+    pub fn copy_buffer_to_device_sync<T: DeviceRepr>(
         &self,
         data: &[T],
     ) -> VortexResult<CudaDeviceBuffer<T>> {
@@ -127,7 +132,7 @@ impl CudaExecutionCtx {
     /// # Returns
     ///
     /// A future that resolves to the device buffer handle when the copy completes.
-    pub fn copy_buffer_to_device_async<T: DeviceRepr + Send + Sync + 'static>(
+    pub fn copy_buffer_to_device<T: DeviceRepr + Send + Sync + 'static>(
         &self,
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {

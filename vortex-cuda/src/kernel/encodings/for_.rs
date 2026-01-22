@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -19,7 +18,7 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel;
+use crate::kernel::KernelLauncher;
 
 /// CUDA executor for frame-of-reference.
 #[derive(Debug)]
@@ -61,7 +60,7 @@ async fn execute_for_typed<P: DeviceRepr + NativePType>(
     let device_buffer_handle = if buffer_handle.is_on_device() {
         buffer_handle
     } else {
-        ctx.copy_buffer_to_device_async::<P>(buffer_handle)?.await?
+        ctx.copy_buffer_to_device::<P>(buffer_handle)?.await?
     };
 
     let cuda_view = device_buffer_handle.cuda_view::<P>()?;
@@ -69,15 +68,12 @@ async fn execute_for_typed<P: DeviceRepr + NativePType>(
 
     // Ignore the CUDA events returned from the kernel launch, as the CUDA slice,
     // owned by the buffer handle, holds CUDA events that can be checked for completion.
-    let _cuda_events = launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "for",
-        ptypes: &[array.ptype()],
-        launch_args: [cuda_view, reference, array_len],
-        // CUDA events are automatically submitted before and after the kernel launch.
-        event_recording: CU_EVENT_DISABLE_TIMING,
-        array_len: array.len()
-    );
+    let _cuda_events = KernelLauncher::new(ctx, "for", &[array.ptype()])?
+        .arg_cuda_view(&cuda_view)
+        .arg(&reference)
+        .arg(&array_len)
+        .event_flags(CU_EVENT_DISABLE_TIMING)
+        .launch(array.len())?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         device_buffer_handle,

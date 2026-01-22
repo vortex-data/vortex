@@ -22,13 +22,18 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 mod arrays;
 mod encodings;
+mod launcher;
 
 pub use arrays::DictExecutor;
 pub use encodings::FoRExecutor;
+pub use launcher::KernelLauncher;
 
 use crate::CudaKernelEvents;
 
 /// Convenience macro to launch a CUDA kernel.
+///
+/// **Deprecated**: Prefer using [`KernelLauncher`] instead, which provides
+/// the same functionality with a cleaner builder API.
 ///
 /// The kernel gets launched on the stream of the execution context.
 ///

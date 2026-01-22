@@ -17,6 +17,7 @@ pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use kernel::DictExecutor;
 use kernel::FoRExecutor;
+pub use kernel::KernelLauncher;
 pub use kernel::launch_cuda_kernel_impl;
 pub use session::CudaSession;
 use vortex_array::arrays::DictVTable;

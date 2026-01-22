@@ -211,7 +211,7 @@ fn benchmark_for_u8(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .copy_buffer_to_device(unpacked_slice)
+                            .copy_buffer_to_device_sync(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u8(
@@ -260,7 +260,7 @@ fn benchmark_for_u16(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .copy_buffer_to_device(unpacked_slice)
+                            .copy_buffer_to_device_sync(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u16(
@@ -309,7 +309,7 @@ fn benchmark_for_u32(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .copy_buffer_to_device(unpacked_slice)
+                            .copy_buffer_to_device_sync(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u32(
@@ -358,7 +358,7 @@ fn benchmark_for_u64(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         let device_data = cuda_ctx
-                            .copy_buffer_to_device(unpacked_slice)
+                            .copy_buffer_to_device_sync(unpacked_slice)
                             .vortex_expect("failed to copy to device");
 
                         let kernel_time = launch_for_kernel_timed_u64(
