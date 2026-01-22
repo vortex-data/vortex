@@ -13,6 +13,7 @@ mod range_to_sequence;
 use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use pyo3::IntoPyObjectExt;
+use pyo3::exceptions::PyIndexError;
 use pyo3::exceptions::PyTypeError;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -571,6 +572,13 @@ impl PyArray {
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyVortexResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
+        if index >= slf.len() {
+            return Err(PyIndexError::new_err(format!(
+                "Index {index} out of bounds from 0 to {}",
+                slf.len()
+            ))
+            .into());
+        }
         Ok(PyScalar::init(py, slf.scalar_at(index)?)?)
     }
 
