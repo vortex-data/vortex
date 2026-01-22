@@ -209,17 +209,13 @@ jobs:
       matrix:
         config:
           - name: "all-features"
-            command: "build"
             args: "--all-features --all-targets"
           - name: "default features"
-            command: "build"
             args: "--all-targets"
           - name: "with tokio dispatcher"
-            command: "build"
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
-            command: "build"
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
@@ -239,7 +235,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+        run: ${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
