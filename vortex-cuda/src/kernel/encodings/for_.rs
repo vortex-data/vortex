@@ -5,7 +5,6 @@ use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,8 +12,8 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
+use vortex_fastlanes::FoRVTable;
 
 use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
@@ -24,39 +23,32 @@ use crate::launch_cuda_kernel;
 
 /// CUDA executor for frame-of-reference.
 #[derive(Debug)]
-pub struct ForExecutor;
+pub struct FoRExecutor;
 
 #[async_trait]
-impl CudaExecute for ForExecutor {
+impl CudaExecute for FoRExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
         let for_array = array
-            .as_any()
-            .downcast_ref::<FoRArray>()
-            .ok_or_else(|| vortex_err!("Array is not a FOR array"))?;
+            .try_into::<FoRVTable>()
+            .ok()
+            .vortex_expect("Array is not a FOR array");
 
-        execute_for(for_array, ctx).await
+        // Excludes f16 support.
+        match_each_native_simd_ptype!(for_array.ptype(), |T| {
+            execute_for_typed::<T>(for_array, ctx).await
+        })
     }
-}
-
-async fn execute_for(array: &FoRArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
-    if array.is_empty() {
-        return array.to_array().to_canonical();
-    }
-
-    // Excludes f16 support.
-    match_each_native_simd_ptype!(array.ptype(), |T| {
-        execute_for_typed::<T>(array, ctx).await
-    })
 }
 
 async fn execute_for_typed<P: DeviceRepr + NativePType>(
-    array: &FoRArray,
+    array: FoRArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    assert!(!array.is_empty());
     let reference = array
         .reference_scalar()
         .as_primitive()
@@ -114,7 +106,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u8 offset values that cycle through 0-255, creating 5000 elements
@@ -128,7 +120,8 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
@@ -150,7 +143,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u16 offset values that cycle through 0-5000, creating 5000 elements
@@ -163,7 +156,8 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
@@ -185,7 +179,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u32 offset values that cycle through 0-5000, creating 5000 elements
@@ -198,7 +192,8 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
@@ -220,7 +215,7 @@ mod tests {
             return;
         }
 
-        let mut cuda_ctx = CudaSession::new_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create u64 offset values that cycle through 0-5000, creating 5000 elements
@@ -233,7 +228,8 @@ mod tests {
         .vortex_expect("failed to create FoR array");
 
         // Decompress on the GPU.
-        let result = execute_for(&for_array, &mut cuda_ctx)
+        let result = FoRExecutor
+            .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
 
