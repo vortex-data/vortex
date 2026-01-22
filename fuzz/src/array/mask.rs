@@ -149,7 +149,7 @@ mod tests {
         assert_eq!(result.len(), 5);
         // All values should still be null
         for i in 0..5 {
-            assert!(!result.is_valid(i));
+            assert!(!result.is_valid(i).unwrap());
         }
     }
 
@@ -229,9 +229,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
     }
 
     #[test]
@@ -245,9 +245,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(!result.is_valid(0));
-        assert!(result.is_valid(1));
-        assert!(!result.is_valid(2));
+        assert!(!result.is_valid(0).unwrap());
+        assert!(result.is_valid(1).unwrap());
+        assert!(!result.is_valid(2).unwrap());
     }
 
     #[test]
@@ -269,9 +269,9 @@ mod tests {
         let result = mask_canonical_array(array.to_canonical().unwrap(), &mask).unwrap();
 
         assert_eq!(result.len(), 3);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
     }
 
     #[test]

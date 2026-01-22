@@ -119,7 +119,10 @@ mod tests {
             vec![false, true, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(res.validity_mask(), Mask::from_iter([false, true, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([false, true, false])
+        );
     }
 
     #[test]
@@ -142,6 +145,9 @@ mod tests {
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         // Validity is union of both: lhs=[T,T,F], rhs=[T,F,T] => result=[T,F,F]
-        assert_eq!(res.validity_mask(), Mask::from_iter([true, false, false]));
+        assert_eq!(
+            res.validity_mask().unwrap(),
+            Mask::from_iter([true, false, false])
+        );
     }
 }

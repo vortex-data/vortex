@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::vtable::OperationsVTable;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::BitPackedArray;
@@ -9,14 +10,16 @@ use crate::BitPackedVTable;
 use crate::bitpack_decompress;
 
 impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
-    fn scalar_at(array: &BitPackedArray, index: usize) -> Scalar {
-        if let Some(patches) = array.patches()
-            && let Some(patch) = patches.get_patched(index)
-        {
-            patch
-        } else {
-            bitpack_decompress::unpack_single(array, index)
-        }
+    fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
+        Ok(
+            if let Some(patches) = array.patches()
+                && let Some(patch) = patches.get_patched(index)?
+            {
+                patch
+            } else {
+                bitpack_decompress::unpack_single(array, index)
+            },
+        )
     }
 }
 
@@ -175,7 +178,7 @@ mod test {
             .into_array()
         };
         assert_eq!(
-            packed_array.scalar_at(1),
+            packed_array.scalar_at(1).unwrap(),
             Scalar::null(DType::Primitive(PType::U32, Nullability::Nullable))
         );
     }
@@ -188,7 +191,10 @@ mod test {
         assert!(packed.patches().is_some());
 
         let patches = packed.patches().unwrap().indices().clone();
-        assert_eq!(usize::try_from(&patches.scalar_at(0)).unwrap(), 256);
+        assert_eq!(
+            usize::try_from(&patches.scalar_at(0).unwrap()).unwrap(),
+            256
+        );
 
         let expected = PrimitiveArray::from_iter(values.iter().copied());
         assert_arrays_eq!(packed, expected);

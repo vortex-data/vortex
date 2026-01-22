@@ -160,7 +160,7 @@ impl StatsSetRef<'_> {
                     })
                     .transpose()?
             }
-            Stat::NullCount => Some(self.dyn_array_ref.invalid_count().into()),
+            Stat::NullCount => self.dyn_array_ref.invalid_count().ok().map(Into::into),
             Stat::IsConstant => {
                 if self.dyn_array_ref.is_empty() {
                     None

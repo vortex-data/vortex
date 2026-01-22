@@ -82,7 +82,9 @@ impl VTable for ALPRDVTable {
     fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .and_then(|patches| patches.slice(range.clone()));
+            .map(|patches| patches.slice(range.clone()))
+            .transpose()?
+            .flatten();
 
         // SAFETY: slicing components does not change the encoded values
         Ok(Some(unsafe {
@@ -341,7 +343,7 @@ impl ALPRDArray {
 
         let left_parts_patches = left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid() {
+                if !patches.values().all_valid()? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.

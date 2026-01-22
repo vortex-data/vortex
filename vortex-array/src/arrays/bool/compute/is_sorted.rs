@@ -13,7 +13,7 @@ use crate::register_kernel;
 
 impl IsSortedKernel for BoolVTable {
     fn is_sorted(&self, array: &BoolArray) -> VortexResult<Option<bool>> {
-        match array.validity_mask() {
+        match array.validity_mask()? {
             Mask::AllFalse(_) => Ok(Some(true)),
             Mask::AllTrue(_) => Ok(Some(array.bit_buffer().iter().is_sorted())),
             Mask::Values(mask_values) => {
@@ -32,7 +32,7 @@ impl IsSortedKernel for BoolVTable {
     }
 
     fn is_strict_sorted(&self, array: &BoolArray) -> VortexResult<Option<bool>> {
-        match array.validity_mask() {
+        match array.validity_mask()? {
             Mask::AllFalse(_) => Ok(Some(false)),
             Mask::AllTrue(_) => Ok(Some(array.bit_buffer().iter().is_strict_sorted())),
             Mask::Values(mask_values) => {

@@ -16,6 +16,7 @@ use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
@@ -104,9 +105,11 @@ impl VTable for DynamicComparison {
                 ctx: args.ctx,
             });
         }
+        let ret_dtype =
+            DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
         Ok(ExecutionResult::Scalar(ConstantArray::new(
-            false,
+            Scalar::new(ret_dtype, data.default.into()),
             args.row_count,
         )))
     }
@@ -310,5 +313,108 @@ impl DynamicExprUpdates {
         }
 
         guard.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::AtomicI32;
+    use std::sync::atomic::Ordering;
+
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_error::VortexResult;
+
+    use super::*;
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
+    use crate::expr::exprs::root::root;
+
+    #[test]
+    fn return_dtype_bool() -> VortexResult<()> {
+        let expr = dynamic(
+            Operator::Lt,
+            || Some(5i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let input_dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+        assert_eq!(
+            expr.return_dtype(&input_dtype)?,
+            DType::Bool(Nullability::NonNullable)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn execute_with_value() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || Some(5i32.into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_without_value_default_true() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_without_value_default_false() -> VortexResult<()> {
+        let input = buffer![1i32, 5, 10].into_array();
+        let expr = dynamic(
+            Operator::Lt,
+            || None,
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            false,
+            root(),
+        );
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
+        Ok(())
+    }
+
+    #[test]
+    fn execute_value_flips() -> VortexResult<()> {
+        let threshold = Arc::new(AtomicI32::new(5));
+        let threshold_clone = threshold.clone();
+        let expr = dynamic(
+            Operator::Lt,
+            move || Some(threshold_clone.load(Ordering::SeqCst).into()),
+            DType::Primitive(PType::I32, Nullability::NonNullable),
+            true,
+            root(),
+        );
+        let input = buffer![1i32, 5, 10].into_array();
+
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
+
+        threshold.store(10, Ordering::SeqCst);
+        let result = expr.evaluate(&input)?;
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]));
+
+        Ok(())
     }
 }

@@ -9,6 +9,8 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::sys;
+use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
@@ -16,6 +18,8 @@ use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+
+use crate::stream::await_stream_callback;
 
 /// A CUDA device buffer with offset and length tracking.
 pub struct CudaDeviceBuffer<T> {
@@ -114,20 +118,84 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// # Errors
     ///
     /// Returns an error if the CUDA memory copy operation fails.
-    fn copy_to_host(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
+    fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
         let mut host_buffer = BufferMut::<T>::with_capacity_aligned(self.len, alignment);
 
-        let view = self.as_view();
-        self.inner
-            .stream()
-            // TODO(0ax1): make the copy async
-            .memcpy_dtoh(&view, unsafe {
-                host_buffer.set_len(self.len);
-                host_buffer.as_mut_slice()
-            })
+        // Add offset to device pointer to account for any previous slicing operations.
+        let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+
+        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
+        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
+        unsafe {
+            sys::cuMemcpyDtoH_v2(
+                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
+                src_ptr,
+                self.len * size_of::<T>(),
+            )
+            .result()
             .map_err(|e| vortex_err!("Failed to copy from device to host: {}", e))?;
+        }
+
+        // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
+        unsafe {
+            host_buffer.set_len(self.len);
+        }
 
         Ok(host_buffer.freeze().into_byte_buffer())
+    }
+
+    /// Copies a device buffer to host memory asynchronously.
+    ///
+    /// Allocates host memory, schedules an async copy, and returns a future
+    /// that completes when the copy is finished.
+    ///
+    /// # Arguments
+    ///
+    /// * `alignment` - The memory alignment to use for the host buffer.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the host buffer when the copy completes.
+    fn copy_to_host(
+        &self,
+        alignment: Alignment,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        let stream = self.inner.stream();
+
+        // Add offset to device pointer to account for any previous slicing operations.
+        let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+
+        let mut host_buffer: BufferMut<T> = BufferMut::with_capacity_aligned(self.len, alignment);
+        let len = self.len;
+
+        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
+        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
+        unsafe {
+            sys::cuMemcpyDtoHAsync_v2(
+                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
+                src_ptr,
+                len * size_of::<T>(),
+                stream.cu_stream(),
+            )
+            .result()
+            .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
+        }
+
+        let cuda_slice = Arc::clone(&self.inner);
+
+        Ok(Box::pin(async move {
+            await_stream_callback(cuda_slice.stream()).await?;
+
+            // Keep device memory alive until copy completes.
+            let _keep_alive = cuda_slice;
+
+            // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
+            unsafe {
+                host_buffer.set_len(len);
+            }
+
+            Ok(host_buffer.freeze().into_byte_buffer())
+        }))
     }
 
     /// Slices the CUDA device buffer to a subrange.

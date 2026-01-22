@@ -16,7 +16,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
-        let codes_validity = array.codes().validity_mask();
+        let codes_validity = array.codes().validity_mask()?;
         if codes_validity.all_false() {
             return Ok(None);
         }

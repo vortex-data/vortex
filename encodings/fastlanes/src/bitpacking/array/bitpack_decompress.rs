@@ -46,7 +46,10 @@ pub fn unpack_to_pvector<P: BitPacked>(array: &BitPackedArray) -> PVectorMut<P> 
     // SAFETY: `decode_into` initialized exactly `len` elements into the spare (existing) capacity.
     unsafe { elements.set_len(len) };
 
-    let mut validity = array.validity_mask().into_mut();
+    let mut validity = array
+        .validity_mask()
+        .vortex_expect("validity_mask")
+        .into_mut();
     debug_assert_eq!(validity.len(), len);
 
     // TODO(connor): Implement a fused version of patching instead.
@@ -97,7 +100,7 @@ pub(crate) fn unpack_into_primitive_builder<T: BitPacked>(
     // SAFETY: We later initialize the the uninitialized range of values with `copy_from_slice`.
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(array.validity_mask());
+        uninit_range.append_mask(array.validity_mask()?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -136,7 +139,7 @@ pub fn apply_patches_to_uninit_range_fn<T: NativePType, F: Fn(T) -> T>(
 
     let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
     let values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
-    let validity = values.validity_mask();
+    let validity = values.validity_mask()?;
     let values = values.as_slice::<T>();
 
     match_each_unsigned_integer_ptype!(indices.ptype(), |P| {
@@ -415,11 +418,11 @@ mod tests {
 
         // Verify the validity mask was correctly applied.
         assert_eq!(result.len(), 5);
-        assert!(!result.scalar_at(0).is_null());
-        assert!(result.scalar_at(1).is_null());
-        assert!(!result.scalar_at(2).is_null());
-        assert!(!result.scalar_at(3).is_null());
-        assert!(result.scalar_at(4).is_null());
+        assert!(!result.scalar_at(0).unwrap().is_null());
+        assert!(result.scalar_at(1).unwrap().is_null());
+        assert!(!result.scalar_at(2).unwrap().is_null());
+        assert!(!result.scalar_at(3).unwrap().is_null());
+        assert!(result.scalar_at(4).unwrap().is_null());
         Ok(())
     }
 

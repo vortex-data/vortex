@@ -70,12 +70,44 @@ fn test_listview_of_listview_with_overlapping() {
     let inner1 = first_outer_lv.list_elements_at(1);
 
     // inner[0] should be [1, 2, 3].
-    assert_eq!(inner0.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 1);
-    assert_eq!(inner0.scalar_at(2).as_primitive().as_::<i32>().unwrap(), 3);
+    assert_eq!(
+        inner0
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        inner0
+            .scalar_at(2)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        3
+    );
 
     // inner[1] should be [3, 4, 5] - shares element 3 with inner[0].
-    assert_eq!(inner1.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 3);
-    assert_eq!(inner1.scalar_at(1).as_primitive().as_::<i32>().unwrap(), 4);
+    assert_eq!(
+        inner1
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        inner1
+            .scalar_at(1)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        4
+    );
 
     // Test slicing the outer ListView.
     let sliced = outer_listview.slice(1..2);
@@ -255,7 +287,15 @@ fn test_listview_zero_and_overlapping() {
 
     let inner1 = first_outer_lv.list_elements_at(1);
     assert_eq!(inner1.len(), 3); // [1, 2, 3]
-    assert_eq!(inner1.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 1);
+    assert_eq!(
+        inner1
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        1
+    );
 
     let inner2 = first_outer_lv.list_elements_at(2);
     assert_eq!(inner2.len(), 0); // Empty
@@ -266,7 +306,15 @@ fn test_listview_zero_and_overlapping() {
 
     let inner3 = second_outer_lv.list_elements_at(0);
     assert_eq!(inner3.len(), 3); // [2, 3, 4]
-    assert_eq!(inner3.scalar_at(0).as_primitive().as_::<i32>().unwrap(), 2);
+    assert_eq!(
+        inner3
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
+        2
+    );
 
     // Verify slicing works with empty lists.
     let sliced = outer_listview.slice(0..2);
@@ -337,7 +385,7 @@ fn test_listview_of_struct_with_nulls() {
     assert_eq!(list1.len(), 3);
 
     // The middle element (struct[2]) should be null.
-    assert!(list1.scalar_at(1).is_null());
+    assert!(list1.scalar_at(1).unwrap().is_null());
 
     // Test slicing preserves null handling.
     let sliced = listview.slice(1..3);

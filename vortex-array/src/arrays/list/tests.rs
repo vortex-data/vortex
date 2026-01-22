@@ -47,7 +47,7 @@ fn test_simple_list_array() {
             vec![1.into(), 2.into()],
             Nullability::Nullable
         ),
-        list.scalar_at(0)
+        list.scalar_at(0).unwrap()
     );
     assert_eq!(
         Scalar::list(
@@ -55,11 +55,11 @@ fn test_simple_list_array() {
             vec![3.into(), 4.into()],
             Nullability::Nullable
         ),
-        list.scalar_at(1)
+        list.scalar_at(1).unwrap()
     );
     assert_eq!(
         Scalar::list(Arc::new(I32.into()), vec![5.into()], Nullability::Nullable),
-        list.scalar_at(2)
+        list.scalar_at(2).unwrap()
     );
 }
 
@@ -76,8 +76,14 @@ fn test_simple_list_array_from_iter() {
             .unwrap();
 
     assert_eq!(list.len(), list_from_iter.len());
-    assert_eq!(list.scalar_at(0), list_from_iter.scalar_at(0));
-    assert_eq!(list.scalar_at(1), list_from_iter.scalar_at(1));
+    assert_eq!(
+        list.scalar_at(0).unwrap(),
+        list_from_iter.scalar_at(0).unwrap()
+    );
+    assert_eq!(
+        list.scalar_at(1).unwrap(),
+        list_from_iter.scalar_at(1).unwrap()
+    );
 }
 
 #[test]
@@ -213,10 +219,10 @@ fn test_list_filter_with_nulls() {
     assert_eq!(filtered_list.len(), 4);
 
     // Check validity of filtered array.
-    assert!(filtered_list.scalar_at(0).is_valid());
-    assert!(!filtered_list.scalar_at(1).is_valid()); // Was null.
-    assert!(!filtered_list.scalar_at(2).is_valid()); // Was null.
-    assert!(filtered_list.scalar_at(3).is_valid());
+    assert!(filtered_list.scalar_at(0).unwrap().is_valid());
+    assert!(!filtered_list.scalar_at(1).unwrap().is_valid()); // Was null.
+    assert!(!filtered_list.scalar_at(2).unwrap().is_valid()); // Was null.
+    assert!(filtered_list.scalar_at(3).unwrap().is_valid());
 }
 
 #[test]
@@ -608,7 +614,7 @@ fn test_list_of_lists() {
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]));
 
     // Test scalar conversion.
-    let scalar = list_of_lists.scalar_at(0);
+    let scalar = list_of_lists.scalar_at(0).unwrap();
     assert!(matches!(scalar.dtype(), DType::List(_, _)));
     let list_scalar = scalar.as_list();
     assert_eq!(list_scalar.len(), 2);
@@ -653,11 +659,11 @@ fn test_list_of_lists_nullable_outer() {
     ));
 
     // First element should be [[1, 2], [3]].
-    let first = list_of_lists.scalar_at(0);
+    let first = list_of_lists.scalar_at(0).unwrap();
     assert!(!first.is_null());
 
     // Second element should be null.
-    let second = list_of_lists.scalar_at(1);
+    let second = list_of_lists.scalar_at(1).unwrap();
     assert!(second.is_null());
 
     // Third element should be [[4, 5, 6]].
@@ -710,7 +716,7 @@ fn test_list_of_lists_nullable_inner() {
     assert_eq!(first_list.len(), 3);
 
     // Check that second inner list is null.
-    let second_inner = first_list.scalar_at(1);
+    let second_inner = first_list.scalar_at(1).unwrap();
     assert!(second_inner.is_null());
 }
 
@@ -738,7 +744,7 @@ fn test_list_of_lists_both_nullable() {
     ));
 
     // First outer list should have 2 elements, second is null inner list.
-    let first_outer = list_of_lists.scalar_at(0);
+    let first_outer = list_of_lists.scalar_at(0).unwrap();
     assert!(!first_outer.is_null());
     let first_outer_array = list_of_lists.list_elements_at(0);
     let first_list = first_outer_array.as_::<ListVTable>();
@@ -749,11 +755,11 @@ fn test_list_of_lists_both_nullable() {
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
-    let second_inner = first_list.scalar_at(1);
+    let second_inner = first_list.scalar_at(1).unwrap();
     assert!(second_inner.is_null());
 
     // Second outer list should be null.
-    let second_outer = list_of_lists.scalar_at(1);
+    let second_outer = list_of_lists.scalar_at(1).unwrap();
     assert!(second_outer.is_null());
 
     // Third outer list should have [3].
@@ -767,7 +773,7 @@ fn test_list_of_lists_both_nullable() {
     let fourth_outer = list_of_lists.list_elements_at(3);
     let fourth_list = fourth_outer.as_::<ListVTable>();
     assert_eq!(fourth_list.len(), 1);
-    let inner = fourth_list.scalar_at(0);
+    let inner = fourth_list.scalar_at(0).unwrap();
     assert!(inner.is_null());
 }
 
@@ -894,5 +900,8 @@ fn test_recursive_compact_list_of_lists() {
     assert_eq!(recursive_flat_elements.len(), 7);
 
     // Verify data integrity is preserved
-    assert_eq!(non_recursive.scalar_at(0), recursive.scalar_at(0));
+    assert_eq!(
+        non_recursive.scalar_at(0).unwrap(),
+        recursive.scalar_at(0).unwrap()
+    );
 }

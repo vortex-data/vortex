@@ -3,6 +3,7 @@
 
 use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use super::RLEVTable;
@@ -10,9 +11,9 @@ use crate::FL_CHUNK_SIZE;
 use crate::RLEArray;
 
 impl OperationsVTable<RLEVTable> for RLEVTable {
-    fn scalar_at(array: &RLEArray, index: usize) -> Scalar {
+    fn scalar_at(array: &RLEArray, index: usize) -> VortexResult<Scalar> {
         let offset_in_chunk = array.offset();
-        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index);
+        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
 
         let chunk_relative_idx = chunk_relative_idx
             .as_primitive()
@@ -24,9 +25,9 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
 
         let scalar = array
             .values()
-            .scalar_at(value_idx_offset + chunk_relative_idx);
+            .scalar_at(value_idx_offset + chunk_relative_idx)?;
 
-        Scalar::new(array.dtype().clone(), scalar.into_value())
+        Ok(Scalar::new(array.dtype().clone(), scalar.into_value()))
     }
 }
 
@@ -167,7 +168,12 @@ mod tests {
         for &idx in &[1023, 1024, 1025, 2047, 2048, 2049] {
             if idx < encoded.len() {
                 let original_value = expected[idx];
-                let encoded_value = encoded.scalar_at(idx).as_primitive().as_::<u16>().unwrap();
+                let encoded_value = encoded
+                    .scalar_at(idx)
+                    .unwrap()
+                    .as_primitive()
+                    .as_::<u16>()
+                    .unwrap();
                 assert_eq!(original_value, encoded_value, "Mismatch at index {}", idx);
             }
         }
@@ -177,14 +183,14 @@ mod tests {
     #[should_panic]
     fn test_scalar_at_out_of_bounds() {
         let array = fixture::rle_array();
-        array.scalar_at(1025);
+        array.scalar_at(1025).unwrap();
     }
 
     #[test]
     #[should_panic]
     fn test_scalar_at_slice_out_of_bounds() {
         let array = fixture::rle_array().slice(0..1);
-        array.scalar_at(1);
+        array.scalar_at(1).unwrap();
     }
 
     #[test]

@@ -131,11 +131,11 @@ impl VTable for PcoVTable {
         vortex_ensure!(buffers.len() >= metadata.0.chunks.len());
         let chunk_metas = buffers[..metadata.0.chunks.len()]
             .iter()
-            .map(|b| b.clone().try_to_host())
+            .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
         let pages = buffers[metadata.0.chunks.len()..]
             .iter()
-            .map(|b| b.clone().try_to_host())
+            .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
 
         let expected_n_pages = metadata
@@ -199,7 +199,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
+    let mask = parray.validity_mask()?;
     Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
@@ -526,7 +526,7 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
+    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

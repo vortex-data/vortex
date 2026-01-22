@@ -32,14 +32,13 @@ jobs:
           API_RESPONSE: ${{ steps.get_labels_api.outputs.data }}
         run: |
           REQUIRED_LABELS=(
-            "chore"
-            "documentation"
-            "feature"
-            "fix"
-            "performance"
-            "break"
-            "wire-break"
-            "skip-changelog"
+            "changelog/break"
+            "changelog/feature"
+            "changelog/performance"
+            "changelog/fix"
+            "changelog/docs"
+            "changelog/chore"
+            "changelog/skip"
           )
           REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
           echo "Required Labels: $REQUIRED_LABELS_JSON"
@@ -52,18 +51,24 @@ jobs:
           CURRENT_PR_LABELS_JSON=$(echo "$API_RESPONSE" | jq '[.[] | .name]')
           echo "Current PR Labels from API: $CURRENT_PR_LABELS_JSON"
 
-          found_one=false
+          # Count how many changelog labels are present
+          found_labels=()
           for label in "${REQUIRED_LABELS[@]}"; do
-            if echo "$CURRENT_PR_LABELS_JSON" | jq -e --arg label "$label" 'contains([$label])'; then
-              echo "Found required label: $label"
-              found_one=true
-              break
+            if echo "$CURRENT_PR_LABELS_JSON" | jq -e --arg label "$label" 'contains([$label])' > /dev/null; then
+              echo "Found changelog label: $label"
+              found_labels+=("$label")
             fi
           done
 
-          if [ "$found_one" = false ]; then
-            echo "::error file=.github/workflows/pr-labels.yml::Pull Request is missing a required changelog label. Please add one of: ${REQUIRED_LABELS[*]}."
+          label_count=${#found_labels[@]}
+          echo "Total changelog labels found: $label_count"
+
+          if [ "$label_count" -eq 0 ]; then
+            echo "::error file=.github/workflows/pr-labels.yml::Pull Request is missing a required changelog label. Please add exactly one of: ${REQUIRED_LABELS[*]}."
+            exit 1
+          elif [ "$label_count" -gt 1 ]; then
+            echo "::error file=.github/workflows/pr-labels.yml::Pull Request has multiple changelog labels (${found_labels[*]}). Please keep only one."
             exit 1
           else
-            echo "Pull Request has a required changelog label."
+            echo "Pull Request has exactly one changelog label: ${found_labels[0]}"
           fi

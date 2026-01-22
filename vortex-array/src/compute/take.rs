@@ -81,7 +81,7 @@ impl ComputeFnVTable for Take {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        if indices.all_invalid() {
+        if indices.all_invalid()? {
             return Ok(ConstantArray::new(
                 Scalar::null(array.dtype().as_nullable()),
                 indices.len(),
@@ -132,7 +132,7 @@ fn propagate_take_stats(
     indices: &dyn Array,
 ) -> VortexResult<()> {
     target.statistics().with_mut_typed_stats_set(|mut st| {
-        if indices.all_valid() {
+        if indices.all_valid().unwrap_or(false) {
             let is_constant = source.statistics().get_as::<bool>(Stat::IsConstant);
             if is_constant == Some(Precision::Exact(true)) {
                 // Any combination of elements from a constant array is still const

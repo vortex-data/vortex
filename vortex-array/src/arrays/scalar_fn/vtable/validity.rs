@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -78,19 +77,12 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         Ok(Validity::Array(execute_expr(&validity_expr, array.len())?))
     }
 
-    fn validity_mask(array: &ScalarFnArray) -> Mask {
+    fn validity_mask(array: &ScalarFnArray) -> VortexResult<Mask> {
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let output = array
-            .to_array()
-            .execute::<CanonicalOutput>(&mut ctx)
-            .vortex_expect("Validity mask computation should be fallible");
-        match output {
+        let output = array.to_array().execute::<CanonicalOutput>(&mut ctx)?;
+        Ok(match output {
             CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
-            CanonicalOutput::Array(a) => a
-                .into_array()
-                .validity()
-                .vortex_expect("cannot fail")
-                .to_mask(array.len()),
-        }
+            CanonicalOutput::Array(a) => a.into_array().validity()?.to_mask(array.len()),
+        })
     }
 }

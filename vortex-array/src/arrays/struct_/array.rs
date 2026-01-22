@@ -61,11 +61,11 @@ use crate::vtable::ValidityHelper;
 /// ).unwrap();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
-/// let row0 = struct_array.scalar_at(0);
+/// let row0 = struct_array.scalar_at(0).unwrap();
 /// assert!(!row0.is_null());
 ///
 /// // Row 1 is null at struct level - returns null even though fields have values
-/// let row1 = struct_array.scalar_at(1);
+/// let row1 = struct_array.scalar_at(1).unwrap();
 /// assert!(row1.is_null());
 /// ```
 ///
@@ -94,7 +94,7 @@ use crate::vtable::ValidityHelper;
 ///
 /// // field_by_name returns the FIRST "data" field
 /// let first_data = struct_array.field_by_name("data").unwrap();
-/// assert_eq!(first_data.scalar_at(0), 1i32.into());
+/// assert_eq!(first_data.scalar_at(0).unwrap(), 1i32.into());
 /// ```
 ///
 /// ## Field Operations

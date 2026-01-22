@@ -107,7 +107,7 @@ impl LayoutStrategy for StructStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask().into_array(),
+                    chunk.validity_mask()?.into_array(),
                 ));
             }
 

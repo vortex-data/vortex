@@ -257,15 +257,18 @@ fn to_canonical_decimal(
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
+    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        let scalar = array.msp.scalar_at(index);
+        let scalar = array.msp.scalar_at(index)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
         let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
-        Scalar::new(array.dtype.clone(), DecimalValue::I64(value).into())
+        Ok(Scalar::new(
+            array.dtype.clone(),
+            DecimalValue::I64(value).into(),
+        ))
     }
 }
 
@@ -314,14 +317,14 @@ mod tests {
         .unwrap()
         .to_array();
 
-        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0));
+        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(
             Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
-            array.scalar_at(1)
+            array.scalar_at(1).unwrap()
         );
         assert_eq!(
             Scalar::new(dtype, DecimalValue::I64(400).into()),
-            array.scalar_at(2)
+            array.scalar_at(2).unwrap()
         );
     }
 }

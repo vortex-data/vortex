@@ -53,12 +53,12 @@ mod tests {
         let prim = canonical.as_ref().to_primitive();
 
         // Check that null positions match validity.
-        assert_eq!(prim.valid_count(), 3);
-        assert!(prim.is_valid(0));
-        assert!(!prim.is_valid(1));
-        assert!(prim.is_valid(2));
-        assert!(!prim.is_valid(3));
-        assert!(prim.is_valid(4));
+        assert_eq!(prim.valid_count().unwrap(), 3);
+        assert!(prim.is_valid(0).unwrap());
+        assert!(!prim.is_valid(1).unwrap());
+        assert!(prim.is_valid(2).unwrap());
+        assert!(!prim.is_valid(3).unwrap());
+        assert!(prim.is_valid(4).unwrap());
         Ok(())
     }
 
@@ -71,7 +71,7 @@ mod tests {
         .unwrap();
 
         let canonical = array.to_canonical()?;
-        assert_eq!(canonical.as_ref().valid_count(), 3);
+        assert_eq!(canonical.as_ref().valid_count().unwrap(), 3);
         assert_eq!(
             canonical.as_ref().dtype().nullability(),
             Nullability::Nullable

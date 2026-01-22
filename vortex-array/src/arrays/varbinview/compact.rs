@@ -26,7 +26,7 @@ impl VarBinViewArray {
     /// well-utilized buffers unchanged.
     pub fn compact_buffers(&self) -> VortexResult<VarBinViewArray> {
         // If there is nothing to be gained by compaction, return the original array untouched.
-        if !self.should_compact() {
+        if !self.should_compact()? {
             return Ok(self.clone());
         }
 
@@ -34,35 +34,35 @@ impl VarBinViewArray {
         self.compact_with_threshold(1.0)
     }
 
-    fn should_compact(&self) -> bool {
+    fn should_compact(&self) -> VortexResult<bool> {
         let nbuffers = self.nbuffers();
 
         // If the array is entirely inlined strings, do not attempt to compact.
         if nbuffers == 0 {
-            return false;
+            return Ok(false);
         }
 
         // These will fail to write, so in most cases we want to compact this.
         if nbuffers > u16::MAX as usize {
-            return true;
+            return Ok(true);
         }
 
-        let bytes_referenced: u64 = self.count_referenced_bytes();
+        let bytes_referenced: u64 = self.count_referenced_bytes()?;
         let buffer_total_bytes: u64 = self.buffers.iter().map(|buf| buf.len() as u64).sum();
 
         // If there is any wasted space, we want to repack.
         // This is very aggressive.
-        bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0
+        Ok(bytes_referenced < buffer_total_bytes || buffer_total_bytes == 0)
     }
 
     /// Iterates over all valid, non-inlined views, calling the provided
     /// closure for each one.
     #[inline(always)]
-    fn iter_valid_views<F>(&self, mut f: F)
+    fn iter_valid_views<F>(&self, mut f: F) -> VortexResult<()>
     where
         F: FnMut(&Ref),
     {
-        match self.validity_mask() {
+        match self.validity_mask()? {
             Mask::AllTrue(_) => {
                 for &view in self.views().iter() {
                     if !view.is_inlined() {
@@ -79,17 +79,18 @@ impl VarBinViewArray {
                 }
             }
         }
+        Ok(())
     }
 
     /// Count the number of bytes addressed by the views, not including null
     /// values or any inlined strings.
-    fn count_referenced_bytes(&self) -> u64 {
+    fn count_referenced_bytes(&self) -> VortexResult<u64> {
         let mut total = 0u64;
-        self.iter_valid_views(|view| total += view.size as u64);
-        total
+        self.iter_valid_views(|view| total += view.size as u64)?;
+        Ok(total)
     }
 
-    pub(crate) fn buffer_utilizations(&self) -> Vec<BufferUtilization> {
+    pub(crate) fn buffer_utilizations(&self) -> VortexResult<Vec<BufferUtilization>> {
         let mut utilizations: Vec<BufferUtilization> = self
             .buffers()
             .iter()
@@ -101,9 +102,9 @@ impl VarBinViewArray {
 
         self.iter_valid_views(|view| {
             utilizations[view.buffer_index as usize].add(view.offset, view.size);
-        });
+        })?;
 
-        utilizations
+        Ok(utilizations)
     }
 
     /// Returns a compacted copy of the input array using selective buffer compaction.
@@ -413,7 +414,7 @@ mod tests {
         let taken_array = taken.as_::<VarBinViewVTable>();
 
         // Get buffer stats before compaction
-        let utils_before = taken_array.buffer_utilizations();
+        let utils_before = taken_array.buffer_utilizations().unwrap();
         let original_buffer_count = taken_array.nbuffers();
 
         // Compact with a threshold that should trigger slicing
@@ -459,9 +460,10 @@ mod tests {
         #[case] expected_bytes: u64,
         #[case] expected_utils: &[f64],
     ) {
-        assert_eq!(arr.count_referenced_bytes(), expected_bytes);
+        assert_eq!(arr.count_referenced_bytes().unwrap(), expected_bytes);
         let utils: Vec<f64> = arr
             .buffer_utilizations()
+            .unwrap()
             .iter()
             .map(|u| u.overall_utilization())
             .collect();

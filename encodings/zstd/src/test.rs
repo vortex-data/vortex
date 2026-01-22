@@ -84,7 +84,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     let slice = compressed.slice(176..179);
     let primitive = slice.to_primitive();
     assert_eq!(
-        TryInto::<i32>::try_into(primitive.scalar_at(1).as_ref())
+        TryInto::<i32>::try_into(primitive.scalar_at(1).unwrap().as_ref())
             .ok()
             .unwrap(),
         177
@@ -125,9 +125,12 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = ZstdArray::from_primitive(&array, 3, 0).unwrap();
-    assert_eq!(compressed.validity_mask(), Mask::from_iter(mask_bools));
     assert_eq!(
-        compressed.slice(1..4).validity_mask(),
+        compressed.validity_mask().unwrap(),
+        Mask::from_iter(mask_bools)
+    );
+    assert_eq!(
+        compressed.slice(1..4).validity_mask().unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }

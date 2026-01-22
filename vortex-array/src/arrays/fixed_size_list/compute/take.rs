@@ -137,8 +137,8 @@ fn take_nullable_fsl<I: IntegerPType>(
     let indices: &[I] = indices_array.as_slice::<I>();
     let new_len = indices.len();
 
-    let array_validity = array.validity_mask();
-    let indices_validity = indices_array.validity_mask();
+    let array_validity = array.validity_mask()?;
+    let indices_validity = indices_array.validity_mask()?;
 
     // We must use placeholder zeros for null lists to maintain the array length without
     // propagating nullability to the element array's take operation.

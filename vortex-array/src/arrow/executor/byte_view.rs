@@ -21,7 +21,9 @@ use crate::builtins::ArrayBuiltins;
 use crate::vtable::ValidityHelper;
 
 /// Convert a canonical VarBinViewArray directly to Arrow.
-pub fn canonical_varbinview_to_arrow<T: ByteViewType>(array: &VarBinViewArray) -> ArrowArrayRef {
+pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
+    array: &VarBinViewArray,
+) -> VortexResult<ArrowArrayRef> {
     let views =
         ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
     let buffers: Vec<_> = array
@@ -29,10 +31,12 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(array: &VarBinViewArray) -
         .iter()
         .map(|buffer| buffer.clone().into_arrow_buffer())
         .collect();
-    let nulls = to_null_buffer(array.validity_mask());
+    let nulls = to_null_buffer(array.validity_mask()?);
 
     // SAFETY: our own VarBinView array is considered safe.
-    Arc::new(unsafe { GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls) })
+    Ok(Arc::new(unsafe {
+        GenericByteViewArray::<T>::new_unchecked(views, buffers, nulls)
+    }))
 }
 
 pub fn execute_varbinview_to_arrow<T: ByteViewType>(
@@ -65,5 +69,5 @@ pub(super) fn to_arrow_byte_view<T: ByteViewType>(
     let array = array.cast(DType::from_arrow((&T::DATA_TYPE, Nullability::Nullable)))?;
 
     let varbinview = array.execute::<VarBinViewArray>(ctx)?;
-    Ok(canonical_varbinview_to_arrow::<T>(&varbinview))
+    canonical_varbinview_to_arrow::<T>(&varbinview)
 }

@@ -96,7 +96,7 @@ pub fn decode_to_temporal(
     }
 
     Ok(TemporalArray::new_timestamp(
-        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref()))
+        PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref())?)
             .into_array(),
         temporal_metadata.time_unit(),
         temporal_metadata.time_zone().map(ToString::to_string),
@@ -147,7 +147,7 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            date_times.validity_mask(),
+            date_times.validity_mask().unwrap(),
             validity.to_mask(date_times.len())
         );
 

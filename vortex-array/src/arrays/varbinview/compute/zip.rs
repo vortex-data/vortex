@@ -52,8 +52,8 @@ impl ZipKernel for VarBinViewVTable {
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.validity_mask();
-        let false_validity = if_false.validity_mask();
+        let true_validity = if_true.validity_mask()?;
+        let false_validity = if_false.validity_mask()?;
 
         match mask.slices() {
             AllOr::All => push_range(

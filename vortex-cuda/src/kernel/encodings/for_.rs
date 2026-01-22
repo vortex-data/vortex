@@ -109,9 +109,9 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        // Create u8 offset values that cycle through 0-255, creating 5000 elements
+        // Create u8 offset values that cycle through 0-245, creating 5000 elements
         #[allow(clippy::cast_possible_truncation)]
-        let input_data: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
+        let input_data: Vec<u8> = (0..5000).map(|i| (i % 246) as u8).collect();
 
         let for_array = FoRArray::try_new(
             PrimitiveArray::new(Buffer::from(input_data.clone()), NonNullable).into_array(),
@@ -126,14 +126,12 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u8>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
-            input_data
-                .iter()
-                .map(|&val| val.wrapping_add(10))
-                .collect::<Vec<u8>>()
+            input_data.iter().map(|&val| val + 10).collect::<Vec<u8>>()
         );
     }
 
@@ -162,13 +160,14 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u16>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(1000))
+                .map(|&val| val + 1000)
                 .collect::<Vec<u16>>()
         );
     }
@@ -198,13 +197,14 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(100000))
+                .map(|&val| val + 100000)
                 .collect::<Vec<u32>>()
         );
     }
@@ -234,13 +234,14 @@ mod tests {
             .vortex_expect("GPU decompression failed");
 
         let result_buf =
-            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host());
+            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
 
+        assert_eq!(result_buf.len(), input_data.len());
         assert_eq!(
             result_buf,
             input_data
                 .iter()
-                .map(|&val| val.wrapping_add(1000000u64))
+                .map(|&val| val + 1000000u64)
                 .collect::<Vec<u64>>()
         );
     }

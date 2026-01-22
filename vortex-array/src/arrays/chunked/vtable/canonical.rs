@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref()),
+                Validity::copy_from_array(array.as_ref())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(array.as_ref()),
+            Validity::copy_from_array(array.as_ref())?,
             elem_dtype,
             ctx,
         )?),
@@ -256,7 +256,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_listview();
 
-        assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
-        assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));
+        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
+        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
     }
 }

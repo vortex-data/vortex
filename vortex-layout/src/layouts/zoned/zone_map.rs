@@ -218,7 +218,7 @@ impl StatsAccumulator {
     ///
     /// Returns `None` if none of the requested statistics can be computed, for example they are
     /// not applicable to the column's data type.
-    pub fn as_stats_table(&mut self) -> Option<ZoneMap> {
+    pub fn as_stats_table(&mut self) -> VortexResult<Option<ZoneMap>> {
         let mut names = Vec::new();
         let mut fields = Vec::new();
         let mut stats = Vec::new();
@@ -232,7 +232,7 @@ impl StatsAccumulator {
             let values = builder.finish();
 
             // We drop any all-null stats columns
-            if values.all_invalid() {
+            if values.all_invalid()? {
                 continue;
             }
 
@@ -242,14 +242,14 @@ impl StatsAccumulator {
         }
 
         if names.is_empty() {
-            return None;
+            return Ok(None);
         }
 
-        Some(ZoneMap {
+        Ok(Some(ZoneMap {
             array: StructArray::try_new(names.into(), fields, self.length, Validity::NonNullable)
                 .vortex_expect("Failed to create zone map"),
             stats: stats.into(),
-        })
+        }))
     }
 }
 
@@ -305,7 +305,10 @@ mod tests {
             .vortex_expect("push_chunk should succeed for test data");
         acc.push_chunk(&builder2.finish())
             .vortex_expect("push_chunk should succeed for test data");
-        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        let stats_table = acc
+            .as_stats_table()
+            .unwrap()
+            .expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[
@@ -331,7 +334,10 @@ mod tests {
         let mut acc = StatsAccumulator::new(array.dtype(), &[Stat::Max, Stat::Min, Stat::Sum], 12);
         acc.push_chunk(&array)
             .vortex_expect("push_chunk should succeed for test array");
-        let stats_table = acc.as_stats_table().vortex_expect("Must have stats table");
+        let stats_table = acc
+            .as_stats_table()
+            .unwrap()
+            .expect("Must have stats table");
         assert_eq!(
             stats_table.array.names().as_ref(),
             &[

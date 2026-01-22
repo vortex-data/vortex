@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -16,12 +16,12 @@ use crate::expr::ExecutionResult;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn scalar_at(array: &ScalarFnArray, index: usize) -> Scalar {
+    fn scalar_at(array: &ScalarFnArray, index: usize) -> VortexResult<Scalar> {
         let inputs: Vec<_> = array
             .children
             .iter()
-            .map(|child| ConstantArray::new(child.scalar_at(index), 1).into_array())
-            .collect::<_>();
+            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
+            .collect::<VortexResult<_>>()?;
 
         let mut ctx = LEGACY_SESSION.create_execution_ctx();
         let args = ExecutionArgs {
@@ -30,20 +30,112 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             ctx: &mut ctx,
         };
 
-        let result = array
-            .scalar_fn
-            .execute(args)
-            .vortex_expect("todo vortex result return");
+        let result = array.scalar_fn.execute(args)?;
 
-        match result {
+        let scalar = match result {
             ExecutionResult::Array(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn,
                 );
-                arr.as_ref().scalar_at(0)
+                arr.as_ref().scalar_at(0)?
             }
-            ExecutionResult::Scalar(scalar) => scalar.scalar().clone(),
-        }
+            ExecutionResult::Scalar(constant) => constant.scalar().clone(),
+        };
+
+        debug_assert_eq!(
+            scalar.dtype(),
+            &array.dtype,
+            "Scalar function {} returned dtype {:?} but expected {:?}",
+            array.scalar_fn,
+            scalar.dtype(),
+            array.dtype
+        );
+
+        Ok(scalar)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
+
+    use crate::IntoArray;
+    use crate::arrays::BoolArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::arrays::scalar_fn::array::ScalarFnArray;
+    use crate::assert_arrays_eq;
+    use crate::expr::Operator;
+    use crate::expr::ScalarFn;
+    use crate::expr::binary::Binary;
+    use crate::validity::Validity;
+
+    #[test]
+    fn test_scalar_fn_add() -> VortexResult<()> {
+        let lhs = buffer![1i32, 2, 3].into_array();
+        let rhs = buffer![10i32, 20, 30].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        let result = scalar_fn_array.to_canonical()?.into_array();
+        let expected = buffer![11i32, 22, 33].into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_fn_mul() -> VortexResult<()> {
+        let lhs = buffer![2i32, 3, 4].into_array();
+        let rhs = buffer![5i32, 6, 7].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Mul);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        let result = scalar_fn_array.to_canonical()?.into_array();
+        let expected = buffer![10i32, 18, 28].into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_fn_with_nullable() -> VortexResult<()> {
+        let lhs = PrimitiveArray::new(buffer![1i32, 2, 3], Validity::AllValid).into_array();
+        let rhs = PrimitiveArray::new(
+            buffer![10i32, 20, 30],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Add);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        let result = scalar_fn_array.to_canonical()?.into_array();
+        let expected = PrimitiveArray::new(
+            buffer![11i32, 0, 33],
+            Validity::from_iter([true, false, true]),
+        )
+        .into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_scalar_fn_comparison() -> VortexResult<()> {
+        let lhs = buffer![1i32, 5, 3].into_array();
+        let rhs = buffer![2i32, 5, 1].into_array();
+
+        let scalar_fn = ScalarFn::new(Binary, Operator::Eq);
+        let scalar_fn_array = ScalarFnArray::try_new(scalar_fn, vec![lhs, rhs], 3)?;
+
+        let result = scalar_fn_array.to_canonical()?.into_array();
+        let expected = BoolArray::from_iter([false, true, false]).into_array();
+        assert_arrays_eq!(result, expected);
+
+        Ok(())
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::arrays::BoolArray;
@@ -8,8 +9,11 @@ use crate::arrays::BoolVTable;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<BoolVTable> for BoolVTable {
-    fn scalar_at(array: &BoolArray, index: usize) -> Scalar {
-        Scalar::bool(array.bit_buffer().value(index), array.dtype().nullability())
+    fn scalar_at(array: &BoolArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::bool(
+            array.bit_buffer().value(index),
+            array.dtype().nullability(),
+        ))
     }
 }
 

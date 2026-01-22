@@ -131,7 +131,10 @@ fn canonicalize_sparse_lists(
     let n_filled = array.len() - resolved_patches.num_patches();
     let total_canonical_values = values.elements().len() + fill_value.len() * n_filled;
 
-    let validity = Validity::from_mask(array.validity_mask(), nullability);
+    let validity = Validity::from_mask(
+        array.validity_mask().vortex_expect("validity_mask"),
+        nullability,
+    );
 
     match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
@@ -180,7 +183,12 @@ fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         if position_is_patched {
             // Set with the patch value.
             builder
-                .append_value(patch_values.scalar_at(patch_idx).as_list())
+                .append_value(
+                    patch_values
+                        .scalar_at(patch_idx)
+                        .vortex_expect("scalar_at")
+                        .as_list(),
+                )
                 .vortex_expect("Failed to append sparse value");
             patch_idx += 1;
         } else {
@@ -201,7 +209,10 @@ fn canonicalize_sparse_fixed_size_list(array: &SparseArray, nullability: Nullabi
     let values = resolved_patches.values().to_fixed_size_list();
     let fill_value = array.fill_scalar().as_list();
 
-    let validity = Validity::from_mask(array.validity_mask(), nullability);
+    let validity = Validity::from_mask(
+        array.validity_mask().vortex_expect("validity_mask"),
+        nullability,
+    );
 
     match_each_integer_ptype!(indices.ptype(), |I| {
         canonicalize_sparse_fixed_size_list_inner::<I>(
@@ -252,7 +263,7 @@ fn canonicalize_sparse_fixed_size_list_inner<I: IntegerPType>(
             let patch_list = values.fixed_size_list_elements_at(patch_idx);
             for i in 0..list_size as usize {
                 builder
-                    .append_scalar(&patch_list.scalar_at(i))
+                    .append_scalar(&patch_list.scalar_at(i).vortex_expect("scalar_at"))
                     .vortex_expect("element dtype must match");
             }
         } else {
@@ -376,7 +387,10 @@ fn canonicalize_sparse_struct(
             unresolved_patches.offset(),
             unresolved_patches.indices(),
             &Validity::from_mask(
-                unresolved_patches.values().validity_mask(),
+                unresolved_patches
+                    .values()
+                    .validity_mask()
+                    .vortex_expect("validity_mask"),
                 Nullability::Nullable,
             ),
         )
@@ -442,7 +456,10 @@ fn canonicalize_varbin(
     let patches = array.resolved_patches();
     let indices = patches.indices().to_primitive();
     let values = patches.values().to_varbinview();
-    let validity = Validity::from_mask(array.validity_mask(), dtype.nullability());
+    let validity = Validity::from_mask(
+        array.validity_mask().vortex_expect("validity_mask"),
+        dtype.nullability(),
+    );
     let len = array.len();
 
     match_each_integer_ptype!(indices.ptype(), |I| {
