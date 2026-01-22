@@ -59,7 +59,7 @@ fn filter_select_var_bin_by_slice(
             offsets.as_slice::<O>(),
             values.bytes().as_slice(),
             mask_slices,
-            values.validity_mask(),
+            values.validity_mask()?,
             selection_count,
         )
     })

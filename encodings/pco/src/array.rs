@@ -199,7 +199,7 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
 }
 
 fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
-    let mask = parray.validity_mask();
+    let mask = parray.validity_mask()?;
     Ok(filter(&parray.to_array(), &mask)?.to_primitive())
 }
 
@@ -526,7 +526,7 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
 }
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn scalar_at(array: &PcoArray, index: usize) -> Scalar {
+    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
         array._slice(index, index + 1).decompress().scalar_at(0)
     }
 }

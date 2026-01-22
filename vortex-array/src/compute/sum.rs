@@ -237,7 +237,7 @@ pub fn sum_impl(
     accumulator: &Scalar,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Scalar> {
-    if array.is_empty() || array.all_invalid() || accumulator.is_null() {
+    if array.is_empty() || array.all_invalid()? || accumulator.is_null() {
         return Ok(accumulator.clone());
     }
 

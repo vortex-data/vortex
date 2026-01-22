@@ -662,7 +662,7 @@ mod tests {
         // Test using compare compute function directly
         let result_equal = compare(&lhs_struct, &rhs_struct_equal, compute::Operator::Eq).unwrap();
         assert_eq!(
-            result_equal.scalar_at(0),
+            result_equal.scalar_at(0).vortex_expect("value"),
             Scalar::bool(true, Nullability::NonNullable),
             "Equal structs should be equal"
         );
@@ -670,7 +670,7 @@ mod tests {
         let result_different =
             compare(&lhs_struct, &rhs_struct_different, compute::Operator::Eq).unwrap();
         assert_eq!(
-            result_different.scalar_at(0),
+            result_different.scalar_at(0).vortex_expect("value"),
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );

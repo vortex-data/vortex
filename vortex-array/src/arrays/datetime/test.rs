@@ -1,10 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
+// SPDX-FileCopyrightText: Copyright the Vortex contributorsuse vortex_dtype::Nullability;
+use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
+use vortex_dtype::DType;
+use vortex_dtype::ExtDType;
+use vortex_dtype::Nullability;
+use vortex_dtype::PType;
+use vortex_dtype::datetime::TIMESTAMP_ID;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -12,6 +20,8 @@ use crate::array::Array;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TemporalArray;
 use crate::assert_arrays_eq;
+use crate::expr::root;
+use crate::expr::*;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -194,4 +204,33 @@ fn test_validity_preservation(#[case] validity: Validity) {
         temporal_array.temporal_values().to_primitive().validity(),
         &validity
     );
+}
+
+#[test]
+fn test222() -> VortexResult<()> {
+    // Write file with MILLISECONDS timestamps
+    let ts_array = PrimitiveArray::from_iter(vec![1704067200000i64, 1704153600000, 1704240000000])
+        .into_array();
+    let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
+
+    // Read with SECONDS filter scalar
+    let seconds_ext_dtype = Arc::new(ExtDType::new(
+        TIMESTAMP_ID.clone(),
+        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
+        Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
+    ));
+    let filter_expr = gt(
+        root(),
+        lit(Scalar::extension(
+            seconds_ext_dtype,
+            Scalar::from(1704153600i64),
+        )),
+    );
+
+    let _result = temporal.as_ref().apply(&filter_expr);
+
+    // let err = result.is_err().unwrap();
+    // println!("Expected error: {}", err);
+
+    Ok(())
 }

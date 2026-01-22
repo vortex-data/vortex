@@ -120,7 +120,7 @@ impl ChunkedArray {
         self.chunk_offsets.to_buffer()
     }
 
-    pub(crate) fn find_chunk_idx(&self, index: usize) -> (usize, usize) {
+    pub(crate) fn find_chunk_idx(&self, index: usize) -> VortexResult<(usize, usize)> {
         assert!(index <= self.len(), "Index out of bounds of the array");
         let index = index as u64;
 
@@ -128,14 +128,14 @@ impl ChunkedArray {
         // and take the last chunk (we subtract 1 since there's a leading 0)
         let index_chunk = self
             .chunk_offsets()
-            .search_sorted(&index, SearchSortedSide::Right)
+            .search_sorted(&index, SearchSortedSide::Right)?
             .to_ends_index(self.nchunks() + 1)
             .saturating_sub(1);
         let chunk_start = self.chunk_offsets()[index_chunk];
 
         let index_in_chunk =
             usize::try_from(index - chunk_start).vortex_expect("Index is too large for usize");
-        (index_chunk, index_in_chunk)
+        Ok((index_chunk, index_in_chunk))
     }
 
     pub fn chunks(&self) -> &[ArrayRef] {
@@ -348,8 +348,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_valid since all non-empty chunks are all_valid
-        assert!(chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -368,8 +368,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be all_invalid since all non-empty chunks are all_invalid
-        assert!(!chunked.all_valid());
-        assert!(chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(chunked.all_invalid().unwrap());
 
         Ok(())
     }
@@ -388,8 +388,8 @@ mod test {
             ChunkedArray::try_new(chunks, DType::Primitive(PType::U64, Nullability::Nullable))?;
 
         // Should be neither all_valid nor all_invalid
-        assert!(!chunked.all_valid());
-        assert!(!chunked.all_invalid());
+        assert!(!chunked.all_valid().unwrap());
+        assert!(!chunked.all_invalid().unwrap());
 
         Ok(())
     }

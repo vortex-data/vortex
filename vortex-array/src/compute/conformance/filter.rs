@@ -91,7 +91,14 @@ fn test_selective_filter(array: &dyn Array) {
 
     // Verify correct elements are kept
     for (filtered_idx, i) in (0..len).step_by(2).enumerate() {
-        assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
+        assert_eq!(
+            filtered
+                .scalar_at(filtered_idx)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 
     // Test first and last only
@@ -103,8 +110,22 @@ fn test_selective_filter(array: &dyn Array) {
         let filtered =
             filter(array, &mask).vortex_expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
-        assert_eq!(filtered.scalar_at(1), array.scalar_at(len - 1));
+        assert_eq!(
+            filtered
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
+        assert_eq!(
+            filtered
+                .scalar_at(1)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(len - 1)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -120,7 +141,14 @@ fn test_single_element_filter(array: &dyn Array) {
     let mask = Mask::from_iter(mask_values);
     let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
     assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered.scalar_at(0), array.scalar_at(0));
+    assert_eq!(
+        filtered
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test"),
+        array
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test")
+    );
 
     // Test selecting only the last element
     if len > 1 {
@@ -130,7 +158,14 @@ fn test_single_element_filter(array: &dyn Array) {
         let filtered =
             filter(array, &mask).vortex_expect("filter should succeed in conformance test");
         assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered.scalar_at(0), array.scalar_at(len - 1));
+        assert_eq!(
+            filtered
+                .scalar_at(0)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            array
+                .scalar_at(len - 1)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -185,7 +220,14 @@ fn test_alternating_pattern_filter(array: &dyn Array) {
     let mut filtered_idx = 0;
     for (i, &keep) in pattern.iter().enumerate() {
         if keep {
-            assert_eq!(filtered.scalar_at(filtered_idx), array.scalar_at(i));
+            assert_eq!(
+                filtered
+                    .scalar_at(filtered_idx)
+                    .vortex_expect("scalar_at should succeed in conformance test"),
+                array
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test")
+            );
             filtered_idx += 1;
         }
     }

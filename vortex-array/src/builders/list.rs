@@ -221,7 +221,11 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         }
 
         // Append validity information.
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
@@ -498,10 +502,13 @@ mod tests {
         let canon_values = chunked_list.unwrap().to_listview();
 
         assert_eq!(
-            one_trailing_unused_element.scalar_at(0),
-            canon_values.scalar_at(0)
+            one_trailing_unused_element.scalar_at(0).unwrap(),
+            canon_values.scalar_at(0).unwrap()
         );
-        assert_eq!(second_array.scalar_at(0), canon_values.scalar_at(1));
+        assert_eq!(
+            second_array.scalar_at(0).unwrap(),
+            canon_values.scalar_at(1).unwrap()
+        );
     }
 
     #[test]
@@ -530,7 +537,7 @@ mod tests {
 
         // Check actual values using scalar_at.
 
-        let scalar0 = array.scalar_at(0);
+        let scalar0 = array.scalar_at(0).unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -538,7 +545,7 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array.scalar_at(1);
+        let scalar1 = array.scalar_at(1).unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 3);
         if let Some(list1_items) = list1.elements() {
@@ -547,7 +554,7 @@ mod tests {
             assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
         }
 
-        let scalar2 = array.scalar_at(2);
+        let scalar2 = array.scalar_at(2).unwrap();
         let list2 = scalar2.as_list();
         assert!(list2.is_null()); // This should be null.
 

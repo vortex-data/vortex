@@ -123,7 +123,7 @@ impl ComputeFnVTable for Between {
 
         // A quick check to see if either array might is a null constant array.
         // Note: Depends on returning early if array is empty for is_invalid check.
-        if (lower.is_invalid(0) || upper.is_invalid(0))
+        if (lower.is_invalid(0)? || upper.is_invalid(0)?)
             && let (Some(c_lower), Some(c_upper)) = (lower.as_constant(), upper.as_constant())
             && (c_lower.is_null() || c_upper.is_null())
         {

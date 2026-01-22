@@ -5,6 +5,7 @@ use arrow_array::Array as ArrowArray;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::Datum as ArrowDatum;
 use arrow_schema::DataType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -101,5 +102,11 @@ where
         );
     }
 
-    ConstantArray::new(array.scalar_at(0), len).into_array()
+    ConstantArray::new(
+        array
+            .scalar_at(0)
+            .vortex_expect("array of length 1 must support scalar_at(0)"),
+        len,
+    )
+    .into_array()
 }

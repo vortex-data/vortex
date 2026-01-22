@@ -57,11 +57,11 @@ impl IsConstantKernel for ListVTable {
             array.len() > 1,
             "precondition for `is_constant` is incorrect"
         );
-        let first_scalar = array.scalar_at(0); // We checked the array length above.
+        let first_scalar = array.scalar_at(0)?; // We checked the array length above.
 
         // All lists have the same length, so compare the actual list contents.
         for i in 1..array.len() {
-            let current_scalar = array.scalar_at(i);
+            let current_scalar = array.scalar_at(i)?;
             if current_scalar != first_scalar {
                 return Ok(Some(false));
             }

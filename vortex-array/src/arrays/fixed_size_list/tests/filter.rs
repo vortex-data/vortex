@@ -78,7 +78,7 @@ fn test_filter_degenerate_list_size_zero(
         // Should return a ConstantArray of nulls when all are invalid.
         let filtered_const = filtered.as_::<ConstantVTable>();
         for i in 0..expected_len {
-            assert!(filtered_const.scalar_at(i).is_null());
+            assert!(filtered_const.scalar_at(i).unwrap().is_null());
         }
     } else {
         let filtered_fsl = filtered.as_::<FixedSizeListVTable>();
@@ -111,13 +111,13 @@ fn test_filter_with_nulls() {
 
     // First list should be [1, 2] and valid.
     let first = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), 1i32.into());
-    assert_eq!(first.scalar_at(1), 2i32.into());
+    assert_eq!(first.scalar_at(0).unwrap(), 1i32.into());
+    assert_eq!(first.scalar_at(1).unwrap(), 2i32.into());
 
     // Second list should be [5, 6] and valid.
     let second = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(second.scalar_at(0), 5i32.into());
-    assert_eq!(second.scalar_at(1), 6i32.into());
+    assert_eq!(second.scalar_at(0).unwrap(), 5i32.into());
+    assert_eq!(second.scalar_at(1).unwrap(), 6i32.into());
 }
 
 #[test]
@@ -138,11 +138,11 @@ fn test_filter_all_null_array() {
         "All-null FSL should produce ConstantArray"
     );
     assert!(
-        filtered_const.scalar_at(0).is_null(),
+        filtered_const.scalar_at(0).unwrap().is_null(),
         "Expected null at index 0"
     );
     assert!(
-        filtered_const.scalar_at(1).is_null(),
+        filtered_const.scalar_at(1).unwrap().is_null(),
         "Expected null at index 1"
     );
 }
@@ -191,16 +191,16 @@ fn test_filter_nested_fixed_size_lists() {
 
     // Check the actual values.
     let inner_list_0 = filtered_inner.fixed_size_list_elements_at(0);
-    assert_eq!(inner_list_0.scalar_at(0), 7i32.into());
-    assert_eq!(inner_list_0.scalar_at(1), 8i32.into());
+    assert_eq!(inner_list_0.scalar_at(0).unwrap(), 7i32.into());
+    assert_eq!(inner_list_0.scalar_at(1).unwrap(), 8i32.into());
 
     let inner_list_1 = filtered_inner.fixed_size_list_elements_at(1);
-    assert_eq!(inner_list_1.scalar_at(0), 9i32.into());
-    assert_eq!(inner_list_1.scalar_at(1), 10i32.into());
+    assert_eq!(inner_list_1.scalar_at(0).unwrap(), 9i32.into());
+    assert_eq!(inner_list_1.scalar_at(1).unwrap(), 10i32.into());
 
     let inner_list_2 = filtered_inner.fixed_size_list_elements_at(2);
-    assert_eq!(inner_list_2.scalar_at(0), 11i32.into());
-    assert_eq!(inner_list_2.scalar_at(1), 12i32.into());
+    assert_eq!(inner_list_2.scalar_at(0).unwrap(), 11i32.into());
+    assert_eq!(inner_list_2.scalar_at(1).unwrap(), 12i32.into());
 }
 
 // Conformance tests using rstest for various array configurations.
@@ -297,8 +297,8 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered0 = filter(fsl0.as_ref(), &mask0).unwrap();
     assert_eq!(filtered0.len(), 2);
     // Check that all elements are null (might be ConstantArray or FixedSizeListArray)
-    assert!(filtered0.scalar_at(0).is_null());
-    assert!(filtered0.scalar_at(1).is_null());
+    assert!(filtered0.scalar_at(0).unwrap().is_null());
+    assert!(filtered0.scalar_at(1).unwrap().is_null());
 
     // Case 2: list_size == 1
     let elements1 = buffer![1i32, 2, 3].into_array();
@@ -307,8 +307,8 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered1 = filter(fsl1.as_ref(), &mask1).unwrap();
     assert_eq!(filtered1.len(), 2);
     // Check that all elements are null
-    assert!(filtered1.scalar_at(0).is_null());
-    assert!(filtered1.scalar_at(1).is_null());
+    assert!(filtered1.scalar_at(0).unwrap().is_null());
+    assert!(filtered1.scalar_at(1).unwrap().is_null());
 
     // Case 3: list_size == 10 (large)
     let elements10 = buffer![0..50i32].into_array();
@@ -317,8 +317,8 @@ fn test_filter_all_null_various_list_sizes() {
     let filtered10 = filter(fsl10.as_ref(), &mask10).unwrap();
     assert_eq!(filtered10.len(), 5);
     // Check that all elements are null
-    assert!(filtered10.scalar_at(0).is_null());
-    assert!(filtered10.scalar_at(4).is_null());
+    assert!(filtered10.scalar_at(0).unwrap().is_null());
+    assert!(filtered10.scalar_at(4).unwrap().is_null());
 }
 
 // Note: test_filter_to_empty_degenerate has been consolidated into test_filter_degenerate_list_size_zero above.
@@ -355,13 +355,22 @@ fn test_mask_expansion_threshold_boundary() {
 
     // Verify correct elements were kept.
     let first = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(first.scalar_at(0), (5i32 * list_size as i32).into());
+    assert_eq!(
+        first.scalar_at(0).unwrap(),
+        (5i32 * list_size as i32).into()
+    );
 
     let second = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(second.scalar_at(0), (25i32 * list_size as i32).into());
+    assert_eq!(
+        second.scalar_at(0).unwrap(),
+        (25i32 * list_size as i32).into()
+    );
 
     let third = filtered_fsl.fixed_size_list_elements_at(2);
-    assert_eq!(third.scalar_at(0), (75i32 * list_size as i32).into());
+    assert_eq!(
+        third.scalar_at(0).unwrap(),
+        (75i32 * list_size as i32).into()
+    );
 
     // Test with list_size == 7 (just below threshold).
     let list_size_7 = 7u32;
@@ -411,16 +420,16 @@ fn test_filter_large_list_size() {
 
     // Check that the correct lists were kept (indices 1, 3, 4 from original).
     let list_0 = filtered_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(list_0.scalar_at(0), 100i64.into()); // Start of original list 1.
-    assert_eq!(list_0.scalar_at(99), 199i64.into()); // End of original list 1.
+    assert_eq!(list_0.scalar_at(0).unwrap(), 100i64.into()); // Start of original list 1.
+    assert_eq!(list_0.scalar_at(99).unwrap(), 199i64.into()); // End of original list 1.
 
     let list_1 = filtered_fsl.fixed_size_list_elements_at(1);
-    assert_eq!(list_1.scalar_at(0), 300i64.into()); // Start of original list 3.
-    assert_eq!(list_1.scalar_at(99), 399i64.into()); // End of original list 3.
+    assert_eq!(list_1.scalar_at(0).unwrap(), 300i64.into()); // Start of original list 3.
+    assert_eq!(list_1.scalar_at(99).unwrap(), 399i64.into()); // End of original list 3.
 
     let list_2 = filtered_fsl.fixed_size_list_elements_at(2);
-    assert_eq!(list_2.scalar_at(0), 400i64.into()); // Start of original list 4.
-    assert_eq!(list_2.scalar_at(99), 499i64.into()); // End of original list 4.
+    assert_eq!(list_2.scalar_at(0).unwrap(), 400i64.into()); // Start of original list 4.
+    assert_eq!(list_2.scalar_at(99).unwrap(), 499i64.into()); // End of original list 4.
 
     // Test edge case: filter out all but one large list.
     let mask_single = Mask::from_iter([false, false, true, false, false]);
@@ -433,7 +442,7 @@ fn test_filter_large_list_size() {
 
     // Verify it's the correct list (original list 2).
     let single_list = filtered_single_fsl.fixed_size_list_elements_at(0);
-    assert_eq!(single_list.scalar_at(0), 200i64.into());
-    assert_eq!(single_list.scalar_at(50), 250i64.into());
-    assert_eq!(single_list.scalar_at(99), 299i64.into());
+    assert_eq!(single_list.scalar_at(0).unwrap(), 200i64.into());
+    assert_eq!(single_list.scalar_at(50).unwrap(), 250i64.into());
+    assert_eq!(single_list.scalar_at(99).unwrap(), 299i64.into());
 }

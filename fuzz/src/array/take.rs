@@ -45,7 +45,7 @@ pub fn take_canonical_array(
     let nullable: Nullability = indices.contains(&None).into();
 
     let validity = if array.dtype().is_nullable() || nullable == Nullability::Nullable {
-        let validity_idx = array.validity_mask().to_bit_buffer();
+        let validity_idx = array.validity_mask()?.to_bit_buffer();
 
         Validity::from_iter(
             indices
@@ -131,7 +131,7 @@ pub fn take_canonical_array(
                 if let Some(idx) = idx {
                     builder.append_scalar(
                         &array
-                            .scalar_at(*idx)
+                            .scalar_at(*idx)?
                             .cast(&array.dtype().union_nullability(nullable))
                             .vortex_expect("cannot cast scalar nullability"),
                     )?;

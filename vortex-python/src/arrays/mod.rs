@@ -551,8 +551,7 @@ impl PyArray {
     /// >>> vx.array([10, 42, 999, 1992]).scalar_at(10)
     /// Traceback (most recent call last):
     /// ...
-    /// pyo3_runtime.PanicException: index 10 out of bounds
-    /// ...
+    /// ValueError: index 10 out of bounds from 0 to 4
     /// ```
     ///
     /// Unlike Python, negative indices are not supported:
@@ -567,7 +566,7 @@ impl PyArray {
     fn scalar_at(slf: Bound<Self>, index: usize) -> PyResult<Bound<PyScalar>> {
         let py = slf.py();
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        PyScalar::init(py, slf.scalar_at(index))
+        PyScalar::init(py, slf.scalar_at(index)?)
     }
 
     /// Filter, permute, and/or repeat elements by their index.

@@ -31,7 +31,7 @@ use crate::SequenceVTable;
 
 impl TakeKernel for SequenceVTable {
     fn take(&self, array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let mask = indices.validity_mask();
+        let mask = indices.validity_mask()?;
         let indices = indices.to_primitive();
         let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 

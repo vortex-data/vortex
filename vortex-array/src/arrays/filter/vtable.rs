@@ -155,7 +155,7 @@ pub(super) fn execute_fast_path(
     }
 
     // All null - child has no valid values
-    if array.validity_mask().true_count() == 0 {
+    if array.validity_mask()?.true_count() == 0 {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
                 .into_array()
@@ -190,7 +190,7 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 }
 
 impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn scalar_at(array: &FilterArray, index: usize) -> Scalar {
+    fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
         let rank_idx = array.mask.rank(index);
         array.child.scalar_at(rank_idx)
     }
@@ -201,8 +201,8 @@ impl ValidityVTable<FilterVTable> for FilterVTable {
         array.child.validity()?.filter(&array.mask)
     }
 
-    fn validity_mask(array: &FilterArray) -> Mask {
-        Filter::filter(&array.child.validity_mask(), &array.mask)
+    fn validity_mask(array: &FilterArray) -> VortexResult<Mask> {
+        Ok(Filter::filter(&array.child.validity_mask()?, &array.mask))
     }
 }
 

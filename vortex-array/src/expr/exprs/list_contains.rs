@@ -217,9 +217,12 @@ mod tests {
         let expr = list_contains(root(), lit(1));
         let item = expr.evaluate(&arr).unwrap();
 
-        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
-            item.scalar_at(1),
+            item.scalar_at(0).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
+        );
+        assert_eq!(
+            item.scalar_at(1).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -231,8 +234,14 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&arr).unwrap();
 
-        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
-        assert_eq!(item.scalar_at(1), Scalar::bool(true, Nullability::Nullable));
+        assert_eq!(
+            item.scalar_at(0).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
+        );
+        assert_eq!(
+            item.scalar_at(1).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
+        );
     }
 
     #[test]
@@ -243,11 +252,11 @@ mod tests {
         let item = expr.evaluate(&arr).unwrap();
 
         assert_eq!(
-            item.scalar_at(0),
+            item.scalar_at(0).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
         assert_eq!(
-            item.scalar_at(1),
+            item.scalar_at(1).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -265,9 +274,12 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&arr).unwrap();
 
-        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
         assert_eq!(
-            item.scalar_at(1),
+            item.scalar_at(0).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
+        );
+        assert_eq!(
+            item.scalar_at(1).unwrap(),
             Scalar::bool(false, Nullability::Nullable)
         );
     }
@@ -285,8 +297,11 @@ mod tests {
         let expr = list_contains(root(), lit(2));
         let item = expr.evaluate(&arr).unwrap();
 
-        assert_eq!(item.scalar_at(0), Scalar::bool(true, Nullability::Nullable));
-        assert!(!item.is_valid(1));
+        assert_eq!(
+            item.scalar_at(0).unwrap(),
+            Scalar::bool(true, Nullability::Nullable)
+        );
+        assert!(!item.is_valid(1).unwrap());
     }
 
     #[test]

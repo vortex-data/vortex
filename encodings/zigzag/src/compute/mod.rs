@@ -99,7 +99,7 @@ mod tests {
             Validity::AllValid,
         ))?;
         assert_eq!(
-            zigzag.scalar_at(1),
+            zigzag.scalar_at(1)?,
             Scalar::primitive(-160, Nullability::Nullable)
         );
         Ok(())
