@@ -12,6 +12,7 @@ use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
+use vortex_error::VortexExpect;
 use vortex_scalar::PValue;
 
 use crate::RunEndArray;
@@ -36,8 +37,10 @@ where
             let slice_begin = ends
                 .as_primitive_typed()
                 .search_sorted(&PValue::from(offset), SearchSortedSide::Right)
+                .vortex_expect("search_sorted on primitive ends")
                 .to_ends_index(ends.len());
-            let slice_end = find_slice_end_index(ends.as_ref(), offset + len);
+            let slice_end = find_slice_end_index(ends.as_ref(), offset + len)
+                .vortex_expect("find_slice_end_index on primitive ends");
 
             (
                 ends.slice(slice_begin..slice_end),

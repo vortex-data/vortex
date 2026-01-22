@@ -83,7 +83,7 @@ use crate::stats::ArrayStats;
 /// assert_eq!(currency_array.id().as_ref(), "example.currency");
 ///
 /// // Access maintains extension type information
-/// let first_value = currency_array.scalar_at(0);
+/// let first_value = currency_array.scalar_at(0).unwrap();
 /// assert!(first_value.as_extension_opt().is_some());
 /// ```
 #[derive(Clone, Debug)]

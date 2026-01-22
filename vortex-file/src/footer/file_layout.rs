@@ -12,6 +12,7 @@ use std::sync::Arc;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
 use vortex_array::ArrayContext;
+use vortex_error::VortexResult;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
@@ -40,7 +41,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let segment_specs =
             fbb.create_vector_from_iter(self.segment_specs.iter().map(fb::SegmentSpec::from));
 
@@ -66,7 +67,7 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
             .collect::<Vec<_>>();
         let layout_specs = fbb.create_vector(layout_specs.as_slice());
 
-        fb::Footer::create(
+        Ok(fb::Footer::create(
             fbb,
             &fb::FooterArgs {
                 segment_specs: Some(segment_specs),
@@ -75,6 +76,6 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
                 compression_specs: None,
                 encryption_specs: None,
             },
-        )
+        ))
     }
 }

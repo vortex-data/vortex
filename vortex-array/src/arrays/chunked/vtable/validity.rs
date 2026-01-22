@@ -53,7 +53,7 @@ impl ValidityVTable<ChunkedVTable> for ChunkedVTable {
         ))
     }
 
-    fn validity_mask(array: &ChunkedArray) -> Mask {
+    fn validity_mask(array: &ChunkedArray) -> VortexResult<Mask> {
         array.chunks().iter().map(|a| a.validity_mask()).collect()
     }
 }

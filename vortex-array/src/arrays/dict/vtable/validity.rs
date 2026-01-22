@@ -55,12 +55,12 @@ impl ValidityVTable<DictVTable> for DictVTable {
         )
     }
 
-    fn validity_mask(array: &DictArray) -> Mask {
-        let codes_validity = array.codes().validity_mask();
-        match codes_validity.bit_buffer() {
+    fn validity_mask(array: &DictArray) -> VortexResult<Mask> {
+        let codes_validity = array.codes().validity_mask()?;
+        Ok(match codes_validity.bit_buffer() {
             AllOr::All => {
                 let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     BitBuffer::collect_bool(array.len(), |idx| {
@@ -73,7 +73,7 @@ impl ValidityVTable<DictVTable> for DictVTable {
             AllOr::None => Mask::AllFalse(array.len()),
             AllOr::Some(validity_buff) => {
                 let primitive_codes = array.codes().to_primitive();
-                let values_mask = array.values().validity_mask();
+                let values_mask = array.values().validity_mask()?;
                 let is_valid_buffer = match_each_integer_ptype!(primitive_codes.ptype(), |P| {
                     let codes_slice = primitive_codes.as_slice::<P>();
                     #[allow(clippy::cast_possible_truncation)]
@@ -83,6 +83,6 @@ impl ValidityVTable<DictVTable> for DictVTable {
                 });
                 Mask::from_buffer(is_valid_buffer)
             }
-        }
+        })
     }
 }

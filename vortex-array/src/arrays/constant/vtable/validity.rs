@@ -18,10 +18,10 @@ impl ValidityVTable<ConstantVTable> for ConstantVTable {
         })
     }
 
-    fn validity_mask(array: &ConstantArray) -> Mask {
-        match array.scalar().is_null() {
+    fn validity_mask(array: &ConstantArray) -> VortexResult<Mask> {
+        Ok(match array.scalar().is_null() {
             true => Mask::AllFalse(array.len),
             false => Mask::AllTrue(array.len),
-        }
+        })
     }
 }

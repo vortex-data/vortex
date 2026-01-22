@@ -135,7 +135,7 @@ where
         primitive.ptype()
     );
 
-    let validity = primitive.validity_mask();
+    let validity = primitive.validity_mask()?;
     let buffer = primitive.to_buffer::<T::Native>();
 
     let values = buffer.into_arrow_scalar_buffer();

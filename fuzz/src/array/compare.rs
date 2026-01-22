@@ -39,7 +39,13 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                     .to_bool()
                     .bit_buffer()
                     .iter()
-                    .zip(array.validity_mask().to_bit_buffer().iter())
+                    .zip(
+                        array
+                            .validity_mask()
+                            .vortex_expect("validity_mask")
+                            .to_bit_buffer()
+                            .iter(),
+                    )
                     .map(|(b, v)| v.then_some(b)),
                 bool,
                 operator,
@@ -58,7 +64,13 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                         .as_slice::<P>()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_bit_buffer().iter())
+                        .zip(
+                            array
+                                .validity_mask()
+                                .vortex_expect("validity_mask")
+                                .to_bit_buffer()
+                                .iter(),
+                        )
                         .map(|(b, v)| v.then_some(NativeValue(b))),
                     NativeValue(pval),
                     operator,
@@ -80,7 +92,13 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
                     buf.as_slice()
                         .iter()
                         .copied()
-                        .zip(array.validity_mask().to_bit_buffer().iter())
+                        .zip(
+                            array
+                                .validity_mask()
+                                .vortex_expect("validity_mask")
+                                .to_bit_buffer()
+                                .iter(),
+                        )
                         .map(|(b, v)| v.then_some(b)),
                     dval,
                     operator,
@@ -115,7 +133,9 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             )
         }),
         DType::Struct(..) | DType::List(..) | DType::FixedSizeList(..) => {
-            let scalar_vals: Vec<Scalar> = (0..array.len()).map(|i| array.scalar_at(i)).collect();
+            let scalar_vals: Vec<Scalar> = (0..array.len())
+                .map(|i| array.scalar_at(i).vortex_expect("scalar_at"))
+                .collect();
             BoolArray::from_iter(
                 scalar_vals
                     .iter()

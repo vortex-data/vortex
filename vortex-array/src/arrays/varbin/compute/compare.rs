@@ -170,7 +170,7 @@ mod test {
         .to_bool();
 
         assert_eq!(
-            &result.validity_mask().to_bit_buffer(),
+            &result.validity_mask().unwrap().to_bit_buffer(),
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
@@ -194,7 +194,7 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().to_bit_buffer(),
+            &result.validity_mask().unwrap().to_bit_buffer(),
             &BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(

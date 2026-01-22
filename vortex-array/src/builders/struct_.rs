@@ -173,7 +173,11 @@ impl ArrayBuilder for StructBuilder {
             builder.extend_from_array(a.as_ref());
         }
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -244,7 +248,7 @@ mod tests {
         let struct_ = builder.finish();
         assert_eq!(struct_.len(), 3);
         assert_eq!(struct_.dtype(), &dtype);
-        assert_eq!(struct_.valid_count(), 1);
+        assert_eq!(struct_.valid_count().unwrap(), 1);
     }
 
     #[test]

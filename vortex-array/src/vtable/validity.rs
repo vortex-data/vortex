@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
@@ -20,10 +19,8 @@ pub trait ValidityVTable<V: VTable> {
     /// - The array DType is nullable.
     fn validity(array: &V::Array) -> VortexResult<Validity>;
 
-    fn validity_mask(array: &V::Array) -> Mask {
-        Self::validity(array)
-            .vortex_expect("TODO: make this fallible")
-            .to_mask(array.len())
+    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
+        Ok(Self::validity(array)?.to_mask(array.len()))
     }
 }
 
@@ -91,7 +88,7 @@ where
         V::validity_child(array).validity()
     }
 
-    fn validity_mask(array: &V::Array) -> Mask {
+    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
         V::validity_child(array).validity_mask()
     }
 }

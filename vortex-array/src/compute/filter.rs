@@ -51,17 +51,21 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_array::{Array, IntoArray};
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{ filter, mask};
+/// use vortex_error::VortexResult;
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;
 ///
+/// # fn main() -> VortexResult<()> {
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
-/// let filtered = filter(array.as_ref(), &mask).unwrap();
+/// let filtered = filter(array.as_ref(), &mask)?;
 /// assert_eq!(filtered.len(), 2);
-/// assert_eq!(filtered.scalar_at(0), Scalar::from(Some(0_i32)));
-/// assert_eq!(filtered.scalar_at(1), Scalar::from(Some(2_i32)));
+/// assert_eq!(filtered.scalar_at(0)?, Scalar::from(Some(0_i32)));
+/// assert_eq!(filtered.scalar_at(1)?, Scalar::from(Some(2_i32)));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Panics
@@ -106,7 +110,7 @@ impl ComputeFnVTable for Filter {
         }
 
         // If the entire array is null, then we only need to adjust the length of the array.
-        if array.validity_mask().true_count() == 0 {
+        if array.validity_mask()?.true_count() == 0 {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
                     .into_array()
@@ -126,7 +130,7 @@ impl ComputeFnVTable for Filter {
         // Otherwise, we can use scalar_at if the mask has length 1.
         if mask.true_count() == 1 {
             let idx = mask.first().vortex_expect("true_count == 1");
-            return Ok(ConstantArray::new(array.scalar_at(idx), 1)
+            return Ok(ConstantArray::new(array.scalar_at(idx)?, 1)
                 .into_array()
                 .into());
         }

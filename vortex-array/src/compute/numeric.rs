@@ -320,7 +320,7 @@ mod test {
             .to_primitive();
 
         let actual = (0..result.len())
-            .map(|index| result.scalar_at(index))
+            .map(|index| result.scalar_at(index).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
             actual,

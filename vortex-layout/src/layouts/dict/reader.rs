@@ -479,7 +479,7 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity_mask().into_array();
+            let expected = array.validity_mask().unwrap().into_array();
             assert_arrays_eq!(
                 actual
                     .to_canonical()

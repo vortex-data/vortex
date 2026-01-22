@@ -40,7 +40,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as Out)
                             .collect::<Buffer<Out>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
                     .to_array()
                 })
@@ -66,7 +66,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                         .iter()
                         .map(|v| *v as f64)
                         .collect::<Buffer<f64>>(),
-                    Validity::from_mask(array.validity_mask(), target.nullability()),
+                    Validity::from_mask(array.validity_mask()?, target.nullability()),
                 )
                 .to_array(),
             )),
@@ -81,7 +81,7 @@ pub fn cast_canonical_array(array: &ArrayRef, target: &DType) -> VortexResult<Op
                             .iter()
                             .map(|v| *v as f32)
                             .collect::<Buffer<f32>>(),
-                        Validity::from_mask(array.validity_mask(), target.nullability()),
+                        Validity::from_mask(array.validity_mask()?, target.nullability()),
                     )
                     .to_array(),
                 ))

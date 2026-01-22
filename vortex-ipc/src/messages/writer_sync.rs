@@ -22,7 +22,7 @@ impl<W: Write> SyncMessageWriter<W> {
     }
 
     pub fn write_message(&mut self, message: EncoderMessage) -> VortexResult<()> {
-        for buffer in self.encoder.encode(message) {
+        for buffer in self.encoder.encode(message)? {
             self.write.write_all(&buffer)?;
         }
         Ok(())

@@ -18,7 +18,7 @@ use crate::validity::Validity;
 
 impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask().bit_buffer() {
+        match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array
@@ -95,7 +95,10 @@ mod tests {
                 Validity::from_iter([false, true, false])
             )
         );
-        assert_eq!(taken.validity_mask().indices(), AllOr::Some(valid_indices));
+        assert_eq!(
+            taken.validity_mask().unwrap().indices(),
+            AllOr::Some(valid_indices)
+        );
     }
 
     #[test]
@@ -114,7 +117,7 @@ mod tests {
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().indices(), AllOr::All);
+        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
     }
 
     #[rstest]

@@ -108,7 +108,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
 
         // If the scalar function is null-sensitive, then we cannot push it down to values if
         // we have any nulls in the codes.
-        if array.codes.dtype().is_nullable() && !array.codes.all_valid() && sig.is_null_sensitive()
+        if array.codes.dtype().is_nullable() && !array.codes.all_valid()? && sig.is_null_sensitive()
         {
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",

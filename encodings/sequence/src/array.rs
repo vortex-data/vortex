@@ -388,11 +388,11 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
-        Scalar::new(
+    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::new(
             array.dtype().clone(),
             ScalarValue::from(array.index_value(index)),
-        )
+        ))
     }
 }
 
@@ -401,8 +401,8 @@ impl ValidityVTable<SequenceVTable> for SequenceVTable {
         Ok(Validity::AllValid)
     }
 
-    fn validity_mask(array: &SequenceArray) -> Mask {
-        Mask::AllTrue(array.len())
+    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
+        Ok(Mask::AllTrue(array.len()))
     }
 }
 
@@ -455,7 +455,8 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2);
+            .scalar_at(2)
+            .unwrap();
 
         assert_eq!(
             scalar,

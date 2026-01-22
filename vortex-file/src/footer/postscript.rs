@@ -6,6 +6,7 @@ use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::ReadFlatBuffer;
@@ -29,12 +30,20 @@ impl WriteFlatBuffer for Postscript {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let dtype = self.dtype.as_ref().map(|ps| ps.write_flatbuffer(fbb));
-        let layout = self.layout.write_flatbuffer(fbb);
-        let statistics = self.statistics.as_ref().map(|ps| ps.write_flatbuffer(fbb));
-        let footer = self.footer.write_flatbuffer(fbb);
-        fb::Postscript::create(
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        let dtype = self
+            .dtype
+            .as_ref()
+            .map(|ps| ps.write_flatbuffer(fbb))
+            .transpose()?;
+        let layout = self.layout.write_flatbuffer(fbb)?;
+        let statistics = self
+            .statistics
+            .as_ref()
+            .map(|ps| ps.write_flatbuffer(fbb))
+            .transpose()?;
+        let footer = self.footer.write_flatbuffer(fbb)?;
+        Ok(fb::Postscript::create(
             fbb,
             &fb::PostscriptArgs {
                 dtype,
@@ -42,7 +51,7 @@ impl WriteFlatBuffer for Postscript {
                 statistics,
                 footer: Some(footer),
             },
-        )
+        ))
     }
 }
 
@@ -88,8 +97,8 @@ impl WriteFlatBuffer for PostscriptSegment {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        fb::PostscriptSegment::create(
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
+        Ok(fb::PostscriptSegment::create(
             fbb,
             &fb::PostscriptSegmentArgs {
                 offset: self.offset,
@@ -98,7 +107,7 @@ impl WriteFlatBuffer for PostscriptSegment {
                 _compression: None,
                 _encryption: None,
             },
-        )
+        ))
     }
 }
 

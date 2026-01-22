@@ -30,12 +30,9 @@ impl TakeKernel for VarBinViewVTable {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive();
 
+        let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
-            take_views(
-                array.views(),
-                indices.as_slice::<I>(),
-                &indices.validity_mask(),
-            )
+            take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });
 
         // SAFETY: taking all components at same indices maintains invariants

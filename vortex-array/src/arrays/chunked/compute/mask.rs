@@ -63,7 +63,7 @@ fn mask_indices(
     let chunk_offsets = array.chunk_offsets();
 
     for &set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets);
+        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets)?;
         if chunk_id != current_chunk_id {
             let chunk = array.chunk(current_chunk_id).clone();
             let chunk_len = chunk.len();

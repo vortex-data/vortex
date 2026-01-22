@@ -169,10 +169,13 @@ impl Stream for ArrayStreamIPCBytes {
 
         // If we haven't written the dtype yet, we write it
         if !this.written_dtype {
-            this.buffers.extend(
-                this.encoder
-                    .encode(EncoderMessage::DType(this.stream.dtype())),
-            );
+            let Ok(buffers) = this
+                .encoder
+                .encode(EncoderMessage::DType(this.stream.dtype()))
+            else {
+                return Poll::Ready(Some(Err(vortex_err!("Failed to encode DType message"))));
+            };
+            this.buffers.extend(buffers);
             this.written_dtype = true;
         }
 
@@ -184,10 +187,10 @@ impl Stream for ArrayStreamIPCBytes {
         // Or else try to serialize the next array
         match ready!(this.stream.poll_next_unpin(cx)) {
             None => return Poll::Ready(None),
-            Some(chunk) => match chunk {
-                Ok(chunk) => {
-                    this.buffers
-                        .extend(this.encoder.encode(EncoderMessage::Array(&chunk)));
+            Some(chunk) => match chunk.and_then(|c| this.encoder.encode(EncoderMessage::Array(&c)))
+            {
+                Ok(buffers) => {
+                    this.buffers.extend(buffers);
                 }
                 Err(e) => return Poll::Ready(Some(Err(e))),
             },

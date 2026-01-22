@@ -115,7 +115,7 @@ impl<V: VTable + NaNCountKernel> Kernel for NaNCountKernelAdapter<V> {
 }
 
 fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexResult<usize> {
-    if array.is_empty() || array.valid_count() == 0 {
+    if array.is_empty() || array.valid_count()? == 0 {
         return Ok(0);
     }
 

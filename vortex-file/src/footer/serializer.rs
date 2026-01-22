@@ -110,7 +110,7 @@ impl FooterSerializer {
             statistics: statistics_segment,
             footer: footer_segment,
         };
-        let postscript_buffer = postscript.write_flatbuffer_bytes();
+        let postscript_buffer = postscript.write_flatbuffer_bytes()?;
         if postscript_buffer.len() > MAX_POSTSCRIPT_SIZE as usize {
             Err(vortex_err!(
                 "Postscript is too large ({} bytes); max postscript size is {}",
@@ -138,7 +138,7 @@ fn write_flatbuffer<F: FlatBufferRoot + WriteFlatBuffer>(
     offset: &mut u64,
     flatbuffer: &F,
 ) -> VortexResult<(ByteBuffer, PostscriptSegment)> {
-    let buffer = flatbuffer.write_flatbuffer_bytes();
+    let buffer = flatbuffer.write_flatbuffer_bytes()?;
     let length = u32::try_from(buffer.len())
         .map_err(|_| vortex_err!("flatbuffer length exceeds maximum u32"))?;
 
