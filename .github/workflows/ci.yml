@@ -492,7 +492,7 @@ jobs:
     timeout-minutes: 120
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=g5
+      - family=g5+g4dn+g6
       - cpu=8
       - image=ubuntu24-gpu-x64
       - extras=s3-cache
