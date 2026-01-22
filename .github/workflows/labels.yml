@@ -32,14 +32,13 @@ jobs:
           API_RESPONSE: ${{ steps.get_labels_api.outputs.data }}
         run: |
           REQUIRED_LABELS=(
-            "chore"
-            "documentation"
-            "feature"
-            "fix"
-            "performance"
-            "break"
-            "wire-break"
-            "skip-changelog"
+            "changelog/break"
+            "changelog/feature"
+            "changelog/performance"
+            "changelog/fix"
+            "changelog/docs"
+            "changelog/chore"
+            "changelog/skip"
           )
           REQUIRED_LABELS_JSON=$(jq -n '$ARGS.positional' --args "${REQUIRED_LABELS[@]}")
           echo "Required Labels: $REQUIRED_LABELS_JSON"
