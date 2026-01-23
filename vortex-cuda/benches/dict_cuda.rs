@@ -15,8 +15,6 @@ mod cuda_benchmarks {
     use criterion::BenchmarkId;
     use criterion::Criterion;
     use criterion::Throughput;
-    use criterion::criterion_group;
-    use criterion::criterion_main;
     use cudarc::driver::CudaView;
     use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
     use vortex_array::IntoArray;
@@ -31,7 +29,7 @@ mod cuda_benchmarks {
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
-    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
+    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
     /// Creates a Dict array with u32 values and u8 codes for the given size.
     fn make_dict_array_u32_u8(len: usize) -> DictArray {

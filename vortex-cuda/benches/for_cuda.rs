@@ -19,7 +19,6 @@ mod cuda_benchmarks {
     use criterion::Criterion;
     use criterion::Throughput;
     use cudarc::driver::CudaView;
-    use cudarc::driver::PushKernelArg;
     use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
@@ -31,7 +30,7 @@ mod cuda_benchmarks {
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;
 
-    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
+    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
     /// Creates a FoR array of u8 for the given size.
     fn make_for_array_u8(len: usize) -> FoRArray {
