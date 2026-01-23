@@ -217,15 +217,19 @@ fn test_masked_fields(
 
     assert_eq!(struct_array.validity()?, struct_val);
 
-    let combined_a = (field_a_val.nullability().is_nullable()
-        || struct_val.nullability().is_nullable())
-    .then(|| field_a_val.mask(&struct_val.to_mask(struct_array.len()).not()))
-    .unwrap_or(Validity::NonNullable);
+    let combined_a =
+        if field_a_val.nullability().is_nullable() || struct_val.nullability().is_nullable() {
+            field_a_val.mask(&struct_val.to_mask(struct_array.len()).not())
+        } else {
+            Validity::NonNullable
+        };
 
-    let combined_b = (field_b_val.nullability().is_nullable()
-        || struct_val.nullability().is_nullable())
-    .then(|| field_b_val.mask(&struct_val.to_mask(struct_array.len()).not()))
-    .unwrap_or(Validity::NonNullable);
+    let combined_b =
+        if field_b_val.nullability().is_nullable() || struct_val.nullability().is_nullable() {
+            field_b_val.mask(&struct_val.to_mask(struct_array.len()).not())
+        } else {
+            Validity::NonNullable
+        };
 
     // Test masked_fields
     let masked = struct_array.masked_fields()?;
