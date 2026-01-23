@@ -22,9 +22,14 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 mod arrays;
 mod encodings;
+pub mod scalar;
 
 pub use arrays::DictExecutor;
+pub use encodings::ALPExecutor;
 pub use encodings::FoRExecutor;
+pub use encodings::ZigZagExecutor;
+pub use scalar::ScalarGpuDecoder;
+pub use scalar::execute_scalar_decoder;
 
 use crate::CudaKernelEvents;
 

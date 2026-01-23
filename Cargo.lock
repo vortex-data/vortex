@@ -10340,6 +10340,7 @@ dependencies = [
  "kanal",
  "tokio",
  "tracing",
+ "vortex-alp",
  "vortex-array",
  "vortex-buffer",
  "vortex-dtype",
@@ -10348,6 +10349,7 @@ dependencies = [
  "vortex-nvcomp",
  "vortex-session",
  "vortex-utils",
+ "vortex-zigzag",
 ]
 
 [[package]]

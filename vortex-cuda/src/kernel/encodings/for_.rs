@@ -2,28 +2,44 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use async_trait::async_trait;
-use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_dtype::NativePType;
-use vortex_dtype::match_each_native_simd_ptype;
-use vortex_error::VortexExpect;
+use vortex_dtype::PType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRVTable;
 
-use crate::CudaBufferExt;
-use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel;
+use crate::impl_for_scalar_decoder;
+use crate::kernel::scalar::execute_scalar_decoder;
 
-/// CUDA executor for frame-of-reference.
+// Generate decoder implementations for all supported primitive types
+impl_for_scalar_decoder! {
+    u8 => FoRDecoderU8,
+    u16 => FoRDecoderU16,
+    u32 => FoRDecoderU32,
+    u64 => FoRDecoderU64,
+    i8 => FoRDecoderI8,
+    i16 => FoRDecoderI16,
+    i32 => FoRDecoderI32,
+    i64 => FoRDecoderI64,
+}
+
+/// CUDA executor for frame-of-reference decoding.
+///
+/// This executor dispatches to type-specific decoders based on the array's
+/// primitive type. Each decoder implements [`ScalarGpuDecoder`] and uses
+/// the common [`execute_scalar_decoder`] function.
 #[derive(Debug)]
 pub struct FoRExecutor;
+
+impl FoRExecutor {
+    fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
+        array.try_into::<FoRVTable>().ok()
+    }
+}
 
 #[async_trait]
 impl CudaExecute for FoRExecutor {
@@ -32,58 +48,24 @@ impl CudaExecute for FoRExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let for_array = array
-            .try_into::<FoRVTable>()
-            .ok()
-            .vortex_expect("Array is not a FOR array");
+        let for_array =
+            Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
-        // Excludes f16 support.
-        match_each_native_simd_ptype!(for_array.ptype(), |T| {
-            execute_for_typed::<T>(for_array, ctx).await
-        })
+        match for_array.ptype() {
+            PType::U8 => execute_scalar_decoder::<FoRDecoderU8>(for_array, ctx).await,
+            PType::U16 => execute_scalar_decoder::<FoRDecoderU16>(for_array, ctx).await,
+            PType::U32 => execute_scalar_decoder::<FoRDecoderU32>(for_array, ctx).await,
+            PType::U64 => execute_scalar_decoder::<FoRDecoderU64>(for_array, ctx).await,
+            PType::I8 => execute_scalar_decoder::<FoRDecoderI8>(for_array, ctx).await,
+            PType::I16 => execute_scalar_decoder::<FoRDecoderI16>(for_array, ctx).await,
+            PType::I32 => execute_scalar_decoder::<FoRDecoderI32>(for_array, ctx).await,
+            PType::I64 => execute_scalar_decoder::<FoRDecoderI64>(for_array, ctx).await,
+            other => Err(vortex_err!(
+                "Unsupported ptype for FoR GPU decode: {}",
+                other
+            )),
+        }
     }
-}
-
-async fn execute_for_typed<P: DeviceRepr + NativePType>(
-    array: FoRArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<Canonical> {
-    assert!(!array.is_empty());
-    let reference = array
-        .reference_scalar()
-        .as_primitive()
-        .as_::<P>()
-        .vortex_expect("Cannot have a null reference");
-
-    let encoded = array.encoded().clone().execute_cuda(ctx).await?;
-    let (dtype, buffer_handle, validity, ..) = encoded.into_primitive().into_parts();
-
-    let device_buffer_handle = if buffer_handle.is_on_device() {
-        buffer_handle
-    } else {
-        ctx.copy_buffer_to_device_async::<P>(buffer_handle)?.await?
-    };
-
-    let cuda_view = device_buffer_handle.cuda_view::<P>()?;
-    let array_len = array.len() as u64;
-
-    // Ignore the CUDA events returned from the kernel launch, as the CUDA slice,
-    // owned by the buffer handle, holds CUDA events that can be checked for completion.
-    let _cuda_events = launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "for",
-        ptypes: &[array.ptype()],
-        launch_args: [cuda_view, reference, array_len],
-        // CUDA events are automatically submitted before and after the kernel launch.
-        event_recording: CU_EVENT_DISABLE_TIMING,
-        array_len: array.len()
-    );
-
-    Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        device_buffer_handle,
-        dtype.as_ptype(),
-        validity,
-    )))
 }
 
 #[cfg(test)]
