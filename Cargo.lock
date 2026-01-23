@@ -10343,7 +10343,6 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
- "vortex-cuda-macros",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
@@ -10351,15 +10350,6 @@ dependencies = [
  "vortex-session",
  "vortex-utils",
  "vortex-zigzag",
-]
-
-[[package]]
-name = "vortex-cuda-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
