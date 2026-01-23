@@ -159,6 +159,15 @@ impl VortexSessionDefault for VortexSession {
             .with::<ExprSession>()
             .with::<RuntimeSession>();
 
+        #[cfg(feature = "vortex-cuda")]
+        {
+            session = session.with::<CudaSession>();
+
+            use vortex_cuda::CudaSession;
+            use vortex_cuda::CudaSessionExt;
+            vortex_cuda::initialize_cuda(&session.cuda_session());
+        }
+
         #[cfg(feature = "files")]
         file::register_default_encodings(&mut session);
 

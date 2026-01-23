@@ -14,7 +14,7 @@ use vortex_session::SessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::executor::CudaExecute;
-use crate::executor::CudaExecutionCtx;
+pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
 
 /// CUDA session for GPU accelerated execution.
@@ -40,7 +40,7 @@ impl CudaSession {
 
     /// Creates a new CUDA execution context.
     pub fn create_execution_ctx(
-        vortex_session: vortex_session::VortexSession,
+        vortex_session: &vortex_session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
         let stream = vortex_session
             .cuda_session()

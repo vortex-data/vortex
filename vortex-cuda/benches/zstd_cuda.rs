@@ -123,7 +123,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
             &zstd_array,
             |b, zstd_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let mut total_time = Duration::ZERO;

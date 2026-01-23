@@ -316,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_zstd_decompression_utf8() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
@@ -341,7 +341,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_zstd_decompression_multiple_frames() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([
@@ -376,7 +376,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_zstd_decompression_sliced() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         let strings = VarBinViewArray::from_iter_str([

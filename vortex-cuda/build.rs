@@ -17,10 +17,6 @@ fn main() {
         return;
     }
 
-    // Include runtime library path for nvCOMP dylib.
-    let nvcomp_lib = env::var("DEP_NVCOMP_LIB_DIR").expect("Library path for nvCOMP not found");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
-
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
 

@@ -135,7 +135,7 @@ mod tests {
     #[case::u64(make_for_array((0..5000).map(|i| (i % 5000) as u64).collect(), 1000000u64))]
     #[tokio::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         let cpu_result = for_array.to_canonical()?;
@@ -144,7 +144,7 @@ mod tests {
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .to_host()
             .await?
             .into_array();
 
