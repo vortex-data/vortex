@@ -616,6 +616,11 @@ impl StructArray {
     ///
     /// For nullable structs, setting this to true indicates that child validity
     /// is a superset of struct validity (children include struct's nulls).
+    ///
+    /// # Safety
+    ///
+    /// If set all non-nullable field must have their nullability be a superset of the struct
+    /// validity
     pub unsafe fn with_validity_pushed_down(mut self, validity_pushed_down: bool) -> Self {
         // For non-nullable structs, the flag is meaningless - keep it false
         if !self.dtype.is_nullable() {
