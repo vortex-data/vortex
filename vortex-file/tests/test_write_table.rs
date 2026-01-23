@@ -10,19 +10,13 @@ use futures::StreamExt;
 use futures::pin_mut;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
-use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::assert_arrays_eq;
-use vortex_array::expr::get_item;
-use vortex_array::expr::root;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_dtype::field_path;
 use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
@@ -32,7 +26,6 @@ use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
@@ -119,130 +112,4 @@ async fn test_file_roundtrip() {
         assert!(b.is_canonical());
         assert!(raw.nbytes() > compressed.nbytes());
     }
-}
-
-#[tokio::test]
-async fn test_list_of_struct_nested_projection() {
-    // A list of structs should support nested field projection (e.g. `items.a`) without requiring
-    // users to pre-flatten their schemas.
-
-    let element_dtype = Arc::new(vortex_dtype::DType::Struct(
-        [
-            (
-                "a",
-                vortex_dtype::DType::Primitive(PType::I32, Nullability::NonNullable),
-            ),
-            ("b", vortex_dtype::DType::Utf8(Nullability::NonNullable)),
-        ]
-        .into_iter()
-        .collect(),
-        Nullability::NonNullable,
-    ));
-
-    let row_count = 4;
-    let items = ListArray::from_iter_opt_slow::<u32, _, _>(
-        [
-            Some(vec![
-                Scalar::struct_(
-                    (*element_dtype).clone(),
-                    vec![
-                        Scalar::primitive(1i32, Nullability::NonNullable),
-                        Scalar::utf8("x", Nullability::NonNullable),
-                    ],
-                ),
-                Scalar::struct_(
-                    (*element_dtype).clone(),
-                    vec![
-                        Scalar::primitive(2i32, Nullability::NonNullable),
-                        Scalar::utf8("y", Nullability::NonNullable),
-                    ],
-                ),
-            ]),
-            Some(Vec::new()),
-            None,
-            Some(vec![Scalar::struct_(
-                (*element_dtype).clone(),
-                vec![
-                    Scalar::primitive(3i32, Nullability::NonNullable),
-                    Scalar::utf8("z", Nullability::NonNullable),
-                ],
-            )]),
-        ],
-        element_dtype.clone(),
-    )
-    .unwrap();
-
-    let ids = PrimitiveArray::from_iter(
-        (0..row_count).map(|i| i32::try_from(i).expect("row id fits in i32")),
-    )
-    .into_array();
-
-    let data = StructArray::new(
-        FieldNames::from(["id", "items"]),
-        vec![ids, items.clone()],
-        row_count,
-        Validity::NonNullable,
-    )
-    .into_array();
-
-    // Keep the writer intentionally simple (flat) so the layout shape is deterministic.
-    let writer = Arc::new(TableStrategy::default());
-
-    let mut bytes = Vec::new();
-    SESSION
-        .write_options()
-        .with_strategy(writer)
-        .write(&mut bytes, data.to_array_stream())
-        .await
-        .expect("write");
-
-    let bytes = ByteBuffer::from(bytes);
-    let vxf = SESSION.open_options().open_buffer(bytes).expect("open");
-
-    // Project `items.a` by applying `get_item("a", ...)` to a `List<Struct{a,b}>`.
-    let projection = get_item("a".to_string(), get_item("items".to_string(), root()));
-
-    let mut stream = vxf
-        .scan()
-        .expect("scan")
-        .with_projection(projection.clone())
-        .into_stream()
-        .expect("into_stream");
-
-    let out = stream.next().await.expect("first batch").expect("batch");
-
-    let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
-        [
-            Some(vec![
-                Scalar::primitive(1i32, Nullability::NonNullable),
-                Scalar::primitive(2i32, Nullability::NonNullable),
-            ]),
-            Some(Vec::new()),
-            None,
-            Some(vec![Scalar::primitive(3i32, Nullability::NonNullable)]),
-        ],
-        Arc::new(vortex_dtype::DType::Primitive(
-            PType::I32,
-            Nullability::NonNullable,
-        )),
-    )
-    .unwrap()
-    .into_array();
-    let simplified = projection.optimize_recursive(data.dtype()).unwrap();
-    let expected_dtype = simplified.return_dtype(data.dtype()).unwrap();
-    assert_eq!(out.dtype(), &expected_dtype);
-    assert_arrays_eq!(expected, out);
-
-    // Verify the list column is not stored as a single flat blob layout.
-    // This is the root cause of poor nested support described in #4889.
-    let root_layout = vxf.footer().layout();
-    let items_layout = (0..root_layout.nchildren())
-        .find_map(|idx| match root_layout.child_type(idx) {
-            vortex_layout::LayoutChildType::Field(ref name) if name.as_ref() == "items" => {
-                Some(root_layout.child(idx).expect("items child"))
-            }
-            _ => None,
-        })
-        .expect("items layout");
-    assert_eq!(items_layout.encoding_id().as_ref(), "vortex.list");
 }

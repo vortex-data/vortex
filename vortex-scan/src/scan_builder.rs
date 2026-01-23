@@ -462,10 +462,14 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::expr::Expression;
+    use vortex_array::expr::get_item;
+    use vortex_array::expr::root;
     use vortex_dtype::DType;
     use vortex_dtype::FieldMask;
+    use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_error::VortexResult;
     use vortex_error::vortex_err;
     use vortex_io::runtime::BlockingRuntime;
@@ -475,6 +479,76 @@ mod test {
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
+
+    #[derive(Debug)]
+    struct DTypeOnlyLayoutReader {
+        name: Arc<str>,
+        dtype: DType,
+        row_count: u64,
+    }
+
+    impl DTypeOnlyLayoutReader {
+        fn new(dtype: DType) -> Self {
+            Self {
+                name: Arc::from("dtype-only"),
+                dtype,
+                row_count: 1,
+            }
+        }
+    }
+
+    impl LayoutReader for DTypeOnlyLayoutReader {
+        fn name(&self) -> &Arc<str> {
+            &self.name
+        }
+
+        fn dtype(&self) -> &DType {
+            &self.dtype
+        }
+
+        fn row_count(&self) -> u64 {
+            self.row_count
+        }
+
+        fn register_splits(
+            &self,
+            _field_mask: &[FieldMask],
+            row_range: &Range<u64>,
+            splits: &mut BTreeSet<u64>,
+        ) -> VortexResult<()> {
+            splits.insert(row_range.end);
+            Ok(())
+        }
+
+        fn pruning_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: Mask,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn filter_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<MaskFuture> {
+            unimplemented!("not needed for this test");
+        }
+
+        fn projection_evaluation(
+            &self,
+            _row_range: &Range<u64>,
+            _expr: &Expression,
+            _mask: MaskFuture,
+        ) -> VortexResult<ArrayFuture> {
+            Ok(Box::pin(async move {
+                unreachable!("scan should not be polled in this test")
+            }))
+        }
+    }
 
     #[derive(Debug)]
     struct CountingLayoutReader {
@@ -547,6 +621,47 @@ mod test {
                 unreachable!("scan should not be polled in this test")
             }))
         }
+    }
+
+    #[test]
+    fn dtype_simplifies_list_of_struct_nested_projection() -> VortexResult<()> {
+        let element_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b"]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+        let dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["items"]),
+                vec![DType::List(
+                    Arc::new(element_dtype),
+                    Nullability::NonNullable,
+                )],
+            ),
+            Nullability::NonNullable,
+        );
+
+        let reader = Arc::new(DTypeOnlyLayoutReader::new(dtype));
+        let session = crate::test::SCAN_SESSION.clone();
+
+        // users express `items.a` as `get_item("a", get_item("items", root()))`.
+        // the outer get_item must be simplified (typed) into a list-aware projection before `dtype`
+        // validation, otherwise it fails with "Couldn't find the a field in the input scope".
+        let projection = get_item("a", get_item("items", root()));
+        let builder = ScanBuilder::new(session, reader).with_projection(projection);
+
+        let actual = builder.dtype()?;
+        let expected = DType::List(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        assert_eq!(actual, expected);
+        Ok(())
     }
 
     #[test]
