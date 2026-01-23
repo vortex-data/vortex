@@ -21,6 +21,7 @@ use crate::proto::dtype::field::FieldType;
 use crate::session::DTypeSessionExt;
 
 impl DType {
+    /// Constructs a DType from its protobuf representation.
     pub fn from_proto(value: &pb::DType, session: &VortexSession) -> VortexResult<Self> {
         match value
             .dtype_type

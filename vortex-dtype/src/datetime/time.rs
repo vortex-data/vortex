@@ -5,7 +5,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::ExtDType;
@@ -16,11 +15,10 @@ use crate::extension::ExtID;
 use crate::extension::VTable;
 
 /// Time DType.
+#[derive(Clone, Debug, Default)]
 pub struct Time;
 
 impl Time {
-    pub const ID: ExtID = ExtID::new_ref("vortex.time");
-
     /// Creates a new Time extension dtype with the given time unit and nullability.
     ///
     /// Note that only Milliseconds and Days time units are supported for Time.
@@ -39,20 +37,20 @@ impl Time {
 impl VTable for Time {
     type Options = TimeUnit;
 
-    fn id(_options: &Self::Options) -> ExtID {
-        Self::ID
+    fn id(&self) -> ExtID {
+        ExtID::new_ref("vortex.time")
     }
 
-    fn serialize(options: &Self::Options) -> VortexResult<Vec<u8>> {
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>> {
         Ok(vec![u8::from(*options)])
     }
 
-    fn deserialize(data: &[u8], _session: &VortexSession) -> VortexResult<Self::Options> {
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
         let tag = data[0];
         Ok(TimeUnit::try_from(tag)?)
     }
 
-    fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate(&self, options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
         let ptype = time_ptype(options)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", options))?;
 

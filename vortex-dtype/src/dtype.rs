@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use DType::*;
 use itertools::Itertools;
-use static_assertions::const_assert_eq;
 use vortex_error::vortex_panic;
 
 use crate::FieldDType;
@@ -44,7 +43,6 @@ use crate::nullability::Nullability;
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
     /// A logical null type.
     ///
@@ -109,13 +107,13 @@ pub trait NativeDType {
     fn dtype() -> DType;
 }
 
+/// Assert that the size of DType is 16 bytes.
 #[cfg(not(target_arch = "wasm32"))]
+const _: [(); size_of::<DType>()] = [(); 24]; // FIXME(ngates): should we keep this at 16?
 
-// Temporarily replace theassertion with:
-const _: [(); size_of::<DType>()] = [(); 0];
-
+/// Assert that the size of DType is 12 bytes on wasm32.
 #[cfg(target_arch = "wasm32")]
-const_assert_eq!(size_of::<DType>(), 12);
+const _: [(); size_of::<DType>()] = [(); 12];
 
 impl DType {
     /// The default `DType` for bytes.

@@ -23,7 +23,6 @@ use crate::serde::flatbuffers::ViewedDType;
 
 /// DType of a struct's field, either owned or a pointer to an underlying flatbuffer.
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct FieldDType {
     inner: FieldDTypeInner,
 }
@@ -81,6 +80,7 @@ impl PartialEq for FieldDTypeInner {
         }
     }
 }
+impl Eq for FieldDTypeInner {}
 
 impl Hash for FieldDTypeInner {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
@@ -115,64 +115,6 @@ impl FieldDTypeInner {
     }
 }
 
-#[cfg(feature = "serde")]
-impl serde::Serialize for FieldDTypeInner {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::Error;
-
-        let value = self.value().map_err(S::Error::custom)?;
-        serializer.serialize_newtype_variant("FieldDType", 0, "Owned", &value)
-    }
-}
-
-#[cfg(feature = "serde")]
-impl<'de> serde::Deserialize<'de> for FieldDTypeInner {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_enum("FieldDType", &["Owned", "View"], FieldDTypeDeVisitor)
-    }
-}
-
-#[cfg(feature = "serde")]
-struct FieldDTypeDeVisitor;
-
-#[cfg(feature = "serde")]
-impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
-    type Value = FieldDTypeInner;
-
-    fn expecting(&self, f: &mut Formatter) -> std::fmt::Result {
-        write!(f, "variant identifier")
-    }
-
-    fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::EnumAccess<'de>,
-    {
-        use serde::de::Error;
-        use serde::de::VariantAccess;
-
-        #[derive(serde::Deserialize, Debug)]
-        enum FieldDTypeVariant {
-            Owned,
-            View,
-        }
-        let (variant, variant_data): (FieldDTypeVariant, _) = data.variant()?;
-
-        match variant {
-            FieldDTypeVariant::Owned => {
-                let inner = variant_data.newtype_variant::<DType>()?;
-                Ok(FieldDTypeInner::Owned(inner))
-            }
-            other => Err(A::Error::custom(format!("unsupported variant {other:?}"))),
-        }
-    }
-}
-
 /// Type information for a struct column.
 ///
 /// The `StructFields` holds all field names and field types, and provides
@@ -198,7 +140,6 @@ impl<'de> serde::de::Visitor<'de> for FieldDTypeDeVisitor {
 /// assert_eq!(fields.field("int_col").unwrap(), DType::Primitive(PType::I32, Nullability::Nullable));
 /// ```
 #[derive(Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StructFields(Arc<StructFieldsInner>);
 
 impl std::fmt::Debug for StructFields {
@@ -225,12 +166,10 @@ impl Display for StructFields {
 }
 
 #[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 struct StructFieldsInner {
     names: FieldNames,
     dtypes: Arc<[FieldDType]>,
     // Derived from names, maps from field name to first index.
-    #[cfg_attr(feature = "serde", serde(skip))]
     indices: OnceLock<HashMap<FieldName, usize>>,
 }
 

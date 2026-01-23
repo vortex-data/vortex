@@ -11,7 +11,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::marker::PhantomData;
 use std::sync::Arc;
 
 use arcref::ArcRef;
@@ -31,14 +30,26 @@ pub type ExtID = ArcRef<str>;
 #[derive(Clone)]
 pub struct ExtDType<V: VTable>(Arc<ExtDTypeAdapter<V>>);
 
-impl<V: VTable> ExtDType<V> {
+// Convenience impls for zero-sized VTables
+impl<V: VTable + Default> ExtDType<V> {
     /// Creates a new extension dtype with the given options and storage dtype.
     pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
-        V::validate(&options, &storage_dtype)?;
+        Self::try_with_vtable(V::default(), options, storage_dtype)
+    }
+}
+
+impl<V: VTable> ExtDType<V> {
+    /// Creates a new extension dtype with the given options and storage dtype.
+    pub fn try_with_vtable(
+        vtable: V,
+        options: V::Options,
+        storage_dtype: DType,
+    ) -> VortexResult<Self> {
+        vtable.validate(&options, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
-            storage_dtype,
+            vtable,
             options,
-            vtable: PhantomData,
+            storage_dtype,
         })))
     }
 
@@ -213,9 +224,9 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
 }
 
 struct ExtDTypeAdapter<V: VTable> {
-    storage_dtype: DType,
+    vtable: V,
     options: V::Options,
-    vtable: PhantomData<V>,
+    storage_dtype: DType,
 }
 
 impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
@@ -224,7 +235,7 @@ impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
     }
 
     fn id(&self) -> ExtID {
-        V::id(&self.options)
+        self.vtable.id()
     }
 
     fn storage_dtype(&self) -> &DType {
@@ -255,12 +266,12 @@ impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
     }
 
     fn options_serialize(&self) -> VortexResult<Vec<u8>> {
-        V::serialize(&self.options)
+        V::serialize(&self.vtable, &self.options)
     }
 
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
         let storage_dtype = self.storage_dtype.with_nullability(nullability);
-        ExtDType::<V>::try_new(self.options.clone(), storage_dtype)
+        ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.options.clone(), storage_dtype)
             .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erase()
     }
 }

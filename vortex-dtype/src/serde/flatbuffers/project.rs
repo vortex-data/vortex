@@ -104,6 +104,7 @@ mod tests {
     use crate::Nullability;
     use crate::PType;
     use crate::StructFields;
+    use crate::test::SESSION;
 
     fn create_test_struct_dtype() -> DType {
         DType::Struct(
@@ -173,12 +174,12 @@ mod tests {
 
         // Extract "name" field
         let field = Field::Name("name".into());
-        let extracted = extract_field(fb_dtype, &field, &buffer).unwrap();
+        let extracted = extract_field(fb_dtype, &field, &buffer, &SESSION).unwrap();
         assert_eq!(extracted, DType::Utf8(Nullability::Nullable));
 
         // Extract "age" field
         let field = Field::Name("age".into());
-        let extracted = extract_field(fb_dtype, &field, &buffer).unwrap();
+        let extracted = extract_field(fb_dtype, &field, &buffer, &SESSION).unwrap();
         assert_eq!(
             extracted,
             DType::Primitive(PType::I32, Nullability::Nullable)
@@ -192,7 +193,7 @@ mod tests {
         let fb_dtype = fb::root_as_dtype(buffer.as_ref()).unwrap();
 
         let field = Field::Name("name".into());
-        let result = extract_field(fb_dtype, &field, &buffer);
+        let result = extract_field(fb_dtype, &field, &buffer, &SESSION);
         assert!(result.is_err());
         assert!(
             result
@@ -210,7 +211,7 @@ mod tests {
 
         // Project only "name" and "age" fields
         let projection = vec![Field::Name("name".into()), Field::Name("age".into())];
-        let projected = project_and_deserialize(fb_dtype, &projection, &buffer).unwrap();
+        let projected = project_and_deserialize(fb_dtype, &projection, &buffer, &SESSION).unwrap();
 
         // Check the result is a struct with only the projected fields
         if let DType::Struct(fields, nullability) = projected {
@@ -242,7 +243,7 @@ mod tests {
             Field::Name("name".into()),
             Field::Name("nonexistent".into()),
         ];
-        let result = project_and_deserialize(fb_dtype, &projection, &buffer);
+        let result = project_and_deserialize(fb_dtype, &projection, &buffer, &SESSION);
         assert!(result.is_err());
         assert!(
             result
@@ -260,7 +261,7 @@ mod tests {
 
         // Empty projection should return empty struct
         let projection = vec![];
-        let projected = project_and_deserialize(fb_dtype, &projection, &buffer).unwrap();
+        let projected = project_and_deserialize(fb_dtype, &projection, &buffer, &SESSION).unwrap();
 
         if let DType::Struct(fields, _) = projected {
             assert_eq!(fields.nfields(), 0);

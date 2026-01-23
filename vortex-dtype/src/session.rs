@@ -3,18 +3,20 @@
 
 //! Module for managing extension dtypes in a Vortex session.
 
+use std::sync::Arc;
+
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_session::registry::Registry;
 
-use crate::ExtID;
 use crate::datetime::Date;
 use crate::datetime::Time;
 use crate::datetime::Timestamp;
 use crate::extension::DynVTable;
 use crate::extension::VTable;
 
-pub type ExtDTypeRegistry = Registry<&'static dyn DynVTable>;
+/// Registry for extension dtypes.
+pub type ExtDTypeRegistry = Registry<Arc<dyn DynVTable>>;
 
 /// Session for managing extension dtypes.
 #[derive(Debug)]
@@ -24,25 +26,24 @@ pub struct DTypeSession {
 
 impl Default for DTypeSession {
     fn default() -> Self {
-        let registry = Registry::default();
+        let this = Self {
+            registry: Registry::default(),
+        };
 
         // Register built-in temporal extension dtypes
-        registry.register(Date::ID, Date);
-        registry.register(Time::ID, Time);
-        registry.register(Timestamp::ID, Timestamp);
+        this.register(Date);
+        this.register(Time);
+        this.register(Timestamp);
 
-        Self { registry }
+        this
     }
 }
 
 impl DTypeSession {
     /// Register an extension DType with the Vortex session.
-    pub fn register<V: VTable>(
-        &self,
-        id: impl Into<ExtID>,
-        vtable: impl Into<&'static dyn DynVTable>,
-    ) {
-        self.registry.register(id, vtable);
+    pub fn register<V: VTable>(&self, vtable: V) {
+        self.registry
+            .register(vtable.id(), Arc::new(vtable) as Arc<dyn DynVTable>);
     }
 
     /// Return the registry of extension dtypes.
@@ -54,11 +55,11 @@ impl DTypeSession {
 /// Extension trait for accessing the DType session.
 pub trait DTypeSessionExt: SessionExt {
     /// Get the DType session.
-    fn dtypes(&self) -> Ref<DTypeSession>;
+    fn dtypes(&self) -> Ref<'_, DTypeSession>;
 }
 
 impl<S: SessionExt> DTypeSessionExt for S {
-    fn dtypes(&self) -> Ref<DTypeSession> {
+    fn dtypes(&self) -> Ref<'_, DTypeSession> {
         self.get::<DTypeSession>()
     }
 }

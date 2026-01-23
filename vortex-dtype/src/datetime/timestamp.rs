@@ -12,7 +12,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::ExtDType;
@@ -23,11 +22,10 @@ use crate::extension::ExtID;
 use crate::extension::VTable;
 
 /// Timestamp DType.
+#[derive(Clone, Debug, Default)]
 pub struct Timestamp;
 
 impl Timestamp {
-    pub const ID: ExtID = ExtID::new_ref("vortex.timestamp");
-
     /// Creates a new Timestamp extension dtype with the given time unit and nullability.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
         Self::new_with_tz(time_unit, None, nullability)
@@ -71,13 +69,13 @@ impl Display for TimestampOptions {
 impl VTable for Timestamp {
     type Options = TimestampOptions;
 
-    fn id(_options: &Self::Options) -> ExtID {
-        Self::ID
+    fn id(&self) -> ExtID {
+        ExtID::new_ref("vortex.timestamp")
     }
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for
     //  backwards compatibility.
-    fn serialize(options: &Self::Options) -> VortexResult<Vec<u8>> {
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>> {
         let mut meta = Vec::with_capacity(4);
         let unit_tag: u8 = options.unit.into();
 
@@ -98,7 +96,7 @@ impl VTable for Timestamp {
         Ok(meta)
     }
 
-    fn deserialize(data: &[u8], _session: &VortexSession) -> VortexResult<Self::Options> {
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
         let tz_len_bytes = &data[1..3];
@@ -122,7 +120,7 @@ impl VTable for Timestamp {
         })
     }
 
-    fn validate(_options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate(&self, _options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             matches!(storage_dtype, DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"

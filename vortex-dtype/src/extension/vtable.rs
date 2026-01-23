@@ -3,9 +3,7 @@
 
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::fmt::Formatter;
 use std::hash::Hash;
-use std::marker::PhantomData;
 
 use vortex_error::VortexResult;
 
@@ -14,59 +12,59 @@ use crate::ExtDType;
 use crate::ExtID;
 use crate::extension::ExtDTypeRef;
 
+// FIXME(ngates): are VTables ZSTs or not?
+//  * If yes, then we can create &'static dyn DynVTable references easily.
+//  * If no, then we need to manage their lifetimes some other way. And we likely need to hold
+//    instances of them on the object itself.
+//
+// In theory, we could separate out the part that doesn't have an instance (e.g. the ID and the
+// deserialize function).
+
 /// The public API for defining new extension DTypes.
-pub trait VTable: 'static + Sized + Send + Sync {
+pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
     /// Associated type containing the deserialized metadata for this extension type
     type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
 
     /// Returns the ID for this extension type.
-    fn id(options: &Self::Options) -> ExtID;
+    fn id(&self) -> ExtID;
 
     /// Serialize the options into a byte vector.
-    fn serialize(options: &Self::Options) -> VortexResult<Vec<u8>>;
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>>;
 
     /// Deserialize the options from a byte slice.
-    fn deserialize(data: &[u8]) -> VortexResult<Self::Options>;
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options>;
 
     /// Validate that the given storage type is compatible with this extension type.
-    fn validate(options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
+    fn validate(&self, options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
 
     // TODO(ngates): add conversion vtable for Arrow extension types.
     // type ArrowConversion: ArrowConversion<Self>;
 }
 
 /// A dynamic vtable for extension types, used for type-erased deserialization.
-pub trait DynVTable: 'static + Send + Sync + Debug + private::Sealed {
+// FIXME(ngates): consider renaming this to ExtDTypePlugin or similar?
+pub trait DynVTable: 'static + Send + Sync + Debug {
+    /// Returns the ID for this extension type.
+    fn id(&self) -> ExtID;
+
     /// Deserialize an extension type from serialized options.
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
+
+    /// Clones this vtable into a boxed trait object.
+    fn clone_box(&self) -> Box<dyn DynVTable>;
 }
 
-/// Adapter to convert a strongly typed VTable into a DynVTable.
-pub struct VTableAdapter<V: VTable>(PhantomData<V>);
-
-impl<V: VTable> Debug for VTableAdapter<V> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", std::any::type_name::<V>())
+impl<V: VTable> DynVTable for V {
+    fn id(&self) -> ExtID {
+        VTable::id(self)
     }
-}
 
-impl<V: VTable> DynVTable for VTableAdapter<V> {
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let options = V::deserialize(data)?;
-        Ok(ExtDType::<V>::try_new(options, storage_dtype)?.erase())
+        let options = VTable::deserialize(self, data)?;
+        Ok(ExtDType::try_with_vtable(self.clone(), options, storage_dtype)?.erase())
     }
-}
 
-impl<V: VTable> From<V> for &'static dyn DynVTable {
-    fn from(_value: V) -> Self {
-        const { &VTableAdapter::<V>(PhantomData) }
+    fn clone_box(&self) -> Box<dyn DynVTable> {
+        Box::new(self.clone())
     }
-}
-
-mod private {
-    use super::VTable;
-    use super::VTableAdapter;
-
-    pub trait Sealed {}
-    impl<V: VTable> Sealed for VTableAdapter<V> {}
 }
