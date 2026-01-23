@@ -21,7 +21,7 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
-use vortex_dtype::i256;
+use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
@@ -165,26 +165,11 @@ async fn execute_dict_decimal(
     let values_decimal = values.execute_cuda(ctx).await?.into_decimal();
     let decimal_type = values_decimal.values_type();
 
-    match decimal_type {
-        DecimalType::I8 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i8, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-        DecimalType::I16 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i16, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-        DecimalType::I32 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i32, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-        DecimalType::I64 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i64, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-        DecimalType::I128 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i128, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-        DecimalType::I256 => match_each_unsigned_integer_ptype!(codes_ptype, |C| {
-            execute_dict_decimal_typed::<i256, C>(values_decimal, codes_prim, dtype, ctx).await
-        }),
-    }
+    match_each_decimal_value_type!(decimal_type, |V| {
+        match_each_unsigned_integer_ptype!(codes_ptype, |C| {
+            execute_dict_decimal_typed::<V, C>(values_decimal, codes_prim, dtype, ctx).await
+        })
+    })
 }
 
 /// Type-parameterized decimal dict execution for a specific code type.
