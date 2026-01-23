@@ -10336,6 +10336,7 @@ dependencies = [
  "cudarc",
  "futures",
  "kanal",
+ "rstest",
  "tokio",
  "tracing",
  "vortex-alp",
