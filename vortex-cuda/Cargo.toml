@@ -18,7 +18,6 @@ workspace = true
 
 [features]
 default = []
-nvcomp = ["dep:vortex-nvcomp"]
 
 [dependencies]
 async-trait = { workspace = true }
@@ -33,7 +32,7 @@ vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
-vortex-nvcomp = { path = "nvcomp", optional = true }
+vortex-nvcomp = { path = "nvcomp" }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }

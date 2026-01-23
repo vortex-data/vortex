@@ -9,6 +9,9 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
+    // Declare the cfg so rustc doesn't warn about unexpected cfg.
+    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
+
     if cfg!(not(target_os = "linux")) {
         // cuda is only support on linux right now
         return;
@@ -18,8 +21,6 @@ fn main() {
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
     if !has_nvcc() {
-        // Only warn on Linux where we expect CUDA to be available.
-        println!("cargo:warning=nvcc not found, skipping CUDA kernel compilation");
         return;
     }
 
@@ -29,12 +30,15 @@ fn main() {
         for path in entries.flatten().map(|entry| entry.path()) {
             if path.extension().is_some_and(|ext| ext == "cu") {
                 println!("cargo:rerun-if-changed={}", path.display());
-                if let Err(e) = nvcc_compile_ptx(&kernels_dir, &path) {
-                    println!("cargo:warning=Failed to compile CUDA kernel: {}", e);
-                }
+                nvcc_compile_ptx(&kernels_dir, &path)
+                    .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", path.display(), e))
+                    .unwrap();
             }
         }
     }
+
+    // Signal that CUDA kernels are available for conditional compilation.
+    println!("cargo:rustc-cfg=cuda_available");
 }
 
 fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
@@ -62,7 +66,7 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
         // CUDA Sanitizers
         // - memory: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-memcheck
         // - thread: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-racecheck
-        // - init: // https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-initcheck
+        // - init: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-initcheck
         // - synchronize : https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
     } else {
         cmd.arg("-O3");

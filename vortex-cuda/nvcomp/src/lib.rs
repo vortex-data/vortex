@@ -12,7 +12,7 @@
 //! nvCOMP is only available on Linux x86_64 and ARM64. On other platforms,
 //! this crate compiles but provides no functionality.
 
-#[cfg(nvcomp_available)]
+#[cfg(cuda_available)]
 #[allow(
     non_upper_case_globals,
     non_camel_case_types,
@@ -22,7 +22,8 @@
 )]
 pub mod sys;
 
-#[cfg(all(test, nvcomp_available))]
+#[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     use super::sys;
 

@@ -34,7 +34,7 @@ fn generate_stub(reason: &str) {
 
 fn main() {
     // Declare the cfg so rustc doesn't warn about unexpected cfg.
-    println!("cargo::rustc-check-cfg=cfg(nvcomp_available)");
+    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
@@ -144,6 +144,6 @@ fn main() {
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
 
-    // Signal that nvCOMP bindings are available for conditional compilation.
-    println!("cargo:rustc-cfg=nvcomp_available");
+    // Signal that CUDA/nvCOMP bindings are available for conditional compilation.
+    println!("cargo:rustc-cfg=cuda_available");
 }

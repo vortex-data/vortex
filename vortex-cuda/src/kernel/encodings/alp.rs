@@ -115,6 +115,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     use vortex_alp::ALPArray;
     use vortex_alp::Exponents;
@@ -126,15 +127,10 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::has_nvcc;
     use crate::session::CudaSession;
 
     #[tokio::test]
     async fn test_cuda_alp_decompression_f32() {
-        if !has_nvcc() {
-            return;
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 

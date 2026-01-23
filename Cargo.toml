@@ -25,6 +25,7 @@ members = [
     "vortex-datafusion",
     "vortex-duckdb",
     "vortex-cuda",
+    "vortex-cuda/nvcomp",
     "vortex-cxx",
     "vortex-ffi",
     "fuzz",

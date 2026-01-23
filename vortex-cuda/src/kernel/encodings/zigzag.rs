@@ -106,6 +106,7 @@ where
 }
 
 #[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
@@ -117,15 +118,10 @@ mod tests {
     use vortex_zigzag::ZigZagArray;
 
     use super::*;
-    use crate::has_nvcc;
     use crate::session::CudaSession;
 
     #[tokio::test]
     async fn test_cuda_zigzag_decompression_u32() {
-        if !has_nvcc() {
-            return;
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
