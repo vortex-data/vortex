@@ -154,6 +154,7 @@ pub struct DecimalBytePartsArray {
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
     //  other than the empty Vec.
+    // Must update `DecimalBytePartsArrayParts` too.
     _lower_parts: Vec<ArrayRef>,
     dtype: DType,
     stats_set: ArrayStats,
@@ -189,7 +190,7 @@ impl DecimalBytePartsArray {
         }
     }
 
-    // WARNING check all caller if `_lower_parts` is ever supported.
+    /// If `_lower_parts` is supported check all calls use this correctly.
     pub fn into_parts(self) -> DecimalBytePartsArrayParts {
         DecimalBytePartsArrayParts {
             msp: self.msp,
