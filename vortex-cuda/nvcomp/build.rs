@@ -26,6 +26,7 @@ fn cuda_headers_available(cuda_include: &str) -> bool {
 
 /// Generate an empty stub for sys.rs when nvCOMP is not available.
 fn generate_stub(reason: &str) {
+    println!("nvCOMP bindings not generated: {}", reason);
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let stub = format!("// nvCOMP is not available: {}\n", reason);
     fs::write(out_dir.join("sys.rs"), stub).unwrap();
