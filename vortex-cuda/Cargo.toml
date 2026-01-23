@@ -34,6 +34,7 @@ vortex-file = { workspace = true, features = ["tokio"] }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
 vortex-metrics = { workspace = true }
+vortex-scan = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 

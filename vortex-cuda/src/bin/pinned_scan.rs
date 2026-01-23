@@ -44,6 +44,8 @@ use vortex_file::OpenOptionsSessionExt;
 use vortex_file::WriteOptionsSessionExt;
 use vortex_file::WriteStrategyBuilder;
 use vortex_file::register_default_encodings;
+use vortex_file::segments::io_request_stats;
+use vortex_file::segments::reset_io_request_stats;
 use vortex_io::DefaultAllocator;
 use vortex_io::HostByteBufferPool;
 use vortex_io::PooledHostAllocator;
@@ -55,6 +57,8 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
+use vortex_scan::reset_scan_task_stats;
+use vortex_scan::scan_task_stats;
 use vortex_session::VortexSession;
 
 const DEFAULT_ROWS: &[usize] = &[10_000_000];
@@ -361,6 +365,16 @@ fn create_session(rt: &Runtime) -> VortexSession {
     rt.block_on(async { session.with_tokio() })
 }
 
+fn count_splits(rt: &Runtime, session: &VortexSession, buffer: &ByteBuffer) -> usize {
+    rt.block_on(async {
+        let file = session
+            .open_options()
+            .open_buffer(buffer.clone())
+            .expect("Failed to open file");
+        file.splits().map(|splits| splits.len()).unwrap_or(0)
+    })
+}
+
 #[derive(Clone, Copy)]
 struct WriteParams {
     row_block_size: usize,
@@ -598,6 +612,20 @@ fn format_throughput(bytes: usize, total: Duration, iterations: usize) -> Throug
 }
 
 fn print_stats(pinned_pool: Option<&PinnedByteBufferPool>, host_pool: Option<&HostByteBufferPool>) {
+    let tasks = scan_task_stats();
+    if tasks.started > 0 || tasks.completed > 0 {
+        println!(
+            "    Scan tasks: started={} completed={} max_active={}",
+            tasks.started, tasks.completed, tasks.max_active
+        );
+    }
+    let io = io_request_stats();
+    if io.registered > 0 || io.dispatched > 0 || io.completed > 0 {
+        println!(
+            "    IO requests: registered={} polled={} dispatched={} completed={} max_in_flight={}",
+            io.registered, io.polled, io.dispatched, io.completed, io.max_in_flight
+        );
+    }
     let align = alignment_copy_stats();
     println!(
         "    Alignment copies: {} ({} bytes)",
@@ -721,11 +749,15 @@ fn main() -> ExitCode {
                             buffer.len() as f64 / 1e6,
                             buffer.len()
                         );
+                        let splits = count_splits(&rt, &session, &buffer);
+                        println!("  Splits: {}", splits);
 
                         if config.scans.contains(&ScanType::DefaultZeroCopy) {
                             reset_default_alloc_stats();
                             reset_copy_stats();
                             reset_alignment_copy_stats();
+                            reset_io_request_stats();
+                            reset_scan_task_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default(&rt, &session, &buffer)
                             });
@@ -739,6 +771,8 @@ fn main() -> ExitCode {
                             reset_default_alloc_stats();
                             reset_copy_stats();
                             reset_alignment_copy_stats();
+                            reset_io_request_stats();
+                            reset_scan_task_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default_copy(&rt, &session, &buffer)
                             });
@@ -754,6 +788,8 @@ fn main() -> ExitCode {
                             reset_default_alloc_stats();
                             reset_copy_stats();
                             reset_alignment_copy_stats();
+                            reset_io_request_stats();
+                            reset_scan_task_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default_copy_pooled(&rt, &session, &buffer, pool)
                             });
@@ -769,6 +805,8 @@ fn main() -> ExitCode {
                             reset_default_alloc_stats();
                             reset_copy_stats();
                             reset_alignment_copy_stats();
+                            reset_io_request_stats();
+                            reset_scan_task_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_pinned(&rt, &session, &buffer, pool)
                             });
@@ -785,6 +823,8 @@ fn main() -> ExitCode {
                             reset_default_alloc_stats();
                             reset_copy_stats();
                             reset_alignment_copy_stats();
+                            reset_io_request_stats();
+                            reset_scan_task_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_device(&rt, &session, &buffer, pool, stream)
                             });

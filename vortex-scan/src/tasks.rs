@@ -3,9 +3,12 @@
 
 //! Split scanning task implementation.
 
+use std::future::Future;
 use std::ops::BitAnd;
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use bit_vec::BitVec;
 use futures::FutureExt;
@@ -22,6 +25,74 @@ use crate::filter::FilterExpr;
 use crate::selection::Selection;
 
 pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ScanTaskStats {
+    pub started: u64,
+    pub completed: u64,
+    pub active: u64,
+    pub max_active: u64,
+}
+
+static TASK_STARTED: AtomicU64 = AtomicU64::new(0);
+static TASK_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static TASK_ACTIVE: AtomicU64 = AtomicU64::new(0);
+static TASK_MAX_ACTIVE: AtomicU64 = AtomicU64::new(0);
+
+pub fn reset_scan_task_stats() {
+    TASK_STARTED.store(0, Ordering::Relaxed);
+    TASK_COMPLETED.store(0, Ordering::Relaxed);
+    TASK_ACTIVE.store(0, Ordering::Relaxed);
+    TASK_MAX_ACTIVE.store(0, Ordering::Relaxed);
+}
+
+pub fn scan_task_stats() -> ScanTaskStats {
+    ScanTaskStats {
+        started: TASK_STARTED.load(Ordering::Relaxed),
+        completed: TASK_COMPLETED.load(Ordering::Relaxed),
+        active: TASK_ACTIVE.load(Ordering::Relaxed),
+        max_active: TASK_MAX_ACTIVE.load(Ordering::Relaxed),
+    }
+}
+
+struct TaskGuard;
+
+impl TaskGuard {
+    fn new() -> Self {
+        TASK_STARTED.fetch_add(1, Ordering::Relaxed);
+        let active = TASK_ACTIVE.fetch_add(1, Ordering::Relaxed) + 1;
+        let mut prev_max = TASK_MAX_ACTIVE.load(Ordering::Relaxed);
+        while active > prev_max {
+            match TASK_MAX_ACTIVE.compare_exchange(
+                prev_max,
+                active,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(next) => prev_max = next,
+            }
+        }
+        TaskGuard
+    }
+}
+
+impl Drop for TaskGuard {
+    fn drop(&mut self) {
+        TASK_ACTIVE.fetch_sub(1, Ordering::Relaxed);
+        TASK_COMPLETED.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn wrap_task<A: 'static + Send>(
+    fut: impl Future<Output = VortexResult<Option<A>>> + Send + 'static,
+) -> TaskFuture<Option<A>> {
+    async move {
+        let _guard = TaskGuard::new();
+        fut.await
+    }
+    .boxed()
+}
 
 /// Logic for executing a single split reading task.
 ///
@@ -45,7 +116,7 @@ pub(super) fn split_exec<A: 'static + Send>(
     let row_range = read_mask.row_range();
     let row_mask = read_mask.mask().clone();
     if row_mask.all_false() {
-        return Ok(ok(None).boxed());
+        return Ok(wrap_task(ok(None)));
     }
 
     let filter_mask = match ctx.filter.as_ref() {
@@ -149,7 +220,7 @@ pub(super) fn split_exec<A: 'static + Send>(
         mapper(array).map(Some)
     };
 
-    Ok(array_fut.boxed())
+    Ok(wrap_task(array_fut))
 }
 
 /// Information needed to execute a single split task.

@@ -14,6 +14,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
@@ -262,6 +263,25 @@ impl VortexReadAt for ByteBuffer {
                     end,
                     buffer.len()
                 );
+            }
+            #[cfg(feature = "tokio")]
+            {
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    return tokio::task::spawn_blocking(move || {
+                        let copy_start = Instant::now();
+                        target
+                            .as_mut_slice()
+                            .copy_from_slice(&buffer.as_ref()[start..end]);
+                        let elapsed = copy_start.elapsed();
+                        let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+                        COPY_BYTES.fetch_add((end - start) as u64, Ordering::Relaxed);
+                        COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
+                        COPY_COUNT.fetch_add(1, Ordering::Relaxed);
+                        target.into_handle()
+                    })
+                    .await
+                    .map_err(|e| vortex_err!("read_at_into task failed: {e}"))?;
+                }
             }
             let copy_start = Instant::now();
             target

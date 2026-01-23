@@ -20,6 +20,9 @@ pub use split_by::SplitBy;
 
 mod scan_builder;
 pub use scan_builder::ScanBuilder;
+pub use tasks::ScanTaskStats;
+pub use tasks::reset_scan_task_stats;
+pub use tasks::scan_task_stats;
 
 #[cfg(gpu_unstable)]
 pub mod gpu;

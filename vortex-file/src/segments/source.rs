@@ -3,8 +3,9 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::sync::atomic::AtomicUsize;
 use std::task;
 use std::task::Context;
 use std::task::Poll;
@@ -33,6 +34,47 @@ pub enum ReadEvent {
     Request(ReadRequest),
     Polled(RequestId),
     Dropped(RequestId),
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct IoRequestStats {
+    pub registered: u64,
+    pub polled: u64,
+    pub dropped: u64,
+    pub dispatched: u64,
+    pub completed: u64,
+    pub in_flight: u64,
+    pub max_in_flight: u64,
+}
+
+static IO_REGISTERED: AtomicU64 = AtomicU64::new(0);
+static IO_POLLED: AtomicU64 = AtomicU64::new(0);
+static IO_DROPPED: AtomicU64 = AtomicU64::new(0);
+static IO_DISPATCHED: AtomicU64 = AtomicU64::new(0);
+static IO_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static IO_IN_FLIGHT: AtomicU64 = AtomicU64::new(0);
+static IO_MAX_IN_FLIGHT: AtomicU64 = AtomicU64::new(0);
+
+pub fn reset_io_request_stats() {
+    IO_REGISTERED.store(0, Ordering::Relaxed);
+    IO_POLLED.store(0, Ordering::Relaxed);
+    IO_DROPPED.store(0, Ordering::Relaxed);
+    IO_DISPATCHED.store(0, Ordering::Relaxed);
+    IO_COMPLETED.store(0, Ordering::Relaxed);
+    IO_IN_FLIGHT.store(0, Ordering::Relaxed);
+    IO_MAX_IN_FLIGHT.store(0, Ordering::Relaxed);
+}
+
+pub fn io_request_stats() -> IoRequestStats {
+    IoRequestStats {
+        registered: IO_REGISTERED.load(Ordering::Relaxed),
+        polled: IO_POLLED.load(Ordering::Relaxed),
+        dropped: IO_DROPPED.load(Ordering::Relaxed),
+        dispatched: IO_DISPATCHED.load(Ordering::Relaxed),
+        completed: IO_COMPLETED.load(Ordering::Relaxed),
+        in_flight: IO_IN_FLIGHT.load(Ordering::Relaxed),
+        max_in_flight: IO_MAX_IN_FLIGHT.load(Ordering::Relaxed),
+    }
 }
 
 /// A [`SegmentSource`] for file-like IO.
@@ -96,16 +138,26 @@ impl FileSegmentSource {
                     let source = source.clone();
                     let allocator = allocator.clone();
                     async move {
-                        let result = if let Some(allocator) = allocator {
-                            let target = match allocator.allocate(req.len(), req.alignment()) {
-                                Ok(target) => target,
-                                Err(e) => {
-                                    req.resolve(Err(e));
-                                    return;
-                                }
-                            };
+                        IO_DISPATCHED.fetch_add(1, Ordering::Relaxed);
+                        let in_flight = IO_IN_FLIGHT.fetch_add(1, Ordering::Relaxed) + 1;
+                        let mut prev_max = IO_MAX_IN_FLIGHT.load(Ordering::Relaxed);
+                        while in_flight > prev_max {
+                            match IO_MAX_IN_FLIGHT.compare_exchange(
+                                prev_max,
+                                in_flight,
+                                Ordering::Relaxed,
+                                Ordering::Relaxed,
+                            ) {
+                                Ok(_) => break,
+                                Err(next) => prev_max = next,
+                            }
+                        }
 
-                            source.read_at_into(req.offset(), target).await
+                        let result = if let Some(allocator) = allocator {
+                            match allocator.allocate(req.len(), req.alignment()) {
+                                Ok(target) => source.read_at_into(req.offset(), target).await,
+                                Err(e) => Err(e),
+                            }
                         } else {
                             source
                                 .read_at(req.offset(), req.len(), req.alignment())
@@ -113,6 +165,8 @@ impl FileSegmentSource {
                                 .map(BufferHandle::new_host)
                         };
                         req.resolve(result);
+                        IO_COMPLETED.fetch_add(1, Ordering::Relaxed);
+                        IO_IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
                     }
                 })
                 .buffer_unordered(concurrency)
@@ -156,6 +210,7 @@ impl SegmentSource for FileSegmentSource {
                 return async move { Err(vortex_err!("Failed to submit read request: {e}")) }
                     .boxed();
             }
+            IO_REGISTERED.fetch_add(1, Ordering::Relaxed);
 
             ReadFuture {
                 id,
@@ -196,6 +251,7 @@ impl Future for ReadFuture {
             if let Err(e) = self.events.unbounded_send(ReadEvent::Polled(self.id)) {
                 return Poll::Ready(Err(vortex_err!("ReadRequest dropped by runtime: {e}")));
             }
+            IO_POLLED.fetch_add(1, Ordering::Relaxed);
         }
 
         match task::ready!(self.recv.poll_unpin(cx)) {
@@ -209,6 +265,8 @@ impl Drop for ReadFuture {
     fn drop(&mut self) {
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.
-        drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
+        if self.events.unbounded_send(ReadEvent::Dropped(self.id)).is_ok() {
+            IO_DROPPED.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
