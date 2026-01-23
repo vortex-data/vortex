@@ -16,7 +16,7 @@ _This is mostly Claude-written, but it is also the result of quite a lot of prot
 6. [Client Architecture](#client-architecture)
 7. [API Design](#api-design)
 8. [Deployment & Infrastructure](#deployment--infrastructure)
-9. [Implementation Plan](#implementation-plan)
+9. [Plan of Attack](#plan-of-attack)
 10. [Future Considerations](#future-considerations)
 
 ---
@@ -38,8 +38,8 @@ A benchmarks visualization website (https://bench.vortex.dev/) that displays per
 
 - Dogfooding: Use Vortex file format for storing benchmark data via DuckDB extension
 - Reusability: Architected as a library that others can adapt for their benchmarking needs
-- SEO optimization: This would be a nice to have, but speed is paramount
-- Mobile-first design: Desktop is primary use case, but this should work on mobile too
+- SEO optimization: Nice to have, but speed is paramount
+- Mobile-first design: Desktop is primary use case, but should work on mobile too
 - Public API for benchmark data (internal tooling only)
 
 ---
@@ -1361,255 +1361,228 @@ CMD ["./bench-website"]
 
 ---
 
-## Implementation Plan
+## Plan of Attack
 
-The implementation is divided into phases. Each phase produces a working system; later phases add optimizations. **Always get things working before optimizing.**
+This is a **prototype-first, library-oriented** implementation plan. The goal is to build a reusable benchmark visualization library that can be plugged into any data source, with Vortex-specific integration handled separately.
 
-### Phase 1: Data Layer Foundation
+### Key Design Decisions
 
-**Goal**: DuckDB + Vortex storing real benchmark data, queryable via SQL
+- **Plotters** for charting (Rust-native, Canvas rendering)
+- **Plain DuckDB for prototyping** - Add Vortex extension once core functionality works
+- **Mock data for development** - Real data pipeline is separate; design for pluggability
+- **Library-first mindset** - Keep Vortex-specific details separate from core visualization
+
+### Key Simplifications
+
+1. **Get a working prototype ASAP** - Mock/hardcode where possible
+2. **Start with 1-2 benchmark groups** - Not all schemas upfront
+3. **CI integration comes last** - Once everything works locally
+4. **Design for pluggability** - Core lib shouldn't depend on Vortex specifics
+
+---
+
+### Phase 1: Minimal Working Prototype
+
+**Goal**: See a Leptos page rendering one chart with mock data from DuckDB
 
 **Steps**:
 
 1.1. **Set up project structure**
-
-- Create `bench-website/` directory in vortex repo
-- Initialize Cargo workspace with leptos, axum, duckdb dependencies
-- Create basic module structure (db/, api/, components/)
-
-  1.2. **Implement DuckDB connection layer**
-
-- Create `DbPool` wrapper around DuckDB connection
-- Optionally load Vortex extension
-- Write helper functions for common query patterns
-- Add integration tests with in-memory DuckDB
-
-  1.3. **Define schemas for all benchmark groups**
-
-- Create SQL schema files for each group
-- Write migration script to create tables
-- Document schema in this file (already done above)
-
-  1.4. **Implement ingest endpoint**
-
-- POST /api/ingest handler
-- CI token verification
-- INSERT OR REPLACE logic for idempotency
-- Test with curl / httpie
-
-  1.5. **Migrate existing JSON data**
-
-- Write one-time migration script
-- Parse existing JSON files
-- Bulk insert into DuckDB/Vortex tables
-- Verify data integrity (row counts, spot checks)
-
-  1.6. **Set up CI integration**
-
-- Modify existing benchmark workflows to POST results
-- Add BENCH_CI_TOKEN secret to GitHub
-- Test end-to-end: commit -> benchmark -> POST -> verify in DB
-
-**Deliverable**: Running server that accepts benchmark results and stores them in Vortex files. Can query data via DuckDB CLI.
-
-### Phase 2: Basic Website (No Lazy Loading)
-
-**Goal**: Functional website showing all charts with all data
-
-**Steps**:
-
-2.1. **Set up Leptos app shell**
-
-- Configure cargo-leptos
-- Create App component with router
-- Add basic CSS (can use Tailwind or simple custom CSS)
-- Verify SSR works (view page source shows content)
-
-  2.2. **Implement navigation and layout**
-
-- Header with site title
-- Sidebar/tabs for benchmark groups
-- Responsive layout basics
-
-  2.3. **Create GroupPage component**
-
-- Route: /benchmarks/:group
-- Fetch ALL data for group (no lazy loading yet)
-- Display loading state via Suspense
-
-  2.4. **Implement basic chart rendering**
-
-- Choose charting approach (plotters or SVG)
-- Render static charts (no interactivity yet)
-- Display all series with different colors
-- Add axis labels, legend
-
-  2.5. **Add chart interactivity (zoom/pan)**
-
-- Convert chart to island component
-- Implement mouse wheel zoom
-- Implement click-drag pan
-- Ensure smooth 60fps rendering
-
-  2.6. **Implement summary statistics**
-
-- Server-side computation (DuckDB aggregates)
-- Display above charts
-- Different summary types per group (geomean for TPC-H, etc.)
-
-  2.7. **Handle sparse data gracefully**
-
-- Skip null values in series
-- Don't break line connections (or show gaps appropriately)
-- Show "no data" indicator for missing series
-
-**Deliverable**: Fully functional website. May be slow for ClickBench (loads all 44 charts × 5000 commits) but everything works.
-
-### Phase 3: Progressive Loading Optimization
-
-**Goal**: Fast initial load with lazy history loading
-
-**Steps**:
-
-3.1. **Modify data fetching for initial load**
-
-- Change `get_initial_group_data` to fetch only last 50 commits
-- Update GroupPage to pass initial_data to charts
-- Verify initial HTML size is reasonable (~500KB for ClickBench)
-
-  3.2. **Implement `GetFullChartHistory` server function**
-
-- Fetches all commits for single chart
-- Called from client when user requests full history
-- Returns data sorted by timestamp ASC
-
-  3.3. **Add lazy loading UI to ChartWithLazyHistory**
-
-- "Show full history" button
-- Loading state indicator
-- History loaded indicator (commit count badge)
-
-  3.4. **Implement auto-load on pan**
-
-- Detect when user pans left past available data
-- Automatically trigger full history load
-- Smooth transition as data expands
-
-  3.5. **Add data refresh polling**
-
-- Poll every 60 seconds for updates
-- Only refresh if new data available
-- Update charts without full page reload
-
-**Deliverable**: Production-ready website with fast initial load and on-demand history.
-
-### Phase 4: Deployment & Production Hardening
-
-**Goal**: Reliable production deployment on AWS
-
-**Steps**:
-
-4.1. **Create Dockerfile**
-
-- Multi-stage build (builder + runtime)
-- Include Vortex DuckDB extension
-- Minimize image size
-
-  4.2. **Set up AWS infrastructure**
-
-- Create ECS cluster and service (or EC2 instance)
-- Configure EFS for data persistence
-- Set up S3 bucket for backups
-- Configure CloudFront distribution
-
-  4.3. **Implement backup system**
-
-- Hourly backup to S3 after successful ingests
-- Restore script for disaster recovery
-- Test backup/restore cycle
-
-  4.4. **Add monitoring and alerting**
-
-- Health check endpoint
-- CloudWatch metrics (request latency, error rate)
-- Alerts for failures
-
-  4.5. **Configure caching**
-
-- CloudFront cache behaviors
-- Cache-Control headers on API responses
-- Verify cache invalidation on data updates
-
-  4.6. **Security hardening**
-
-- HTTPS only (CloudFront handles TLS)
-- CI token rotation procedure
-- Rate limiting on ingest endpoint
-
-  4.7. **Documentation**
-
-- Update this design doc with any changes
-- Runbook for common operations
-- Architecture diagram for team reference
-
-**Deliverable**: Production deployment at bench.vortex.dev with monitoring and backups.
-
-### Phase 5: Polish & Future Features (Optional)
-
-**Goal**: Nice-to-have improvements
-
-**Steps**:
-
-5.1. **Compare view**
-
-- Select two commits to compare
-- Show diff in benchmark results
-- Highlight regressions/improvements
-
-  5.2. **Permalink to specific chart/commit**
-
-- URL includes chart and view range
-- Share links to specific data points
-
-  5.3. **Export functionality**
-
-- Download chart as PNG/SVG
-- Export data as CSV
-
-  5.4. **Performance profiling**
-
-- Measure actual load times
-- Identify bottlenecks
-- Optimize as needed (may not be necessary)
+- Create `bench-website/` with basic Leptos + Axum skeleton
+- Add `duckdb` and `plotters` crate dependencies
+- Single `main.rs` with inline routes and components
+
+1.2. **Mock data setup**
+- Create test data generator that produces representative benchmark data
+- Create TWO tables only:
+  - `commits` (commit_hash, timestamp, message, author)
+  - `random_access` (simple single-chart group with ~3 series)
+- Generate ~100 mock commits with realistic patterns (some regressions, improvements)
+- Store as local DuckDB file (plain DuckDB for now, Vortex extension added after Phase 3)
+
+1.3. **Single chart page**
+- Hardcoded route `/` that queries DuckDB
+- Server-side render a basic HTML page with data
+- Render using plotters to Canvas (or SVG initially to validate data flow)
+- No islands, no interactivity yet - just prove SSR + DuckDB works
+
+**Deliverable**: `cargo leptos watch` shows a page with mock benchmark data
 
 ---
 
-## Library Reusability (Future Work)
+### Phase 2: Basic Interactive Charts
 
-This project should eventually be architected so others can use it for their own benchmark visualization needs without requiring Vortex. This is not a priority for initial implementation but should be kept in mind during development.
+**Goal**: Interactive charts with zoom/pan for two benchmark groups
 
-**Key abstraction points to consider:**
+**Steps**:
 
-1. **Storage backend** — The DuckDB + Vortex combination should be swappable for plain DuckDB, PostgreSQL, or other databases
-2. **Configuration-driven groups** — Benchmark group definitions should be data-driven (config file or similar) rather than hardcoded
-3. **Unit conversion** — The `MeasurementUnit` system for converting u64 raw values to display units should be reusable
+2.1. **Plotters integration**
+- Set up plotters with Canvas backend for WASM
+- Render actual line charts for random_access mock data
+- Show multiple series with different colors
+- Basic axis labels and legend
 
-**Potential crate structure (future):**
+2.2. **Add second benchmark group (multi-chart)**
+- Add `tpch_sf1` table with mock data (multi-chart: q1-q19)
+- Create `/benchmarks/:group` route
+- GroupPage component that lists multiple charts
+- Demonstrate the "Pattern B" schema (commit_hash + chart + series columns)
+
+2.3. **Make charts interactive (islands)**
+- Convert chart component to `#[island]`
+- Implement zoom/pan with mouse wheel via plotters
+- Test that WASM hydration works
+
+**Deliverable**: Two working benchmark groups with interactive charts
+
+---
+
+### Phase 3: Library Interface & Configuration
+
+**Goal**: Clean interface for plugging in real data sources
+
+**Steps**:
+
+3.1. **Define pluggable interfaces**
+- `BenchmarkGroup` trait/struct for group configuration
+- `SeriesConfig` for series metadata (colors, units, display names)
+- `MeasurementUnit` enum for value formatting (ns → ms, bytes → MB, etc.)
+
+3.2. **Configuration-driven groups**
+- Move hardcoded group definitions to configuration
+- Support both "single chart" and "multi-chart" patterns
+- Dynamic schema creation based on config
+
+3.3. **Navigation & layout**
+- Sidebar with all configured benchmark groups
+- Responsive design basics
+- URL routing for all groups
+
+3.4. **Add Vortex extension**
+- Load Vortex DuckDB extension
+- Convert DuckDB storage to Vortex files
+- Verify queries work correctly with Vortex tables
+
+**Deliverable**: Clean library interface with Vortex storage, easy to add new benchmark groups
+
+---
+
+### Phase 4: Progressive Loading Optimization
+
+**Goal**: Fast initial load, lazy history on demand
+
+**Steps**:
+
+4.1. **Limit initial data**
+- Fetch only last 50 commits on page load
+- Verify initial HTML is small (~500KB)
+
+4.2. **Lazy load full history**
+- "Show full history" button per chart
+- Server function to fetch all commits for one chart
+- Auto-trigger on pan-left
+
+4.3. **Performance tuning**
+- Measure actual load times
+- Add indexes if needed
+- Cache headers for API responses
+
+**Deliverable**: Sub-second initial page load
+
+---
+
+### Phase 5: Ingest Endpoint
+
+**Goal**: Generic API for submitting benchmark results
+
+**Steps**:
+
+5.1. **Implement POST /api/ingest**
+- Accept benchmark results in standardized format
+- Simple token auth (env var)
+- UPSERT logic for idempotency
+- Works for any configured benchmark group
+
+5.2. **Batch ingest support**
+- POST /api/ingest/batch for multiple charts at once
+- Useful for groups like TPC-H where all queries run together
+
+**Deliverable**: Working ingest API (integration with specific CI is user's responsibility)
+
+---
+
+### Phase 6: Production Readiness
+
+**Goal**: Ready for deployment
+
+**Steps**:
+
+6.1. **Dockerfile**
+- Multi-stage Docker build
+- Minimal runtime image
+- Configurable via environment variables
+
+6.2. **Health & observability**
+- Health check endpoint
+- Basic logging
+- Metrics hooks (optional)
+
+6.3. **Documentation**
+- How to configure benchmark groups
+- How to set up ingest
+- How to deploy
+
+**Deliverable**: Production-ready library that can be deployed and integrated
+
+---
+
+### What's Deferred Until Later Phases
+
+- Vortex DuckDB extension (plain DuckDB for prototyping, add Vortex after Phase 3)
+- Vortex-specific CI integration (user will plug in their pipeline)
+- Real data import scripts (user has separate pipeline)
+
+### What's Explicitly Out of Scope
+
+- Compare view / permalinks
+- Export functionality (PNG/CSV)
+- Mobile optimization beyond basics
+- Materialized views
+- Complex backup/restore automation
+
+---
+
+### Files to Create
 
 ```
-bench-viz/                    # Library crate (reusable)
+bench-website/
+├── Cargo.toml
 ├── src/
-│   ├── storage/             # Storage trait + implementations
-│   ├── config/              # Group/series configuration
-│   └── components/          # Leptos components
-
-bench-vortex/                 # Vortex-specific binary
-├── src/
-│   ├── main.rs
-│   └── groups.rs            # Vortex benchmark group definitions
+│   ├── main.rs              # Axum server setup, routes
+│   ├── lib.rs               # Leptos app root
+│   ├── mock_data.rs         # Test data generation (prototyping only)
+│   ├── db/
+│   │   ├── mod.rs
+│   │   ├── connection.rs    # DuckDB connection pool
+│   │   ├── queries.rs       # SQL query functions
+│   │   └── models.rs        # Data structures
+│   ├── api/
+│   │   ├── mod.rs
+│   │   ├── ingest.rs        # POST /api/ingest endpoint
+│   │   └── charts.rs        # Server functions for chart data
+│   ├── components/
+│   │   ├── mod.rs
+│   │   ├── app.rs           # Root component, router
+│   │   ├── layout.rs        # Navigation, sidebar
+│   │   ├── group_page.rs    # Benchmark group page
+│   │   └── chart.rs         # Interactive chart island (plotters)
+│   └── config/
+│       ├── mod.rs
+│       └── groups.rs        # Benchmark group definitions
+├── style/
+│   └── main.css
+└── Dockerfile
 ```
-
-For now, implement directly in the vortex repo. Refactor into a library later if there's demand.
 
 ---
 
@@ -1619,14 +1592,14 @@ For now, implement directly in the vortex repo. Refactor into a library later if
 
 The current design handles ~125MB of data and ~200 charts comfortably. If data grows significantly:
 
-- **More commits (10,000+)**: Consider time-based partitioning of Vortex files (e.g., one file per year)
-- **More benchmark groups**: No architectural changes needed, just more files
+- **More commits (10,000+)**: Consider time-based partitioning (e.g., one file per year)
+- **More benchmark groups**: No architectural changes needed, just more tables
 - **Higher write throughput**: DuckDB handles concurrent writes well, but could add write batching if needed
-- **Global low latency**: Deploy read replicas in multiple regions (sync Vortex files to S3, read from nearest region)
+- **Global low latency**: Deploy read replicas in multiple regions
 
 ### Alternative Charting Libraries
 
-If plotters or custom SVG proves insufficient:
+If plotters proves insufficient:
 
 - **uPlot**: Extremely fast (47KB), handles 100k+ points, but requires JS interop
 - **ECharts via charming**: Full-featured, but large bundle (~1MB)
