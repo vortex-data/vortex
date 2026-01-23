@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::vortex_panic;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
@@ -15,19 +17,23 @@ pub struct FilterArray {
 }
 
 impl FilterArray {
-    pub fn new(child: ArrayRef, mask: Mask) -> Self {
-        if child.len() != mask.len() {
-            vortex_panic!(
-                "FilterArray length mismatch: child array has length {} but mask has length {}",
-                child.len(),
-                mask.len()
-            );
-        }
-        Self {
-            child,
+    pub fn new(array: ArrayRef, mask: Mask) -> Self {
+        Self::try_new(array, mask).vortex_expect("new FilterArray")
+    }
+
+    pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
+        vortex_ensure_eq!(
+            array.len(),
+            mask.len(),
+            "FilterArray length mismatch: array has length {} but mask has length {}",
+            array.len(),
+            mask.len()
+        );
+        Ok(Self {
+            child: array,
             mask,
             stats: ArrayStats::default(),
-        }
+        })
     }
 
     /// The child array being filtered.

@@ -409,6 +409,20 @@ macro_rules! vortex_ensure {
     };
 }
 
+/// A macro that mirrors `assert_eq!` but instead of panicking when left != right,
+/// it will immediately return an erroneous `VortexResult` to the calling context.
+#[macro_export]
+macro_rules! vortex_ensure_eq {
+    ($left:expr, $right:expr) => {
+        $crate::vortex_ensure_eq!($left, $right, AssertionFailed: "{} != {}: {:?} != {:?}", stringify!($left), stringify!($right), $left, $right);
+    };
+    ($left:expr, $right:expr, $($tt:tt)*) => {
+        if $left != $right {
+            $crate::vortex_bail!($($tt)*);
+        }
+    };
+}
+
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
 #[macro_export]

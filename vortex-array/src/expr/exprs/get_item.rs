@@ -363,4 +363,36 @@ mod tests {
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
     }
+
+    #[test]
+    fn get_item_filter_list_field() {
+        use vortex_mask::Mask;
+
+        use crate::arrays::BoolArray;
+        use crate::arrays::FilterArray;
+        use crate::arrays::ListArray;
+
+        let list = ListArray::try_new(
+            buffer![0f32, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11.].into_array(),
+            buffer![2u64, 4, 6, 8, 10, 12].into_array(),
+            Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array()),
+        )
+        .unwrap();
+
+        let filtered = FilterArray::try_new(
+            list.into_array(),
+            Mask::from_iter([true, true, false, false, false]),
+        )
+        .unwrap();
+
+        let st = StructArray::try_new(
+            FieldNames::from(["data"]),
+            vec![filtered.into_array()],
+            2,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        get_item("data", root()).evaluate(&st.to_array()).unwrap();
+    }
 }
