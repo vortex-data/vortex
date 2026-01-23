@@ -12,6 +12,21 @@ on:
         required: false
         type: number
         default: 7200
+      family:
+        description: "Runner family (e.g., m8g.large for CPU, g5+g4dn+g6 for GPU)"
+        required: false
+        type: string
+        default: "m8g.large"
+      image:
+        description: "Runner image (e.g., ubuntu24-full-arm64, ubuntu24-gpu-x64)"
+        required: false
+        type: string
+        default: "ubuntu24-full-arm64"
+      extra_features:
+        description: "Extra cargo features to enable (e.g., cuda)"
+        required: false
+        type: string
+        default: ""
     outputs:
       crashes_found:
         description: "Whether crashes were found"
@@ -34,8 +49,8 @@ jobs:
     timeout-minutes: 230  # almost 4 hours
     runs-on:
       - runs-on=${{ github.run_id }}
-      - family=m8g.large
-      - image=ubuntu24-full-arm64
+      - family=${{ inputs.family }}
+      - image=${{ inputs.image }}
       - disk=large
       - extras=s3-cache
       - tag=${{ inputs.fuzz_target }}-fuzz
@@ -43,11 +58,6 @@ jobs:
       crashes_found: ${{ steps.check.outputs.crashes_found }}
       first_crash_name: ${{ steps.check.outputs.first_crash_name }}
       artifact_url: ${{ steps.upload_artifacts.outputs.artifact-url }}
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-      AWS_REGION: "us-east-1"
-      AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -70,6 +80,11 @@ jobs:
 
       - name: Restore corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
@@ -99,8 +114,13 @@ jobs:
       - name: Run fuzzing target
         id: fuzz
         run: |
+          FEATURES_FLAG=""
+          if [ -n "${{ inputs.extra_features }}" ]; then
+            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
+          fi
           RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
             cargo +nightly fuzz run --release --debug-assertions \
+            $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
             -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
             2>&1 | tee fuzz_output.log
@@ -149,6 +169,11 @@ jobs:
 
       - name: Persist corpus
         shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
         run: |
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"

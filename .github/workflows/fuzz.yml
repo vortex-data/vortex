@@ -21,6 +21,8 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: file_io
+      family: "m8g.large"
+      image: "ubuntu24-full-arm64"
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -69,6 +71,8 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: array_ops
+      family: "m8g.large"
+      image: "ubuntu24-full-arm64"
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
@@ -103,6 +107,45 @@ jobs:
     uses: ./.github/workflows/run-fuzzer.yml
     with:
       fuzz_target: compress_roundtrip
+      family: "m8g.large"
+      image: "ubuntu24-full-arm64"
     secrets:
       R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
       R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # GPU Compress Fuzzer (CUDA)
+  # ============================================================================
+  gpu_compress_fuzz:
+    name: "GPU Compress Fuzz"
+    uses: ./.github/workflows/run-fuzzer.yml
+    with:
+      fuzz_target: compress_gpu
+      family: "g4dn"
+      image: "ubuntu24-gpu-x64"
+      extra_features: "cuda"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+#  report-gpu-compress-fuzz-failures:
+#    name: "Report GPU Compress Fuzz Failures"
+#    needs: gpu_compress_fuzz
+#    if: always() && needs.gpu_compress_fuzz.outputs.crashes_found == 'true'
+#    permissions:
+#      issues: write
+#      contents: read
+#      id-token: write
+#      pull-requests: read
+#    uses: ./.github/workflows/report-fuzz-crash.yml
+#    with:
+#      fuzz_target: compress_gpu
+#      crash_file: ${{ needs.gpu_compress_fuzz.outputs.first_crash_name }}
+#      artifact_url: ${{ needs.gpu_compress_fuzz.outputs.artifact_url }}
+#      artifact_name: compress_gpu-crash-artifacts
+#      logs_artifact_name: compress_gpu-logs
+#      branch: ${{ github.ref_name }}
+#      commit: ${{ github.sha }}
+#    secrets:
+#      claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+#      gh_token: ${{ secrets.GITHUB_TOKEN }}

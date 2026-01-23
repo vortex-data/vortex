@@ -77,7 +77,7 @@ mod tests {
         #[case] precision: u8,
         #[case] scale: i8,
     ) {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("create execution context");
 
         let decimal_dtype = DecimalDType::new(precision, scale);

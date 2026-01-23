@@ -284,7 +284,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: [100, 200, 300, 400]
@@ -316,7 +316,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: large u64 values
@@ -351,7 +351,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: signed integers including negatives
@@ -383,7 +383,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary with 256 values
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls: [100, null, 300, 400]
@@ -451,7 +451,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values: [100, 200, 300, 400]
@@ -489,7 +489,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls: [100, null, 300, 400]
@@ -534,7 +534,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Dictionary values with nulls (i64)
@@ -580,7 +580,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Non-nullable values
@@ -624,7 +624,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i8_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 2 uses i8 backing type
@@ -653,7 +653,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i16_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 4 uses i16 backing type
@@ -682,7 +682,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i32_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 9 uses i32 backing type
@@ -711,7 +711,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i64_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 18 uses i64 backing type
@@ -743,7 +743,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i128_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 38 uses i128 backing type
@@ -780,7 +780,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_decimal_i256_values() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Precision 76 uses i256 backing type

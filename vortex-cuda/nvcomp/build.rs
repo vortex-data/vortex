@@ -35,9 +35,8 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(cuda_available)");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
-    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let nvcomp_dir = manifest_dir.join("sdk");
+    let nvcomp_dir = out_dir.join("nvcomp-sdk");
 
     // Create CUDA stub header in OUT_DIR for bindgen
     let cuda_stub_dir = out_dir.join("cuda-stub");
@@ -59,15 +58,6 @@ fn main() {
     let include_dir = nvcomp_dir.join("include");
     let lib_dir = nvcomp_dir.join("lib");
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        include_dir.join("nvcomp.h").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        include_dir.join("nvcomp/zstd.h").display()
-    );
-
     if !include_dir.exists() {
         println!("cargo:warning=Downloading nvCOMP SDK from {}", url);
 
@@ -81,10 +71,6 @@ fn main() {
         );
 
         let bytes = response.bytes().unwrap();
-        println!(
-            "cargo:warning=Downloaded {} bytes, extracting...",
-            bytes.len()
-        );
 
         // Extract tar.xz archive.
         let cursor = Cursor::new(bytes.as_ref());
@@ -102,11 +88,6 @@ fn main() {
         }
         fs::rename(&extracted, &nvcomp_dir).unwrap();
         fs::remove_dir_all(&temp_dir).ok();
-
-        println!(
-            "cargo:warning=nvCOMP SDK extracted to {}",
-            nvcomp_dir.display()
-        );
     }
 
     let bindings = bindgen::Builder::default()
@@ -128,19 +109,8 @@ fn main() {
     // Set cuda_available cfg if CUDA is detected on the system.
     // Gates tests and benchmarks that require CUDA at runtime.
     if cuda_available() {
-        // Link against nvcomp dynamically.
         println!("cargo:rustc-link-search=native={}", lib_dir.display());
-        println!("cargo:rustc-link-lib=dylib=nvcomp");
-        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-
-        // Export the library path for downstream crates via the `links` manifest key.
-        // Downstream crates can access this via `env::var("DEP_NVCOMP_LIB_DIR")` in their
-        // build.rs and add their own rpath:
-        //
-        // if let Ok(nvcomp_lib) = env::var("DEP_NVCOMP_LIB_DIR") {
-        //     println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
-        // }
-        println!("cargo:lib_dir={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=static=nvcomp");
         println!("cargo:rustc-cfg=cuda_available");
     }
 }

@@ -173,7 +173,7 @@ fn benchmark_for_u8(c: &mut Criterion) {
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let encoded = for_array.encoded();
@@ -224,7 +224,7 @@ fn benchmark_for_u16(c: &mut Criterion) {
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let encoded = for_array.encoded();
@@ -275,7 +275,7 @@ fn benchmark_for_u32(c: &mut Criterion) {
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let encoded = for_array.encoded();
@@ -326,7 +326,7 @@ fn benchmark_for_u64(c: &mut Criterion) {
             &for_array,
             |b, for_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let encoded = for_array.encoded();

@@ -10,6 +10,10 @@ pub mod error;
 // File module only available for native builds (requires vortex-file which uses tokio)
 #[cfg(not(target_arch = "wasm32"))]
 pub mod file;
+
+// GPU fuzzer module (only available when cuda feature is enabled)
+#[cfg(feature = "cuda")]
+pub mod gpu;
 pub use array::Action;
 pub use array::CompressorStrategy;
 pub use array::ExpectedValue;
@@ -20,6 +24,10 @@ pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
+#[cfg(feature = "cuda")]
+pub use gpu::FuzzCompressGpu;
+#[cfg(feature = "cuda")]
+pub use gpu::run_compress_gpu;
 
 // Runtime initialization - platform-specific
 #[cfg(not(target_arch = "wasm32"))]

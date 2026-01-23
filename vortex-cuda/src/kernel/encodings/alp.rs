@@ -132,7 +132,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
-        let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
         // Create encoded values (what ALP would produce)
@@ -154,7 +154,7 @@ mod tests {
             .execute(alp_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .into_host()
+            .to_host()
             .await?
             .into_array();
 

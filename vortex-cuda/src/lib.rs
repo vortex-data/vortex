@@ -25,6 +25,7 @@ pub use kernel::ZstdKernelPrep;
 pub use kernel::launch_cuda_kernel_impl;
 pub use kernel::zstd_kernel_prepare;
 pub use session::CudaSession;
+pub use session::CudaSessionExt;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
