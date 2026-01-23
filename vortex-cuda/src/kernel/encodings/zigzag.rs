@@ -10,6 +10,7 @@ use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
@@ -27,16 +28,16 @@ use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ZigZag decoding.
 #[derive(Debug)]
-pub struct ZigZagDecoder;
+pub struct ZigZagExecutor;
 
-impl ZigZagDecoder {
+impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {
         array.try_into::<ZigZagVTable>().ok()
     }
 }
 
 #[async_trait]
-impl CudaExecute for ZigZagDecoder {
+impl CudaExecute for ZigZagExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
@@ -69,7 +70,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let (_, buffer, validity, ..) = primitive.into_parts();
+    let PrimitiveArrayParts {
+        buffer, validity, ..
+    } = primitive.into_parts();
 
     let device_buffer: BufferHandle = if buffer.is_on_device() {
         buffer
@@ -141,7 +144,7 @@ mod tests {
             .vortex_expect("CPU canonicalize failed");
 
         // Decode on GPU
-        let gpu_result = ZigZagDecoder
+        let gpu_result = ZigZagExecutor
             .execute(zigzag_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");

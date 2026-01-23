@@ -159,6 +159,11 @@ pub struct DecimalBytePartsArray {
     stats_set: ArrayStats,
 }
 
+pub struct DecimalBytePartsArrayParts {
+    pub msp: ArrayRef,
+    pub dtype: DType,
+}
+
 impl DecimalBytePartsArray {
     pub fn try_new(msp: ArrayRef, decimal_dtype: DecimalDType) -> VortexResult<Self> {
         if !msp.dtype().is_signed_int() {
@@ -181,6 +186,14 @@ impl DecimalBytePartsArray {
             _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
+        }
+    }
+
+    // WARNING check all caller if `_lower_parts` is ever supported.
+    pub fn into_parts(self) -> DecimalBytePartsArrayParts {
+        DecimalBytePartsArrayParts {
+            msp: self.msp,
+            dtype: self.dtype,
         }
     }
 

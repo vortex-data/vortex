@@ -75,6 +75,13 @@ pub struct PrimitiveArray {
     pub(super) stats_set: ArrayStats,
 }
 
+pub struct PrimitiveArrayParts {
+    pub ptype: PType,
+    pub nullability: Nullability,
+    pub buffer: BufferHandle,
+    pub validity: Validity,
+}
+
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
 impl PrimitiveArray {
     /// Create a new array from a buffer handle.
@@ -173,8 +180,15 @@ impl PrimitiveArray {
 
 impl PrimitiveArray {
     /// Consume the primitive array and returns its component parts.
-    pub fn into_parts(self) -> (DType, BufferHandle, Validity, ArrayStats) {
-        (self.dtype, self.buffer, self.validity, self.stats_set)
+    pub fn into_parts(self) -> PrimitiveArrayParts {
+        let ptype = self.ptype();
+        let nullability = self.dtype.nullability();
+        PrimitiveArrayParts {
+            ptype,
+            nullability,
+            buffer: self.buffer,
+            validity: self.validity,
+        }
     }
 }
 

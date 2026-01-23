@@ -10341,6 +10341,7 @@ dependencies = [
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-decimal-byte-parts",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",

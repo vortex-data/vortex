@@ -16,6 +16,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
@@ -30,16 +31,16 @@ use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
-pub struct ALPDecoder;
+pub struct ALPExecutor;
 
-impl ALPDecoder {
+impl ALPExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ALPArray> {
         array.try_into::<ALPVTable>().ok()
     }
 }
 
 #[async_trait]
-impl CudaExecute for ALPDecoder {
+impl CudaExecute for ALPExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
@@ -67,7 +68,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let (_, buffer, validity, ..) = primitive.into_parts();
+    let PrimitiveArrayParts {
+        buffer, validity, ..
+    } = primitive.into_parts();
 
     let device_input: BufferHandle = if buffer.is_on_device() {
         buffer
@@ -149,7 +152,7 @@ mod tests {
         )
         .vortex_expect("failed to create ALP array");
 
-        let result = ALPDecoder
+        let result = ALPExecutor
             .execute(alp_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");

@@ -24,9 +24,7 @@ mod arrays;
 mod encodings;
 
 pub use arrays::DictExecutor;
-pub use encodings::ALPDecoder;
-pub use encodings::FoRDecoder;
-pub use encodings::ZigZagDecoder;
+pub use encodings::*;
 
 use crate::CudaKernelEvents;
 

@@ -10,6 +10,7 @@ use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
@@ -27,16 +28,16 @@ use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
-pub struct FoRDecoder;
+pub struct FoRExecutor;
 
-impl FoRDecoder {
+impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {
         array.try_into::<FoRVTable>().ok()
     }
 }
 
 #[async_trait]
-impl CudaExecute for FoRDecoder {
+impl CudaExecute for FoRExecutor {
     async fn execute(
         &self,
         array: ArrayRef,
@@ -64,7 +65,9 @@ where
     // Execute child and copy to device
     let canonical = array.encoded().clone().execute_cuda(ctx).await?;
     let primitive = canonical.into_primitive();
-    let (_, buffer, validity, ..) = primitive.into_parts();
+    let PrimitiveArrayParts {
+        buffer, validity, ..
+    } = primitive.into_parts();
 
     let device_buffer: BufferHandle = if buffer.is_on_device() {
         buffer
@@ -137,7 +140,7 @@ mod tests {
             .vortex_expect("CPU canonicalize failed");
 
         // Decode on GPU
-        let gpu_result = FoRDecoder
+        let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
@@ -174,7 +177,7 @@ mod tests {
             .vortex_expect("CPU canonicalize failed");
 
         // Decode on GPU
-        let gpu_result = FoRDecoder
+        let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
@@ -211,7 +214,7 @@ mod tests {
             .vortex_expect("CPU canonicalize failed");
 
         // Decode on GPU
-        let gpu_result = FoRDecoder
+        let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");
@@ -248,7 +251,7 @@ mod tests {
             .vortex_expect("CPU canonicalize failed");
 
         // Decode on GPU
-        let gpu_result = FoRDecoder
+        let gpu_result = FoRExecutor
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed");

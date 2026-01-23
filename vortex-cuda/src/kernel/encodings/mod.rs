@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod alp;
+mod decimal_byte_parts;
 mod for_;
 mod zigzag;
 
-pub use alp::ALPDecoder;
-pub use for_::FoRDecoder;
-pub use zigzag::ZigZagDecoder;
+pub use alp::ALPExecutor;
+pub use decimal_byte_parts::DecimalBytePartsExecutor;
+pub use for_::FoRExecutor;
+pub use zigzag::ZigZagExecutor;
