@@ -18,8 +18,6 @@ mod cuda_benchmarks {
     use criterion::BenchmarkId;
     use criterion::Criterion;
     use criterion::Throughput;
-    use criterion::criterion_group;
-    use criterion::criterion_main;
     use cudarc::driver::CudaView;
     use cudarc::driver::PushKernelArg;
     use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
@@ -29,7 +27,6 @@ mod cuda_benchmarks {
     use vortex_buffer::Buffer;
     use vortex_cuda::CudaExecutionCtx;
     use vortex_cuda::CudaSession;
-    use vortex_cuda::has_nvcc;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;

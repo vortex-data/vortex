@@ -256,7 +256,6 @@ mod tests {
         let values: Vec<u32> = (0..256).map(|i| i * 1000).collect();
         let values_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
 
-        #[expect(clippy::cast_possible_truncation)]
         let codes: Vec<u16> = (0..5000).map(|i| (i % 256) as u16).collect();
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 

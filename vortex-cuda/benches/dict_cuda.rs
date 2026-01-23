@@ -27,7 +27,6 @@ mod cuda_benchmarks {
     use vortex_cuda::CudaDeviceBuffer;
     use vortex_cuda::CudaExecutionCtx;
     use vortex_cuda::CudaSession;
-    use vortex_cuda::has_nvcc;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
@@ -348,13 +347,20 @@ mod cuda_benchmarks {
         group.finish();
     }
 
-    fn benchmark_dict_cuda(c: &mut Criterion) {
+    pub fn benchmark_dict_cuda(c: &mut Criterion) {
         benchmark_dict_u32_u8(c);
         benchmark_dict_u32_u16(c);
         benchmark_dict_u64_u8(c);
         benchmark_dict_u64_u32(c);
     }
-
-    criterion_group!(benches, benchmark_dict_cuda);
-    criterion_main!(benches);
 }
+
+#[cfg(cuda_available)]
+use criterion::criterion_group;
+#[cfg(cuda_available)]
+use criterion::criterion_main;
+
+#[cfg(cuda_available)]
+criterion_group!(benches, cuda_benchmarks::benchmark_dict_cuda);
+#[cfg(cuda_available)]
+criterion_main!(benches);
