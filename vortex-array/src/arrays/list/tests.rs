@@ -9,11 +9,16 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType::I32;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use super::*;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
+use crate::arrays::FilterArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
@@ -904,4 +909,23 @@ fn test_recursive_compact_list_of_lists() {
         non_recursive.scalar_at(0).unwrap(),
         recursive.scalar_at(0).unwrap()
     );
+}
+
+#[test]
+fn test_filter_sliced_list_array() -> VortexResult<()> {
+    let list = ListArray::try_new(
+        buffer![0..50].into_array(),
+        buffer![0, 10, 20, 30, 40, 50].into_array(),
+        Validity::AllValid,
+    )?
+    .into_array()
+    .slice(2..5)?;
+
+    let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
+    let filter_array = FilterArray::new(list, mask).into_array();
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+    assert_eq!(result.len(), 2);
+    Ok(())
 }
