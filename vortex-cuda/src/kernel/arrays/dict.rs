@@ -248,22 +248,12 @@ async fn execute_dict_decimal_typed<
         codes_len,
     )?;
 
-    println!("out bytes {}", output_device.len());
-    println!(
-        "out len {}",
-        output_device.len() / V::DECIMAL_TYPE.byte_width()
-    );
-
-    let res = DecimalArray::new_handle(
+    Ok(Canonical::Decimal(DecimalArray::new_handle(
         BufferHandle::new_device(Arc::new(output_device)),
         V::DECIMAL_TYPE,
         output_dtype.into_decimal_opt().vortex_expect("is decimal"),
         output_validity,
-    );
-
-    println!("res len {}", res.len());
-
-    Ok(Canonical::Decimal(res))
+    )))
 }
 
 #[cfg(test)]
@@ -621,8 +611,6 @@ mod tests {
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
-
-    // Decimal tests for i8..i128 backing types
 
     /// Helper to copy CUDA decimal array result to host memory.
     fn cuda_decimal_to_host(decimal: DecimalArray) -> VortexResult<DecimalArray> {
