@@ -211,6 +211,7 @@ impl KernelLoader {
 }
 
 #[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     #![allow(clippy::expect_used)]
 
