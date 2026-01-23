@@ -523,8 +523,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
-        FilterArray::new(self.to_array(), mask)
+        FilterArray::try_new(self.to_array(), mask)?
             .into_array()
             .optimize()
     }

@@ -379,10 +379,11 @@ mod tests {
         )
         .unwrap();
 
-        let filtered = FilterArray::new(
+        let filtered = FilterArray::try_new(
             list.into_array(),
             Mask::from_iter([true, true, false, false, false]),
-        );
+        )
+        .unwrap();
 
         let st = StructArray::try_new(
             FieldNames::from(["data"]),
