@@ -219,7 +219,6 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use super::KernelLoader;
-    use crate::has_nvcc;
 
     /// Test that verifies Rust launch config constants match CUDA kernel constants.
     ///
@@ -228,10 +227,6 @@ mod tests {
     /// `launch_cuda_kernel_impl`.
     #[test]
     fn test_kernel_config_matches_rust_config() {
-        if !has_nvcc() {
-            return;
-        }
-
         // These must match the constants in launch_cuda_kernel_impl
         const THREADS_PER_BLOCK: u32 = 64;
         const ELEMENTS_PER_THREAD: u32 = 32;

@@ -9,12 +9,12 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
@@ -69,14 +69,20 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
     codes: PrimitiveArray,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical> {
+    assert!(!codes.is_empty());
     let codes_len = codes.len();
-    if codes_len == 0 {
-        vortex_bail!("Cannot execute dict kernel on empty codes array");
-    }
 
-    let (values_dtype, values_buffer, values_validity, ..) = values.into_parts();
+    let PrimitiveArrayParts {
+        ptype: value_ptype,
+        buffer: values_buffer,
+        validity: values_validity,
+        ..
+    } = values.into_parts();
     let output_validity = values_validity.take(codes.as_ref())?;
-    let (_codes_dtype, codes_buffer, _codes_validity, ..) = codes.into_parts();
+    let PrimitiveArrayParts {
+        buffer: codes_buffer,
+        ..
+    } = codes.into_parts();
 
     // Get device buffers for values and codes
     let values_device = if values_buffer.is_on_device() {
@@ -106,7 +112,7 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
     let _cuda_events = crate::launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "dict",
-        ptypes: &[values_dtype.as_ptype(), I::PTYPE],
+        ptypes: &[value_ptype, I::PTYPE],
         launch_args: [codes_view, codes_len_u64, values_view, output_view],
         event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
         array_len: codes_len
@@ -114,12 +120,13 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         vortex_array::buffer::BufferHandle::new_device(std::sync::Arc::new(output_device)),
-        values_dtype.as_ptype(),
+        value_ptype,
         output_validity,
     )))
 }
 
 #[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
@@ -131,15 +138,10 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::has_nvcc;
     use crate::session::CudaSession;
 
     #[tokio::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -174,10 +176,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_u64_values_u16_codes() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -216,10 +214,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_i32_values_u32_codes() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -255,10 +249,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_large_array() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -292,10 +282,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -326,10 +312,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_codes_with_validity() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -365,10 +347,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_both_with_validity() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -411,10 +389,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_i64_values_with_validity() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -458,10 +432,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_cuda_dict_all_valid_matches_baseline() -> VortexResult<()> {
-        if !has_nvcc() {
-            return Ok(());
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
