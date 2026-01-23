@@ -143,7 +143,7 @@ impl VTable for ListVTable {
         _metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: ArrayContext,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         vortex_ensure!(
             matches!(dtype, DType::List(..) | DType::FixedSizeList(..)),

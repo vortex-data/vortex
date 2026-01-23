@@ -13,8 +13,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::ArrayRef;
-use crate::Executable;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -149,7 +147,7 @@ impl VTable for GetItemList {
                     field,
                     list.offsets().clone(),
                     list.sizes().clone(),
-                    list.validity()?,
+                    list.validity().clone(),
                 )?
                 .into_array()
                 .execute(args.ctx)
@@ -164,9 +162,14 @@ impl VTable for GetItemList {
                     Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not())?,
                 };
 
-                FixedSizeListArray::try_new(field, list.list_size(), list.validity()?, list.len())?
-                    .into_array()
-                    .execute(args.ctx)
+                FixedSizeListArray::try_new(
+                    field,
+                    list.list_size(),
+                    list.validity().clone(),
+                    list.len(),
+                )?
+                .into_array()
+                .execute(args.ctx)
             }
             _ => Err(vortex_err!(
                 "Expected list scope for GetItemList execution, got {}",

@@ -25,18 +25,17 @@ pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotati
             "cannot analyse select, simplify the expression"
         );
 
-        if let Some(field_name) = expr.as_opt::<GetItem>() {
-            if expr.child(0).is::<Root>() {
-                return vec![field_name.clone()];
-            }
+        if let Some(field_name) = expr.as_opt::<GetItem>()
+            && expr.child(0).is::<Root>()
+        {
+            return vec![field_name.clone()];
         }
 
-        if expr.is::<GetItemList>() {
-            if let Some(field_name) = expr.child(0).as_opt::<GetItem>() {
-                if expr.child(0).child(0).is::<Root>() {
-                    return vec![field_name.clone()];
-                }
-            }
+        if expr.is::<GetItemList>()
+            && let Some(field_name) = expr.child(0).as_opt::<GetItem>()
+            && expr.child(0).child(0).is::<Root>()
+        {
+            return vec![field_name.clone()];
         }
 
         if expr.is::<Root>() {

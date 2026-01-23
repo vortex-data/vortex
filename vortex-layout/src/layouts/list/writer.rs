@@ -156,7 +156,18 @@ impl LayoutStrategy for ListStrategy {
 
                                 // validity (optional)
                                 if is_nullable {
-                                    let validity = chunk.validity_mask().into_array();
+                                    let validity = match chunk.validity_mask() {
+                                        Ok(validity) => validity.into_array(),
+                                        Err(e) => {
+                                            let e: Arc<VortexError> = Arc::new(e);
+                                            for tx in column_streams_tx.iter() {
+                                                let _ = tx
+                                                    .send(Err(VortexError::from(e.clone())))
+                                                    .await;
+                                            }
+                                            break;
+                                        }
+                                    };
                                     let _ = column_streams_tx[0]
                                         .send(Ok((sequence_pointer.advance(), validity)))
                                         .await;

@@ -398,16 +398,33 @@ mod tests {
         );
 
         assert_eq!(
-            out.scalar_at(0).as_list().elements().unwrap().to_vec(),
+            out.scalar_at(0)
+                .unwrap()
+                .as_list()
+                .elements()
+                .unwrap()
+                .to_vec(),
             vec![
                 Scalar::primitive(1i32, NonNullable),
                 Scalar::primitive(2i32, NonNullable),
             ]
         );
-        assert!(out.scalar_at(1).as_list().elements().unwrap().is_empty());
-        assert!(out.scalar_at(2).is_null());
+        assert!(
+            out.scalar_at(1)
+                .unwrap()
+                .as_list()
+                .elements()
+                .unwrap()
+                .is_empty()
+        );
+        assert!(out.scalar_at(2).unwrap().is_null());
         assert_eq!(
-            out.scalar_at(3).as_list().elements().unwrap().to_vec(),
+            out.scalar_at(3)
+                .unwrap()
+                .as_list()
+                .elements()
+                .unwrap()
+                .to_vec(),
             vec![Scalar::primitive(3i32, NonNullable)]
         );
     }
@@ -463,15 +480,25 @@ mod tests {
         );
 
         assert_eq!(
-            out.scalar_at(0).as_list().elements().unwrap().to_vec(),
+            out.scalar_at(0)
+                .unwrap()
+                .as_list()
+                .elements()
+                .unwrap()
+                .to_vec(),
             vec![
                 Scalar::primitive(1i32, Nullability::Nullable),
                 Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
             ]
         );
-        assert!(out.scalar_at(1).is_null());
+        assert!(out.scalar_at(1).unwrap().is_null());
         assert_eq!(
-            out.scalar_at(2).as_list().elements().unwrap().to_vec(),
+            out.scalar_at(2)
+                .unwrap()
+                .as_list()
+                .elements()
+                .unwrap()
+                .to_vec(),
             vec![
                 Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
                 Scalar::primitive(6i32, Nullability::Nullable),

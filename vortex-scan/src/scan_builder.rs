@@ -187,7 +187,19 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        self.projection.return_dtype(self.layout_reader.dtype())
+        // NOTE: `GetItem` may simplify into `GetItemList` for list-of-struct projections.
+        // To avoid rejecting valid nested projections (like `items.a`) we must simplify before
+        // validating the return dtype.
+        //
+        // Also, `row_idx` support is provided by `RowIdxLayoutReader`, so use the same reader
+        // enrichment as `prepare`.
+        let layout_reader = Arc::new(RowIdxLayoutReader::new(
+            self.row_offset,
+            self.layout_reader.clone(),
+            self.session.clone(),
+        ));
+        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
+        projection.return_dtype(layout_reader.dtype())
     }
 
     /// The session used by the scan.
@@ -220,8 +232,6 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     pub fn prepare(self) -> VortexResult<RepeatedScan<A>> {
-        let dtype = self.dtype()?;
-
         if self.filter.is_some() && self.limit.is_some() {
             vortex_bail!("Vortex doesn't support scans with both a filter and a limit")
         }
@@ -241,6 +251,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         // Normalize and simplify the expressions.
         let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
+        let dtype = projection.return_dtype(layout_reader.dtype())?;
 
         let filter = self
             .filter
