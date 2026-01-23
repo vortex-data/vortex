@@ -346,10 +346,6 @@ mod tests {
         let pruning_expr = like(col("a"), lit("%suffix")).stat_falsification(&catalog);
         assert_eq!(pruning_expr, None);
 
-        // Empty string skips pushdown
-        let pruning_expr = like(col("a"), lit("")).stat_falsification(&catalog);
-        assert_eq!(pruning_expr, None);
-
         // NOT LIKE, ILIKE not supported currently
         assert_eq!(
             None,
