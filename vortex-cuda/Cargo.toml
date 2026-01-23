@@ -20,7 +20,6 @@ workspace = true
 default = []
 _test-harness = []
 
-
 [dependencies]
 async-trait = { workspace = true }
 cudarc = { workspace = true }
@@ -41,12 +40,11 @@ vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
+futures = { workspace = true, features = ["executor"] }
 rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
-futures = { workspace = true, features = ["executor"] }
-
 
 [build-dependencies]
 
