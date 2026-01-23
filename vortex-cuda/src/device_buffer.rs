@@ -106,7 +106,7 @@ impl<T: DeviceRepr> PartialEq for CudaDeviceBuffer<T> {
 impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T> {
     /// Returns the number of elements in the buffer of type T.
     fn len(&self) -> usize {
-        self.len
+        self.len * size_of::<T>()
     }
 
     /// Synchronous copy of CUDA device to host memory.

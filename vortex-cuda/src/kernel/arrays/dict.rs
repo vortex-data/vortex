@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DictArray;
@@ -107,7 +108,6 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
     let output_view = output_device.as_view();
 
     let codes_len_u64 = codes_len as u64;
-
     // Launch the dict kernel
     let _cuda_events = crate::launch_cuda_kernel!(
         execution_ctx: ctx,
@@ -126,7 +126,7 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
 }
 
 #[cfg(test)]
-#[cfg(cuda_available)]
+// #[cfg(cuda_available)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
@@ -140,6 +140,15 @@ mod tests {
     use super::*;
     use crate::session::CudaSession;
 
+    /// Copy a CUDA primitive array result to host memory.
+    fn cuda_primitive_to_host(prim: PrimitiveArray) -> VortexResult<PrimitiveArray> {
+        Ok(PrimitiveArray::from_byte_buffer(
+            prim.buffer_handle().try_to_host_sync()?,
+            prim.ptype(),
+            prim.validity()?,
+        ))
+    }
+
     #[tokio::test]
     async fn test_cuda_dict_u32_values_u8_codes() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
@@ -150,27 +159,24 @@ mod tests {
 
         // Codes: indices into the values array
         let codes: Vec<u8> = vec![0, 1, 2, 3, 0, 1, 2, 3, 2, 2, 1, 0];
-        let codes_array = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        // Decompress on the GPU
-        let result = DictExecutor
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
-        let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
-
-        // Expected: lookup each code in values
-        let expected: Vec<u32> = codes
-            .iter()
-            .map(|&code| [100u32, 200, 300, 400][code as usize])
-            .collect();
-
-        assert_eq!(result_buf.as_slice(), expected.as_slice());
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 
@@ -187,28 +193,24 @@ mod tests {
 
         // Codes: indices into the values array (using u16)
         let codes: Vec<u16> = vec![4, 3, 2, 1, 0, 0, 1, 2, 3, 4];
-        let codes_array = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        // Decompress on the GPU
-        let result = DictExecutor
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
-        let result_buf =
-            Buffer::<u64>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
-
-        // Expected: lookup each code in values
-        let dict_values = [1000000u64, 2000000, 3000000, 4000000, 5000000];
-        let expected: Vec<u64> = codes
-            .iter()
-            .map(|&code| dict_values[code as usize])
-            .collect();
-
-        assert_eq!(result_buf.as_slice(), expected.as_slice());
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 
@@ -222,28 +224,24 @@ mod tests {
 
         // Codes using u32
         let codes: Vec<u32> = vec![0, 1, 2, 3, 3, 2, 1, 0];
-        let codes_array = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        // Decompress on the GPU
-        let result = DictExecutor
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
-        let result_buf =
-            Buffer::<i32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
-
-        // Expected: lookup each code in values
-        let dict_values = [-100i32, 0, 100, 200];
-        let expected: Vec<i32> = codes
-            .iter()
-            .map(|&code| dict_values[code as usize])
-            .collect();
-
-        assert_eq!(result_buf.as_slice(), expected.as_slice());
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 
@@ -254,34 +252,33 @@ mod tests {
 
         // Dictionary with 256 values
         let values: Vec<u32> = (0..256).map(|i| i * 1000).collect();
-        let values_array = PrimitiveArray::new(Buffer::from(values.clone()), NonNullable);
+        let values_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
 
-        // 5000 codes cycling through all values
         #[expect(clippy::cast_possible_truncation)]
-        let codes: Vec<u8> = (0..5000).map(|i| (i % 256) as u8).collect();
-        let codes_array = PrimitiveArray::new(Buffer::from(codes.clone()), NonNullable);
+        let codes: Vec<u16> = (0..2049).map(|i| (i % 256) as u16).collect();
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values_array.into_array())
             .vortex_expect("failed to create Dict array");
 
-        // Decompress on the GPU
-        let result = DictExecutor
+        // Get baseline from CPU canonicalization
+        let baseline = dict_array.to_canonical()?;
+
+        // Execute on CUDA
+        let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
-        let result_buf =
-            Buffer::<u32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
-
-        // Expected: lookup each code in values
-        let expected: Vec<u32> = codes.iter().map(|&code| values[code as usize]).collect();
-
-        assert_eq!(result_buf.as_slice(), expected.as_slice());
+        // Compare CUDA result with baseline
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
+    #[test]
+    fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -299,11 +296,19 @@ mod tests {
         // Get baseline from CPU canonicalization
         let baseline = dict_array.to_canonical()?;
 
-        // Execute on CUDA
-        let cuda_result = DictExecutor
-            .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await
-            .vortex_expect("GPU decompression failed");
+        let cuda_result = futures::executor::block_on(async {
+            // Execute on CUDA
+            DictExecutor
+                .execute(dict_array.into_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_primitive()
+        });
+
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
+
+        println!("res {:?}", cuda_result);
+        println!("res {:?}", cuda_result.as_slice::<u32>());
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -338,7 +343,9 @@ mod tests {
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -380,7 +387,9 @@ mod tests {
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -423,7 +432,9 @@ mod tests {
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -454,7 +465,9 @@ mod tests {
         let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());

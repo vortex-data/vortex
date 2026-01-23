@@ -18,6 +18,8 @@ mod cuda_benchmarks {
     use criterion::BenchmarkId;
     use criterion::Criterion;
     use criterion::Throughput;
+    use criterion::criterion_group;
+    use criterion::criterion_main;
     use cudarc::driver::CudaView;
     use cudarc::driver::PushKernelArg;
     use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
@@ -27,28 +29,12 @@ mod cuda_benchmarks {
     use vortex_buffer::Buffer;
     use vortex_cuda::CudaExecutionCtx;
     use vortex_cuda::CudaSession;
+    use vortex_cuda::has_nvcc;
     use vortex_error::VortexExpect;
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;
-use criterion::BenchmarkId;
-use criterion::Criterion;
-use criterion::Throughput;
-use criterion::criterion_group;
-use criterion::criterion_main;
-use cudarc::driver::CudaView;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
-use vortex_array::IntoArray;
-use vortex_array::ToCanonical;
-use vortex_array::arrays::PrimitiveArray;
-use vortex_buffer::Buffer;
-use vortex_cuda::CudaExecutionCtx;
-use vortex_cuda::CudaSession;
-use vortex_cuda::has_nvcc;
-use vortex_error::VortexExpect;
-use vortex_fastlanes::FoRArray;
-use vortex_session::VortexSession;
 
-const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
+    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
 
     /// Creates a FoR array of u8 for the given size.
     fn make_for_array_u8(len: usize) -> FoRArray {
@@ -115,8 +101,8 @@ const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M"
             array_len: for_array.len()
         );
 
-    events.duration()
-}
+        events.duration()
+    }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
     fn launch_for_kernel_timed_u16(
@@ -136,8 +122,8 @@ const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M"
             array_len: for_array.len()
         );
 
-    events.duration()
-}
+        events.duration()
+    }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
     fn launch_for_kernel_timed_u32(
@@ -157,8 +143,8 @@ const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M"
             array_len: for_array.len()
         );
 
-    events.duration()
-}
+        events.duration()
+    }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
     fn launch_for_kernel_timed_u64(
@@ -178,8 +164,8 @@ const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M"
             array_len: for_array.len()
         );
 
-    events.duration()
-}
+        events.duration()
+    }
 
     /// Benchmark u8 FoR decompression
     fn benchmark_for_u8(c: &mut Criterion) {

@@ -138,7 +138,6 @@ fn benchmark_dict_u32_u8(c: &mut Criterion) {
                     let mut total_time = Duration::ZERO;
 
                     for _ in 0..iters {
-                        // Copy data to device
                         let values_device = cuda_ctx
                             .copy_buffer_to_device(&values)
                             .vortex_expect("failed to copy values to device");

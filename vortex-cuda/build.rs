@@ -36,9 +36,11 @@ fn main() {
                 // Compile .cu files to PTX
                 Some("cu") => {
                     println!("cargo:rerun-if-changed={}", path.display());
-                         nvcc_compile_ptx(&kernels_dir, &path)
-                    .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", path.display(), e))
-                    .unwrap();
+                    nvcc_compile_ptx(&kernels_dir, &path)
+                        .map_err(|e| {
+                            format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
+                        })
+                        .unwrap();
                 }
                 _ => {}
             }
