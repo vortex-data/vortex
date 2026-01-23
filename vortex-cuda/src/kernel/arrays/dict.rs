@@ -266,6 +266,7 @@ mod tests {
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_dtype::DecimalDType;
+    use vortex_dtype::i256;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
