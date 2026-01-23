@@ -111,7 +111,7 @@ impl VTable for GetItem {
             .pop()
             .vortex_expect("missing input for GetItem expression")
             .execute::<StructArray>(args.ctx)?;
-        let field = input.field_by_name(field_name).cloned()?;
+        let field = input.unmasked_field_by_name(field_name).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),

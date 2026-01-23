@@ -484,7 +484,9 @@ mod tests {
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count().unwrap(), 0);
 
-        let field = struct_array.field_by_name("non_null_field").unwrap();
+        let field = struct_array
+            .unmasked_field_by_name("non_null_field")
+            .unwrap();
 
         assert_eq!(
             field.dtype(),

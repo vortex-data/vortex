@@ -125,7 +125,7 @@ impl CompactCompressor {
             Canonical::Struct(struct_array) => {
                 // recurse
                 let fields = struct_array
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;

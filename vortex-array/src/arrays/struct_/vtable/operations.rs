@@ -12,7 +12,7 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<StructVTable> for StructVTable {
     fn scalar_at(array: &StructArray, index: usize) -> VortexResult<Scalar> {
         let field_scalars: VortexResult<Vec<_>> = array
-            .fields()
+            .unmasked_fields()
             .iter()
             .map(|field| field.scalar_at(index))
             .collect();

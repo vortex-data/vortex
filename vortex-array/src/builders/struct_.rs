@@ -169,7 +169,11 @@ impl ArrayBuilder for StructBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_struct();
 
-        for (a, builder) in array.fields().iter().zip_eq(self.builders.iter_mut()) {
+        for (a, builder) in array
+            .unmasked_fields()
+            .iter()
+            .zip_eq(self.builders.iter_mut())
+        {
             builder.extend_from_array(a.as_ref());
         }
 

@@ -280,7 +280,7 @@ impl dyn Array + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.fields().iter() {
+                        for field_array in struct_.unmasked_fields().iter() {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

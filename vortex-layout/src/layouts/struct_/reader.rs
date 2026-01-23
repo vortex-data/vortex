@@ -349,7 +349,7 @@ impl LayoutReader for StructReader {
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .fields()
+                        .unmasked_fields()
                         .iter()
                         .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
                         .try_collect()?;
@@ -665,7 +665,7 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .field_by_name("a")
+                .unmasked_field_by_name("a")
                 .unwrap()
                 .to_primitive()
                 .as_slice::<i32>(),
@@ -675,7 +675,7 @@ mod tests {
         assert_eq!(
             result
                 .to_struct()
-                .field_by_name("b")
+                .unmasked_field_by_name("b")
                 .unwrap()
                 .to_primitive()
                 .as_slice::<i32>(),

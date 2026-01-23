@@ -59,7 +59,7 @@ impl ArrayExporter {
         let all_valid = array.validity().all_valid(array.len())?;
         assert!(all_valid);
         let fields = array
-            .fields()
+            .unmasked_fields()
             .iter()
             .map(|field| new_array_exporter(field.clone(), cache, ctx))
             .collect::<VortexResult<Vec<_>>>()?;

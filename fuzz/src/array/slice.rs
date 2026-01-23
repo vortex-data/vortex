@@ -61,7 +61,7 @@ pub fn slice_canonical_array(
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let sliced_children = struct_array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;

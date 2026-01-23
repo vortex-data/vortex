@@ -35,7 +35,11 @@ impl CastKernel for StructVTable {
 
         let mut cast_fields = Vec::with_capacity(target_sdtype.nfields());
         if fields_match_order {
-            for (field, target_type) in array.fields().iter().zip_eq(target_sdtype.fields()) {
+            for (field, target_type) in array
+                .unmasked_fields()
+                .iter()
+                .zip_eq(target_sdtype.fields())
+            {
                 let cast_field = cast(field, &target_type)?;
                 cast_fields.push(cast_field);
             }
@@ -59,7 +63,8 @@ impl CastKernel for StructVTable {
                     }
                     Some(src_field_idx) => {
                         // Field exists in source field. Cast it to the target type.
-                        let cast_field = cast(&array.fields()[src_field_idx], &target_type)?;
+                        let cast_field =
+                            cast(&array.unmasked_fields()[src_field_idx], &target_type)?;
                         cast_fields.push(cast_field);
                     }
                 }
@@ -203,7 +208,7 @@ mod tests {
         let result = crate::compute::cast(struct_array.as_ref(), &target_dtype).unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().fields().len(), 2);
+        assert_eq!(result.to_struct().unmasked_fields().len(), 2);
     }
 
     #[test]
@@ -229,6 +234,6 @@ mod tests {
         let result = crate::compute::cast(struct_array.as_ref(), &target_dtype).unwrap();
         assert_eq!(result.dtype(), &target_dtype);
         assert_eq!(result.len(), 3);
-        assert_eq!(result.to_struct().fields().len(), 3);
+        assert_eq!(result.to_struct().unmasked_fields().len(), 3);
     }
 }

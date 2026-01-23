@@ -225,7 +225,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getField(
         let field = array_ref
             .inner
             .to_struct()
-            .fields()
+            .unmasked_fields()
             .get(index as usize)
             .cloned()
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?;

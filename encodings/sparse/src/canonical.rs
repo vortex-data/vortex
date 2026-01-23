@@ -382,7 +382,7 @@ fn canonicalize_sparse_struct(
         ),
     };
     let patch_values_as_struct = unresolved_patches.values().to_struct();
-    let columns_patch_values = patch_values_as_struct.fields();
+    let columns_patch_values = patch_values_as_struct.unmasked_fields();
     let names = patch_values_as_struct.names();
     let validity = if dtype.is_nullable() {
         top_level_fill_validity.patch(

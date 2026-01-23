@@ -97,7 +97,7 @@ impl FileStatsAccumulator {
                 .accumulators
                 .lock()
                 .iter_mut()
-                .zip_eq(chunk.fields().iter())
+                .zip_eq(chunk.unmasked_fields().iter())
             {
                 acc.push_chunk(field)?;
             }

@@ -148,7 +148,7 @@ impl VTable for StructVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let fields: Vec<_> = array
-            .fields()
+            .unmasked_fields()
             .iter()
             .map(|field| field.slice(range.clone()))
             .try_collect()?;

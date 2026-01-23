@@ -238,7 +238,7 @@ pub fn recursive_list_from_list_view(array: ArrayRef) -> VortexResult<ArrayRef> 
             }
         }
         Canonical::Struct(struct_array) => {
-            let fields = struct_array.fields();
+            let fields = struct_array.unmasked_fields();
             let mut converted_fields = Vec::with_capacity(fields.len());
             let mut any_changed = false;
 

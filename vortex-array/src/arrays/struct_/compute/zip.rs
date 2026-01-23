@@ -36,9 +36,9 @@ impl ZipKernel for StructVTable {
         );
 
         let fields = if_true
-            .fields()
+            .unmasked_fields()
             .iter()
-            .zip(if_false.fields().iter())
+            .zip(if_false.unmasked_fields().iter())
             .map(|(t, f)| zip(t, f, mask))
             .collect::<VortexResult<Vec<_>>>()?;
 

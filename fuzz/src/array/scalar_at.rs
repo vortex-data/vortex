@@ -75,7 +75,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::Struct(array) => {
             let field_scalars: Vec<Scalar> = array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|field| {
                     scalar_at_canonical_array(

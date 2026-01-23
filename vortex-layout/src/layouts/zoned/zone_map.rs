@@ -138,7 +138,7 @@ impl ZoneMap {
 
     /// Returns the array for a given stat.
     pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
-        Ok(self.array.field_by_name_opt(stat.name()).cloned())
+        Ok(self.array.unmasked_field_by_name_opt(stat.name()).cloned())
     }
 
     /// Apply a pruning predicate against the ZoneMap, yielding a mask indicating which zones can
@@ -319,11 +319,15 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            stats_table.array.unmasked_fields()[1]
+                .to_bool()
+                .bit_buffer(),
             &BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            stats_table.array.unmasked_fields()[3]
+                .to_bool()
+                .bit_buffer(),
             &BitBuffer::from(vec![true, false])
         );
     }
@@ -349,11 +353,15 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
+            stats_table.array.unmasked_fields()[1]
+                .to_bool()
+                .bit_buffer(),
             &BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
+            stats_table.array.unmasked_fields()[3]
+                .to_bool()
+                .bit_buffer(),
             &BitBuffer::from(vec![false])
         );
     }
