@@ -392,7 +392,7 @@ fn arrow_compare(
             Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
         }
     };
-    Ok(from_arrow_array_with_len(&array, left.len(), nullable))
+    from_arrow_array_with_len(&array, left.len(), nullable)
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {

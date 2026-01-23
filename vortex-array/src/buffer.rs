@@ -216,6 +216,18 @@ impl BufferHandle {
         }
     }
 
+    /// A version of [`as_host_opt`][Self::as_host_opt] that panics if the allocation is
+    /// not a host allocation.
+    pub fn as_host(&self) -> &ByteBuffer {
+        self.as_host_opt().vortex_expect("expected host buffer")
+    }
+
+    /// A version of [`as_device_opt`][Self::as_device_opt] that panics if the allocation is
+    /// not a device allocation.
+    pub fn as_device(&self) -> &Arc<dyn DeviceBuffer> {
+        self.as_device_opt().vortex_expect("expected device buffer")
+    }
+
     /// Returns a host-resident copy of the data in the buffer.
     ///
     /// If the data was already host-resident, this is trivial.

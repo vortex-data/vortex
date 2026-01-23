@@ -366,7 +366,7 @@ fn try_arrow_stream_to_iterator(
             .into_iter()
             .map(|batch_result| -> VortexResult<ArrayRef> {
                 let batch = batch_result.map_err(VortexError::from)?;
-                Ok(ArrayRef::from_arrow(batch, false))
+                ArrayRef::from_arrow(batch, false)
             });
 
         Ok(Box::new(ArrayIteratorAdapter::new(dtype, vortex_iter)))

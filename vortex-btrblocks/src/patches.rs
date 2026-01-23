@@ -25,12 +25,12 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         values.clone()
     };
 
-    Ok(Patches::new(
+    Patches::new(
         patches.array_len(),
         patches.offset(),
         indices,
         values,
         // TODO(0ax1): chunk offsets
         None,
-    ))
+    )
 }

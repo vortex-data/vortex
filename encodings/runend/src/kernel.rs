@@ -63,8 +63,8 @@ fn slice(array: &RunEndArray, range: Range<usize>) -> VortexResult<ArrayRef> {
     // SAFETY: we maintain the ends invariant in our slice implementation
     Ok(unsafe {
         RunEndArray::new_unchecked(
-            array.ends().slice(slice_begin..slice_end),
-            array.values().slice(slice_begin..slice_end),
+            array.ends().slice(slice_begin..slice_end)?,
+            array.values().slice(slice_begin..slice_end)?,
             range.start + array.offset(),
             new_length,
         )

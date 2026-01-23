@@ -109,7 +109,7 @@ pub fn take_canonical_array(
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let taken_children = struct_array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|c| take_canonical_array_non_nullable_indices(c, indices_slice_non_opt))
                 .collect::<VortexResult<Vec<_>>>()?;

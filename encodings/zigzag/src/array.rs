@@ -100,7 +100,7 @@ impl VTable for ZigZagVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ZigZagArray::new(array.encoded().slice(range)).into_array(),
+            ZigZagArray::new(array.encoded().slice(range)?).into_array(),
         ))
     }
 
@@ -243,7 +243,7 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = zigzag.slice(0..2);
+        let sliced = zigzag.slice(0..2).unwrap();
         let sliced = sliced.as_::<ZigZagVTable>();
         assert_eq!(
             sliced.scalar_at(sliced.len() - 1).unwrap(),

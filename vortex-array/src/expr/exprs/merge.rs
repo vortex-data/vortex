@@ -148,8 +148,10 @@ impl VTable for Merge {
                 vortex_bail!("merge expects non-nullable input");
             }
 
-            for (field_name, field_array) in
-                array.names().iter().zip_eq(array.fields().iter().cloned())
+            for (field_name, field_array) in array
+                .names()
+                .iter()
+                .zip_eq(array.unmasked_fields().iter().cloned())
             {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
@@ -327,9 +329,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().unmasked_field_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }
@@ -515,7 +517,7 @@ mod tests {
 
         assert_eq!(
             actual_array
-                .field_by_name("a")
+                .unmasked_field_by_name("a")
                 .unwrap()
                 .to_struct()
                 .names()

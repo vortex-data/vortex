@@ -15,6 +15,7 @@ use vortex_array::compute::is_constant;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_fsst::FSSTArray;
 use vortex_fsst::fsst_compress;
 use vortex_fsst::fsst_train_compressor;
@@ -42,7 +43,7 @@ pub struct StringStats {
 }
 
 /// Estimate the number of distinct strings in the var bin view array.
-fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
+fn estimate_distinct_count(strings: &VarBinViewArray) -> VortexResult<u32> {
     let views = strings.views();
     // Iterate the views. Two strings which are equal must have the same first 8-bytes.
     // NOTE: there are cases where this performs pessimally, e.g. when we have strings that all
@@ -57,33 +58,40 @@ fn estimate_distinct_count(strings: &VarBinViewArray) -> u32 {
         distinct.insert(len_and_prefix);
     });
 
-    distinct
-        .len()
-        .try_into()
-        .vortex_expect("distinct count must fit in u32")
+    Ok(u32::try_from(distinct.len())?)
+}
+
+impl StringStats {
+    fn generate_opts_fallible(
+        input: &VarBinViewArray,
+        opts: GenerateStatsOptions,
+    ) -> VortexResult<Self> {
+        let null_count = input
+            .statistics()
+            .compute_null_count()
+            .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
+        let value_count = input.len() - null_count;
+        let estimated_distinct = if opts.count_distinct_values {
+            estimate_distinct_count(input)?
+        } else {
+            u32::MAX
+        };
+
+        Ok(Self {
+            src: input.clone(),
+            value_count: u32::try_from(value_count)?,
+            null_count: u32::try_from(null_count)?,
+            estimated_distinct_count: estimated_distinct,
+        })
+    }
 }
 
 impl CompressorStats for StringStats {
     type ArrayVTable = VarBinViewVTable;
 
     fn generate_opts(input: &VarBinViewArray, opts: GenerateStatsOptions) -> Self {
-        let null_count = input
-            .statistics()
-            .compute_null_count()
-            .vortex_expect("null count");
-        let value_count = input.len() - null_count;
-        let estimated_distinct = if opts.count_distinct_values {
-            estimate_distinct_count(input)
-        } else {
-            u32::MAX
-        };
-
-        Self {
-            src: input.clone(),
-            value_count: value_count.try_into().vortex_expect("value_count"),
-            null_count: null_count.try_into().vortex_expect("null_count"),
-            estimated_distinct_count: estimated_distinct,
-        }
+        Self::generate_opts_fallible(input, opts)
+            .vortex_expect("StringStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &VarBinViewArray {
@@ -448,6 +456,7 @@ mod tests {
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
     use vortex_sparse::SparseVTable;
 
     use crate::Compressor;
@@ -455,7 +464,7 @@ mod tests {
     use crate::string::StringCompressor;
 
     #[test]
-    fn test_strings() {
+    fn test_strings() -> VortexResult<()> {
         let mut strings = Vec::new();
         for _ in 0..1024 {
             strings.push(Some("hello-world-1234"));
@@ -467,13 +476,15 @@ mod tests {
 
         println!("original array: {}", strings.as_ref().display_tree());
 
-        let compressed = StringCompressor::compress(&strings, false, 3, &[]).unwrap();
+        let compressed = StringCompressor::compress(&strings, false, 3, &[])?;
 
         println!("compression tree: {}", compressed.display_tree());
+
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_nulls() {
+    fn test_sparse_nulls() -> VortexResult<()> {
         let mut strings = VarBinViewBuilder::with_capacity(DType::Utf8(Nullability::Nullable), 100);
         strings.append_nulls(99);
 
@@ -481,8 +492,10 @@ mod tests {
 
         let strings = strings.finish_into_varbinview();
 
-        let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[]).unwrap();
+        let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[])?;
         assert!(compressed.is::<SparseVTable>());
+
+        Ok(())
     }
 }
 
@@ -494,33 +507,36 @@ mod scheme_selection_tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
     use vortex_fsst::FSSTVTable;
 
     use crate::Compressor;
     use crate::string::StringCompressor;
 
     #[test]
-    fn test_constant_compressed() {
+    fn test_constant_compressed() -> VortexResult<()> {
         let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = StringCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<ConstantVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_dict_compressed() {
+    fn test_dict_compressed() -> VortexResult<()> {
         let distinct_values = ["apple", "banana", "cherry"];
         let mut strings = Vec::with_capacity(1000);
         for i in 0..1000 {
             strings.push(Some(distinct_values[i % 3]));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = StringCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<DictVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_fsst_compressed() {
+    fn test_fsst_compressed() -> VortexResult<()> {
         let mut strings = Vec::with_capacity(1000);
         for i in 0..1000 {
             strings.push(Some(format!(
@@ -528,7 +544,8 @@ mod scheme_selection_tests {
             )));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = StringCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<FSSTVTable>());
+        Ok(())
     }
 }

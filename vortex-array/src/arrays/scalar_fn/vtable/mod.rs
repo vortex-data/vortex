@@ -177,7 +177,7 @@ impl VTable for ScalarFnVTable {
             .children()
             .iter()
             .map(|c| c.slice(range.clone()))
-            .collect();
+            .collect::<VortexResult<_>>()?;
 
         Ok(Some(
             ScalarFnArray {

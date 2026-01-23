@@ -72,11 +72,11 @@ impl VTable for DeltaVTable {
 
         let new_bases = bases.slice(
             min(start_chunk * lanes, array.bases_len())..min(stop_chunk * lanes, array.bases_len()),
-        );
+        )?;
 
         let new_deltas = deltas.slice(
             min(start_chunk * 1024, array.deltas_len())..min(stop_chunk * 1024, array.deltas_len()),
-        );
+        )?;
 
         // SAFETY: slicing valid bases/deltas preserves correctness
         Ok(Some(unsafe {

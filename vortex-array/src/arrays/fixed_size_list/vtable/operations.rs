@@ -11,7 +11,7 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<FixedSizeListVTable> for FixedSizeListVTable {
     fn scalar_at(array: &FixedSizeListArray, index: usize) -> VortexResult<Scalar> {
         // By the preconditions we know that the list scalar is not null.
-        let list = array.fixed_size_list_elements_at(index);
+        let list = array.fixed_size_list_elements_at(index)?;
         let children_elements: Vec<Scalar> = (0..list.len())
             .map(|i| list.scalar_at(i))
             .collect::<VortexResult<_>>()?;

@@ -259,7 +259,7 @@ fn list_contains_scalar(
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<ConstantVTable>() {
-        let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
+        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability)?;
         return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 

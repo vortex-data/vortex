@@ -642,7 +642,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
@@ -670,7 +670,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.fixed_size_list_elements_at(0),
+            vortex_array.fixed_size_list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
     }
@@ -687,7 +687,7 @@ mod tests {
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.fields().len(), 0);
+        assert_eq!(vortex_array.unmasked_fields().len(), 0);
     }
 
     #[test]
@@ -722,13 +722,13 @@ mod tests {
         let vortex_array = result.to_struct();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.fields().len(), 2);
+        assert_eq!(vortex_array.unmasked_fields().len(), 2);
         assert_arrays_eq!(
-            &vortex_array.fields()[0],
+            &vortex_array.unmasked_fields()[0],
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_arrays_eq!(
-            &vortex_array.fields()[1],
+            &vortex_array.unmasked_fields()[1],
             PrimitiveArray::from_option_iter([Some(5i32), Some(6), Some(7), Some(8)])
         );
     }
@@ -772,7 +772,7 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2), Some(3), Some(4)])
         );
         assert_eq!(
@@ -817,11 +817,11 @@ mod tests {
 
         assert_eq!(vortex_array.len(), len);
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(1),
+            vortex_array.list_elements_at(1).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
     }
@@ -874,11 +874,11 @@ mod tests {
 
         // Valid entries should work correctly.
         assert_arrays_eq!(
-            vortex_array.list_elements_at(0),
+            vortex_array.list_elements_at(0).unwrap(),
             PrimitiveArray::from_option_iter([Some(1i32), Some(2)])
         );
         assert_arrays_eq!(
-            vortex_array.list_elements_at(2),
+            vortex_array.list_elements_at(2).unwrap(),
             PrimitiveArray::from_option_iter([Some(3i32), Some(4)])
         );
 

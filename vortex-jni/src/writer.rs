@@ -88,7 +88,7 @@ impl NativeWriter {
     /// Write an Arrow record batch to the writer stream.
     pub fn write_record_batch(&self, batch: RecordBatch) -> VortexResult<()> {
         // We do not allow top-level nulls
-        let vortex_batch = ArrayRef::from_arrow(batch, false);
+        let vortex_batch = ArrayRef::from_arrow(batch, false)?;
 
         // Validate schema conforms
         if !vortex_batch.dtype().eq(&self.write_schema) {

@@ -415,7 +415,7 @@ const vx_array *vx_array_get_field(const vx_array *array, uint32_t index, vx_err
 const vx_array *vx_array_slice(const vx_array *array,
                                uint32_t start,
                                uint32_t stop,
-                               vx_error **_error_out);
+                               vx_error **error_out);
 
 bool vx_array_is_null(const vx_array *array, uint32_t index, vx_error **_error_out);
 

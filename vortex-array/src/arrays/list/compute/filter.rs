@@ -173,7 +173,7 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
     }
 
     // Pad to full length if necessary.
-    mask_builder.append_n(false, last_offset - mask_builder.len());
+    mask_builder.append_n(false, len - mask_builder.len());
 
     Mask::from_buffer(mask_builder.freeze())
 }

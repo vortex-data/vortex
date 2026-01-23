@@ -477,7 +477,7 @@ mod tests {
         path: &str,
         rb: RecordBatch,
     ) -> anyhow::Result<u64> {
-        let array = ArrayRef::from_arrow(rb, false);
+        let array = ArrayRef::from_arrow(rb, false)?;
         let path = Path::parse(path)?;
 
         let mut write = ObjectStoreWriter::new(object_store, &path).await?;

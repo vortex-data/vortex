@@ -92,10 +92,6 @@ pub mod utils {
     pub use vortex_utils::*;
 }
 
-pub mod vector {
-    pub use vortex_vector::*;
-}
-
 pub mod encodings {
     pub mod alp {
         pub use vortex_alp::*;
@@ -177,7 +173,6 @@ impl VortexSessionDefault for VortexSession {
 mod test {
     use std::path::PathBuf;
 
-    use itertools::Itertools;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
@@ -221,9 +216,12 @@ mod test {
         .build()?;
 
         let dtype = DType::from_arrow(reader.schema());
-        let chunks = reader
-            .map_ok(|record_batch| ArrayRef::from_arrow(record_batch, false))
-            .try_collect()?;
+        let chunks: Vec<_> = reader
+            .map(|record_batch| {
+                let batch = record_batch?;
+                ArrayRef::from_arrow(batch, false)
+            })
+            .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         // [convert]
 

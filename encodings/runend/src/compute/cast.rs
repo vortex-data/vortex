@@ -130,7 +130,7 @@ mod tests {
         .unwrap();
 
         // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
-        let sliced = runend.slice(3..8);
+        let sliced = runend.slice(3..8).unwrap();
 
         // Verify the slice is correct before casting
         assert_arrays_eq!(sliced, PrimitiveArray::from_iter([200, 200, 300, 300, 300]));

@@ -28,7 +28,6 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
-vortex-vector = { workspace = true }
 
 [features]
 _test-harness = ["dep:rand", "vortex-array/_test-harness"]

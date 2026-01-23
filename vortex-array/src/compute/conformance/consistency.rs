@@ -302,7 +302,9 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
 
     // Slice should produce the same result
-    let sliced = array.slice(1..4.min(len));
+    let sliced = array
+        .slice(1..4.min(len))
+        .vortex_expect("slice should succeed in conformance test");
 
     assert_eq!(
         filtered.len(),
@@ -353,7 +355,9 @@ fn test_take_slice_consistency(array: &dyn Array) {
     let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
 
     // Slice from 1 to end
-    let sliced = array.slice(1..end);
+    let sliced = array
+        .slice(1..end)
+        .vortex_expect("slice should succeed in conformance test");
 
     assert_eq!(
         taken.len(),
@@ -500,7 +504,9 @@ fn test_empty_operations_consistency(array: &dyn Array) {
 
     // Empty slice (if array is non-empty)
     if len > 0 {
-        let empty_slice = array.slice(0..0);
+        let empty_slice = array
+            .slice(0..0)
+            .vortex_expect("slice should succeed in conformance test");
         assert_eq!(empty_slice.len(), 0);
         assert_eq!(empty_slice.dtype(), array.dtype());
     }
@@ -953,9 +959,14 @@ fn test_slice_aggregate_consistency(array: &dyn Array) {
     let end = (len - 1).min(start + 10); // Take up to 10 elements
 
     // Get sliced array and canonical slice
-    let sliced = array.slice(start..end);
+    let sliced = array
+        .slice(start..end)
+        .vortex_expect("slice should succeed in conformance test");
     let canonical = array.to_canonical().vortex_expect("to_canonical failed");
-    let canonical_sliced = canonical.as_ref().slice(start..end);
+    let canonical_sliced = canonical
+        .as_ref()
+        .slice(start..end)
+        .vortex_expect("slice should succeed in conformance test");
 
     // Test null count through invalid_count
     let sliced_invalid_count = sliced
@@ -1164,7 +1175,9 @@ fn test_cast_slice_consistency(array: &dyn Array) {
     // Test each target dtype
     for target_dtype in target_dtypes {
         // Slice the array
-        let sliced = array.slice(start..end);
+        let sliced = array
+            .slice(start..end)
+            .vortex_expect("slice should succeed in conformance test");
 
         // Try to cast the sliced array
         let slice_then_cast = match cast(&sliced, &target_dtype) {
@@ -1219,7 +1232,9 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
-        let cast_then_slice = casted.slice(start..end);
+        let cast_then_slice = casted
+            .slice(start..end)
+            .vortex_expect("slice should succeed in conformance test");
 
         // Verify the two approaches produce identical results
         assert_eq!(

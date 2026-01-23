@@ -165,8 +165,8 @@ impl Canonical {
             }
             Canonical::Struct(a) => {
                 let validity = a.validity_mask()?;
-                let mut fields = Vec::with_capacity(a.fields().len());
-                for f in a.fields().iter().cloned() {
+                let mut fields = Vec::with_capacity(a.unmasked_fields().len());
+                for f in a.unmasked_fields().iter().cloned() {
                     fields.push(f.execute::<Vector>(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();

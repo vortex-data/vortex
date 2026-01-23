@@ -390,7 +390,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_null(0));
+        assert!(validity.is_null(0).unwrap());
     }
 
     #[test]
@@ -406,7 +406,7 @@ mod tests {
 
         let validity = vector.validity_ref(len);
         let validity = validity.to_validity();
-        assert!(validity.is_valid(0));
+        assert!(validity.is_valid(0).unwrap());
     }
 
     #[test]

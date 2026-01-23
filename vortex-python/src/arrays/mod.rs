@@ -641,9 +641,9 @@ impl PyArray {
     }
 
     #[pyo3(signature = (start, end))]
-    fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyResult<PyArrayRef> {
+    fn slice(slf: Bound<Self>, start: usize, end: usize) -> PyVortexResult<PyArrayRef> {
         let slf = PyArrayRef::extract(slf.as_any().as_borrowed())?.into_inner();
-        let inner = slf.slice(start..end);
+        let inner = slf.slice(start..end)?;
         Ok(PyArrayRef::from(inner))
     }
 

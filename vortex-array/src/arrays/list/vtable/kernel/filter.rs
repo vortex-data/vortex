@@ -115,7 +115,7 @@ impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
         });
 
         let new_elements = array
-            .sliced_elements()
+            .sliced_elements()?
             .filter(element_mask)?
             .execute::<Vector>(ctx)?;
 

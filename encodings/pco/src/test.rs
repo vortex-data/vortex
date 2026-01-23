@@ -42,17 +42,17 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.nbytes() as usize);
 
     // check full decompression works
-    let decompressed = compressed.decompress();
+    let decompressed = compressed.decompress().unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
-    let slice = compressed.slice(100..105);
+    let slice = compressed.slice(100..105).unwrap();
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
     assert_arrays_eq!(slice, PrimitiveArray::from_iter([100, 101, 102, 103, 104]));
 
-    let slice = compressed.slice(200..200);
+    let slice = compressed.slice(200..200).unwrap();
     assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
 }
 
@@ -64,7 +64,7 @@ fn test_compress_decompress_small() {
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
-    let decompressed = compressed.decompress();
+    let decompressed = compressed.decompress().unwrap();
     assert_arrays_eq!(decompressed, expected);
 }
 
@@ -73,7 +73,7 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
-    let primitive = compressed.decompress();
+    let primitive = compressed.decompress().unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
 
@@ -109,7 +109,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert_nth_scalar!(compressed, 199, 199);
 
     // check slicing works
-    let slice = compressed.slice(100..103);
+    let slice = compressed.slice(100..103).unwrap();
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
     let primitive = slice.to_primitive();
@@ -133,7 +133,7 @@ fn test_validity_vtable() {
         Mask::from_iter(mask_bools)
     );
     assert_eq!(
-        compressed.slice(1..4).validity_mask().unwrap(),
+        compressed.slice(1..4).unwrap().validity_mask().unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }

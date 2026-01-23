@@ -32,6 +32,7 @@ impl vx_string {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) -> *const vx_string {
     let slice = unsafe { slice::from_raw_parts(ptr.cast(), len) };
+    // TODO(joe): propagate this error up instead of expecting
     let string = String::from_utf8(slice.to_vec())
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))
         .vortex_expect("CString creation should succeed");
@@ -41,6 +42,7 @@ pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) ->
 /// Create a new Vortex UTF-8 string by copying from a null-terminated C-style string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_string_new_from_cstr(ptr: *const c_char) -> *const vx_string {
+    // TODO(joe): propagate this error up instead of expecting
     let string = unsafe { CStr::from_ptr(ptr) }
         .to_str()
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))

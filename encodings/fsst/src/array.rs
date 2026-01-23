@@ -219,7 +219,7 @@ impl VTable for FSSTVTable {
                         .vortex_expect("varbin slice cannot fail")
                         .as_::<VarBinVTable>()
                         .clone(),
-                    array.uncompressed_lengths().slice(range),
+                    array.uncompressed_lengths().slice(range)?,
                 )
             }
             .into_array(),

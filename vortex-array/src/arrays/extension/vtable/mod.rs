@@ -104,7 +104,7 @@ impl VTable for ExtensionVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range))
+            ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)?)
                 .into_array(),
         ))
     }

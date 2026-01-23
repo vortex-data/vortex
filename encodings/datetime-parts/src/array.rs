@@ -172,9 +172,9 @@ impl VTable for DateTimePartsVTable {
         Ok(Some(unsafe {
             DateTimePartsArray::new_unchecked(
                 array.dtype().clone(),
-                array.days().slice(range.clone()),
-                array.seconds().slice(range.clone()),
-                array.subseconds().slice(range),
+                array.days().slice(range.clone())?,
+                array.seconds().slice(range.clone())?,
+                array.subseconds().slice(range)?,
             )
             .into_array()
         }))

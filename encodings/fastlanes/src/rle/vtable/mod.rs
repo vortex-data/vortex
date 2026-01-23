@@ -78,15 +78,15 @@ impl VTable for RLEVTable {
             array.values().len()
         };
 
-        let sliced_values = array.values().slice(values_start_idx..values_end_idx);
+        let sliced_values = array.values().slice(values_start_idx..values_end_idx)?;
 
         let sliced_values_idx_offsets = array
             .values_idx_offsets()
-            .slice(chunk_start_idx..chunk_end_idx);
+            .slice(chunk_start_idx..chunk_end_idx)?;
 
         let sliced_indices = array
             .indices()
-            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE);
+            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE)?;
 
         // SAFETY: Slicing preserves all invariants.
         Ok(Some(unsafe {

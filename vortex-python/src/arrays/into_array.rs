@@ -19,7 +19,6 @@ use vortex::array::iter::ArrayIteratorExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType as _;
 use vortex::error::VortexError;
-use vortex::error::VortexResult;
 
 use crate::PyVortex;
 use crate::arrays::PyArrayRef;
@@ -54,23 +53,19 @@ impl<'py> FromPyObject<'_, 'py> for PyIntoArray {
 
         if ob.is_instance(&pa.getattr("Array")?)? {
             let arrow_array_data = ArrayData::from_pyarrow(&ob.as_borrowed())?;
-            return Ok(PyIntoArray(PyVortex(ArrayRef::from_arrow(
-                make_array(arrow_array_data).as_ref(),
-                false,
-            ))));
+            let array = ArrayRef::from_arrow(make_array(arrow_array_data).as_ref(), false)
+                .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            return Ok(PyIntoArray(PyVortex(array)));
         }
 
         if ob.is_instance(&pa.getattr("Table")?)? {
             let arrow_stream = ArrowArrayStreamReader::from_pyarrow(&ob.as_borrowed())?;
             let dtype = DType::from_arrow(arrow_stream.schema());
-            let vortex_iter = arrow_stream
-                .into_iter()
-                .map(|batch_result| -> VortexResult<_> {
-                    Ok(ArrayRef::from_arrow(
-                        batch_result.map_err(VortexError::from)?,
-                        false,
-                    ))
-                });
+            let vortex_iter = arrow_stream.into_iter().map(|batch_result| {
+                batch_result
+                    .map_err(VortexError::from)
+                    .and_then(|b| ArrayRef::from_arrow(b, false))
+            });
             let array = ArrayIteratorAdapter::new(dtype, vortex_iter)
                 .read_all()
                 .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
