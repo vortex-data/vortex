@@ -47,7 +47,9 @@ use vortex_file::register_default_encodings;
 use vortex_io::DefaultAllocator;
 use vortex_io::HostByteBufferPool;
 use vortex_io::PooledHostAllocator;
+use vortex_io::copy_stats;
 use vortex_io::default_alloc_stats;
+use vortex_io::reset_copy_stats;
 use vortex_io::reset_default_alloc_stats;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_io::session::RuntimeSession;
@@ -601,6 +603,15 @@ fn print_stats(pinned_pool: Option<&PinnedByteBufferPool>, host_pool: Option<&Ho
         "    Alignment copies: {} ({} bytes)",
         align.count, align.bytes
     );
+    let copy = copy_stats();
+    if copy.bytes > 0 && copy.nanos > 0 {
+        let gb_per_s = copy.bytes as f64 / (copy.nanos as f64 / 1e9) / 1e9;
+        let ms = copy.nanos as f64 / 1e6;
+        println!(
+            "    In-memory memcpy: {:.2} GB/s ({:.2} ms total, {} copies)",
+            gb_per_s, ms, copy.count
+        );
+    }
     let alloc = default_alloc_stats();
     if alloc.count > 0 {
         println!(
@@ -713,6 +724,7 @@ fn main() -> ExitCode {
 
                         if config.scans.contains(&ScanType::DefaultZeroCopy) {
                             reset_default_alloc_stats();
+                            reset_copy_stats();
                             reset_alignment_copy_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default(&rt, &session, &buffer)
@@ -725,6 +737,7 @@ fn main() -> ExitCode {
                         }
                         if config.scans.contains(&ScanType::DefaultCopy) {
                             reset_default_alloc_stats();
+                            reset_copy_stats();
                             reset_alignment_copy_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default_copy(&rt, &session, &buffer)
@@ -739,6 +752,7 @@ fn main() -> ExitCode {
                             let pool = host_pool.as_ref().expect("Host pool required");
                             pool.reset_stats();
                             reset_default_alloc_stats();
+                            reset_copy_stats();
                             reset_alignment_copy_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_default_copy_pooled(&rt, &session, &buffer, pool)
@@ -753,6 +767,7 @@ fn main() -> ExitCode {
                             let pool = pool.as_ref().expect("Pinned pool required");
                             pool.reset_stats();
                             reset_default_alloc_stats();
+                            reset_copy_stats();
                             reset_alignment_copy_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_pinned(&rt, &session, &buffer, pool)
@@ -768,6 +783,7 @@ fn main() -> ExitCode {
                             let stream = stream.as_ref().expect("CUDA stream required");
                             pool.reset_stats();
                             reset_default_alloc_stats();
+                            reset_copy_stats();
                             reset_alignment_copy_stats();
                             let total = run_scan_iters(config.iterations, || {
                                 scan_device(&rt, &session, &buffer, pool, stream)

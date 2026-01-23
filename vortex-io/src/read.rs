@@ -5,6 +5,9 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Instant;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -17,6 +20,34 @@ use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
 
 use crate::WriteTarget;
+
+static COPY_BYTES: AtomicU64 = AtomicU64::new(0);
+static COPY_NANOS: AtomicU64 = AtomicU64::new(0);
+static COPY_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Snapshot of in-memory copy stats for `ByteBuffer` reads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CopyStats {
+    pub bytes: u64,
+    pub nanos: u64,
+    pub count: u64,
+}
+
+/// Reset in-memory copy stats for `ByteBuffer` reads.
+pub fn reset_copy_stats() {
+    COPY_BYTES.store(0, Ordering::Relaxed);
+    COPY_NANOS.store(0, Ordering::Relaxed);
+    COPY_COUNT.store(0, Ordering::Relaxed);
+}
+
+/// Snapshot in-memory copy stats for `ByteBuffer` reads.
+pub fn copy_stats() -> CopyStats {
+    CopyStats {
+        bytes: COPY_BYTES.load(Ordering::Relaxed),
+        nanos: COPY_NANOS.load(Ordering::Relaxed),
+        count: COPY_COUNT.load(Ordering::Relaxed),
+    }
+}
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -232,9 +263,15 @@ impl VortexReadAt for ByteBuffer {
                     buffer.len()
                 );
             }
+            let copy_start = Instant::now();
             target
                 .as_mut_slice()
                 .copy_from_slice(&buffer.as_ref()[start..end]);
+            let elapsed = copy_start.elapsed();
+            let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+            COPY_BYTES.fetch_add((end - start) as u64, Ordering::Relaxed);
+            COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
+            COPY_COUNT.fetch_add(1, Ordering::Relaxed);
             target.into_handle()
         }
         .boxed()
