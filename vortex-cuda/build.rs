@@ -28,11 +28,21 @@ fn main() {
 
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
-            if path.extension().is_some_and(|ext| ext == "cu") {
-                println!("cargo:rerun-if-changed={}", path.display());
-                nvcc_compile_ptx(&kernels_dir, &path)
-                    .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", path.display(), e))
-                    .unwrap();
+            match path.extension().and_then(|e| e.to_str()) {
+                // Track header files - changes should trigger recompilation of all .cu files
+                Some("cuh") => {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                }
+                // Compile .cu files to PTX
+                Some("cu") => {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                    nvcc_compile_ptx(&kernels_dir, &path)
+                        .map_err(|e| {
+                            format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
+                        })
+                        .unwrap();
+                }
+                _ => {}
             }
         }
     }

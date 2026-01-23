@@ -19,7 +19,6 @@ mod cuda_benchmarks {
     use criterion::Criterion;
     use criterion::Throughput;
     use cudarc::driver::CudaView;
-    use cudarc::driver::PushKernelArg;
     use cudarc::driver::sys::CUevent_flags::CU_EVENT_BLOCKING_SYNC;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
@@ -31,13 +30,7 @@ mod cuda_benchmarks {
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;
 
-    const BENCH_ARGS: &[(usize, &str)] = &[
-        (1_000, "1K"),
-        (10_000, "10K"),
-        (100_000, "100K"),
-        (1_000_000, "1M"),
-        (10_000_000, "10M"),
-    ];
+    const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M")];
 
     /// Creates a FoR array of u8 for the given size.
     fn make_for_array_u8(len: usize) -> FoRArray {
@@ -104,12 +97,7 @@ mod cuda_benchmarks {
             array_len: for_array.len()
         );
 
-        let elapsed_ms = events
-            .before_launch
-            .elapsed_ms(&events.after_launch) // synchronizes
-            .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
-
-        Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+        events.duration()
     }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
@@ -130,12 +118,7 @@ mod cuda_benchmarks {
             array_len: for_array.len()
         );
 
-        let elapsed_ms = events
-            .before_launch
-            .elapsed_ms(&events.after_launch) // synchronizes
-            .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
-
-        Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+        events.duration()
     }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
@@ -156,12 +139,7 @@ mod cuda_benchmarks {
             array_len: for_array.len()
         );
 
-        let elapsed_ms = events
-            .before_launch
-            .elapsed_ms(&events.after_launch) // synchronizes
-            .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
-
-        Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+        events.duration()
     }
 
     /// Launches FoR decompression kernel and returns elapsed GPU time in seconds.
@@ -182,12 +160,7 @@ mod cuda_benchmarks {
             array_len: for_array.len()
         );
 
-        let elapsed_ms = events
-            .before_launch
-            .elapsed_ms(&events.after_launch) // synchronizes
-            .map_err(|e| vortex_error::vortex_err!("failed to get elapsed time: {}", e))?;
-
-        Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+        events.duration()
     }
 
     /// Benchmark u8 FoR decompression

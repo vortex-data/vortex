@@ -60,6 +60,7 @@ macro_rules! launch_cuda_kernel {
         event_recording: $event_recording:expr,
         array_len: $len:expr
     ) => {{
+        use ::cudarc::driver::PushKernelArg as _;
         let cuda_function = $ctx.load_function($module, $ptypes)?;
         let mut launch_builder = $ctx.launch_builder(&cuda_function);
 
@@ -89,11 +90,17 @@ pub fn launch_cuda_kernel_impl(
     event_flags: CUevent_flags,
     array_len: usize,
 ) -> VortexResult<CudaKernelEvents> {
-    let num_chunks = u32::try_from(array_len.div_ceil(2048))?;
+    // Kernel launch configuration constants.
+    // Must match ELEMENTS_PER_THREAD in CUDA kernels (kernels/*.cu).
+    const THREADS_PER_BLOCK: u32 = 64; // 2 warps
+    const ELEMENTS_PER_THREAD: u32 = 32;
+    const ELEMENTS_PER_BLOCK: usize = (THREADS_PER_BLOCK * ELEMENTS_PER_THREAD) as usize; // 2048
+
+    let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))?;
 
     let config = cudarc::driver::LaunchConfig {
-        grid_dim: (num_chunks, 1, 1),
-        block_dim: (64, 1, 1),
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     };
 
@@ -200,5 +207,90 @@ impl KernelLoader {
         Ok(Path::new(&manifest_dir)
             .join("kernels")
             .join(format!("{}.ptx", module_name)))
+    }
+}
+
+#[cfg(test)]
+#[cfg(cuda_available)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use cudarc::driver::CudaContext;
+    use cudarc::driver::PushKernelArg;
+    use vortex_error::VortexExpect;
+
+    use super::KernelLoader;
+
+    /// Test that verifies Rust launch config constants match CUDA kernel constants.
+    ///
+    /// This test launches a special config_check kernel that reports the kernel-side
+    /// constants, then verifies they match the Rust-side constants used in
+    /// `launch_cuda_kernel_impl`.
+    #[test]
+    fn test_kernel_config_matches_rust_config() {
+        // These must match the constants in launch_cuda_kernel_impl
+        const THREADS_PER_BLOCK: u32 = 64;
+        const ELEMENTS_PER_THREAD: u32 = 32;
+        const ELEMENTS_PER_BLOCK: u32 = THREADS_PER_BLOCK * ELEMENTS_PER_THREAD;
+
+        let ctx = CudaContext::new(0).expect("failed to create CUDA context");
+        let stream = ctx.new_stream().expect("failed to create CUDA stream");
+
+        // Allocate output buffer for 3 u32 values
+        // SAFETY: Allocating uninitialized memory that will be written by kernel
+        let output = unsafe {
+            stream
+                .alloc::<u32>(3)
+                .expect("failed to allocate output buffer")
+        };
+
+        // Load and launch the config_check kernel
+        let kernel_loader = KernelLoader::new();
+        let function = kernel_loader
+            .load_function("config_check", &[], &ctx)
+            .vortex_expect("failed to load config_check kernel");
+
+        let config = cudarc::driver::LaunchConfig {
+            grid_dim: (1, 1, 1),
+            block_dim: (THREADS_PER_BLOCK, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        let mut launch_args = stream.launch_builder(&function);
+        launch_args.arg(&output);
+
+        // SAFETY: kernel only writes to output buffer
+        unsafe {
+            launch_args
+                .launch(config)
+                .expect("failed to launch config_check kernel");
+        }
+
+        // Copy results back to host
+        let host_output = stream
+            .clone_dtoh(&output)
+            .expect("failed to copy results to host");
+
+        let kernel_elements_per_thread = host_output[0];
+        let kernel_block_dim_x = host_output[1];
+        let kernel_elements_per_block = host_output[2];
+
+        assert_eq!(
+            kernel_elements_per_thread, ELEMENTS_PER_THREAD,
+            "ELEMENTS_PER_THREAD mismatch: kernel has {}, Rust has {}",
+            kernel_elements_per_thread, ELEMENTS_PER_THREAD
+        );
+
+        assert_eq!(
+            kernel_block_dim_x, THREADS_PER_BLOCK,
+            "block_dim.x mismatch: kernel received {}, Rust sent {}",
+            kernel_block_dim_x, THREADS_PER_BLOCK
+        );
+
+        assert_eq!(
+            kernel_elements_per_block, ELEMENTS_PER_BLOCK,
+            "ELEMENTS_PER_BLOCK mismatch: kernel computed {}, Rust expects {}",
+            kernel_elements_per_block, ELEMENTS_PER_BLOCK
+        );
     }
 }
