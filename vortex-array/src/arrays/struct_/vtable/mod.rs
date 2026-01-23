@@ -105,10 +105,14 @@ impl VTable for StructVTable {
             })
             .try_collect()?;
 
-        Ok(
+        // # Safety
+        //
+        // The file was written with fields pushed down, if the file was corrupted this
+        // will result in invalid results, but no unsoundness.
+        Ok(unsafe {
             StructArray::try_new_with_dtype(children, struct_dtype.clone(), len, validity)?
-                .with_validity_pushed_down(metadata.validity_pushed_down),
-        )
+                .with_validity_pushed_down(metadata.validity_pushed_down)
+        })
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

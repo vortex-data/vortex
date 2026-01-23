@@ -209,6 +209,8 @@ impl StructArray {
         }
     }
 
+    /// Return the struct field with name `name` with the struct validity already applied.
+    /// If the struct has no field with that `name` an error is returned.
     pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<ArrayRef> {
         let name = name.as_ref();
         self.field_by_name_opt(name)?.ok_or_else(|| {
@@ -219,6 +221,8 @@ impl StructArray {
         })
     }
 
+    /// Return the struct field with name `name` with the struct validity already applied.
+    /// If the struct has no field with that `name` Ok(None) is returned.
     pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> VortexResult<Option<ArrayRef>> {
         let name = name.as_ref();
         self.struct_fields()
@@ -563,7 +567,7 @@ impl StructArray {
     pub fn has_validity_pushed_down(&self) -> bool {
         #[cfg(debug_assertions)]
         if self.validity_pushed_down {
-            self.check_validity_pushed_down()
+            self.validate_validity_pushed_down()
                 .vortex_expect("validity_pushed_down invariant violated");
         }
         self.validity_pushed_down
@@ -574,7 +578,7 @@ impl StructArray {
     /// When `validity_pushed_down` is true, for every nullable child field,
     /// the child's validity must be a superset of the struct's validity.
     /// That is, wherever the struct is invalid (null), the child must also be invalid.
-    fn check_validity_pushed_down(&self) -> VortexResult<()> {
+    fn validate_validity_pushed_down(&self) -> VortexResult<()> {
         if !self.validity_pushed_down {
             return Ok(());
         }
@@ -612,7 +616,7 @@ impl StructArray {
     ///
     /// For nullable structs, setting this to true indicates that child validity
     /// is a superset of struct validity (children include struct's nulls).
-    pub fn with_validity_pushed_down(mut self, validity_pushed_down: bool) -> Self {
+    pub unsafe fn with_validity_pushed_down(mut self, validity_pushed_down: bool) -> Self {
         // For non-nullable structs, the flag is meaningless - keep it false
         if !self.dtype.is_nullable() {
             return self;
@@ -621,7 +625,7 @@ impl StructArray {
 
         #[cfg(debug_assertions)]
         if validity_pushed_down {
-            self.check_validity_pushed_down()
+            self.validate_validity_pushed_down()
                 .vortex_expect("validity_pushed_down invariant violated");
         }
 
@@ -649,7 +653,8 @@ impl StructArray {
         // If validity is trivial (AllValid), nothing to push down
         // but mark as pushed down since children trivially include parent validity
         if self.validity.all_valid(self.len)? {
-            return Ok(self.clone().with_validity_pushed_down(true));
+            // # Safety no validity to push down
+            return Ok(unsafe { self.clone().with_validity_pushed_down(true) });
         }
 
         // Get the validity mask - mask() expects true = set to null, so we invert the validity
@@ -670,12 +675,15 @@ impl StructArray {
             .collect::<VortexResult<_>>()?;
 
         // Create new struct with same validity but updated children
-        Ok(StructArray::try_new(
-            self.names().clone(),
-            new_fields,
-            self.len(),
-            self.validity.clone(), // Keep original validity
-        )?
-        .with_validity_pushed_down(true))
+        // # Safety mask of struct validity applied to each child.
+        Ok(unsafe {
+            StructArray::try_new(
+                self.names().clone(),
+                new_fields,
+                self.len(),
+                self.validity.clone(), // Keep original validity
+            )?
+            .with_validity_pushed_down(true)
+        })
     }
 }

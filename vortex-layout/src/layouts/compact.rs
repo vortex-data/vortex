@@ -133,13 +133,17 @@ impl CompactCompressor {
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;
 
-                StructArray::try_new(
-                    compacted.names().clone(),
-                    fields,
-                    compacted.len(),
-                    compacted.validity().clone(),
-                )?
-                .with_validity_pushed_down(compacted.has_validity_pushed_down())
+                // # Safety
+                // compressing the fields must not affect the validity those fields.
+                unsafe {
+                    StructArray::try_new(
+                        compacted.names().clone(),
+                        fields,
+                        compacted.len(),
+                        compacted.validity().clone(),
+                    )?
+                    .with_validity_pushed_down(compacted.has_validity_pushed_down())
+                }
                 .into_array()
             }
             Canonical::List(listview) => {
