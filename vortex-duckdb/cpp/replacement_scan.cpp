@@ -1,13 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-// #include "duckdb/common/common.hpp"
-#include "duckdb/common/optional_ptr.hpp"
-#include "duckdb/common/unique_ptr.hpp"
-#include "duckdb/function/replacement_scan.hpp"
 #include "duckdb/main/capi/capi_internal.hpp"
-#include "duckdb/main/client_context.hpp"
-#include "duckdb/main/config.hpp"
 #include "duckdb/parser/expression/constant_expression.hpp"
 #include "duckdb/parser/expression/function_expression.hpp"
 #include "duckdb/parser/tableref/table_function_ref.hpp"
