@@ -16,7 +16,6 @@ use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
