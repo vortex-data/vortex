@@ -578,6 +578,7 @@ impl StructArray {
     /// When `validity_pushed_down` is true, for every nullable child field,
     /// the child's validity must be a superset of the struct's validity.
     /// That is, wherever the struct is invalid (null), the child must also be invalid.
+    #[cfg(debug_assertions)]
     fn validate_validity_pushed_down(&self) -> VortexResult<()> {
         if !self.validity_pushed_down {
             return Ok(());
