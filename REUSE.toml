@@ -26,7 +26,8 @@ SPDX-License-Identifier = "CC-BY-4.0"
 # Utility code.
 
 [[annotations]]
-path = ["**/README.md", "CLAUDE.md", "CONTRIBUTING.md", "STYLE.md", "tsc/**.md"]
+#                                                                                TODO(connor): Remove this vvv
+path = ["**/README.md", "CLAUDE.md", "CONTRIBUTING.md", "STYLE.md", "tsc/**.md", "BENCHMARK_WEBSITE_REDESIGN.md"]
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
