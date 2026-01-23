@@ -125,7 +125,7 @@ async fn execute_dict_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativeP
 }
 
 #[cfg(test)]
-// #[cfg(cuda_available)]
+#[cfg(cuda_available)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
