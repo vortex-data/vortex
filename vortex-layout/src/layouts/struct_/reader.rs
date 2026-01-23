@@ -166,11 +166,7 @@ impl StructReader {
                 let mut partitioned = partition(
                     expr.clone(),
                     self.dtype(),
-                    annotate_scope_access(
-                        self.dtype()
-                            .as_struct_fields_opt()
-                            .vortex_expect("We know it's a struct DType"),
-                    ),
+                    annotate_scope_access(self.dtype().as_struct_fields()),
                 )
                 .vortex_expect("We should not fail to partition expression over struct fields");
 

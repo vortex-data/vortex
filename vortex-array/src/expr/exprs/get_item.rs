@@ -16,7 +16,6 @@ use vortex_proto::expr as pb;
 
 use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
-use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -111,13 +110,7 @@ impl VTable for GetItem {
             .pop()
             .vortex_expect("missing input for GetItem expression")
             .execute::<StructArray>(args.ctx)?;
-        let field = input.unmasked_field_by_name(field_name).cloned()?;
-
-        match input.dtype().nullability() {
-            Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
-        }?
-        .execute(args.ctx)
+        input.field_by_name(field_name)?.execute(args.ctx)
     }
 
     fn reduce(

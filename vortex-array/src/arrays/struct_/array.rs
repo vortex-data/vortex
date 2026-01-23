@@ -19,6 +19,7 @@ use vortex_error::vortex_err;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
@@ -27,8 +28,10 @@ use crate::vtable::ValidityHelper;
 /// Metadata for StructArray serialization.
 #[derive(Clone, prost::Message)]
 pub struct StructMetadata {
-    /// true = child validity is a superset of struct validity (validity was pushed down)
-    /// false = default, no guarantee about relationship
+    /// If true, child validity is a superset of struct validity (validity was pushed down).
+    /// For nullable children, their validity already includes struct nulls. For non-nullable
+    /// children, we apply struct validity on field read. If false (default), no guarantee
+    /// about relationship - must intersect validities on read.
     #[prost(bool, tag = "1")]
     pub(super) validity_pushed_down: bool,
 }
@@ -171,12 +174,74 @@ pub struct StructArrayParts {
 }
 
 impl StructArray {
-    /// Return the struct fields without the validity of the struct applied
+    /// Note this field may not have the validity of the parent struct applied.
+    /// Should use `masked_fields` instead, unless you know what you are doing.
     pub fn unmasked_fields(&self) -> &Arc<[ArrayRef]> {
         &self.fields
     }
 
-    /// Return the struct field without the validity of the struct applied
+    pub fn masked_fields(&self) -> VortexResult<Vec<ArrayRef>> {
+        if !self.dtype.is_nullable() {
+            // fields need not be masked
+            return Ok(self.fields.to_vec());
+        }
+
+        if self.has_validity_pushed_down() {
+            self.fields
+                .iter()
+                .cloned()
+                .map(|f| {
+                    if f.dtype().is_nullable() {
+                        Ok(f.into_array())
+                    } else {
+                        let validity = self.validity().to_array(self.len);
+                        f.mask(validity)
+                    }
+                })
+                .collect::<VortexResult<Vec<_>>>()
+        } else {
+            // Apply struct validity to all fields
+            let struct_validity = self.validity().to_array(self.len);
+            self.fields
+                .iter()
+                .map(move |f| f.clone().mask(struct_validity.clone()))
+                .collect::<VortexResult<Vec<_>>>()
+        }
+    }
+
+    pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<ArrayRef> {
+        let name = name.as_ref();
+        self.field_by_name_opt(name)?.ok_or_else(|| {
+            vortex_err!(
+                "Field {name} not found in struct array with names {:?}",
+                self.names()
+            )
+        })
+    }
+
+    pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> VortexResult<Option<ArrayRef>> {
+        let name = name.as_ref();
+        self.struct_fields()
+            .find(name)
+            .map(|idx| {
+                let field = self.fields[idx].clone();
+                // Non-nullable struct: return field as-is (no struct validity to apply)
+                if !self.dtype.is_nullable() {
+                    return Ok(field);
+                }
+                // Non-nullable field: always apply struct validity (even with validity_pushed_down,
+                // since we can't push validity to non-nullable fields)
+                if !field.dtype().is_nullable() {
+                    return field.mask(self.validity().to_array(self.len));
+                }
+                // Nullable field: return as-is (validity is either in the field or was pushed down)
+                Ok(field)
+            })
+            .transpose()
+    }
+
+    /// Note this field may not have the validity of the parent struct applied.
+    /// Should use `field_by_name` instead.
     pub fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
         let name = name.as_ref();
         self.unmasked_field_by_name_opt(name).ok_or_else(|| {
@@ -187,7 +252,8 @@ impl StructArray {
         })
     }
 
-    /// Return the struct field without the validity of the struct applied
+    /// Note this field may not have the validity of the parent struct applied.
+    /// Should use `field_by_name_opt` instead.
     pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.struct_fields().find(name).map(|idx| &self.fields[idx])
@@ -495,13 +561,54 @@ impl StructArray {
     /// the struct's nulls baked in). This is an optimization that allows readers to
     /// skip combining struct+child validity when extracting fields.
     pub fn has_validity_pushed_down(&self) -> bool {
+        #[cfg(debug_assertions)]
+        if self.validity_pushed_down {
+            self.check_validity_pushed_down()
+                .vortex_expect("validity_pushed_down invariant violated");
+        }
         self.validity_pushed_down
+    }
+
+    /// Checks that the validity_pushed_down invariant holds.
+    ///
+    /// When `validity_pushed_down` is true, for every nullable child field,
+    /// the child's validity must be a superset of the struct's validity.
+    /// That is, wherever the struct is invalid (null), the child must also be invalid.
+    fn check_validity_pushed_down(&self) -> VortexResult<()> {
+        if !self.validity_pushed_down {
+            return Ok(());
+        }
+
+        let struct_validity = self.validity_mask()?;
+
+        for (idx, field) in self.fields.iter().enumerate() {
+            // Only check nullable children - non-nullable children cannot have validity pushed down
+            if !field.dtype().is_nullable() {
+                continue;
+            }
+
+            let child_validity = field.validity_mask()?;
+
+            // Check invariant: struct_invalid => child_invalid
+            // Equivalently: (!struct_validity) & child_validity should be all-false
+            // If struct is invalid (false) but child is valid (true), that's a violation
+            let violation = &(!&struct_validity) & &child_validity;
+            if !violation.all_false() {
+                vortex_bail!(
+                    "validity_pushed_down invariant violated for field {}: \
+                     struct has nulls at positions where child is valid",
+                    idx
+                );
+            }
+        }
+
+        Ok(())
     }
 
     /// Set the validity_pushed_down flag.
     ///
-    /// For non-nullable structs, this is a no-op (flag stays false) since there's
-    /// no validity to push down.
+    /// For non-nullable structs, this is a no-op (flag stays false) since there's no validity to
+    /// push down
     ///
     /// For nullable structs, setting this to true indicates that child validity
     /// is a superset of struct validity (children include struct's nulls).
@@ -511,6 +618,13 @@ impl StructArray {
             return self;
         }
         self.validity_pushed_down = validity_pushed_down;
+
+        #[cfg(debug_assertions)]
+        if validity_pushed_down {
+            self.check_validity_pushed_down()
+                .vortex_expect("validity_pushed_down invariant violated");
+        }
+
         self
     }
 
@@ -544,7 +658,7 @@ impl StructArray {
         // Apply mask only to nullable children - non-nullable children cannot have their
         // dtype changed, so we leave them alone
         let new_fields: Vec<ArrayRef> = self
-            .fields()
+            .unmasked_fields()
             .iter()
             .map(|field| {
                 if field.dtype().is_nullable() {
