@@ -10182,6 +10182,7 @@ dependencies = [
  "rustc-hash",
  "serde",
  "simdutf8",
+ "static_assertions",
  "tabled",
  "termtree",
  "tracing",
@@ -10196,7 +10197,6 @@ dependencies = [
  "vortex-scalar",
  "vortex-session",
  "vortex-utils",
- "vortex-vector",
 ]
 
 [[package]]

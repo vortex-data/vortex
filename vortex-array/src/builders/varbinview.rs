@@ -20,12 +20,12 @@ use vortex_scalar::Scalar;
 use vortex_scalar::Utf8Scalar;
 use vortex_utils::aliases::hash_map::Entry;
 use vortex_utils::aliases::hash_map::HashMap;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::build_views::BinaryView;
 use crate::arrays::compact::BufferUtilization;
 use crate::builders::ArrayBuilder;
 use crate::builders::LazyBitBufferBuilder;

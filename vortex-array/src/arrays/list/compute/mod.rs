@@ -9,8 +9,6 @@ mod mask;
 mod min_max;
 mod take;
 
-pub(super) use filter::element_mask_from_offsets;
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

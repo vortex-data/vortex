@@ -58,4 +58,6 @@ pub use scalar_fn::*;
 pub use slice::*;
 pub use struct_::*;
 pub use varbin::*;
+pub use varbinview::build_views;
+pub use varbinview::compact;
 pub use varbinview::*;

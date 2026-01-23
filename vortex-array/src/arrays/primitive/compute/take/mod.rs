@@ -3,6 +3,11 @@
 
 #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
 mod avx2;
+#[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+mod slice_avx2;
+
+#[cfg(vortex_nightly)]
+mod slice_portable;
 
 #[cfg(vortex_nightly)]
 mod portable;

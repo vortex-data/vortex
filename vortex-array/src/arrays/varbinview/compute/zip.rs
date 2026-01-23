@@ -8,12 +8,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::build_views::BinaryView;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
 use crate::compute::ZipKernel;

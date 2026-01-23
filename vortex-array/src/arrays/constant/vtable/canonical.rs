@@ -22,7 +22,6 @@ use vortex_scalar::ListScalar;
 use vortex_scalar::Scalar;
 use vortex_scalar::StructScalar;
 use vortex_scalar::Utf8Scalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::IntoArray;
@@ -34,6 +33,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::NullArray;
 use crate::arrays::StructArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::build_views::BinaryView;
 use crate::arrays::constant::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::builders::builder_with_capacity;

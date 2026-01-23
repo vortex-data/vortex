@@ -3,10 +3,10 @@
 
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_vector::binaryview::Ref;
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::build_views::Ref;
 use crate::compute::IsConstantKernel;
 use crate::compute::IsConstantKernelAdapter;
 use crate::compute::IsConstantOpts;

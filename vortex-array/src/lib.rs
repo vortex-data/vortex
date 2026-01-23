@@ -36,7 +36,6 @@ pub mod buffer;
 pub mod builders;
 pub mod builtins;
 mod canonical;
-pub(crate) mod canonical_to_vector;
 pub mod compute;
 mod context;
 pub mod display;
@@ -62,7 +61,6 @@ pub mod stream;
 pub mod test_harness;
 pub mod validity;
 pub mod variants;
-pub mod vectors;
 pub mod vtable;
 
 pub mod flatbuffers {

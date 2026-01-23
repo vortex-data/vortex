@@ -18,13 +18,13 @@ use num_traits::AsPrimitive;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
-use vortex_compute::take::slice::portable;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_simd_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
+use super::slice_portable as portable;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveArray;

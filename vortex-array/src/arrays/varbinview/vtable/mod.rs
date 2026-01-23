@@ -11,13 +11,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::build_views::BinaryView;
 use crate::arrays::varbinview::VarBinViewArray;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;

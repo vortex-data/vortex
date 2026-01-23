@@ -6,13 +6,13 @@
 //! Only enabled for x86_64 hosts and it is gated at runtime behind feature detection to
 //! ensure AVX2 instructions are available.
 
-use vortex_compute::take::slice::avx2;
 use vortex_dtype::NativePType;
 use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 
+use super::slice_avx2;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::primitive::PrimitiveArray;
@@ -59,7 +59,7 @@ where
     I: UnsignedPType,
 {
     // SAFETY: The caller guarantees that the `avx2` feature is enabled.
-    let buffer = unsafe { avx2::take_avx2(values, indices) };
+    let buffer = unsafe { slice_avx2::take_avx2(values, indices) };
 
     debug_assert!(
         validity
