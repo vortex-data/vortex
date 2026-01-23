@@ -81,7 +81,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function("for", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function_ptype("for", &kernel_ptypes)?;
     let mut launch_builder = ctx.launch_builder(&cuda_function);
 
     // Build launch args: buffer, reference, length

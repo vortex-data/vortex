@@ -39,6 +39,9 @@ use vortex_error::VortexExpect;
 #[derive(Debug, Copy, Clone, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
 pub struct i256(arrow_buffer::i256);
 
+#[cfg(feature = "cudarc")]
+unsafe impl cudarc::driver::DeviceRepr for i256 {}
+
 #[expect(
     clippy::same_name_method,
     reason = "inherent methods intentionally shadow arrow_buffer::i256 methods"

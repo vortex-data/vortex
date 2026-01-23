@@ -10444,6 +10444,7 @@ dependencies = [
  "arbitrary",
  "arrow-buffer 57.2.0",
  "arrow-schema 57.2.0",
+ "cudarc",
  "flatbuffers",
  "half",
  "insta",

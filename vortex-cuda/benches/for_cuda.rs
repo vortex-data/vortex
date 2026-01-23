@@ -91,7 +91,7 @@ mod cuda_benchmarks {
         let events = vortex_cuda::launch_cuda_kernel!(
             execution_ctx: cuda_ctx,
             module: "for",
-            ptypes: &[for_array.ptype()],
+            ptypes: &[for_array.ptype().to_string().as_str()],
             launch_args: [device_data, reference, array_len_u64],
             event_recording: CU_EVENT_BLOCKING_SYNC,
             array_len: for_array.len()
@@ -112,7 +112,7 @@ mod cuda_benchmarks {
         let events = vortex_cuda::launch_cuda_kernel!(
             execution_ctx: cuda_ctx,
             module: "for",
-            ptypes: &[for_array.ptype()],
+            ptypes: &[for_array.ptype().to_string().as_str()],
             launch_args: [device_data, reference, array_len_u64],
             event_recording: CU_EVENT_BLOCKING_SYNC,
             array_len: for_array.len()
@@ -133,7 +133,7 @@ mod cuda_benchmarks {
         let events = vortex_cuda::launch_cuda_kernel!(
             execution_ctx: cuda_ctx,
             module: "for",
-            ptypes: &[for_array.ptype()],
+            ptypes: &[for_array.ptype().to_string().as_str()],
             launch_args: [device_data, reference, array_len_u64],
             event_recording: CU_EVENT_BLOCKING_SYNC,
             array_len: for_array.len()
@@ -154,7 +154,7 @@ mod cuda_benchmarks {
         let events = vortex_cuda::launch_cuda_kernel!(
             execution_ctx: cuda_ctx,
             module: "for",
-            ptypes: &[for_array.ptype()],
+            ptypes: &[for_array.ptype().to_string().as_str()],
             launch_args: [device_data, reference, array_len_u64],
             event_recording: CU_EVENT_BLOCKING_SYNC,
             array_len: for_array.len()

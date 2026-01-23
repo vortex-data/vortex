@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "config.cuh"
+#include "types.cuh"
 
 template<typename ValueT, typename IndexT>
 __device__ void dict_kernel(
@@ -55,3 +56,7 @@ GENERATE_DICT_KERNELS_FOR_VALUE(u32, uint32_t)
 GENERATE_DICT_KERNELS_FOR_VALUE(i32, int32_t)
 GENERATE_DICT_KERNELS_FOR_VALUE(u64, uint64_t)
 GENERATE_DICT_KERNELS_FOR_VALUE(i64, int64_t)
+
+// Decimal types (128-bit and 256-bit)
+GENERATE_DICT_KERNELS_FOR_VALUE(i128, int128_t)
+GENERATE_DICT_KERNELS_FOR_VALUE(i256, int256_t)

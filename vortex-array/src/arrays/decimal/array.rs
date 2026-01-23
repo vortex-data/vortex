@@ -316,6 +316,7 @@ impl DecimalArray {
         }
     }
 
+    /// Return the `DecimalType` used to represent the values in the array.
     pub fn values_type(&self) -> DecimalType {
         self.values_type
     }
