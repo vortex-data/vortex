@@ -28,7 +28,7 @@ VortexScanReplacement(duckdb::ClientContext &context, duckdb::ReplacementScanInp
         table_function->alias = fs.ExtractBaseName(table_name);
     }
 
-    return std::move(table_function);
+    return table_function;
 }
 
 } // namespace vortex
