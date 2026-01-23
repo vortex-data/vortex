@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Downloads the nvCOMP SDK if needed and generates Rust FFI bindings for NVIDIA's
-//! GPU-accelerated Zstd compression.
+//! Downloads the nvCOMP SDK and generates Rust FFI bindings for nvCOMP Zstd.
+//!
+//! Bindings are generated unconditionally. This allows for development against the
+//! CUDA APIs in environments that don't support CUDA.
 
 #![expect(clippy::unwrap_used)]
 #![expect(clippy::expect_used)]
@@ -12,25 +14,21 @@ use std::env;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::process::Command;
 
 use xz2::read::XzDecoder;
 
 const NVCOMP_VERSION: &str = "5.1.0.21";
 const CUDA_VERSION: &str = "cuda12";
 
-/// Check if CUDA headers are available at the given include path.
-fn cuda_headers_available(cuda_include: &str) -> bool {
-    let cuda_runtime_h = PathBuf::from(cuda_include).join("cuda_runtime.h");
-    cuda_runtime_h.exists()
-}
-
-/// Generate an empty stub for sys.rs when nvCOMP is not available.
-fn generate_stub(reason: &str) {
-    println!("nvCOMP bindings not generated: {}", reason);
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
-    let stub = format!("// nvCOMP is not available: {}\n", reason);
-    fs::write(out_dir.join("sys.rs"), stub).unwrap();
-}
+/// Minimal CUDA runtime stub header for bindgen.
+const CUDA_RUNTIME_STUB: &str = r#"
+#pragma once
+struct CUstream_st;
+typedef struct CUstream_st *cudaStream_t;
+typedef int cudaError_t;
+#define cudaSuccess 0
+"#;
 
 fn main() {
     // Declare the cfg so rustc doesn't warn about unexpected cfg.
@@ -38,32 +36,20 @@ fn main() {
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let nvcomp_dir = manifest_dir.join("sdk");
+
+    // Create CUDA stub header in OUT_DIR for bindgen
+    let cuda_stub_dir = out_dir.join("cuda-stub");
+    fs::create_dir_all(&cuda_stub_dir).unwrap();
+    fs::write(cuda_stub_dir.join("cuda_runtime.h"), CUDA_RUNTIME_STUB).unwrap();
 
     let (os, arch) = match (env::consts::OS, env::consts::ARCH) {
         ("linux", "x86_64") => ("linux", "x86_64"),
         ("linux", "aarch64") => ("linux", "sbsa"),
-        (os, arch) => {
-            generate_stub(&format!(
-                "{}-{} not supported. Supported: linux-x86_64, linux-aarch64",
-                os, arch
-            ));
-            return;
-        }
+        // Fall back to linux-x86_64 to generate bindings for any platform.
+        _ => ("linux", "x86_64"),
     };
-
-    // Check if CUDA headers are available before doing anything else.
-    let cuda_include = env::var("CUDA_PATH")
-        .map(|p| format!("{}/include", p))
-        .unwrap_or_else(|_| "/usr/local/cuda/include".to_string());
-
-    if !cuda_headers_available(&cuda_include) {
-        generate_stub(&format!(
-            "CUDA headers not found at {}. Set CUDA_PATH environment variable or install CUDA toolkit.",
-            cuda_include
-        ));
-        return;
-    }
 
     let archive_name = format!("nvcomp-{os}-{arch}-{NVCOMP_VERSION}_{CUDA_VERSION}-archive");
     let url = format!(
@@ -123,15 +109,25 @@ fn main() {
         );
     }
 
+    // Link against nvcomp dynamically.
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib=dylib=nvcomp");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+
+    // Export the library path for downstream crates via the `links` manifest key.
+    // Downstream crates can access this via `env::var("DEP_NVCOMP_LIB_DIR")` in their
+    // build.rs and add their own rpath:
+    //
+    // if let Ok(nvcomp_lib) = env::var("DEP_NVCOMP_LIB_DIR") {
+    //     println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
+    // }
+    println!("cargo:lib_dir={}", lib_dir.display());
 
     let bindings = bindgen::Builder::default()
         .header(include_dir.join("nvcomp.h").to_string_lossy())
         .header(include_dir.join("nvcomp/zstd.h").to_string_lossy())
         .clang_arg(format!("-I{}", include_dir.display()))
-        .clang_arg(format!("-I{}", cuda_include))
+        .clang_arg(format!("-I{}", cuda_stub_dir.display()))
         .allowlist_function("nvcompBatchedZstd.*")
         .blocklist_type("CUstream_st")
         .blocklist_type("cudaStream_t")
@@ -141,9 +137,16 @@ fn main() {
         .generate()
         .expect("Failed to generate nvcomp bindings");
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
 
-    // Signal that CUDA/nvCOMP bindings are available for conditional compilation.
-    println!("cargo:rustc-cfg=cuda_available");
+    // Set cuda_available cfg if CUDA is detected on the system.
+    // This gates tests and benchmarks that require CUDA at runtime.
+    if cuda_available() {
+        println!("cargo:rustc-cfg=cuda_available");
+    }
+}
+
+/// Check if CUDA is availabile based on nvcc.
+fn cuda_available() -> bool {
+    Command::new("nvcc").arg("--version").output().is_ok()
 }

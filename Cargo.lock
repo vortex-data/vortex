@@ -10347,10 +10347,12 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-mask",
  "vortex-nvcomp",
  "vortex-session",
  "vortex-utils",
  "vortex-zigzag",
+ "vortex-zstd",
 ]
 
 [[package]]

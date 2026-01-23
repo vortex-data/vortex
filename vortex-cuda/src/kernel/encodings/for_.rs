@@ -72,7 +72,7 @@ where
     let device_buffer: BufferHandle = if buffer.is_on_device() {
         buffer
     } else {
-        ctx.copy_buffer_to_device_async::<P>(buffer)?.await?
+        ctx.move_to_device::<P>(buffer)?.await?
     };
 
     // Get CUDA view of the buffer

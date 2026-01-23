@@ -5,6 +5,7 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::use_debug)]
 
+use std::env;
 use std::path::Path;
 use std::process::Command;
 
@@ -12,30 +13,26 @@ fn main() {
     // Declare the cfg so rustc doesn't warn about unexpected cfg.
     println!("cargo::rustc-check-cfg=cfg(cuda_available)");
 
-    if cfg!(not(target_os = "linux")) {
-        // cuda is only support on linux right now
+    if !is_cuda_available() {
         return;
     }
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+    // Include runtime library path for nvCOMP dylib.
+    let nvcomp_lib = env::var("DEP_NVCOMP_LIB_DIR").expect("Libary path for nvCOMP not found");
+    println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
+
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
-
-    if !has_nvcc() {
-        return;
-    }
 
     println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
 
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
             match path.extension().and_then(|e| e.to_str()) {
-                // Track header files - changes should trigger recompilation of all .cu files
-                Some("cuh") => {
-                    println!("cargo:rerun-if-changed={}", path.display());
-                }
-                // Compile .cu files to PTX
+                Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
                 Some("cu") => {
                     println!("cargo:rerun-if-changed={}", path.display());
+                    // Compile .cu files to PTX
                     nvcc_compile_ptx(&kernels_dir, &path)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
@@ -53,7 +50,7 @@ fn main() {
 
 fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
-    let profile = std::env::var("PROFILE").unwrap();
+    let profile = env::var("PROFILE").unwrap();
 
     let mut cmd = Command::new("nvcc");
     if profile.as_str() == "debug" {
@@ -77,7 +74,7 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
         // - memory: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-memcheck
         // - thread: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-racecheck
         // - init: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-initcheck
-        // - synchronize : https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
+        // - synchronize: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
     } else {
         cmd.arg("-O3");
     }
@@ -126,7 +123,8 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn has_nvcc() -> bool {
+/// Check if CUDA is availabile based on nvcc.
+fn is_cuda_available() -> bool {
     Command::new("nvcc")
         .arg("--version")
         .output()

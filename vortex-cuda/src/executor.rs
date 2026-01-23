@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::mem::size_of;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -147,46 +146,33 @@ impl CudaExecutionCtx {
         self.stream.launch_builder(func)
     }
 
-    /// Copies host data to the device, returning a [`CudaDeviceBuffer`].
-    pub fn copy_buffer_to_device<T: DeviceRepr>(
-        &self,
-        data: &[T],
-    ) -> VortexResult<CudaDeviceBuffer<T>> {
-        let cuda_slice = self
-            .stream
-            .clone_htod(data)
-            .map_err(|e| vortex_err!("Failed to copy to device: {}", e))?;
-        Ok(CudaDeviceBuffer::new(cuda_slice))
-    }
-
-    /// Copies a host buffer to the device asynchronously.
+    /// Copies host data to the device asynchronously.
     ///
     /// Allocates device memory, schedules an async copy, and returns a future
-    /// that completes when the copy is finished.
+    /// that completes when the copy is finished. The source data is moved into
+    /// the future to ensure it remains valid until the copy completes.
     ///
     /// # Arguments
     ///
-    /// * `handle` - The host buffer to copy. Must be a host buffer.
+    /// * `data` - The host data to copy.
     ///
     /// # Returns
     ///
     /// A future that resolves to the device buffer handle when the copy completes.
-    pub fn copy_buffer_to_device_async<T: DeviceRepr + Send + Sync + 'static>(
+    pub fn copy_to_device<T, D>(
         &self,
-        handle: BufferHandle,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-        let host_buffer = handle
-            .as_host_opt()
-            .ok_or_else(|| vortex_err!("Buffer is not on host"))?;
-
-        let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_buffer.len() / size_of::<T>())?;
+        data: D,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    where
+        T: DeviceRepr + Send + Sync + 'static,
+        D: AsRef<[T]> + Send + 'static,
+    {
+        let host_slice: &[T] = data.as_ref();
+        let mut cuda_slice: CudaSlice<T> = self.device_alloc(host_slice.len())?;
         let device_ptr = cuda_slice.device_ptr_mut(&self.stream).0;
 
-        let typed_buffer: Buffer<T> = Buffer::from_byte_buffer(host_buffer.clone());
-        let src_slice: &[T] = typed_buffer.as_slice();
-
         unsafe {
-            memcpy_htod_async(device_ptr, src_slice, self.stream.cu_stream())
+            memcpy_htod_async(device_ptr, host_slice, self.stream.cu_stream())
                 .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
         }
 
@@ -194,14 +180,39 @@ impl CudaExecutionCtx {
         let stream = Arc::clone(&self.stream);
 
         Ok(Box::pin(async move {
-            // Await async copy completion using callback-based async wait.
             await_stream_callback(&stream).await?;
 
             // Keep source memory alive until copy completes.
-            let _keep_alive = handle;
+            let _keep_alive = data;
 
             Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
         }))
+    }
+
+    /// Moves a host buffer handle to the device asynchronously.
+    ///
+    /// # Arguments
+    ///
+    /// * `handle` - The host buffer to move. Must be a host buffer.
+    ///
+    /// # Returns
+    ///
+    /// A future that resolves to the device buffer handle when the copy completes.
+    pub fn move_to_device<T: DeviceRepr + Send + Sync + 'static>(
+        &self,
+        handle: BufferHandle,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
+        let host_buffer = handle
+            .as_host_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on host"))?;
+
+        let buffer: Buffer<T> = Buffer::from_byte_buffer(host_buffer.clone());
+        self.copy_to_device(buffer)
+    }
+
+    /// Returns a reference to the underlying CUDA stream.
+    pub fn stream(&self) -> &Arc<CudaStream> {
+        &self.stream
     }
 }
 

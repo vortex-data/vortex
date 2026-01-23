@@ -201,6 +201,27 @@ pub struct ZstdArray {
     slice_stop: usize,
 }
 
+/// The parts of a [`ZstdArray`] returned by [`ZstdArray::into_parts`].
+#[derive(Debug)]
+pub struct ZstdArrayParts {
+    /// The optional dictionary used for compression.
+    pub dictionary: Option<ByteBuffer>,
+    /// The compressed frames.
+    pub frames: Vec<ByteBuffer>,
+    /// The compression metadata.
+    pub metadata: ZstdMetadata,
+    /// The data type of the uncompressed array.
+    pub dtype: DType,
+    /// The validity of the uncompressed array.
+    pub validity: Validity,
+    /// The number of rows in the uncompressed array.
+    pub n_rows: usize,
+    /// Slice start offset.
+    pub slice_start: usize,
+    /// Slice stop offset.
+    pub slice_stop: usize,
+}
+
 struct Frames {
     dictionary: Option<ByteBuffer>,
     frames: Vec<ByteBuffer>,
@@ -247,7 +268,10 @@ fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usi
     Ok(buffer_and_value_byte_indices)
 }
 
-fn reconstruct_views(buffer: ByteBuffer) -> Buffer<BinaryView> {
+/// Reconstruct BinaryView structs from length-prefixed byte data.
+///
+/// The buffer contains interleaved u32 lengths (little-endian) and string data.
+pub fn reconstruct_views(buffer: &ByteBuffer) -> Buffer<BinaryView> {
     let mut res = BufferMut::<BinaryView>::empty();
     let mut offset = 0;
     while offset < buffer.len() {
@@ -615,7 +639,7 @@ impl ZstdArray {
                         // the decompressed buffer is a bunch of interleaved u32 lengths
                         // and strings of those lengths, we need to reconstruct the
                         // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(decompressed.clone()).slice(
+                        let valid_views = reconstruct_views(&decompressed).slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
                         );
@@ -640,7 +664,7 @@ impl ZstdArray {
                         // the decompressed buffer is a bunch of interleaved u32 lengths
                         // and strings of those lengths, we need to reconstruct the
                         // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(decompressed.clone()).slice(
+                        let valid_views = reconstruct_views(&decompressed).slice(
                             slice_value_idx_start - n_skipped_values
                                 ..slice_value_idx_stop - n_skipped_values,
                         );
@@ -688,6 +712,20 @@ impl ZstdArray {
             slice_stop: self.slice_start + stop,
             stats_set: Default::default(),
             ..self.clone()
+        }
+    }
+
+    /// Consumes the array and returns its parts.
+    pub fn into_parts(self) -> ZstdArrayParts {
+        ZstdArrayParts {
+            dictionary: self.dictionary,
+            frames: self.frames,
+            metadata: self.metadata,
+            dtype: self.dtype,
+            validity: self.unsliced_validity,
+            n_rows: self.unsliced_n_rows,
+            slice_start: self.slice_start,
+            slice_stop: self.slice_stop,
         }
     }
 

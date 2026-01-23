@@ -10,9 +10,12 @@
 //! # Platform Support
 //!
 //! nvCOMP is only available on Linux x86_64 and ARM64. On other platforms,
-//! this crate compiles but provides no functionality.
+//! this crate still builds against the CUDA APIs but can't be run..
+//!
+//! # Runtime Requirements
+//!
+//! The nvcomp library is linked dynamically.
 
-#[cfg(cuda_available)]
 #[allow(
     non_upper_case_globals,
     non_camel_case_types,
@@ -22,43 +25,31 @@
 )]
 pub mod sys;
 
+mod error;
+pub mod zstd;
+
+pub use error::NvcompError;
+
 #[cfg(test)]
 #[cfg(cuda_available)]
 mod tests {
-    use super::sys;
+    use crate::zstd;
 
-    /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync.
-    ///
-    /// This function computes the required temporary buffer size for decompression
-    /// without needing any GPU memory or actual data.
+    /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync
+    /// through our safe wrapper.
     #[test]
     fn test_get_decompress_temp_size() {
         let num_chunks = 10;
         let max_uncompressed_chunk_bytes = 65536; // 64KB recommended chunk size
         let max_total_uncompressed_bytes = num_chunks * max_uncompressed_chunk_bytes;
 
-        let opts = sys::nvcompBatchedZstdDecompressOpts_t {
-            backend: sys::nvcompDecompressBackend_t_NVCOMP_DECOMPRESS_BACKEND_DEFAULT,
-            reserved: [0; 60],
-        };
+        let temp_bytes = zstd::get_decompress_temp_size(
+            num_chunks,
+            max_uncompressed_chunk_bytes,
+            max_total_uncompressed_bytes,
+        )
+        .expect("get_decompress_temp_size failed");
 
-        let mut temp_bytes: usize = 0;
-
-        let status = unsafe {
-            sys::nvcompBatchedZstdDecompressGetTempSizeAsync(
-                num_chunks,
-                max_uncompressed_chunk_bytes,
-                opts,
-                &raw mut temp_bytes,
-                max_total_uncompressed_bytes,
-            )
-        };
-
-        assert_eq!(
-            status,
-            sys::nvcompStatus_t_nvcompSuccess,
-            "nvcompBatchedZstdDecompressGetTempSizeAsync failed with status: {}",
-            status
-        );
+        assert!(temp_bytes > 0, "Expected non-zero temp buffer size");
     }
 }
