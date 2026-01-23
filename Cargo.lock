@@ -10046,7 +10046,6 @@ dependencies = [
  "vortex-session",
  "vortex-sparse",
  "vortex-utils",
- "vortex-vector",
  "vortex-zigzag",
  "vortex-zstd",
 ]
@@ -10687,7 +10686,6 @@ dependencies = [
  "vortex-sequence",
  "vortex-session",
  "vortex-utils",
- "vortex-vector",
  "vortex-zstd",
 ]
 
