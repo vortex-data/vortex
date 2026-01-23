@@ -21,7 +21,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
@@ -48,9 +47,6 @@ use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
-use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
 
@@ -287,7 +283,6 @@ impl VTable for SequenceVTable {
         Ok(Canonical::Primitive(prim))
     }
 
-    // TODO(joe): remove via vector.
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -306,14 +301,18 @@ impl VTable for SequenceVTable {
 
         match filter.filter_mask().indices() {
             AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(VectorMut::with_capacity(array.dtype(), 0).freeze())),
+            AllOr::None => Ok(Some(Canonical::empty(array.dtype()))),
             AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
                 let base = array.base().cast::<P>();
                 let multiplier = array.multiplier().cast::<P>();
-                execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
+                Canonical::Primitive(execute_iter(
+                    base,
+                    multiplier,
+                    indices.iter().copied(),
+                    array.dtype().nullability(),
+                ))
             }))),
         }
-        .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
 
     fn reduce_parent(
@@ -342,8 +341,8 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
     base: P,
     multiplier: P,
     iter: I,
-    len: usize,
-) -> PVector<P> {
+    nullability: Nullability,
+) -> PrimitiveArray {
     let values = if multiplier == <P>::one() {
         BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
     } else {
@@ -352,7 +351,7 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
         )
     };
 
-    PVector::<P>::new(values.freeze(), Mask::new_true(len))
+    PrimitiveArray::new(values, nullability.into())
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {

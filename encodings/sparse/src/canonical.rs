@@ -16,6 +16,7 @@ use vortex_array::arrays::NullArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::ListViewBuilder;
@@ -49,7 +50,6 @@ use vortex_scalar::DecimalScalar;
 use vortex_scalar::ListScalar;
 use vortex_scalar::Scalar;
 use vortex_scalar::StructScalar;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::SparseArray;
 

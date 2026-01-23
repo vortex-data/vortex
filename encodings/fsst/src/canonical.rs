@@ -7,6 +7,7 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::arrays::build_views::MAX_BUFFER_LEN;
 use vortex_array::arrays::build_views::build_views;
 use vortex_array::vtable::ValidityHelper;
@@ -15,7 +16,6 @@ use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::FSSTArray;
 

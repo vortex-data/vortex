@@ -9,10 +9,12 @@ use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::PrimitiveArray;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
-use vortex_array::vectors::VectorIntoArray;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::BufferMut;
 use vortex_compute::filter::Filter;
 use vortex_dtype::NativePType;
@@ -21,10 +23,8 @@ use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskMut;
 use vortex_mask::MaskValues;
-use vortex_vector::VectorMutOps;
-use vortex_vector::primitive::PVectorMut;
-use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
@@ -84,49 +84,76 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             }
         });
 
-        let mut primitive_vector: PrimitiveVectorMut = match array.ptype() {
-            PType::U8 => filter_primitive_without_patches::<u8>(array, values)?.into(),
-            PType::U16 => filter_primitive_without_patches::<u16>(array, values)?.into(),
-            PType::U32 => filter_primitive_without_patches::<u32>(array, values)?.into(),
-            PType::U64 => filter_primitive_without_patches::<u64>(array, values)?.into(),
-
+        // Filter primitive values and apply patches, returning a PrimitiveArray.
+        // Since FastLanes only supports unsigned types, we filter as unsigned and then
+        // construct the PrimitiveArray with the correct signed ptype.
+        let primitive = match array.ptype() {
+            PType::U8 => filter_and_patch::<u8>(array, values, parent)?,
+            PType::U16 => filter_and_patch::<u16>(array, values, parent)?,
+            PType::U32 => filter_and_patch::<u32>(array, values, parent)?,
+            PType::U64 => filter_and_patch::<u64>(array, values, parent)?,
             // Since the fastlanes crate only supports unsigned integers, and since we know that all
             // numbers are going to be non-negative, we can safely "cast" to unsigned and back.
             PType::I8 => {
-                let pvector = filter_primitive_without_patches::<u8>(array, values)?;
-                unsafe { pvector.transmute::<i8>() }.into()
+                let unsigned = filter_and_patch::<u8>(array, values, parent)?;
+                // SAFETY: i8 and u8 have the same size and alignment.
+                let buffer = unsafe { unsigned.to_buffer::<u8>().transmute::<i8>() };
+                PrimitiveArray::new(buffer, unsigned.validity().clone())
             }
             PType::I16 => {
-                let pvector = filter_primitive_without_patches::<u16>(array, values)?;
-                unsafe { pvector.transmute::<i16>() }.into()
+                let unsigned = filter_and_patch::<u16>(array, values, parent)?;
+                // SAFETY: i16 and u16 have the same size and alignment.
+                let buffer = unsafe { unsigned.to_buffer::<u16>().transmute::<i16>() };
+                PrimitiveArray::new(buffer, unsigned.validity().clone())
             }
             PType::I32 => {
-                let pvector = filter_primitive_without_patches::<u32>(array, values)?;
-                unsafe { pvector.transmute::<i32>() }.into()
+                let unsigned = filter_and_patch::<u32>(array, values, parent)?;
+                // SAFETY: i32 and u32 have the same size and alignment.
+                let buffer = unsafe { unsigned.to_buffer::<u32>().transmute::<i32>() };
+                PrimitiveArray::new(buffer, unsigned.validity().clone())
             }
             PType::I64 => {
-                let pvector = filter_primitive_without_patches::<u64>(array, values)?;
-                unsafe { pvector.transmute::<i64>() }.into()
+                let unsigned = filter_and_patch::<u64>(array, values, parent)?;
+                // SAFETY: i64 and u64 have the same size and alignment.
+                let buffer = unsafe { unsigned.to_buffer::<u64>().transmute::<i64>() };
+                PrimitiveArray::new(buffer, unsigned.validity().clone())
             }
             other => {
                 unreachable!("Unsupported ptype {other} for bitpacking, we also checked this above")
             }
         };
 
-        // TODO(connor): We want a `PatchesArray` or patching compute functions instead of this.
-        let patches = array
-            .patches()
-            .map(|patches| patches.filter(&Mask::Values(values.clone())))
-            .transpose()?
-            .flatten();
-        if let Some(patches) = patches {
-            primitive_vector = patches.apply_to_primitive_vector(primitive_vector);
-        }
-
-        Ok(Some(Canonical::Primitive(
-            primitive_vector.freeze().into_array(parent.dtype()),
-        )))
+        Ok(Some(Canonical::Primitive(primitive)))
     }
+}
+
+/// Filters values from a BitPackedArray and applies any patches.
+///
+/// This helper function extracts values at the given indices, applies patches, and
+/// returns the resulting PrimitiveArray.
+fn filter_and_patch<U: UnsignedPType + BitPacking>(
+    array: &BitPackedArray,
+    values: &Arc<MaskValues>,
+    parent: &FilterArray,
+) -> VortexResult<PrimitiveArray> {
+    let (mut buffer, mut validity) = filter_primitive_without_patches::<U>(array, values)?;
+
+    // TODO(connor): We want a `PatchesArray` or patching compute functions instead of this.
+    let patches = array
+        .patches()
+        .map(|patches| patches.filter(&Mask::Values(values.clone())))
+        .transpose()?
+        .flatten();
+    if let Some(patches) = patches {
+        // SAFETY: All patch indices are valid after offset adjustment (guaranteed by Patches).
+        // The buffer and validity have the same length.
+        unsafe {
+            patches.apply_to_buffer(buffer.as_mut_slice(), &mut validity);
+        }
+    }
+
+    let validity = Validity::from_mask(validity.freeze(), parent.dtype().nullability());
+    Ok(PrimitiveArray::new(buffer.freeze(), validity))
 }
 
 /// Specialized filter kernel for primitive bit-packed arrays.
@@ -138,10 +165,12 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
 /// This function fully decompresses the array for all but the most selective masks because the
 /// FastLanes decompression is so fast and the bookkeepping necessary to decompress individual
 /// elements is relatively slow.
+///
+/// Returns a tuple of (values buffer, validity mask).
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: &BitPackedArray,
     selection: &Arc<MaskValues>,
-) -> VortexResult<PVectorMut<U>> {
+) -> VortexResult<(BufferMut<U>, MaskMut)> {
     let values = filter_with_indices(array, selection.indices());
     let validity = array
         .validity_mask()?
@@ -154,7 +183,7 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
         "`filter_with_indices` was somehow incorrect"
     );
 
-    Ok(unsafe { PVectorMut::new_unchecked(values, validity) })
+    Ok((values, validity))
 }
 
 fn filter_with_indices<T: NativePType + BitPacking>(

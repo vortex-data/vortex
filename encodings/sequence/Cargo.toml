@@ -24,7 +24,6 @@ vortex-mask = { workspace = true }
 vortex-proto = { workspace = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 itertools = { workspace = true }
