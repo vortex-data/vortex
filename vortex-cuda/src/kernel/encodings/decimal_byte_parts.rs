@@ -50,6 +50,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
 }
 
 #[cfg(test)]
+#[cfg(cuda_available)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
@@ -63,7 +64,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::has_nvcc;
     use crate::session::CudaSession;
 
     #[rstest]
@@ -77,10 +77,6 @@ mod tests {
         #[case] precision: u8,
         #[case] scale: i8,
     ) {
-        if !has_nvcc() {
-            return;
-        }
-
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("create execution context");
 

@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! CUDA benchmarks for FoR decompression.
-//!
-//! This module is only compiled when CUDA/nvcc is available.
-//! The `cuda_available` cfg is automatically set by build.rs.
 
 // When CUDA is not available, provide a stub main.
 #[cfg(not(cuda_available))]
