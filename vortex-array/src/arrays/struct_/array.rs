@@ -32,7 +32,7 @@ pub struct StructMetadata {
     /// For nullable children, their validity already includes struct nulls. For non-nullable
     /// children, we apply struct validity on field read. If false (default), no guarantee
     /// about relationship - must intersect validities on read.
-    #[prost(bool, tag = "1")]
+    #[prost(bool, tag = "1", default = false)]
     pub(super) validity_pushed_down: bool,
 }
 
