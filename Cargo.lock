@@ -10336,16 +10336,20 @@ dependencies = [
  "cudarc",
  "futures",
  "kanal",
+ "rstest",
  "tokio",
  "tracing",
+ "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-decimal-byte-parts",
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
  "vortex-nvcomp",
  "vortex-session",
  "vortex-utils",
+ "vortex-zigzag",
 ]
 
 [[package]]

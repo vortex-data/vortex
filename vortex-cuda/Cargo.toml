@@ -26,18 +26,23 @@ cudarc = { workspace = true }
 futures = { workspace = true }
 kanal = { workspace = true }
 tracing = { workspace = true }
+vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-nvcomp = { path = "nvcomp", optional = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-zigzag = { workspace = true }
 
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [build-dependencies]
 
