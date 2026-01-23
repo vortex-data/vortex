@@ -98,8 +98,42 @@ impl CudaExecutionCtx {
     /// # Errors
     ///
     /// Returns an error if kernel loading fails.
-    pub fn load_function(&self, module_name: &str, ptypes: &[PType]) -> VortexResult<CudaFunction> {
-        self.cuda_session.load_function(module_name, ptypes)
+    pub fn load_function_ptype(
+        &self,
+        module_name: &str,
+        ptypes: &[PType],
+    ) -> VortexResult<CudaFunction> {
+        let type_suffixes: Vec<String> = ptypes.iter().map(|ptype| ptype.to_string()).collect();
+        self.load_function(
+            module_name,
+            type_suffixes
+                .iter()
+                .map(|t| t.as_str())
+                .collect::<Vec<_>>()
+                .as_slice(),
+        )
+    }
+
+    /// Loads a CUDA kernel function by module name and type suffixes.
+    ///
+    /// This is a lower-level version of `load_function` that accepts string suffixes
+    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
+    ///
+    /// # Arguments
+    ///
+    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
+    /// * `type_suffixes` - List of type suffix strings for the kernel name
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if kernel loading fails.
+    pub fn load_function(
+        &self,
+        module_name: &str,
+        type_suffixes: &[&str],
+    ) -> VortexResult<CudaFunction> {
+        self.cuda_session
+            .load_function_with_suffixes(module_name, type_suffixes)
     }
 
     /// Returns a launch builder for a CUDA kernel function.

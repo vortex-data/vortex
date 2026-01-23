@@ -20,6 +20,7 @@ all-features = true
 arbitrary = { workspace = true, optional = true }
 arrow-buffer = { workspace = true }
 arrow-schema = { workspace = true, optional = true }
+cudarc = { workspace = true, optional = true }
 flatbuffers = { workspace = true }
 half = { workspace = true, features = ["num-traits"] }
 itertools = { workspace = true }
@@ -52,4 +53,5 @@ workspace = true
 default = ["arrow"]
 arbitrary = ["dep:arbitrary", "dep:primitive-types"]
 arrow = ["dep:arrow-schema"]
+cudarc = ["dep:cudarc"]
 serde = ["dep:serde"]

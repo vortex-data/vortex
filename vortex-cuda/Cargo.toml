@@ -30,7 +30,7 @@ vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
@@ -45,6 +45,7 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-dtype = { workspace = true, features = ["cudarc"] }
 
 [build-dependencies]
 

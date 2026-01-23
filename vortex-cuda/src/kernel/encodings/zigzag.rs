@@ -86,7 +86,7 @@ where
 
     // Load kernel function
     let kernel_ptypes = [U::PTYPE];
-    let cuda_function = ctx.load_function("zigzag", &kernel_ptypes)?;
+    let cuda_function = ctx.load_function_ptype("zigzag", &kernel_ptypes)?;
     let mut launch_builder = ctx.launch_builder(&cuda_function);
 
     // Build launch args: buffer, length

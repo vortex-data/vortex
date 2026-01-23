@@ -15,7 +15,6 @@ use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -138,32 +137,27 @@ impl KernelLoader {
         }
     }
 
-    /// Loads CUDA function by module name and ptype(s).
+    /// Loads CUDA function by module name and type suffixes.
+    ///
+    /// This is a lower-level version of `load_function` that accepts string suffixes
+    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
     ///
     /// # Arguments
     ///
     /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `ptypes` - List of ptype strings for argument passed to the kernel (`kernel_i32`)
+    /// * `type_suffixes` - List of type suffix strings for the kernel name (`kernel_i128`)
     /// * `cuda_context` - CUDA context for loading the module
     pub fn load_function(
         &self,
         module_name: &str,
-        ptypes: &[PType],
+        type_suffixes: &[&str],
         cuda_context: &Arc<CudaContext>,
     ) -> VortexResult<CudaFunction> {
         // Kernel name pattern: `<module>_<type_1>_..<type_n>`.
-        let kernel_name = if ptypes.is_empty() {
+        let kernel_name = if type_suffixes.is_empty() {
             module_name.to_string()
         } else {
-            format!(
-                "{}_{}",
-                module_name,
-                ptypes
-                    .iter()
-                    .map(|ptype| ptype.to_string())
-                    .collect::<Vec<_>>()
-                    .join("_")
-            )
+            format!("{}_{}", module_name, type_suffixes.join("_"))
         };
 
         // Check if module is already cached
