@@ -234,9 +234,9 @@ impl TryFrom<PType> for DecimalType {
     fn try_from(value: PType) -> Result<Self, Self::Error> {
         Ok(match value {
             PType::I8 => DecimalType::I8,
-            PType::I16 => DecimalType::I8,
-            PType::I32 => DecimalType::I8,
-            PType::I64 => DecimalType::I8,
+            PType::I16 => DecimalType::I16,
+            PType::I32 => DecimalType::I32,
+            PType::I64 => DecimalType::I64,
             p @ (PType::U8
             | PType::U16
             | PType::U32
