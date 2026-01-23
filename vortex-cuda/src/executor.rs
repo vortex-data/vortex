@@ -216,3 +216,12 @@ impl CudaArrayExt for ArrayRef {
         support.execute(self, ctx).await
     }
 }
+
+#[cfg(feature = "_test-harness")]
+impl CudaExecutionCtx {
+    pub fn synchronize_stream(&self) -> VortexResult<()> {
+        self.stream
+            .synchronize()
+            .map_err(|e| vortex_err!("cuda error: {e}"))
+    }
+}

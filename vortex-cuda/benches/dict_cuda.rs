@@ -27,11 +27,7 @@ use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
 
-const BENCH_ARGS: &[(usize, &str)] = &[
-    (10_000_000, "10M"),
-    (100_000_000, "100M"),
-    (1_000_000_000, "1B"),
-];
+const BENCH_ARGS: &[(usize, &str)] = &[(10_000_000, "10M"), (100_000_000, "100M")];
 
 /// Creates a Dict array with u32 values and u8 codes for the given size.
 fn make_dict_array_u32_u8(len: usize) -> DictArray {

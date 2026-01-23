@@ -3,7 +3,6 @@
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DictArray;
@@ -173,6 +172,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -207,6 +207,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -238,6 +239,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -255,7 +257,7 @@ mod tests {
         let values_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
 
         #[expect(clippy::cast_possible_truncation)]
-        let codes: Vec<u16> = (0..2049).map(|i| (i % 256) as u16).collect();
+        let codes: Vec<u16> = (0..5000).map(|i| (i % 256) as u16).collect();
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values_array.into_array())
@@ -270,6 +272,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -306,9 +309,7 @@ mod tests {
         });
 
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
-
-        println!("res {:?}", cuda_result);
-        println!("res {:?}", cuda_result.as_slice::<u32>());
+        cuda_ctx.synchronize_stream()?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -345,6 +346,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -389,6 +391,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -434,6 +437,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -467,6 +471,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
+        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
