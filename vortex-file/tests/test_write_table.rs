@@ -13,6 +13,7 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ListArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
+use vortex_array::assert_arrays_eq;
 use vortex_array::expr::get_item;
 use vortex_array::expr::root;
 use vortex_array::expr::session::ExprSession;
@@ -167,7 +168,7 @@ async fn test_list_of_struct_nested_projection() {
                 ],
             )]),
         ],
-        element_dtype,
+        element_dtype.clone(),
     )
     .unwrap();
 
@@ -178,7 +179,7 @@ async fn test_list_of_struct_nested_projection() {
 
     let data = StructArray::new(
         FieldNames::from(["id", "items"]),
-        vec![ids, items],
+        vec![ids, items.clone()],
         row_count,
         Validity::NonNullable,
     )
@@ -204,19 +205,33 @@ async fn test_list_of_struct_nested_projection() {
     let mut stream = vxf
         .scan()
         .expect("scan")
-        .with_projection(projection)
+        .with_projection(projection.clone())
         .into_stream()
         .expect("into_stream");
 
     let out = stream.next().await.expect("first batch").expect("batch");
 
-    // Smoke-check the projected shape; detailed value semantics are covered by unit tests in
-    // `vortex-array`.
-    assert_eq!(out.len(), row_count);
-    assert!(matches!(
-        out.dtype(),
-        vortex_dtype::DType::List(_, Nullability::Nullable)
-    ));
+    let expected = ListArray::from_iter_opt_slow::<u32, _, _>(
+        [
+            Some(vec![
+                Scalar::primitive(1i32, Nullability::NonNullable),
+                Scalar::primitive(2i32, Nullability::NonNullable),
+            ]),
+            Some(Vec::new()),
+            None,
+            Some(vec![Scalar::primitive(3i32, Nullability::NonNullable)]),
+        ],
+        Arc::new(vortex_dtype::DType::Primitive(
+            PType::I32,
+            Nullability::NonNullable,
+        )),
+    )
+    .unwrap()
+    .into_array();
+    let simplified = projection.optimize_recursive(data.dtype()).unwrap();
+    let expected_dtype = simplified.return_dtype(data.dtype()).unwrap();
+    assert_eq!(out.dtype(), &expected_dtype);
+    assert_arrays_eq!(expected, out);
 
     // Verify the list column is not stored as a single flat blob layout.
     // This is the root cause of poor nested support described in #4889.

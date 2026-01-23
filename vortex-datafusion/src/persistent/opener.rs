@@ -224,8 +224,8 @@ impl FileOpener for VortexOpener {
 
             // The schema of the stream returned from the vortex scan.
             // We use the physical_file_schema as reference for types that don't roundtrip.
-            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
-                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
+            let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|e| {
+                exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan: {e}")
             })?;
             let stream_schema = calculate_physical_schema(&scan_dtype, &projected_physical_schema)?;
 

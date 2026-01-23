@@ -97,15 +97,7 @@ impl VTable for GetItem {
                 vortex_err!("Couldn't find the {} field in the input scope", field_name)
             })?;
 
-        // Match here to avoid cloning the dtype if nullability doesn't need to change
-        if matches!(
-            (struct_dtype.nullability(), field_dtype.nullability()),
-            (Nullability::Nullable, Nullability::NonNullable)
-        ) {
-            return Ok(field_dtype.with_nullability(Nullability::Nullable));
-        }
-
-        Ok(field_dtype)
+        Ok(field_dtype.union_nullability(struct_dtype.nullability()))
     }
 
     fn execute(

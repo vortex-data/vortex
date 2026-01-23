@@ -819,4 +819,16 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn get_item_list_is_not_serializable() {
+        let expr = get_item_list("field", root());
+        let err = expr
+            .serialize_proto()
+            .expect_err("get_item_list must not be serializable");
+        assert!(
+            err.to_string().contains("must not be serialized"),
+            "unexpected error: {err}"
+        );
+    }
 }

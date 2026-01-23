@@ -121,6 +121,9 @@ impl ListReader {
         self.lazy_children.get(idx)
     }
 
+    /// Creates a future that will produce a slice of this list array.
+    ///
+    /// The produced slice may have a projection applied to its elements.
     fn list_slice_future(
         &self,
         row_range: Range<u64>,
