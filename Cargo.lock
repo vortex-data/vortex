@@ -10803,7 +10803,6 @@ dependencies = [
  "vortex-mask",
  "vortex-proto",
  "vortex-utils",
- "vortex-vector",
 ]
 
 [[package]]

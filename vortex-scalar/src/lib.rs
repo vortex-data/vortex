@@ -28,7 +28,6 @@ mod struct_;
 #[cfg(test)]
 mod tests;
 mod utf8;
-mod vectors;
 
 pub use binary::*;
 pub use bool::*;
