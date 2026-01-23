@@ -32,7 +32,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
             vortex_bail!("cannot downcast to DecimalBytePartsArray")
         };
 
-        let decimal_dtype = array.decimal_dtype().clone();
+        let decimal_dtype = *array.decimal_dtype();
         let DecimalBytePartsArrayParts { msp, .. } = array.into_parts();
         let PrimitiveArrayParts {
             buffer,
@@ -67,13 +67,15 @@ mod tests {
     use crate::session::CudaSession;
 
     #[rstest]
-    #[case::i8(Buffer::from(vec![100i8, 101, 102, -1, -100]))]
-    #[case::i16(Buffer::from(vec![100i16, 200, 300, 400, 500]))]
-    #[case::i32(Buffer::from(vec![100i32, 200, 300, 400, 500]))]
-    #[case::i64(Buffer::from(vec![100i64, 200, 300, 400, 500]))]
+    #[case::i8_p5_s2(Buffer::from(vec![100i8, 101, 102, -1, -100]), 5, 2)]
+    #[case::i16_p10_s2(Buffer::from(vec![100i16, 200, 300, 400, 500]), 10, 2)]
+    #[case::i32_p18_s4(Buffer::from(vec![100i32, 200, 300, 400, 500]), 18, 4)]
+    #[case::i64_p38_s6(Buffer::from(vec![100i64, 200, 300, 400, 500]), 38, 6)]
     #[tokio::test]
     async fn test_decimal_byte_parts_gpu_decode<T: vortex_dtype::NativePType>(
         #[case] encoded: Buffer<T>,
+        #[case] precision: u8,
+        #[case] scale: i8,
     ) {
         if !has_nvcc() {
             return;
@@ -82,7 +84,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("create execution context");
 
-        let decimal_dtype = DecimalDType::new(10, 2);
+        let decimal_dtype = DecimalDType::new(precision, scale);
         let dbp_array = DecimalBytePartsArray::try_new(
             PrimitiveArray::new(encoded, Validity::NonNullable).into_array(),
             decimal_dtype,
