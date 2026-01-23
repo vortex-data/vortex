@@ -15,9 +15,12 @@ use vortex_error::VortexResult;
 /// Move all canonical data from to_host from device.
 #[async_trait]
 pub trait CanonicalCudaExt {
-    async fn to_host(self) -> VortexResult<Self>;
+    async fn to_host(self) -> VortexResult<Self>
+    where
+        Self: Sized;
 }
 
+#[async_trait]
 impl CanonicalCudaExt for Canonical {
     async fn to_host(self) -> VortexResult<Self> {
         match self {
@@ -44,10 +47,10 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Decimal(decimal) => {
                 let DecimalArrayParts {
                     decimal_dtype,
-                    nullability,
                     values,
                     values_type,
                     validity,
+                    ..
                 } = decimal.into_parts();
                 Ok(Canonical::Decimal(unsafe {
                     DecimalArray::new_unchecked_handle(
