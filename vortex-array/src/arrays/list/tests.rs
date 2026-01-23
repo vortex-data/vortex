@@ -919,7 +919,7 @@ fn test_filter_sliced_list_array() -> VortexResult<()> {
         Validity::AllValid,
     )?
     .into_array()
-    .slice(2..5);
+    .slice(2..5)?;
 
     let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
     let filter_array = FilterArray::new(list, mask).into_array();
