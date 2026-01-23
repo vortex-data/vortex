@@ -104,7 +104,7 @@ fn filter_primitive_no_decompression<T: NativePType + BitPacking>(
 
     let mut values = PrimitiveArray::new(values, validity).reinterpret_cast(array.ptype());
     if let Some(patches) = patches {
-        values = values.patch(&patches);
+        values = values.patch(&patches)?;
     }
     Ok(values)
 }
@@ -198,7 +198,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let sliced = bitpacked.slice(128..2050);
+        let sliced = bitpacked.slice(128..2050).unwrap();
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 

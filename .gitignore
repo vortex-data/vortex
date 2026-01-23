@@ -229,3 +229,6 @@ sweep.timestamp
 
 # CUDA
 *.ptx
+
+# nvCOMP SDK (downloaded at build time)
+vortex-cuda/nvcomp/sdk/

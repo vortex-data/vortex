@@ -6,9 +6,6 @@
 //! This crate defines error & result types for Vortex.
 //! It also contains a variety of useful macros for error handling.
 
-#[cfg(feature = "python")]
-pub mod python;
-
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;

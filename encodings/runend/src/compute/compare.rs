@@ -26,21 +26,18 @@ impl CompareKernel for RunEndVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is constant, then we just need to compare against our encoded values.
         if let Some(const_scalar) = rhs.as_constant() {
-            return compare(
+            let values = compare(
                 lhs.values(),
                 ConstantArray::new(const_scalar, lhs.values().len()).as_ref(),
                 operator,
-            )
-            .map(|values| {
-                runend_decode_bools(
-                    lhs.ends().to_primitive(),
-                    values.to_bool(),
-                    lhs.offset(),
-                    lhs.len(),
-                )
-            })
-            .map(|a| a.into_array())
-            .map(Some);
+            )?;
+            let decoded = runend_decode_bools(
+                lhs.ends().to_primitive(),
+                values.to_bool(),
+                lhs.offset(),
+                lhs.len(),
+            )?;
+            return Ok(Some(decoded.into_array()));
         }
 
         // Otherwise, fall back

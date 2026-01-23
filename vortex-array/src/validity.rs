@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -98,8 +99,8 @@ impl Validity {
     }
 
     #[inline]
-    pub fn all_valid(&self, len: usize) -> bool {
-        match self {
+    pub fn all_valid(&self, len: usize) -> VortexResult<bool> {
+        Ok(match self {
             _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
@@ -108,12 +109,12 @@ impl Validity {
                     .vortex_expect("sum must be a usize")
                     == array.len()
             }
-        }
+        })
     }
 
     #[inline]
-    pub fn all_invalid(&self, len: usize) -> bool {
-        match self {
+    pub fn all_invalid(&self, len: usize) -> VortexResult<bool> {
+        Ok(match self {
             _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
@@ -122,13 +123,13 @@ impl Validity {
                     .vortex_expect("sum must be a usize")
                     == 0
             }
-        }
+        })
     }
 
     /// Returns whether the `index` item is valid.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> bool {
-        match self {
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
             Self::Array(a) => a
@@ -137,19 +138,19 @@ impl Validity {
                 .as_bool()
                 .value()
                 .vortex_expect("Validity must be non-nullable"),
-        }
+        })
     }
 
     #[inline]
-    pub fn is_null(&self, index: usize) -> bool {
-        !self.is_valid(index)
+    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
+        Ok(!self.is_valid(index)?)
     }
 
     #[inline]
-    pub fn slice(&self, range: Range<usize>) -> Self {
+    pub fn slice(&self, range: Range<usize>) -> VortexResult<Self> {
         match self {
-            Self::Array(a) => Self::Array(a.slice(range)),
-            Self::NonNullable | Self::AllValid | Self::AllInvalid => self.clone(),
+            Self::Array(a) => Ok(Self::Array(a.slice(range)?)),
+            Self::NonNullable | Self::AllValid | Self::AllInvalid => Ok(self.clone()),
         }
     }
 
@@ -270,17 +271,17 @@ impl Validity {
         indices_offset: usize,
         indices: &dyn Array,
         patches: &Validity,
-    ) -> Self {
+    ) -> VortexResult<Self> {
         match (&self, patches) {
-            (Validity::NonNullable, Validity::NonNullable) => return Validity::NonNullable,
+            (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
-                vortex_panic!("Can't patch a non-nullable validity with nullable validity")
+                vortex_bail!("Can't patch a non-nullable validity with nullable validity")
             }
             (_, Validity::NonNullable) => {
-                vortex_panic!("Can't patch a nullable validity with non-nullable validity")
+                vortex_bail!("Can't patch a nullable validity with non-nullable validity")
             }
-            (Validity::AllValid, Validity::AllValid) => return Validity::AllValid,
-            (Validity::AllInvalid, Validity::AllInvalid) => return Validity::AllInvalid,
+            (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+            (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
             _ => {}
         };
 
@@ -311,9 +312,12 @@ impl Validity {
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,
-        );
+        )?;
 
-        Self::from_array(source.patch(&patches).into_array(), own_nullability)
+        Ok(Self::from_array(
+            source.patch(&patches)?.into_array(),
+            own_nullability,
+        ))
     }
 
     /// Convert into a nullable variant
@@ -540,13 +544,18 @@ mod tests {
     ) {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
-        assert_eq!(validity.patch(len, 0, &indices, &patches), expected);
+        assert_eq!(
+            validity.patch(len, 0, &indices, &patches).unwrap(),
+            expected
+        );
     }
 
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
-        Validity::NonNullable.patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid);
+        Validity::NonNullable
+            .patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid)
+            .unwrap();
     }
 
     #[test]

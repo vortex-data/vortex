@@ -209,17 +209,13 @@ jobs:
       matrix:
         config:
           - name: "all-features"
-            command: "build"
             args: "--all-features --all-targets"
           - name: "default features"
-            command: "build"
             args: "--all-targets"
           - name: "with tokio dispatcher"
-            command: "build"
             # Only build the crates that have the tokio features, not re-building other crates with no-default-features
             args: "--no-default-features --features tokio --all-targets -p vortex -p vortex-io -p vortex-file -p vortex-layout"
           - name: "wasm32 with default features"
-            command: "build"
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
@@ -239,7 +235,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: Rust Build (${{matrix.config.name}})
-        run: ${{matrix.config.env.rustflags}} cargo hack ${{matrix.config.command}} --locked ${{matrix.config.args}} --ignore-private
+        run: ${{matrix.config.env.rustflags}} cargo hack build --locked ${{matrix.config.args}} --ignore-private
       - name: "Make sure no files changed after build"
         run: |
           git status --porcelain
@@ -299,19 +295,15 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
   rust-lint-no-default:
-    name: "Rust (lint, no default, ${{ matrix.partition }}/2)"
+    name: "Rust (lint, no default)"
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        partition: [1, 2]
     runs-on:
       - runs-on=${{ github.run_id }}
       - family=m7i+m7i-flex+m7a
       - cpu=16
       - image=ubuntu24-full-x64
       - extras=s3-cache
-      - tag=rust-lint-no-default-${{ matrix.partition }}
+      - tag=rust-lint-no-default
     steps:
       - uses: runs-on/action@v2
         with:
@@ -326,8 +318,8 @@ jobs:
       - name: Rust Lint - Clippy No Default Features
         shell: bash
         run: |
-          # https://spiraldb.slack.com/archives/C07BV3GKAJ2/p1732736281946729
-          cargo hack clippy --no-default-features --partition ${{ matrix.partition }}/2 -- -D warnings
+          cargo hack --no-dev-deps --ignore-private clippy --no-default-features -- -D warnings
+
 
   rust-semver:
     name: "Rust (semver checks)"
@@ -495,6 +487,52 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
+  cuda-test:
+    name: "CUDA tests"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-tests
+    env:
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests
+        run: |
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            -p vortex-cuda \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
+
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
     timeout-minutes: 120
@@ -611,6 +649,43 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+
+  bench-codspeed-gpu:
+    name: "Benchmark with Codspeed (GPU)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=bench-codspeed-gpu
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install Codspeed
+        run: cargo install --force cargo-codspeed --locked
+      - name: Build benchmarks
+        run: cargo codspeed -m walltime build -p vortex-cuda --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
+        env:
+          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "walltime"
 
   license-check-and-audit-check:
     name: License Check and Audit Check

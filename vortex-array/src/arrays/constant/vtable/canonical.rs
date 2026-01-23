@@ -140,7 +140,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len()));
+                    assert!(validity.all_invalid(array.len())?);
                     struct_dtype
                         .fields()
                         .map(|dt| {
@@ -514,7 +514,7 @@ mod tests {
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
-            let list = canonical.fixed_size_list_elements_at(i);
+            let list = canonical.fixed_size_list_elements_at(i).unwrap();
             let list_primitive = list.to_primitive();
             assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
@@ -662,14 +662,14 @@ mod tests {
 
         // Check element validity.
         let element_validity = elements.validity();
-        assert!(element_validity.is_valid(0));
-        assert!(!element_validity.is_valid(1));
-        assert!(element_validity.is_valid(2));
+        assert!(element_validity.is_valid(0).unwrap());
+        assert!(!element_validity.is_valid(1).unwrap());
+        assert!(element_validity.is_valid(2).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3));
-        assert!(!element_validity.is_valid(4));
-        assert!(element_validity.is_valid(5));
+        assert!(element_validity.is_valid(3).unwrap());
+        assert!(!element_validity.is_valid(4).unwrap());
+        assert!(element_validity.is_valid(5).unwrap());
     }
 
     #[test]

@@ -217,7 +217,7 @@ impl VarBinViewArray {
         F: Fn(&[u8]) -> bool,
     {
         for (idx, &view) in views.iter().enumerate() {
-            if validity.is_null(idx) {
+            if validity.is_null(idx)? {
                 continue;
             }
 

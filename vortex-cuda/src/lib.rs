@@ -24,6 +24,8 @@ pub use session::CudaSession;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_fastlanes::FoRVTable;
+#[cfg(feature = "nvcomp")]
+pub use vortex_nvcomp as nvcomp;
 use vortex_zigzag::ZigZagVTable;
 
 /// Check if the NVIDIA CUDA Compiler is available.

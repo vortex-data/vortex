@@ -26,7 +26,6 @@ use vortex_array::vtable::ValidityVTableFromValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -111,7 +110,7 @@ impl VTable for BitPackedVTable {
                 patch_indices,
                 patch_values,
                 patch_chunk_offsets,
-            ))
+            )?)
         } else {
             None
         };
@@ -176,7 +175,7 @@ impl VTable for BitPackedVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let packed = buffers[0].clone().try_to_host_sync()?;
+        let packed = buffers[0].clone();
 
         let load_validity = |child_idx: usize| {
             if children.len() == child_idx {
@@ -196,7 +195,7 @@ impl VTable for BitPackedVTable {
 
         let validity_idx = match &metadata.patches {
             None => 0,
-            Some(patches_meta) if patches_meta.chunk_offsets_dtype().is_some() => 3,
+            Some(patches_meta) if patches_meta.chunk_offsets_dtype()?.is_some() => 3,
             Some(_) => 2,
         };
 
@@ -205,20 +204,14 @@ impl VTable for BitPackedVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children.get(0, &p.indices_dtype(), p.len())?;
-                let values = children.get(1, dtype, p.len())?;
+                let indices = children.get(0, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(1, dtype, p.len()?)?;
                 let chunk_offsets = p
-                    .chunk_offsets_dtype()
+                    .chunk_offsets_dtype()?
                     .map(|dtype| children.get(2, &dtype, p.chunk_offsets_len() as usize))
                     .transpose()?;
 
-                Ok::<_, VortexError>(Patches::new(
-                    len,
-                    p.offset(),
-                    indices,
-                    values,
-                    chunk_offsets,
-                ))
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -298,7 +291,7 @@ impl VTable for BitPackedVTable {
             BitPackedArray::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype.clone(),
-                array.validity().slice(range.clone()),
+                array.validity().slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))

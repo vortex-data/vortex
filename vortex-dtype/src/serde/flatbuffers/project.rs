@@ -111,7 +111,7 @@ mod tests {
     }
 
     fn serialize_dtype(dtype: &DType) -> FlatBuffer {
-        let bytes = dtype.write_flatbuffer_bytes();
+        let bytes = dtype.write_flatbuffer_bytes().unwrap();
         FlatBuffer::from(bytes)
     }
 

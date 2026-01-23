@@ -180,7 +180,7 @@ impl VarBinArray {
                     .map(|o| (o[0].as_(), o[1].as_()))
                     .enumerate()
                 {
-                    if validity.is_null(i) {
+                    if validity.is_null(i)? {
                         continue;
                     }
 
@@ -317,12 +317,13 @@ impl VarBinArray {
     /// # Example
     ///
     /// ```
+    /// # fn main() -> vortex_error::VortexResult<()> {
     /// # use vortex_array::arrays::VarBinArray;
     /// # use vortex_array::arrays::VarBinVTable;
     /// # use vortex_dtype::DType;
     /// # use vortex_dtype::Nullability::NonNullable;
     /// let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
-    /// let sliced = items.slice(1..3).as_::<VarBinVTable>().clone();
+    /// let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
     ///
     /// // After slicing, there is some unused data at the front of the bytes.
     /// assert_eq!(sliced.offset_at(0), 3);
@@ -331,6 +332,8 @@ impl VarBinArray {
     /// let truncated = sliced.zero_offsets();
     /// assert_eq!(truncated.offset_at(0), 0);
     /// assert_eq!(truncated.len(), 2);
+    /// # Ok(())
+    /// # }
     /// ```
     #[doc(hidden)]
     pub fn zero_offsets(self) -> Self {

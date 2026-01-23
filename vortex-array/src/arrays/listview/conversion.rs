@@ -53,7 +53,7 @@ pub fn list_view_from_list(list: ListArray, ctx: &mut ExecutionCtx) -> VortexRes
 
     // We need to slice the `offsets` to remove the last element (`ListArray` has `n + 1` offsets).
     debug_assert_eq!(list_offsets.len(), list.len() + 1);
-    let adjusted_offsets = list_offsets.slice(0..list.len());
+    let adjusted_offsets = list_offsets.slice(0..list.len())?;
 
     // SAFETY: Since everything came from an existing valid `ListArray`, and the `sizes` were
     // derived from valid and in-order `offsets`, we know these fields are valid.
@@ -342,7 +342,7 @@ mod tests {
 
         // ListArray offsets should have n+1 elements for n lists (add the final offset).
         // Check that the first n offsets match.
-        let list_array_offsets_without_last = list_array.offsets().slice(0..list_view.len());
+        let list_array_offsets_without_last = list_array.offsets().slice(0..list_view.len())?;
         assert_arrays_eq!(list_view.offsets().clone(), list_array_offsets_without_last);
 
         // Verify data integrity.
@@ -404,8 +404,8 @@ mod tests {
 
         // The resulting ListArray should have monotonic offsets.
         for i in 0..list_array.len() {
-            let start = list_array.offset_at(i);
-            let end = list_array.offset_at(i + 1);
+            let start = list_array.offset_at(i)?;
+            let end = list_array.offset_at(i + 1)?;
             assert!(end >= start, "Offsets should be monotonic after conversion");
         }
 
@@ -424,7 +424,7 @@ mod tests {
 
         // All sublists should be empty.
         for i in 0..list_array.len() {
-            assert_eq!(list_array.list_elements_at(i).len(), 0);
+            assert_eq!(list_array.list_elements_at(i)?.len(), 0);
         }
 
         // Round-trip.

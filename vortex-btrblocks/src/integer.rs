@@ -822,7 +822,7 @@ mod tests {
     }
 
     #[test]
-    fn test_dict_encodable() {
+    fn test_dict_encodable() -> VortexResult<()> {
         let mut codes = BufferMut::<i32>::with_capacity(65_535);
         // Write some runs of length 3 of a handful of different values. Interrupted by some
         // one-off values.
@@ -842,38 +842,36 @@ mod tests {
         }
 
         let primitive = codes.freeze().into_array().to_primitive();
-        let compressed = IntCompressor::compress(&primitive, false, 3, &[]).unwrap();
+        let compressed = IntCompressor::compress(&primitive, false, 3, &[])?;
         assert!(compressed.is::<DictVTable>());
+        Ok(())
     }
 
     #[test]
-    fn sparse_with_nulls() {
+    fn sparse_with_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::new(
             buffer![189u8, 189, 189, 0, 46],
             Validity::from_iter(vec![true, true, true, true, false]),
         );
-        let compressed = SparseScheme
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
-            .unwrap();
+        let compressed = SparseScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
         assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected =
             PrimitiveArray::new(buffer![189u8, 189, 189, 0, 0], array.validity().clone())
                 .into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
     }
 
     #[test]
-    fn sparse_mostly_nulls() {
+    fn sparse_mostly_nulls() -> VortexResult<()> {
         let array = PrimitiveArray::new(
             buffer![189u8, 189, 189, 189, 189, 189, 189, 189, 189, 0, 46],
             Validity::from_iter(vec![
                 false, false, false, false, false, false, false, false, false, false, true,
             ]),
         );
-        let compressed = SparseScheme
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
-            .unwrap();
+        let compressed = SparseScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
         assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
@@ -882,36 +880,36 @@ mod tests {
         )
         .into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
     }
 
     #[test]
-    fn nullable_sequence() {
+    fn nullable_sequence() -> VortexResult<()> {
         let values = (0i32..20).step_by(7).collect_vec();
         let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
-        let compressed = SequenceScheme
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
-            .unwrap();
+        let compressed = SequenceScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
         assert!(compressed.is::<SequenceVTable>());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
     }
 
     #[test]
-    fn test_rle_compression() {
+    fn test_rle_compression() -> VortexResult<()> {
         let mut values = Vec::new();
         values.extend(iter::repeat_n(42i32, 100));
         values.extend(iter::repeat_n(123i32, 200));
         values.extend(iter::repeat_n(987i32, 150));
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = RLE_INTEGER_SCHEME
-            .compress(&IntegerStats::generate(&array), false, 3, &[])
-            .unwrap();
+        let compressed =
+            RLE_INTEGER_SCHEME.compress(&IntegerStats::generate(&array), false, 3, &[])?;
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
     }
 
     #[test_with::env(CI)]

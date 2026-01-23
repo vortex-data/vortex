@@ -133,10 +133,10 @@ impl VTable for VarBinVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(unsafe {
             VarBinArray::new_unchecked(
-                array.offsets().slice(range.start..range.end + 1),
+                array.offsets().slice(range.start..range.end + 1)?,
                 array.bytes().clone(),
                 array.dtype().clone(),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array()
         }))

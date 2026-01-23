@@ -244,7 +244,10 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_slice(
     let array_ref = unsafe { NativeArray::from_ptr(array_ptr) };
 
     try_or_throw(&mut env, |_| {
-        let sliced_array = array_ref.inner.as_ref().slice(start as usize..end as usize);
+        let sliced_array = array_ref
+            .inner
+            .as_ref()
+            .slice(start as usize..end as usize)?;
         Ok(NativeArray::new(sliced_array).into_raw())
     })
 }
@@ -479,18 +482,22 @@ pub extern "system" fn Java_dev_vortex_jni_NativeArrayMethods_getBinary<'local>(
 ///
 /// Panics if the index is out of bounds.
 fn get_ptr_len_varbin(index: jint, array: &VarBinArray) -> (*const u8, u32) {
+    // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
         bytes.as_ptr(),
+        // TODO: propagate this error up instead of expecting
         u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
     )
 }
 
 /// Get a raw pointer + len to pass back to Java to avoid copying across the boundary.
 fn get_ptr_len_view(index: jint, array: &VarBinViewArray) -> (*const u8, u32) {
+    // TODO: propagate this error up instead of expecting
     let bytes = array.bytes_at(usize::try_from(index).vortex_expect("index must fit in usize"));
     (
         bytes.as_ptr(),
+        // TODO: propagate this error up instead of expecting
         u32::try_from(bytes.len()).vortex_expect("string length must fit in u32"),
     )
 }

@@ -87,7 +87,7 @@ mod test {
     #[test]
     fn take_with_non_zero_offset() {
         let sparse = sparse_array();
-        let sparse = sparse.slice(30..40);
+        let sparse = sparse.slice(30..40).unwrap();
         let taken = take(&sparse, &buffer![6, 7, 8].into_array()).unwrap();
         let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47), None]);
         assert_arrays_eq!(taken, expected.to_array());

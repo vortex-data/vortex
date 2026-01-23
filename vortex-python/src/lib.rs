@@ -8,10 +8,11 @@ use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
 pub(crate) mod arrays;
-mod arrow;
+pub mod arrow;
 mod compress;
 mod dataset;
 pub(crate) mod dtype;
+mod error;
 mod expr;
 mod file;
 mod io;
@@ -19,7 +20,7 @@ mod iter;
 mod object_store_urls;
 mod python_repr;
 mod registry;
-pub(crate) mod scalar;
+pub mod scalar;
 mod scan;
 mod serde;
 

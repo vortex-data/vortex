@@ -14,6 +14,8 @@ use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_utils::aliases::hash_set::HashSet;
@@ -63,16 +65,26 @@ pub struct FloatStats {
     pub(super) distinct_values_count: u32,
 }
 
-impl CompressorStats for FloatStats {
-    type ArrayVTable = PrimitiveVTable;
-
-    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
+impl FloatStats {
+    fn generate_opts_fallible(
+        input: &PrimitiveArray,
+        opts: GenerateStatsOptions,
+    ) -> VortexResult<Self> {
         match input.ptype() {
             PType::F16 => typed_float_stats::<f16>(input, opts.count_distinct_values),
             PType::F32 => typed_float_stats::<f32>(input, opts.count_distinct_values),
             PType::F64 => typed_float_stats::<f64>(input, opts.count_distinct_values),
             _ => vortex_panic!("cannot generate FloatStats from ptype {}", input.ptype()),
         }
+    }
+}
+
+impl CompressorStats for FloatStats {
+    type ArrayVTable = PrimitiveVTable;
+
+    fn generate_opts(input: &PrimitiveArray, opts: GenerateStatsOptions) -> Self {
+        Self::generate_opts_fallible(input, opts)
+            .vortex_expect("FloatStats::generate_opts should not fail")
     }
 
     fn source(&self) -> &PrimitiveArray {
@@ -103,14 +115,14 @@ impl RLEStats for FloatStats {
 fn typed_float_stats<T: NativePType + Float>(
     array: &PrimitiveArray,
     count_distinct_values: bool,
-) -> FloatStats
+) -> VortexResult<FloatStats>
 where
     DistinctValues<T>: Into<ErasedDistinctValues>,
     NativeValue<T>: Hash + Eq,
 {
     // Special case: empty array
     if array.is_empty() {
-        return FloatStats {
+        return Ok(FloatStats {
             src: array.clone(),
             null_count: 0,
             value_count: 0,
@@ -120,11 +132,11 @@ where
                 values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
-        };
-    } else if array.all_invalid().vortex_expect("all_invalid") {
-        return FloatStats {
+        });
+    } else if array.all_invalid()? {
+        return Ok(FloatStats {
             src: array.clone(),
-            null_count: array.len().try_into().vortex_expect("null_count"),
+            null_count: u32::try_from(array.len())?,
             value_count: 0,
             average_run_length: 0,
             distinct_values_count: 0,
@@ -132,13 +144,13 @@ where
                 values: HashSet::<NativeValue<T>, FxBuildHasher>::with_hasher(FxBuildHasher),
             }
             .into(),
-        };
+        });
     }
 
     let null_count = array
         .statistics()
         .compute_null_count()
-        .vortex_expect("null count");
+        .ok_or_else(|| vortex_err!("Failed to compute null_count"))?;
     let value_count = array.len() - null_count;
 
     // Keep a HashMap of T, then convert the keys into PValue afterward since value is
@@ -149,7 +161,7 @@ where
         HashSet::with_hasher(FxBuildHasher)
     };
 
-    let validity = array.validity_mask().vortex_expect("validity_mask");
+    let validity = array.validity_mask()?;
 
     let mut runs = 1;
     let head_idx = validity
@@ -192,22 +204,15 @@ where
         }
     }
 
-    let null_count = null_count
-        .try_into()
-        .vortex_expect("null_count must fit in u32");
-    let value_count = value_count
-        .try_into()
-        .vortex_expect("null_count must fit in u32");
+    let null_count = u32::try_from(null_count)?;
+    let value_count = u32::try_from(value_count)?;
     let distinct_values_count = if count_distinct_values {
-        distinct_values
-            .len()
-            .try_into()
-            .vortex_expect("distinct values count must fit in u32")
+        u32::try_from(distinct_values.len())?
     } else {
         u32::MAX
     };
 
-    FloatStats {
+    Ok(FloatStats {
         null_count,
         value_count,
         distinct_values_count,
@@ -217,7 +222,7 @@ where
             values: distinct_values,
         }
         .into(),
-    }
+    })
 }
 
 #[cfg(test)]

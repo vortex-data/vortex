@@ -133,7 +133,7 @@ impl VTable for DecimalBytePartsVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing encoded MSP does not change the encoded values
         Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range)?, *array.decimal_dtype())
                 .into_array()
         }))
     }

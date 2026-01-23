@@ -106,7 +106,7 @@ impl VTable for SliceVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Execute the child to get canonical form, then slice it
         let canonical = array.child.clone().execute::<Canonical>(ctx)?;
-        let result = canonical.as_ref().slice(array.range.clone());
+        let result = canonical.as_ref().slice(array.range.clone())?;
         assert!(
             result.is_canonical(),
             "this must be canonical fix the slice impl for the dtype {} showing this error",
@@ -164,7 +164,7 @@ impl OperationsVTable<SliceVTable> for SliceVTable {
 
 impl ValidityVTable<SliceVTable> for SliceVTable {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
-        Ok(array.child.validity()?.slice(array.range.clone()))
+        array.child.validity()?.slice(array.range.clone())
     }
 
     fn validity_mask(array: &SliceArray) -> VortexResult<Mask> {
@@ -203,7 +203,7 @@ mod tests {
         // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
         let arr = PrimitiveArray::from_iter(0i32..10).into_array();
         let inner_slice = SliceArray::new(arr, 2..8).into_array();
-        let slice = inner_slice.slice(1..4);
+        let slice = inner_slice.slice(1..4)?;
 
         assert_arrays_eq!(slice, PrimitiveArray::from_iter([3i32, 4, 5]));
 

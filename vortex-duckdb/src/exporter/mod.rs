@@ -56,7 +56,8 @@ impl ArrayExporter {
         cache: &ConversionCache,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        assert!(array.validity().all_valid(array.len()));
+        let all_valid = array.validity().all_valid(array.len())?;
+        assert!(all_valid);
         let fields = array
             .fields()
             .iter()

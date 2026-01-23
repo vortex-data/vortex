@@ -123,7 +123,7 @@ fn test_list_filter_dense_mask() {
 
     // Verify first remaining list (originally index 1) has correct elements [10..25].
     assert_arrays_eq!(
-        filtered_list.list_elements_at(0),
+        filtered_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter(10..25)
     );
 }
@@ -152,13 +152,13 @@ fn test_list_filter_sparse_mask() {
 
     // Verify first list (originally index 0) has elements [0..10].
     assert_arrays_eq!(
-        filtered_list.list_elements_at(0),
+        filtered_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter(0..10)
     );
 
     // Verify second list (originally index 5) has elements [85..100].
     assert_arrays_eq!(
-        filtered_list.list_elements_at(1),
+        filtered_list.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter(85..100)
     );
 }
@@ -182,19 +182,19 @@ fn test_list_filter_empty_lists() {
     assert_eq!(filtered_list.len(), 4);
 
     // First list is empty.
-    assert_eq!(filtered_list.list_elements_at(0).len(), 0);
+    assert_eq!(filtered_list.list_elements_at(0).unwrap().len(), 0);
 
     // Second list has elements [0..3].
     assert_arrays_eq!(
-        filtered_list.list_elements_at(1),
+        filtered_list.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter(0..3)
     );
 
     // Third list is empty.
-    assert_eq!(filtered_list.list_elements_at(2).len(), 0);
+    assert_eq!(filtered_list.list_elements_at(2).unwrap().len(), 0);
 
     // Fourth list is empty.
-    assert_eq!(filtered_list.list_elements_at(3).len(), 0);
+    assert_eq!(filtered_list.list_elements_at(3).unwrap().len(), 0);
 }
 
 #[test]
@@ -248,7 +248,7 @@ fn test_list_filter_all_true() {
     for i in 0..4 {
         let ii32 = i32::try_from(i).vortex_expect("must fit");
         assert_arrays_eq!(
-            filtered_list.list_elements_at(i),
+            filtered_list.list_elements_at(i).unwrap(),
             PrimitiveArray::from_iter((ii32 * 5)..(ii32 + 1) * 5)
         );
     }
@@ -294,7 +294,7 @@ fn test_list_filter_single_element() {
 
     // The single remaining list has elements [20..30].
     assert_arrays_eq!(
-        filtered_list.list_elements_at(0),
+        filtered_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter(20..30)
     );
 }
@@ -323,7 +323,7 @@ fn test_list_filter_alternating_pattern() {
     // Verify we have the correct lists: [0..5], [10..15], [20..25], [30..35], [40..45], [50..55].
     for (i, expected_start) in [0, 10, 20, 30, 40, 50].iter().enumerate() {
         assert_arrays_eq!(
-            filtered_list.list_elements_at(i),
+            filtered_list.list_elements_at(i).unwrap(),
             PrimitiveArray::from_iter(*expected_start..*expected_start + 5)
         );
     }
@@ -350,12 +350,12 @@ fn test_list_filter_variable_sizes() {
     assert_eq!(filtered_list.len(), 6);
 
     // Verify sizes of filtered lists.
-    assert_eq!(filtered_list.list_elements_at(0).len(), 1); // Size 1
-    assert_eq!(filtered_list.list_elements_at(1).len(), 3); // Size 3
-    assert_eq!(filtered_list.list_elements_at(2).len(), 5); // Size 5
-    assert_eq!(filtered_list.list_elements_at(3).len(), 15); // Size 15
-    assert_eq!(filtered_list.list_elements_at(4).len(), 25); // Size 25
-    assert_eq!(filtered_list.list_elements_at(5).len(), 40); // Size 40
+    assert_eq!(filtered_list.list_elements_at(0).unwrap().len(), 1); // Size 1
+    assert_eq!(filtered_list.list_elements_at(1).unwrap().len(), 3); // Size 3
+    assert_eq!(filtered_list.list_elements_at(2).unwrap().len(), 5); // Size 5
+    assert_eq!(filtered_list.list_elements_at(3).unwrap().len(), 15); // Size 15
+    assert_eq!(filtered_list.list_elements_at(4).unwrap().len(), 25); // Size 25
+    assert_eq!(filtered_list.list_elements_at(5).unwrap().len(), 40); // Size 40
 }
 
 #[test]
@@ -412,7 +412,7 @@ fn test_offset_to_0() {
             .as_list(),
         )
         .vortex_expect("operation should succeed in test");
-    let list = builder.finish().slice(2..4);
+    let list = builder.finish().slice(2..4).unwrap();
 
     // The sliced list should be a ListArray since we built it with ListBuilder
     // and slice doesn't change the encoding
@@ -425,8 +425,8 @@ fn test_offset_to_0() {
     assert_eq!(list_array.offsets().len(), 3);
 
     // Each list has 3 elements
-    assert_eq!(list_array.list_elements_at(0).len(), 3);
-    assert_eq!(list_array.list_elements_at(1).len(), 3);
+    assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
+    assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
 }
 
 type OptVec<T> = Vec<Option<T>>;
@@ -580,37 +580,37 @@ fn test_list_of_lists() {
     ));
 
     // Access the first list of lists and verify its contents.
-    let first_outer = list_of_lists.list_elements_at(0);
+    let first_outer = list_of_lists.list_elements_at(0).unwrap();
     let first_outer_list = first_outer.as_::<ListVTable>();
     assert_eq!(first_outer_list.len(), 2);
 
     // Check first inner list [1, 2].
-    let first_inner = first_outer_list.list_elements_at(0);
+    let first_inner = first_outer_list.list_elements_at(0).unwrap();
     assert_arrays_eq!(first_inner, PrimitiveArray::from_iter([1, 2]));
 
     // Check second inner list [3].
-    let second_inner = first_outer_list.list_elements_at(1);
+    let second_inner = first_outer_list.list_elements_at(1).unwrap();
     assert_arrays_eq!(second_inner, PrimitiveArray::from_iter([3]));
 
     // Check the second list of lists [[4, 5, 6]].
-    let second_outer = list_of_lists.list_elements_at(1);
+    let second_outer = list_of_lists.list_elements_at(1).unwrap();
     let second_outer_list = second_outer.as_::<ListVTable>();
     assert_eq!(second_outer_list.len(), 1);
 
-    let inner = second_outer_list.list_elements_at(0);
+    let inner = second_outer_list.list_elements_at(0).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([4, 5, 6]));
 
     // Check the third list of lists (empty).
-    let third_outer = list_of_lists.list_elements_at(2);
+    let third_outer = list_of_lists.list_elements_at(2).unwrap();
     // Empty slices return canonical form (`ListViewArray`), so we check length directly.
     assert_eq!(third_outer.len(), 0);
 
     // Check the fourth list of lists [[7]].
-    let fourth_outer = list_of_lists.list_elements_at(3);
+    let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_outer_list = fourth_outer.as_::<ListVTable>();
     assert_eq!(fourth_outer_list.len(), 1);
 
-    let inner = fourth_outer_list.list_elements_at(0);
+    let inner = fourth_outer_list.list_elements_at(0).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([7]));
 
     // Test scalar conversion.
@@ -620,17 +620,17 @@ fn test_list_of_lists() {
     assert_eq!(list_scalar.len(), 2);
 
     // Test slicing.
-    let sliced = list_of_lists.slice(1..3);
+    let sliced = list_of_lists.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListVTable>();
     assert_eq!(sliced_list.len(), 2);
 
     // First element of slice should be [[4, 5, 6]].
-    let first_sliced = sliced_list.list_elements_at(0);
+    let first_sliced = sliced_list.list_elements_at(0).unwrap();
     let first_sliced_list = first_sliced.as_::<ListVTable>();
     assert_eq!(first_sliced_list.len(), 1);
 
     // Second element of slice should be empty [].
-    let second_sliced = sliced_list.list_elements_at(1);
+    let second_sliced = sliced_list.list_elements_at(1).unwrap();
     // Empty slices return canonical form (`ListViewArray`), so we check length directly
     assert_eq!(second_sliced.len(), 0);
 }
@@ -667,14 +667,14 @@ fn test_list_of_lists_nullable_outer() {
     assert!(second.is_null());
 
     // Third element should be [[4, 5, 6]].
-    let third = list_of_lists.list_elements_at(2);
+    let third = list_of_lists.list_elements_at(2).unwrap();
     let third_list = third.as_::<ListVTable>();
     assert_eq!(third_list.len(), 1);
-    let inner = third_list.list_elements_at(0);
+    let inner = third_list.list_elements_at(0).unwrap();
     assert_eq!(inner.len(), 3);
 
     // Fourth element should be [[7]].
-    let fourth = list_of_lists.list_elements_at(3);
+    let fourth = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth.as_::<ListVTable>();
     assert_eq!(fourth_list.len(), 1);
 }
@@ -711,7 +711,7 @@ fn test_list_of_lists_nullable_inner() {
     ));
 
     // First outer list should have 3 inner lists with the second being null.
-    let first_outer = list_of_lists.list_elements_at(0);
+    let first_outer = list_of_lists.list_elements_at(0).unwrap();
     let first_list = first_outer.as_::<ListVTable>();
     assert_eq!(first_list.len(), 3);
 
@@ -746,12 +746,12 @@ fn test_list_of_lists_both_nullable() {
     // First outer list should have 2 elements, second is null inner list.
     let first_outer = list_of_lists.scalar_at(0).unwrap();
     assert!(!first_outer.is_null());
-    let first_outer_array = list_of_lists.list_elements_at(0);
+    let first_outer_array = list_of_lists.list_elements_at(0).unwrap();
     let first_list = first_outer_array.as_::<ListVTable>();
     assert_eq!(first_list.len(), 2);
 
     // First inner list should be [1, 2].
-    let first_inner = first_list.list_elements_at(0);
+    let first_inner = first_list.list_elements_at(0).unwrap();
     assert_eq!(first_inner.len(), 2);
 
     // Second inner list should be null.
@@ -763,14 +763,14 @@ fn test_list_of_lists_both_nullable() {
     assert!(second_outer.is_null());
 
     // Third outer list should have [3].
-    let third_outer = list_of_lists.list_elements_at(2);
+    let third_outer = list_of_lists.list_elements_at(2).unwrap();
     let third_list = third_outer.as_::<ListVTable>();
     assert_eq!(third_list.len(), 1);
-    let inner = third_list.list_elements_at(0);
+    let inner = third_list.list_elements_at(0).unwrap();
     assert_arrays_eq!(inner, PrimitiveArray::from_iter([3]));
 
     // Fourth outer list should have a null inner list.
-    let fourth_outer = list_of_lists.list_elements_at(3);
+    let fourth_outer = list_of_lists.list_elements_at(3).unwrap();
     let fourth_list = fourth_outer.as_::<ListVTable>();
     assert_eq!(fourth_list.len(), 1);
     let inner = fourth_list.scalar_at(0).unwrap();
@@ -859,9 +859,9 @@ fn test_offsets_constant() {
     // This should succeed as it represents empty lists
     let list = ListArray::try_new(elements, offsets, validity).unwrap();
     assert_eq!(list.len(), 3);
-    assert_eq!(list.list_elements_at(0).len(), 0);
-    assert_eq!(list.list_elements_at(1).len(), 0);
-    assert_eq!(list.list_elements_at(2).len(), 0);
+    assert_eq!(list.list_elements_at(0).unwrap().len(), 0);
+    assert_eq!(list.list_elements_at(1).unwrap().len(), 0);
+    assert_eq!(list.list_elements_at(2).unwrap().len(), 0);
 }
 
 #[test]
@@ -878,7 +878,7 @@ fn test_recursive_compact_list_of_lists() {
 
     let original = create_list_of_lists_nullable(nested_data);
     // Slice to remove prefix - creates wasted space since offsets no longer reference early elements
-    let sliced = original.slice(1..3);
+    let sliced = original.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListVTable>();
 
     // Test non-recursive compaction: only resets outer list offsets

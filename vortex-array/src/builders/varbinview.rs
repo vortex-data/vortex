@@ -899,10 +899,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 1);
 
         array
-            .slice(1..2)
+            .slice(1..2)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
 
@@ -917,10 +917,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 2);
 
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array2
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 2);
         Ok(())

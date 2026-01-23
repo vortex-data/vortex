@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#include "duckdb/common/common.hpp"
+#include "duckdb/common/optional_ptr.hpp"
+#include "duckdb/common/unique_ptr.hpp"
+#include "duckdb/common/vector.hpp"
+#include "duckdb/function/replacement_scan.hpp"
+#include "duckdb/main/capi/capi_internal.hpp"
+#include "duckdb/main/client_context.hpp"
+#include "duckdb/main/config.hpp"
+#include "duckdb/parser/expression/constant_expression.hpp"
+#include "duckdb/parser/expression/function_expression.hpp"
+#include "duckdb/parser/tableref/table_function_ref.hpp"
+
+#include "duckdb_vx.h"
+
+namespace vortex {
+
+static duckdb::unique_ptr<duckdb::TableRef> VortexScanReplacement(duckdb::ClientContext &context, duckdb::ReplacementScanInput &input,
+                                                  duckdb::optional_ptr<duckdb::ReplacementScanData> data) {
+    auto table_name = duckdb::ReplacementScan::GetFullPath(input);
+    if (!duckdb::ReplacementScan::CanReplace(table_name, {"vortex", "vx"})) {
+        return nullptr;
+    }
+    auto table_function = duckdb::make_uniq<duckdb::TableFunctionRef>();
+    duckdb::vector<duckdb::unique_ptr<duckdb::ParsedExpression>> children;
+    children.push_back(duckdb::make_uniq<duckdb::ConstantExpression>(duckdb::Value(table_name)));
+    table_function->function = duckdb::make_uniq<duckdb::FunctionExpression>("read_vortex", std::move(children));
+
+    if (!duckdb::FileSystem::HasGlob(table_name)) {
+        auto &fs = duckdb::FileSystem::GetFileSystem(context);
+        table_function->alias = fs.ExtractBaseName(table_name);
+    }
+
+    return std::move(table_function);
+}
+
+}
+
+extern "C" duckdb_state duckdb_vx_register_scan_replacement(duckdb_database duckdb_database) {
+    if (!duckdb_database) {
+        return DuckDBError;
+    }
+
+    auto wrapper = reinterpret_cast<duckdb::DatabaseWrapper *>(duckdb_database);
+    if (!wrapper) {
+        return DuckDBError;
+    }
+
+    auto &config = duckdb::DBConfig::GetConfig(*wrapper->database->instance);
+    config.replacement_scans.emplace_back(vortex::VortexScanReplacement);
+
+    return DuckDBSuccess;
+}

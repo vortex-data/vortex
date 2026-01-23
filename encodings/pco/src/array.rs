@@ -178,7 +178,7 @@ impl VTable for PcoVTable {
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(array.decompress()))
+        Ok(Canonical::Primitive(array.decompress()?))
     }
 }
 
@@ -343,7 +343,7 @@ impl PcoArray {
         }
     }
 
-    pub fn decompress(&self) -> PrimitiveArray {
+    pub fn decompress(&self) -> VortexResult<PrimitiveArray> {
         // To start, we figure out which chunks and pages we need to decompress, and with
         // what value offset into the first such page.
         let number_type = number_type_from_dtype(&self.dtype);
@@ -354,13 +354,13 @@ impl PcoArray {
             }
         );
 
-        PrimitiveArray::from_values_byte_buffer(
+        Ok(PrimitiveArray::from_values_byte_buffer(
             values_byte_buffer,
             self.dtype.as_ptype(),
             self.unsliced_validity
-                .slice(self.slice_start..self.slice_stop),
+                .slice(self.slice_start..self.slice_stop)?,
             self.slice_stop - self.slice_start,
-        )
+        ))
     }
 
     #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
@@ -527,7 +527,7 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
 
 impl OperationsVTable<PcoVTable> for PcoVTable {
     fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress().scalar_at(0)
+        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }
 
@@ -577,7 +577,7 @@ mod tests {
         );
 
         // Slice to get only the non-null values in the middle
-        let sliced = pco.slice(1..5);
+        let sliced = pco.slice(1..5).unwrap();
         let expected =
             PrimitiveArray::from_option_iter([Some(20u32), Some(30), Some(40), Some(50)])
                 .into_array();

@@ -34,6 +34,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::{FixedSizeListArray, PrimitiveArray};
 /// use vortex_array::validity::Validity;
 /// use vortex_array::IntoArray;
@@ -54,8 +55,10 @@ use crate::validity::Validity;
 /// assert_eq!(fixed_list_array.list_size(), 2);
 ///
 /// // Access individual lists
-/// let first_list = fixed_list_array.fixed_size_list_elements_at(0);
+/// let first_list = fixed_list_array.fixed_size_list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct FixedSizeListArray {
@@ -218,16 +221,16 @@ impl FixedSizeListArray {
 
     /// Returns the elements of the fixed-size list scalar at the given index of the list array.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the index is out of bounds.
-    pub fn fixed_size_list_elements_at(&self, index: usize) -> ArrayRef {
+    /// Returns an error if the index is out of bounds or the slice operation fails.
+    pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
             "index out of bounds: the len is {} but the index is {index}",
             self.len
         );
-        debug_assert!(self.validity.is_valid(index));
+        debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 
         let start = self.list_size as usize * index;
         let end = self.list_size as usize * (index + 1);

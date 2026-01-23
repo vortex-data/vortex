@@ -568,7 +568,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Slice(range) => {
-                current_array = current_array.slice(range);
+                current_array = current_array
+                    .slice(range)
+                    .vortex_expect("slice operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Take(indices) => {

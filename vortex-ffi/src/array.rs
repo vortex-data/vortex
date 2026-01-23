@@ -72,12 +72,13 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    // TODO(aduffy): deprecate this from the FFI API.
-    _error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_array {
-    let array = vx_array::as_ref(array);
-    let sliced = array.slice(start as usize..stop as usize);
-    vx_array::new(sliced)
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+        let sliced = array.slice(start as usize..stop as usize)?;
+        Ok(vx_array::new(sliced))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -87,6 +88,7 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     _error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
+    // TODO(joe): propagate this error up instead of expecting
     array
         .is_invalid(index as usize)
         .vortex_expect("is_invalid failed")
@@ -108,7 +110,9 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
+                // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("null value")
@@ -117,7 +121,9 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
+                // TODO(joe): propagate this error up instead of expecting
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .storage()
                     .as_primitive()
@@ -148,6 +154,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     index: u32,
 ) -> *const vx_string {
     let array = vx_array::as_ref(array);
+    // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)
         .vortex_expect("scalar_at failed");
@@ -167,6 +174,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     index: u32,
 ) -> *const vx_binary {
     let array = vx_array::as_ref(array);
+    // TODO(joe): propagate this error up instead of expecting
     let value = array
         .scalar_at(index as usize)
         .vortex_expect("scalar_at failed");

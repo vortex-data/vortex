@@ -25,7 +25,9 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 
 pub trait FromArrowArray<A> {
-    fn from_arrow(array: A, nullable: bool) -> Self;
+    fn from_arrow(array: A, nullable: bool) -> VortexResult<Self>
+    where
+        Self: Sized;
 }
 
 pub trait IntoArrowArray {

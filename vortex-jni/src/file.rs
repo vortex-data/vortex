@@ -278,6 +278,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
 ) -> jlong {
     // Return a new pointer to some native memory for the scan.
     let file = unsafe { NativeFile::from_ptr(pointer) };
+    // TODO: propagate this error up instead of expecting
     let mut scan_builder = file.inner.scan().vortex_expect("scan builder");
 
     try_or_throw(&mut env, |env| {

@@ -67,8 +67,8 @@ impl VTable for ListVTable {
         Ok(Some(
             ListArray::new(
                 array.elements().clone(),
-                array.offsets().slice(range.start..range.end + 1),
-                array.validity().slice(range),
+                array.offsets().slice(range.start..range.end + 1)?,
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

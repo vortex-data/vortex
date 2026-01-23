@@ -184,7 +184,7 @@ mod tests {
 
     #[test]
     fn filter_sliced_run_end() -> VortexResult<()> {
-        let arr = ree_array().slice(2..7);
+        let arr = ree_array().slice(2..7).unwrap();
         let filtered = arr.filter(Mask::from_iter([true, false, false, true, true]))?;
 
         assert_arrays_eq!(

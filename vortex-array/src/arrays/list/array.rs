@@ -70,10 +70,10 @@ use crate::validity::Validity;
 /// assert_eq!(list_array.len(), 3);
 ///
 /// // Access individual lists
-/// let first_list = list_array.list_elements_at(0);
+/// let first_list = list_array.list_elements_at(0).unwrap();
 /// assert_eq!(first_list.len(), 2); // [1, 2]
 ///
-/// let third_list = list_array.list_elements_at(2);
+/// let third_list = list_array.list_elements_at(2).unwrap();
 /// assert!(third_list.is_empty()); // []
 /// ```
 #[derive(Clone, Debug)]
@@ -248,31 +248,31 @@ impl ListArray {
 
     /// Returns the offset at the given index from the list array.
     ///
-    /// Panics if the index is out of bounds.
-    pub fn offset_at(&self, index: usize) -> usize {
-        assert!(
+    /// Returns an error if the index is out of bounds or scalar_at fails.
+    pub fn offset_at(&self, index: usize) -> VortexResult<usize> {
+        vortex_ensure!(
             index <= self.len(),
             "Index {index} out of bounds 0..={}",
             self.len()
         );
 
-        self.offsets()
-            .as_opt::<PrimitiveVTable>()
-            .map(|p| match_each_native_ptype!(p.ptype(), |P| { p.as_slice::<P>()[index].as_() }))
-            .unwrap_or_else(|| {
-                self.offsets()
-                    .scalar_at(index)
-                    .vortex_expect("offsets must support scalar_at")
-                    .as_primitive()
-                    .as_::<usize>()
-                    .vortex_expect("index must fit in usize")
-            })
+        if let Some(p) = self.offsets().as_opt::<PrimitiveVTable>() {
+            Ok(match_each_native_ptype!(p.ptype(), |P| {
+                p.as_slice::<P>()[index].as_()
+            }))
+        } else {
+            self.offsets()
+                .scalar_at(index)?
+                .as_primitive()
+                .as_::<usize>()
+                .ok_or_else(|| vortex_error::vortex_err!("offset value does not fit in usize"))
+        }
     }
 
     /// Returns the elements of the list scalar at the given index of the list array.
-    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
-        let start = self.offset_at(index);
-        let end = self.offset_at(index + 1);
+    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
+        let start = self.offset_at(index)?;
+        let end = self.offset_at(index + 1)?;
         self.elements().slice(start..end)
     }
 
@@ -280,9 +280,9 @@ impl ListArray {
     ///
     /// This is useful for discarding any potentially unused parts of the underlying `elements`
     /// child array.
-    pub fn sliced_elements(&self) -> ArrayRef {
-        let start = self.offset_at(0);
-        let end = self.offset_at(self.len());
+    pub fn sliced_elements(&self) -> VortexResult<ArrayRef> {
+        let start = self.offset_at(0)?;
+        let end = self.offset_at(self.len())?;
         self.elements().slice(start..end)
     }
 
@@ -304,7 +304,7 @@ impl ListArray {
     /// Create a copy of this array by adjusting `offsets` to start at `0` and removing elements not
     /// referenced by the `offsets`.
     pub fn reset_offsets(&self, recurse: bool) -> VortexResult<Self> {
-        let mut elements = self.sliced_elements();
+        let mut elements = self.sliced_elements()?;
         if recurse && elements.is_canonical() {
             elements = elements.to_canonical()?.compact()?.into_array();
         } else if recurse && let Some(child_list_array) = elements.as_opt::<ListVTable>() {

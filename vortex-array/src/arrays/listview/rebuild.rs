@@ -59,7 +59,7 @@ impl ListViewArray {
 
         match mode {
             ListViewRebuildMode::MakeZeroCopyToList => self.rebuild_zero_copy_to_list(),
-            ListViewRebuildMode::TrimElements => Ok(self.rebuild_trim_elements()),
+            ListViewRebuildMode::TrimElements => self.rebuild_trim_elements(),
             ListViewRebuildMode::MakeExact => self.rebuild_make_exact(),
             ListViewRebuildMode::OverlapCompression => unimplemented!("Does P=NP?"),
         }
@@ -159,7 +159,7 @@ impl ListViewArray {
 
             new_offsets.push(n_elements);
             new_sizes.push(size);
-            new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop));
+            new_elements_builder.extend_from_array(&elements_canonical.slice(start..stop)?);
 
             n_elements += num_traits::cast(size).vortex_expect("Cast failed");
         }
@@ -191,7 +191,7 @@ impl ListViewArray {
     /// Rebuilds a [`ListViewArray`] by trimming any unused / unreferenced leading and trailing
     /// elements, which is defined as a contiguous run of values in the `elements` array that are
     /// not referecened by any views in the corresponding [`ListViewArray`].
-    fn rebuild_trim_elements(&self) -> ListViewArray {
+    fn rebuild_trim_elements(&self) -> VortexResult<ListViewArray> {
         let start = if self.is_zero_copy_to_list() {
             // If offsets are sorted, then the minimum offset is the first offset.
             // Note that even if the first view is null, offsets must always be valid, so it is
@@ -233,13 +233,13 @@ impl ListViewArray {
                 .vortex_expect("was somehow unable to adjust offsets down by their minimum")
         });
 
-        let sliced_elements = self.elements().slice(start..end);
+        let sliced_elements = self.elements().slice(start..end)?;
 
         // SAFETY: The only thing we changed was the elements (which we verify through mins and
         // maxes that all adjusted offsets + sizes are within the correct bounds), so the parameters
         // are valid. And if the original array was zero-copyable to list, trimming elements doesn't
         // change that property.
-        unsafe {
+        Ok(unsafe {
             ListViewArray::new_unchecked(
                 sliced_elements,
                 adjusted_offsets,
@@ -247,12 +247,12 @@ impl ListViewArray {
                 self.validity().clone(),
             )
             .with_zero_copy_to_list(self.is_zero_copy_to_list())
-        }
+        })
     }
 
     fn rebuild_make_exact(&self) -> VortexResult<ListViewArray> {
         if self.is_zero_copy_to_list() {
-            Ok(self.rebuild_trim_elements())
+            self.rebuild_trim_elements()
         } else {
             // When we completely rebuild the `ListViewArray`, we get the benefit that we also trim
             // any leading and trailing garbage data.
@@ -301,12 +301,12 @@ mod tests {
 
         // Verify the data is correct
         assert_arrays_eq!(
-            flattened.list_elements_at(0),
+            flattened.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         assert_arrays_eq!(
-            flattened.list_elements_at(1),
+            flattened.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([2i32, 3])
         );
         Ok(())
@@ -334,18 +334,18 @@ mod tests {
 
         // Verify nullability is preserved
         assert_eq!(flattened.dtype().nullability(), Nullability::Nullable);
-        assert!(flattened.validity().is_valid(0));
-        assert!(!flattened.validity().is_valid(1));
-        assert!(flattened.validity().is_valid(2));
+        assert!(flattened.validity().is_valid(0).unwrap());
+        assert!(!flattened.validity().is_valid(1).unwrap());
+        assert!(flattened.validity().is_valid(2).unwrap());
 
         // Verify valid lists contain correct data
         assert_arrays_eq!(
-            flattened.list_elements_at(0),
+            flattened.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            flattened.list_elements_at(2),
+            flattened.list_elements_at(2).unwrap(),
             PrimitiveArray::from_iter([3i32])
         );
         Ok(())
@@ -380,12 +380,12 @@ mod tests {
 
         // Verify the data is correct.
         assert_arrays_eq!(
-            trimmed.list_elements_at(0),
+            trimmed.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            trimmed.list_elements_at(1),
+            trimmed.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4])
         );
 
@@ -438,12 +438,12 @@ mod tests {
 
         // Verify data is preserved
         assert_arrays_eq!(
-            exact.list_elements_at(0),
+            exact.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         assert_arrays_eq!(
-            exact.list_elements_at(1),
+            exact.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4])
         );
         Ok(())

@@ -99,7 +99,7 @@ pub trait Array:
     fn encoding_id(&self) -> ArrayId;
 
     /// Performs a constant-time slice of the array.
-    fn slice(&self, range: Range<usize>) -> ArrayRef;
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef>;
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef>;
@@ -216,7 +216,7 @@ impl Array for Arc<dyn Array> {
     }
 
     #[inline]
-    fn slice(&self, range: Range<usize>) -> ArrayRef {
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         self.as_ref().slice(range)
     }
 
@@ -458,12 +458,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         V::id(&self.0)
     }
 
-    fn slice(&self, range: Range<usize>) -> ArrayRef {
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         let start = range.start;
         let stop = range.end;
 
         if start == 0 && stop == self.len() {
-            return self.to_array();
+            return Ok(self.to_array());
         }
 
         assert!(
@@ -480,14 +480,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         assert!(start <= stop, "start ({start}) must be <= stop ({stop})");
 
         if start == stop {
-            return Canonical::empty(self.dtype()).into_array();
+            return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = V::slice(&self.0, range.clone())
-            .vortex_expect("cannot fail")
+        let sliced = V::slice(&self.0, range.clone())?
             .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
-            .optimize()
-            .vortex_expect("cannot fail for now");
+            .optimize()?;
 
         assert_eq!(
             sliced.len(),
@@ -521,7 +519,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             });
         }
 
-        sliced
+        Ok(sliced)
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
@@ -552,11 +550,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a
+            Validity::Array(a) => a
                 .scalar_at(index)?
                 .as_bool()
                 .value()
-                .vortex_expect("validity must be non-nullable")),
+                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
         }
     }
 
@@ -594,7 +592,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                 let sum = compute::sum(&a)?;
                 sum.as_primitive()
                     .as_::<usize>()
-                    .vortex_expect("Sum must be non-nullable")
+                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
             }
         };
         vortex_ensure!(count <= self.len(), "Valid count exceeds array length");

@@ -10,7 +10,7 @@ use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<DecimalVTable> for DecimalVTable {
     fn visit_buffers(array: &DecimalArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&array.values);
+        visitor.visit_buffer(array.values.as_host());
     }
 
     fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {

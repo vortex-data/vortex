@@ -190,7 +190,7 @@ mod test {
     fn write_and_read(expected: &dyn Array) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
-        for buf in encoder.encode(EncoderMessage::Array(expected)) {
+        for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 

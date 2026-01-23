@@ -6,6 +6,7 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -73,7 +74,7 @@ pub fn bitpack_encode(
     // SAFETY: all components validated above
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             patches,
@@ -107,7 +108,7 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             None,
@@ -220,7 +221,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u16::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -230,7 +231,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u32::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -240,7 +241,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -250,7 +251,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     };
 
@@ -263,7 +264,7 @@ fn gather_patches_impl<T, P>(
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
-) -> Option<Patches>
+) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
     P: IntegerPType,
@@ -288,15 +289,17 @@ where
         }
     }
 
-    (!indices.is_empty()).then(|| {
-        Patches::new(
+    if indices.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(Patches::new(
             data.len(),
             0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
             Some(chunk_offsets.into_array()),
-        )
-    })
+        )?))
+    }
 }
 
 pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {

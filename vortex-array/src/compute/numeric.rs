@@ -277,7 +277,7 @@ fn arrow_numeric(
         NumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    Ok(from_arrow_array_with_len(array.as_ref(), len, nullable))
+    from_arrow_array_with_len(array.as_ref(), len, nullable)
 }
 
 #[cfg(test)]

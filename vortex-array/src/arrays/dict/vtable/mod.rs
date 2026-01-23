@@ -64,7 +64,7 @@ impl VTable for DictVTable {
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_code = array.codes().slice(range);
+        let sliced_code = array.codes().slice(range)?;
         if sliced_code.is::<ConstantVTable>() {
             let code = &sliced_code.scalar_at(0)?.as_primitive().as_::<usize>();
             return if let Some(code) = code {

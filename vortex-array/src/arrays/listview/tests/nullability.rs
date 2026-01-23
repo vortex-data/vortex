@@ -70,7 +70,7 @@ fn test_nullable_listview_comprehensive() {
     );
 
     // list_elements_at still returns data even for null lists.
-    let null_list_data = listview.list_elements_at(1);
+    let null_list_data = listview.list_elements_at(1).unwrap();
     assert_eq!(null_list_data.len(), 2);
     assert_eq!(null_list_data.scalar_at(0).unwrap(), 3i32.into());
     assert_eq!(null_list_data.scalar_at(1).unwrap(), 4i32.into());
@@ -110,20 +110,20 @@ fn test_nullable_elements() {
     };
 
     // First list: [Some(1), None].
-    let first_list = listview.list_elements_at(0);
+    let first_list = listview.list_elements_at(0).unwrap();
     assert_eq!(first_list.len(), 2);
     assert!(!first_list.scalar_at(0).unwrap().is_null());
     assert_eq!(first_list.scalar_at(0).unwrap(), 1i32.into());
     assert!(first_list.scalar_at(1).unwrap().is_null());
 
     // Second list: [Some(3), None].
-    let second_list = listview.list_elements_at(1);
+    let second_list = listview.list_elements_at(1).unwrap();
     assert!(!second_list.scalar_at(0).unwrap().is_null());
     assert_eq!(second_list.scalar_at(0).unwrap(), 3i32.into());
     assert!(second_list.scalar_at(1).unwrap().is_null());
 
     // Third list: [Some(5), Some(6)].
-    let third_list = listview.list_elements_at(2);
+    let third_list = listview.list_elements_at(2).unwrap();
     assert!(!third_list.scalar_at(0).unwrap().is_null());
     assert_eq!(third_list.scalar_at(0).unwrap(), 5i32.into());
     assert!(!third_list.scalar_at(1).unwrap().is_null());

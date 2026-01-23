@@ -77,7 +77,7 @@ pub async fn exec_convert(session: &VortexSession, flags: ConvertArgs) -> anyhow
         .map(|record_batch| {
             record_batch
                 .map_err(|e| VortexError::generic(e.into()))
-                .map(|rb| ArrayRef::from_arrow(rb, false))
+                .and_then(|rb| ArrayRef::from_arrow(rb, false))
         })
         .boxed();
 
