@@ -1711,4 +1711,19 @@ mod tests {
         untranspose_1024_scalar(&input, &mut output);
         assert_eq!(output, [0xFFu8; 128]);
     }
+
+    /// Verify that our transpose_index matches the fastlanes crate exactly.
+    #[test]
+    fn test_transpose_index_matches_fastlanes_crate() {
+        // The fastlanes crate's transpose function uses the same formula
+        for i in 0..1024 {
+            let our_result = transpose_index(i);
+            let fl_result = fastlanes::transpose(i);
+            assert_eq!(
+                our_result, fl_result,
+                "transpose_index({}) = {} but fastlanes::transpose({}) = {}",
+                i, our_result, i, fl_result
+            );
+        }
+    }
 }
