@@ -12,6 +12,7 @@ mod bitpacking;
 mod delta;
 mod r#for;
 mod rle;
+pub mod transpose;
 
 pub(crate) const FL_CHUNK_SIZE: usize = 1024;
 

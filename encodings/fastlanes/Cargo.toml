@@ -55,3 +55,7 @@ required-features = ["_test-harness"]
 name = "compute_between"
 harness = false
 required-features = ["_test-harness"]
+
+[[bench]]
+name = "transpose_bench"
+harness = false
