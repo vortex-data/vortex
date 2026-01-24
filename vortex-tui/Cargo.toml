@@ -31,7 +31,9 @@ parquet = { workspace = true, features = ["arrow", "async"] }
 ratatui = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+serde_json_path = { workspace = true }
 taffy = { workspace = true }
+termtree = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 vortex = { workspace = true, features = ["tokio"] }
 vortex-datafusion = { workspace = true }
