@@ -65,6 +65,7 @@ fn run_all_benchmarks(input: &[u8; 128], output: &mut [u8; 128]) {
         "avx512_gfni",
         "avx512_vbmi",
         "vbmi_dual",
+        "vbmi_quad",
     ];
 
     for mode in &modes {
@@ -142,6 +143,30 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
                             black_box(&input2),
                             black_box(output),
                             black_box(&mut output2),
+                        );
+                    }
+                }
+            }
+            #[cfg(target_arch = "x86_64")]
+            "vbmi_quad" => {
+                use vortex_fastlanes::transpose::x86;
+                if x86::has_vbmi() {
+                    let input2 = *input;
+                    let input3 = *input;
+                    let input4 = *input;
+                    let mut output2 = [0u8; 128];
+                    let mut output3 = [0u8; 128];
+                    let mut output4 = [0u8; 128];
+                    unsafe {
+                        x86::transpose_1024x4_vbmi(
+                            black_box(input),
+                            black_box(&input2),
+                            black_box(&input3),
+                            black_box(&input4),
+                            black_box(output),
+                            black_box(&mut output2),
+                            black_box(&mut output3),
+                            black_box(&mut output4),
                         );
                     }
                 }
@@ -253,6 +278,36 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
                             black_box(&input2),
                             black_box(output),
                             black_box(&mut output2),
+                        );
+                    }
+                }
+            } else {
+                println!("{:15} AVX-512 VBMI not available", mode);
+                return;
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        "vbmi_quad" => {
+            use vortex_fastlanes::transpose::x86;
+            if x86::has_vbmi() {
+                let input2 = *input;
+                let input3 = *input;
+                let input4 = *input;
+                let mut output2 = [0u8; 128];
+                let mut output3 = [0u8; 128];
+                let mut output4 = [0u8; 128];
+                // Note: we do MEASURE_ITERATIONS/4 since each call processes 4 blocks
+                for _ in 0..MEASURE_ITERATIONS / 4 {
+                    unsafe {
+                        x86::transpose_1024x4_vbmi(
+                            black_box(input),
+                            black_box(&input2),
+                            black_box(&input3),
+                            black_box(&input4),
+                            black_box(output),
+                            black_box(&mut output2),
+                            black_box(&mut output3),
+                            black_box(&mut output4),
                         );
                     }
                 }
