@@ -2488,10 +2488,14 @@ name = "datafusion-bench"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arrow-array 57.2.0",
  "arrow-ipc 57.2.0",
+ "arrow-schema 57.2.0",
+ "arrow-select 57.2.0",
  "clap",
  "datafusion 52.0.0",
  "datafusion-common 52.0.0",
+ "datafusion-datasource 52.0.0",
  "datafusion-physical-plan 52.0.0",
  "futures",
  "get_dir",
@@ -2501,8 +2505,10 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "parking_lot",
+ "rand 0.9.2",
  "tokio",
  "url",
+ "vortex",
  "vortex-bench",
  "vortex-datafusion",
 ]
