@@ -36,7 +36,6 @@ A benchmarks visualization website (https://bench.vortex.dev/) that displays per
 
 ### Secondary Goals
 
-- Dogfooding: Use Vortex file format for storing benchmark data via DuckDB extension
 - Reusability: Architected as a library that others can adapt for their benchmarking needs
 - SEO optimization: Nice to have, but speed is paramount
 - Mobile-first design: Desktop is primary use case, but should work on mobile too
@@ -100,21 +99,21 @@ GitHub Actions (CI) -> JSON files -> S3 bucket -> Client downloads entire datase
                              │  │                                     │    │
                              │  │  ┌───────────────────────────────┐  │    │
                              │  │  │     DuckDB (embedded)         │  │    │
-                             │  │  │     + Vortex Extension        │  │    │
                              │  │  │                               │  │    │
-                             │  │  │  commits.vortex               │  │    │
-                             │  │  │  compression.vortex           │  │    │
-                             │  │  │  tpch_sf1.vortex              │  │    │
-                             │  │  │  tpch_sf10.vortex             │  │    │
-                             │  │  │  clickbench.vortex            │  │    │
-                             │  │  │  random_access.vortex         │  │    │
+                             │  │  │  benchmarks.duckdb            │  │    │
+                             │  │  │    - commits table            │  │    │
+                             │  │  │    - compression table        │  │    │
+                             │  │  │    - tpch_sf1 table           │  │    │
+                             │  │  │    - clickbench table         │  │    │
+                             │  │  │    - random_access table      │  │    │
+                             │  │  │    - etc                      │  │    │
                              │  │  └───────────────────────────────┘  │    │
                              │  └─────────────────────────────────────┘    │
                              │                 │                           │
                              │                 ▼                           │
                              │  ┌─────────────────────────────────────┐    │
                              │  │              S3 Bucket              │    │
-                             │  │   - Vortex file backups (hourly)    │    │
+                             │  │   - DuckDB file backups (hourly)    │    │
                              │  │   - Disaster recovery               │    │
                              │  └─────────────────────────────────────┘    │
                              └─────────────────────────────────────────────┘
@@ -122,9 +121,9 @@ GitHub Actions (CI) -> JSON files -> S3 bucket -> Client downloads entire datase
 
 ## Key Architectural Decisions
 
-### Decision 1: Server-Side DuckDB (Optionally with Vortex Extension)
+### Decision 1: Server-Side DuckDB
 
-**Choice**: Embedded DuckDB on server, optionally using Vortex extension for storage.
+**Choice**: Embedded DuckDB on server with native storage.
 
 **Alternatives Considered**:
 
@@ -135,7 +134,7 @@ GitHub Actions (CI) -> JSON files -> S3 bucket -> Client downloads entire datase
 **Rationale**:
 
 - DuckDB is extremely fast for analytical queries (~5ms for typical chart query)
-- Vortex extension lets us dogfood our format, but plain DuckDB works too
+- Single-file database is simple to deploy, backup, and manage
 - Schema evolution is trivial (`ALTER TABLE ADD COLUMN`)
 - Keep in mind future library extraction: storage should be swappable
 
@@ -176,7 +175,7 @@ GitHub Actions (CI) -> JSON files -> S3 bucket -> Client downloads entire datase
 
 ### Decision 4: No Materialized Views
 
-**Choice**: Direct queries against Vortex tables with indexes
+**Choice**: Direct queries against DuckDB tables with indexes
 
 **Alternatives Considered**:
 
@@ -196,7 +195,7 @@ GitHub Actions (CI) -> JSON files -> S3 bucket -> Client downloads entire datase
 
 ### Overview
 
-Each benchmark group is stored as a separate table (or Vortex file when using the Vortex extension). All tables share a common `commits` table for ordering.
+Each benchmark group is stored as a separate table. All tables share a common `commits` table for ordering.
 
 **Important**: All benchmark measurements are stored as **unsigned 64-bit integers** (typically nanoseconds). Conversion to human-readable units (seconds, milliseconds, MB/s) happens at display time. This preserves precision and simplifies storage.
 
@@ -376,7 +375,7 @@ pub enum SummaryType {
 ### Technology Stack
 
 - **Framework**: Leptos 0.8+ with Axum backend
-- **Database**: DuckDB (embedded), optionally with Vortex extension
+- **Database**: DuckDB (embedded)
 - **Runtime**: Tokio async runtime
 
 ### Project Structure
@@ -408,11 +407,8 @@ bench-website/
 │       └── groups.rs        # Benchmark group definitions
 ├── style/
 │   └── main.css
-└── data/                    # Vortex files (gitignored, populated at runtime)
-    ├── commits.vortex
-    ├── compression.vortex
-    ├── tpch_sf1.vortex
-    └── ...
+└── data/                    # DuckDB database (gitignored, populated at runtime)
+    └── benchmarks.duckdb
 ```
 
 ### DuckDB Connection Management
@@ -434,11 +430,6 @@ pub struct DbPool {
 impl DbPool {
     pub fn new(config: &StorageConfig) -> Result<Self> {
         let conn = Connection::open(&config.database_path)?;
-
-        // Optionally load Vortex extension if configured
-        if config.use_vortex_extension {
-            conn.execute("INSTALL vortex FROM 'path/to/extension'; LOAD vortex;", [])?;
-        }
 
         // Create tables if they don't exist
         Self::init_schema(&conn)?;
@@ -474,8 +465,6 @@ impl DbPool {
 /// Configuration for storage backend (supports library reuse)
 pub struct StorageConfig {
     pub database_path: String,      // ":memory:" or file path
-    pub use_vortex_extension: bool, // false for standard DuckDB
-    pub vortex_extension_path: Option<String>,
 }
 ```
 
@@ -1244,7 +1233,7 @@ Response: 200 OK
 │                                ▼                                       │
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                         EFS (Elastic File System)               │   │
-│  │  - Stores Vortex files                                          │   │
+│  │  - Stores DuckDB database file                                  │   │
 │  │  - Persists across container restarts                           │   │
 │  │  - Single-AZ (cost savings, acceptable for this use case)       │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
@@ -1252,7 +1241,7 @@ Response: 200 OK
 │  ┌─────────────────────────────────────────────────────────────────┐   │
 │  │                              S3                                 │   │
 │  │  Bucket: vortex-benchmarks-backup                               │   │
-│  │  - Hourly backups of Vortex files                               │   │
+│  │  - Hourly backups of DuckDB database                            │   │
 │  │  - Lifecycle: Delete after 30 days                              │   │
 │  └─────────────────────────────────────────────────────────────────┘   │
 │                                                                        │
@@ -1274,7 +1263,7 @@ This is simpler and cheaper (~$30/month) but less resilient. Acceptable for inte
 
 ```bash
 # Required
-BENCH_DATA_DIR=/data              # Path to Vortex files
+BENCH_DATA_DIR=/data              # Path to data directory
 BENCH_CI_TOKEN=<secret>           # Token for CI authentication
 BENCH_S3_BUCKET=vortex-benchmarks-backup
 
@@ -1348,9 +1337,6 @@ COPY --from=builder /app/target/release/bench-website .
 # Copy client WASM and assets
 COPY --from=builder /app/target/site ./site
 
-# Copy Vortex extension (pre-built)
-COPY --from=builder /app/vortex_duckdb.so /usr/local/lib/
-
 ENV BENCH_DATA_DIR=/data
 ENV BENCH_PORT=3000
 
@@ -1363,21 +1349,21 @@ CMD ["./bench-website"]
 
 ## Plan of Attack
 
-This is a **prototype-first, library-oriented** implementation plan. The goal is to build a reusable benchmark visualization library that can be plugged into any data source, with Vortex-specific integration handled separately.
+This is a **prototype-first, library-oriented** implementation plan. The goal is to build a reusable benchmark visualization library that can be plugged into any data source.
 
 ### Key Design Decisions
 
 - **Plotters** for charting (Rust-native, Canvas rendering)
-- **Plain DuckDB for prototyping** - Add Vortex extension once core functionality works
+- **DuckDB for storage** - Simple embedded database with fast analytical queries
 - **Mock data for development** - Real data pipeline is separate; design for pluggability
-- **Library-first mindset** - Keep Vortex-specific details separate from core visualization
+- **Library-first mindset** - Keep benchmark-specific details separate from core visualization
 
 ### Key Simplifications
 
 1. **Get a working prototype ASAP** - Mock/hardcode where possible
 2. **Start with 1-2 benchmark groups** - Not all schemas upfront
 3. **CI integration comes last** - Once everything works locally
-4. **Design for pluggability** - Core lib shouldn't depend on Vortex specifics
+4. **Design for pluggability** - Core lib shouldn't depend on specific data sources
 
 ---
 
@@ -1398,7 +1384,7 @@ This is a **prototype-first, library-oriented** implementation plan. The goal is
   - `commits` (commit_hash, timestamp, message, author)
   - `random_access` (simple single-chart group with ~3 series)
 - Generate ~100 mock commits with realistic patterns (some regressions, improvements)
-- Store as local DuckDB file (plain DuckDB for now, Vortex extension added after Phase 3)
+- Store as local DuckDB file
 
 1.3. **Single chart page**
 - Hardcoded route `/` that queries DuckDB
@@ -1458,12 +1444,7 @@ This is a **prototype-first, library-oriented** implementation plan. The goal is
 - Responsive design basics
 - URL routing for all groups
 
-3.4. **Add Vortex extension**
-- Load Vortex DuckDB extension
-- Convert DuckDB storage to Vortex files
-- Verify queries work correctly with Vortex tables
-
-**Deliverable**: Clean library interface with Vortex storage, easy to add new benchmark groups
+**Deliverable**: Clean library interface, easy to add new benchmark groups
 
 ---
 
@@ -1538,8 +1519,6 @@ This is a **prototype-first, library-oriented** implementation plan. The goal is
 
 ### What's Deferred Until Later Phases
 
-- Vortex DuckDB extension (plain DuckDB for prototyping, add Vortex after Phase 3)
-- Vortex-specific CI integration (user will plug in their pipeline)
 - Real data import scripts (user has separate pipeline)
 
 ### What's Explicitly Out of Scope
@@ -1605,14 +1584,6 @@ If plotters proves insufficient:
 - **ECharts via charming**: Full-featured, but large bundle (~1MB)
 - **D3 via wasm-bindgen**: Maximum flexibility, moderate complexity
 
-### Vortex-Specific Optimizations
-
-Since we're dogfooding Vortex:
-
-- **Compression**: Ensure Vortex files use appropriate encoding for benchmark data (u64 integers and strings)
-- **Predicate pushdown**: DuckDB + Vortex should push down filters efficiently; verify with EXPLAIN
-- **Column pruning**: Queries should only read needed columns; verify Vortex extension does this
-
 ---
 
 ## Appendix: Quick Reference
@@ -1650,7 +1621,7 @@ curl -X POST http://localhost:3000/api/ingest \
 | `src/api/charts.rs`       | Server functions for chart data |
 | `src/components/chart.rs` | Interactive chart island        |
 | `src/config/groups.rs`    | Benchmark group definitions     |
-| `data/*.vortex`           | Vortex data files (gitignored)  |
+| `data/benchmarks.duckdb`  | DuckDB database (gitignored)    |
 
 ### Data Sizes (Estimates)
 
