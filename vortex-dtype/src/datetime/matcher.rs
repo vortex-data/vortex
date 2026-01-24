@@ -10,8 +10,11 @@ use crate::extension::VTable;
 
 /// Options for temporal extension data types.
 pub enum TemporalOptions<'a> {
+    /// Options for Timestamp dtypes
     Timestamp(&'a <Timestamp as VTable>::Options),
+    /// Options for Date dtypes
     Date(&'a <Date as VTable>::Options),
+    /// Options for Time dtypes
     Time(&'a <Time as VTable>::Options),
 }
 

@@ -28,6 +28,11 @@ impl Date {
         ExtDType::try_new(time_unit, DType::Primitive(ptype, nullability))
     }
 
+    /// Creates a new Date extension dtype with the given time unit and nullability.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the `time_unit` is not supported by date types.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
         Self::try_new(time_unit, nullability).vortex_expect("failed to create date dtype")
     }
