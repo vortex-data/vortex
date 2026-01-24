@@ -3,7 +3,6 @@
 ## Design Document
 
 **Status:** Proposal
-**Author:** Claude
 **Date:** 2025-01-24
 
 ---
@@ -14,10 +13,10 @@ This document proposes a JSONPath-based query system for exploring and filtering
 
 ### Goals
 
-- Natural navigation: `$.struct.user_id.chunked` reads like a path
-- Powerful filtering: `$..flat[?(@._nbytes > 1000000)]` finds large uncompressed arrays
+- Natural navigation: `$.struct._.user_id.chunked` reads like a path
+- Powerful filtering: `$..flat[?(@.nbytes > 1000000)]` finds large uncompressed arrays
 - Tool compatibility: Works with `jq`, Python `jsonpath-ng`, JavaScript, etc.
-- Zero learning curve: JSONPath is widely known from Kubernetes, REST APIs, etc.
+- Zero ambiguity: Field names cannot conflict with encoding names
 
 ### Non-Goals
 
@@ -27,226 +26,170 @@ This document proposes a JSONPath-based query system for exploring and filtering
 
 ---
 
-## 2. JSON Tree Format
+## 2. Design Decisions
 
-### 2.1 Design Principles
+### 2.1 Encoding Names
 
-| Principle | Implementation |
-|-----------|----------------|
-| Encoding as key | `{ "flat": { ... } }` not `{ "encoding": "flat" }` |
-| Metadata prefix | Underscore: `_rows`, `_nbytes`, `_dtype` |
-| Field names as keys | `{ "user_id": { ... } }` for struct fields |
-| Chunk indices as keys | `{ "[0]": { ... }, "[1]": { ... } }` for chunks |
-| Single root | Tree always has one root encoding node |
+| Decision | Choice |
+|----------|--------|
+| Separator | Underscore `_` (not dot) |
+| Default mode | Short names: `struct`, `flat`, `dict` |
+| Strict mode | Full names: `vortex_struct`, `vortex_flat` |
 
-### 2.2 Node Structure
+**Rationale:** Dots conflict with JSONPath navigation. Short names are cleaner for queries; full names available via `--strict` flag.
 
-Every node in the tree has this shape:
+| Full Name | Short (default) | Strict Mode |
+|-----------|-----------------|-------------|
+| `vortex.struct` | `struct` | `vortex_struct` |
+| `vortex.flat` | `flat` | `vortex_flat` |
+| `vortex.dict` | `dict` | `vortex_dict` |
+| `vortex.chunked` | `chunked` | `vortex_chunked` |
+| `vortex.list` | `list` | `vortex_list` |
+| `vortex.bitpacking` | `bitpacking` | `vortex_bitpacking` |
+| `vortex.fsst` | `fsst` | `vortex_fsst` |
+| `vortex.alp` | `alp` | `vortex_alp` |
+
+### 2.2 Structure Rules
+
+| Rule | Description |
+|------|-------------|
+| **Encoding = key** | Encoding name is the JSON key itself (no separate `enc` property) |
+| **`_` for struct only** | Struct fields go under `_` to avoid name conflicts |
+| **Fixed children direct** | `dict.codes`, `list.offsets`, `chunked.[0]` need no wrapper |
+| **Metadata as properties** | `dtype`, `rows`, `nbytes` are sibling properties |
+
+### 2.3 Why `_` Only for Struct?
+
+| Encoding | Children | Conflict possible? |
+|----------|----------|-------------------|
+| `struct` | User-defined field names | ✅ Yes - field could be named `flat` |
+| `chunked` | `[0]`, `[1]`, `[2]`... | ❌ No - brackets not encoding names |
+| `dict` | `codes`, `values` | ❌ No - fixed names |
+| `list` | `offsets`, `elements` | ❌ No - fixed names |
+| `runend` | `ends`, `values` | ❌ No - fixed names |
+| `sparse` | `indices`, `values` | ❌ No - fixed names |
+
+Only `struct` has user-defined child names that could collide with encoding names.
+
+---
+
+## 3. JSON Tree Format
+
+### 3.1 Node Structure
 
 ```
 {
   "<encoding>": {
-    "_encoding": "<full_encoding_name>",
-    "_dtype": "<dtype_string>",
-    "_rows": <row_count>,
-    "_nbytes": <total_bytes>,
-    "_nbytes_direct": <direct_bytes>,
-    "_metadata_bytes": <metadata_size>,
-    "_segments": [<segment_ids>],
-    "_depth": <tree_depth>,
-    "_path": "<json_path_to_here>",
+    "dtype": "<dtype_string>",
+    "rows": <row_count>,
+    "nbytes": <total_bytes>,
+    "segments": [<segment_ids>],      // optional
 
-    // Children as named keys:
-    "<field_or_child_name>": { "<child_encoding>": { ... } },
+    // Children (structure depends on encoding):
+    "_": { ... },                      // struct fields
+    "[0]": { ... },                    // chunked chunks
+    "codes": { ... },                  // dict codes
+    "values": { ... },                 // dict values
     ...
   }
 }
 ```
 
-### 2.3 Complete Example
+### 3.2 Complete Example
 
 ```json
 {
   "struct": {
-    "_encoding": "vortex.struct",
-    "_dtype": "{user_id: i64, name: utf8, orders: list<{product: utf8, price: f64}>}",
-    "_rows": 1000000,
-    "_nbytes": 48576000,
-    "_nbytes_direct": 0,
-    "_metadata_bytes": 128,
-    "_segments": [],
-    "_depth": 0,
-    "_path": "$.struct",
+    "dtype": "{user_id: i64, name: utf8, orders: list<{product: utf8, price: f64}>}",
+    "rows": 100000,
+    "nbytes": 15000000,
 
-    "user_id": {
-      "chunked": {
-        "_encoding": "vortex.chunked",
-        "_dtype": "i64",
-        "_rows": 1000000,
-        "_nbytes": 8000000,
-        "_nbytes_direct": 0,
-        "_metadata_bytes": 64,
-        "_segments": [],
-        "_depth": 1,
-        "_path": "$.struct.user_id.chunked",
+    "_": {
+      "user_id": {
+        "chunked": {
+          "dtype": "i64",
+          "rows": 100000,
+          "nbytes": 800000,
 
-        "[0]": {
-          "fastlanes": {
-            "_encoding": "vortex.fastlanes",
-            "_dtype": "i64",
-            "_rows": 500000,
-            "_nbytes": 2000000,
-            "_nbytes_direct": 2000000,
-            "_metadata_bytes": 32,
-            "_segments": [0],
-            "_depth": 2,
-            "_path": "$.struct.user_id.chunked.[0].fastlanes"
-          }
-        },
-        "[1]": {
-          "fastlanes": {
-            "_encoding": "vortex.fastlanes",
-            "_dtype": "i64",
-            "_rows": 500000,
-            "_nbytes": 2000000,
-            "_nbytes_direct": 2000000,
-            "_metadata_bytes": 32,
-            "_segments": [1],
-            "_depth": 2,
-            "_path": "$.struct.user_id.chunked.[1].fastlanes"
-          }
-        }
-      }
-    },
-
-    "name": {
-      "chunked": {
-        "_encoding": "vortex.chunked",
-        "_dtype": "utf8",
-        "_rows": 1000000,
-        "_nbytes": 4500000,
-        "_nbytes_direct": 0,
-        "_metadata_bytes": 64,
-        "_segments": [],
-        "_depth": 1,
-        "_path": "$.struct.name.chunked",
-
-        "[0]": {
-          "dict": {
-            "_encoding": "vortex.dict",
-            "_dtype": "utf8",
-            "_rows": 1000000,
-            "_nbytes": 4500000,
-            "_nbytes_direct": 0,
-            "_metadata_bytes": 48,
-            "_segments": [],
-            "_depth": 2,
-            "_path": "$.struct.name.chunked.[0].dict",
-
-            "codes": {
-              "bitpacking": {
-                "_encoding": "vortex.bitpacking",
-                "_dtype": "u32",
-                "_rows": 1000000,
-                "_nbytes": 500000,
-                "_nbytes_direct": 500000,
-                "_metadata_bytes": 24,
-                "_segments": [2],
-                "_depth": 3,
-                "_path": "$.struct.name.chunked.[0].dict.codes.bitpacking"
-              }
-            },
-            "values": {
-              "flat": {
-                "_encoding": "vortex.flat",
-                "_dtype": "utf8",
-                "_rows": 847,
-                "_nbytes": 42350,
-                "_nbytes_direct": 42350,
-                "_metadata_bytes": 32,
-                "_segments": [3],
-                "_depth": 3,
-                "_path": "$.struct.name.chunked.[0].dict.values.flat"
-              }
+          "[0]": {
+            "bitpacking": {
+              "dtype": "i64",
+              "rows": 50000,
+              "nbytes": 400000,
+              "segments": [0]
+            }
+          },
+          "[1]": {
+            "bitpacking": {
+              "dtype": "i64",
+              "rows": 50000,
+              "nbytes": 400000,
+              "segments": [1]
             }
           }
         }
-      }
-    },
+      },
 
-    "orders": {
-      "chunked": {
-        "_encoding": "vortex.chunked",
-        "_dtype": "list<{product: utf8, price: f64}>",
-        "_rows": 1000000,
-        "_nbytes": 36000000,
-        "_nbytes_direct": 0,
-        "_metadata_bytes": 64,
-        "_segments": [],
-        "_depth": 1,
-        "_path": "$.struct.orders.chunked",
+      "name": {
+        "dict": {
+          "dtype": "utf8",
+          "rows": 100000,
+          "nbytes": 200000,
 
-        "[0]": {
-          "list": {
-            "_encoding": "vortex.list",
-            "_dtype": "list<{product: utf8, price: f64}>",
-            "_rows": 1000000,
-            "_nbytes": 36000000,
-            "_nbytes_direct": 0,
-            "_metadata_bytes": 48,
-            "_segments": [],
-            "_depth": 2,
-            "_path": "$.struct.orders.chunked.[0].list",
+          "codes": {
+            "bitpacking": {
+              "dtype": "u16",
+              "rows": 100000,
+              "nbytes": 50000,
+              "segments": [2]
+            }
+          },
+          "values": {
+            "fsst": {
+              "dtype": "utf8",
+              "rows": 847,
+              "nbytes": 25000,
+              "segments": [3]
+            }
+          }
+        }
+      },
 
-            "offsets": {
-              "flat": {
-                "_encoding": "vortex.flat",
-                "_dtype": "u64",
-                "_rows": 1000001,
-                "_nbytes": 8000008,
-                "_nbytes_direct": 8000008,
-                "_metadata_bytes": 24,
-                "_segments": [4],
-                "_depth": 3,
-                "_path": "$.struct.orders.chunked.[0].list.offsets.flat"
-              }
-            },
-            "elements": {
-              "struct": {
-                "_encoding": "vortex.struct",
-                "_dtype": "{product: utf8, price: f64}",
-                "_rows": 5000000,
-                "_nbytes": 28000000,
-                "_nbytes_direct": 0,
-                "_metadata_bytes": 64,
-                "_segments": [],
-                "_depth": 3,
-                "_path": "$.struct.orders.chunked.[0].list.elements.struct",
+      "orders": {
+        "list": {
+          "dtype": "list<{product: utf8, price: f64}>",
+          "rows": 100000,
+          "nbytes": 14000000,
 
+          "offsets": {
+            "flat": {
+              "dtype": "u64",
+              "rows": 100001,
+              "nbytes": 800008,
+              "segments": [4]
+            }
+          },
+          "elements": {
+            "struct": {
+              "dtype": "{product: utf8, price: f64}",
+              "rows": 500000,
+              "nbytes": 13200000,
+
+              "_": {
                 "product": {
                   "fsst": {
-                    "_encoding": "vortex.fsst",
-                    "_dtype": "utf8",
-                    "_rows": 5000000,
-                    "_nbytes": 12000000,
-                    "_nbytes_direct": 12000000,
-                    "_metadata_bytes": 2048,
-                    "_segments": [5, 6],
-                    "_depth": 4,
-                    "_path": "$.struct.orders.chunked.[0].list.elements.struct.product.fsst"
+                    "dtype": "utf8",
+                    "rows": 500000,
+                    "nbytes": 9200000,
+                    "segments": [5, 6]
                   }
                 },
                 "price": {
                   "alp": {
-                    "_encoding": "vortex.alp",
-                    "_dtype": "f64",
-                    "_rows": 5000000,
-                    "_nbytes": 8000000,
-                    "_nbytes_direct": 8000000,
-                    "_metadata_bytes": 64,
-                    "_segments": [7],
-                    "_depth": 4,
-                    "_path": "$.struct.orders.chunked.[0].list.elements.struct.price.alp"
+                    "dtype": "f64",
+                    "rows": 500000,
+                    "nbytes": 4000000,
+                    "segments": [7]
                   }
                 }
               }
@@ -259,76 +202,278 @@ Every node in the tree has this shape:
 }
 ```
 
+### 3.3 Field Name Conflicts
+
+With `_` wrapper, field names cannot conflict with encoding names:
+
+```json
+{
+  "struct": {
+    "_": {
+      "user_id": { "chunked": { ... } },
+      "flat": { "dict": { ... } },
+      "dict": { "flat": { ... } }
+    }
+  }
+}
+```
+
+- `$.struct._.flat` → field named "flat"
+- `$..flat` → all flat encodings (keys named "flat")
+
+No ambiguity!
+
 ---
 
-## 3. JSON Schema
+## 4. Metadata Properties
+
+| Property | Type | Description | Example |
+|----------|------|-------------|---------|
+| `dtype` | string | Logical data type | `"i64"`, `"utf8?"`, `"list<i32>"` |
+| `rows` | int | Logical row count | `100000` |
+| `nbytes` | int | Total bytes (subtree) | `4500000` |
+| `segments` | int[] | Segment IDs | `[0, 1, 2]` |
+
+### Future Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `nbytes_direct` | int | Bytes owned directly (not children) |
+| `compression_ratio` | float | `uncompressed_size / nbytes` |
+| `depth` | int | Tree depth (root = 0) |
+| `path` | string | JSONPath to this node |
+
+---
+
+## 5. JSONPath Queries
+
+### 5.1 Navigation
+
+```bash
+# Field access (struct fields under _)
+$.struct._.user_id
+$.struct._.name
+$.struct._.flat                    # field named "flat" - no conflict!
+
+# Encoding chain
+$.struct._.user_id.chunked.[0].bitpacking
+$.struct._.name.dict.values.fsst
+
+# Fixed children (no _ needed)
+$.struct._.name.dict.codes
+$.struct._.name.dict.values
+$.struct._.orders.list.offsets
+$.struct._.orders.list.elements
+
+# Nested struct
+$.struct._.orders.list.elements.struct._.price
+```
+
+### 5.2 Recursive Descent
+
+```bash
+# All encodings of a type
+$..flat                            # all flat encodings
+$..dict                            # all dict encodings
+$..struct                          # all structs (including nested)
+$..bitpacking                      # all bitpacked arrays
+
+# All struct fields
+$..struct._.*
+
+# All chunks
+$..chunked.*
+```
+
+### 5.3 Filters
+
+```bash
+# By size
+$..flat[?(@.nbytes > 1000000)]           # flat arrays > 1MB
+$..*[?(@.nbytes > 10000000)]             # any node > 10MB
+
+# By dtype
+$..*[?(@.dtype == "utf8")]               # string columns
+$..*[?(@.dtype == "utf8?")]              # nullable strings
+$..*[?(@.dtype =~ "^(i|u)(8|16|32|64)")] # integer columns
+
+# By rows
+$..*[?(@.rows > 100000)]                 # large arrays
+$..dict[?(@.values.rows < 1000)]         # dicts with few unique values
+
+# Combined
+$..flat[?(@.dtype == "utf8" && @.nbytes > 100000)]  # large uncompressed strings
+```
+
+### 5.4 Common Patterns
+
+```bash
+# "Why is my file so big?"
+$..*[?(@.nbytes > 10000000)]
+
+# "What compression is used for timestamps?"
+$.struct._.*[?(@.dtype =~ "timestamp")]
+
+# "Find compression opportunities" (large flat arrays)
+$..flat[?(@.rows > 100000)]
+
+# "Find nested structs in lists"
+$..list.elements.struct
+
+# "Show all leaf encodings"
+$..flat
+$..bitpacking
+$..fsst
+$..alp
+```
+
+---
+
+## 6. CLI Interface
+
+### 6.1 Command Structure
+
+```bash
+vx tree layout <file> [OPTIONS]
+
+OPTIONS:
+    -m, --match <JSONPATH>    Filter nodes matching JSONPath expression
+    -o, --output <FORMAT>     Output format: tree (default), json, paths, table
+    -v, --verbose             Include all metadata properties
+    -c, --context <N>         Show N ancestor levels for matches
+    -s, --stats               Show aggregate statistics for matches
+        --strict              Use full encoding names (vortex_struct)
+        --no-color            Disable colored output
+```
+
+### 6.2 Usage Examples
+
+```bash
+# Default tree view
+vx tree layout data.vtx
+
+# Find large flat arrays
+vx tree layout data.vtx -m '$..flat[?(@.nbytes > 1000000)]'
+
+# Output as JSON for piping to jq
+vx tree layout data.vtx -m '$..dict' -o json
+
+# Show paths only (for scripting)
+vx tree layout data.vtx -m '$..flat' -o paths
+
+# Table format with stats
+vx tree layout data.vtx -m '$..*' -o table --stats
+
+# Show matches with parent context
+vx tree layout data.vtx -m '$..flat' -c 2
+
+# Strict mode with full encoding names
+vx tree layout data.vtx --strict -m '$..vortex_flat'
+```
+
+### 6.3 Output Formats
+
+#### Tree (default)
+```
+struct {user_id: i64, name: utf8} rows=100000 nbytes=15.0MB
+├── user_id: chunked i64 rows=100000 nbytes=800KB
+│   ├── [0]: bitpacking i64 rows=50000 nbytes=400KB
+│   └── [1]: bitpacking i64 rows=50000 nbytes=400KB
+└── name: dict utf8 rows=100000 nbytes=200KB
+    ├── codes: bitpacking u16 rows=100000 nbytes=50KB
+    └── values: fsst utf8 rows=847 nbytes=25KB [MATCH]
+```
+
+#### JSON
+```json
+{
+  "matches": [...],
+  "count": 3,
+  "total_nbytes": 4542350
+}
+```
+
+#### Paths
+```
+$.struct._.user_id.chunked.[0].bitpacking
+$.struct._.user_id.chunked.[1].bitpacking
+$.struct._.name.dict.values.fsst
+```
+
+#### Table
+```
+PATH                                      ENCODING     DTYPE  ROWS    NBYTES
+$.struct._.user_id.chunked.[0]           bitpacking   i64    50000   400KB
+$.struct._.user_id.chunked.[1]           bitpacking   i64    50000   400KB
+$.struct._.name.dict.values              fsst         utf8   847     25KB
+
+Total: 3 matches, 825KB
+```
+
+---
+
+## 7. JSON Schema
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://vortex.dev/schemas/layout-tree.json",
+  "$id": "https://vortex.dev/schemas/layout-tree-v1.json",
   "title": "Vortex Layout Tree",
-  "description": "JSON representation of a Vortex file's encoding tree for JSONPath queries",
+  "description": "JSON representation of a Vortex encoding tree for JSONPath queries",
 
   "$defs": {
-    "encoding_node": {
+    "metadata": {
       "type": "object",
-      "description": "A node representing a single encoding in the tree",
       "properties": {
-        "_encoding": {
+        "dtype": {
           "type": "string",
-          "description": "Full encoding name (e.g., 'vortex.flat', 'vortex.dict')",
-          "pattern": "^vortex\\.[a-z_]+$"
+          "description": "Logical data type"
         },
-        "_dtype": {
-          "type": "string",
-          "description": "Logical data type (e.g., 'i64', 'utf8', '{field: type}')"
-        },
-        "_rows": {
+        "rows": {
           "type": "integer",
           "minimum": 0,
-          "description": "Number of logical rows in this array"
+          "description": "Number of logical rows"
         },
-        "_nbytes": {
+        "nbytes": {
           "type": "integer",
           "minimum": 0,
-          "description": "Total bytes including all descendants"
+          "description": "Total bytes including descendants"
         },
-        "_nbytes_direct": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Bytes directly owned by this node (segments)"
-        },
-        "_metadata_bytes": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Size of encoding metadata in bytes"
-        },
-        "_segments": {
+        "segments": {
           "type": "array",
           "items": { "type": "integer", "minimum": 0 },
-          "description": "Segment IDs referenced by this node"
-        },
-        "_depth": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Depth in tree (root = 0)"
-        },
-        "_path": {
-          "type": "string",
-          "description": "JSONPath to this node from root",
-          "pattern": "^\\$.*"
+          "description": "Segment IDs"
         }
       },
-      "required": ["_encoding", "_dtype", "_rows", "_nbytes"],
+      "required": ["dtype", "rows", "nbytes"]
+    },
+
+    "encoding_node": {
+      "allOf": [
+        { "$ref": "#/$defs/metadata" },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "$ref": "#/$defs/encoding_wrapper" },
+              { "$ref": "#/$defs/struct_fields" },
+              { "type": ["string", "number", "array"] }
+            ]
+          }
+        }
+      ]
+    },
+
+    "struct_fields": {
+      "type": "object",
+      "description": "Struct fields under _ key",
       "additionalProperties": {
-        "$ref": "#/$defs/child_wrapper"
+        "$ref": "#/$defs/encoding_wrapper"
       }
     },
 
-    "child_wrapper": {
+    "encoding_wrapper": {
       "type": "object",
-      "description": "Wrapper containing a single encoding node",
       "minProperties": 1,
       "maxProperties": 1,
       "additionalProperties": {
@@ -348,335 +493,89 @@ Every node in the tree has this shape:
 
 ---
 
-## 4. Metadata Properties Reference
+## 8. Encoding Reference
 
-| Property | Type | Description | Example |
-|----------|------|-------------|---------|
-| `_encoding` | string | Full encoding identifier | `"vortex.dict"` |
-| `_dtype` | string | Logical data type | `"utf8"`, `"i64?"`, `"list<i32>"` |
-| `_rows` | int | Logical row count | `1000000` |
-| `_nbytes` | int | Total bytes (subtree) | `4500000` |
-| `_nbytes_direct` | int | Direct segment bytes | `500000` |
-| `_metadata_bytes` | int | Metadata size | `48` |
-| `_segments` | int[] | Segment IDs | `[0, 1, 2]` |
-| `_depth` | int | Tree depth (root=0) | `3` |
-| `_path` | string | JSONPath to node | `"$.struct.name.chunked"` |
+### 8.1 Encoding Types
 
-### Computed Properties (Future)
+| Encoding | Description | Children |
+|----------|-------------|----------|
+| `struct` | Named fields | `_`: field names |
+| `chunked` | Row chunks | `[0]`, `[1]`, ... |
+| `list` | Variable-length lists | `offsets`, `elements` |
+| `dict` | Dictionary encoding | `codes`, `values` |
+| `runend` | Run-end encoding | `ends`, `values` |
+| `sparse` | Sparse array | `indices`, `values` |
+| `flat` | Uncompressed | None (leaf) |
+| `bitpacking` | Bit-packed integers | None (leaf) |
+| `fastlanes` | FastLanes compression | None (leaf) |
+| `fsst` | String compression | None (leaf) |
+| `alp` | Float compression | None (leaf) |
+| `roaring` | Bitmap compression | None (leaf) |
+| `constant` | Single value | None (leaf) |
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `_compression_ratio` | float | `uncompressed_size / _nbytes` |
-| `_is_leaf` | bool | No children |
-| `_child_count` | int | Number of children |
-| `_bytes_per_row` | float | `_nbytes / _rows` |
+### 8.2 Data Types
 
----
-
-## 5. Query Examples
-
-### 5.1 Navigation Queries
-
-```bash
-# Get specific field
-$.struct.user_id
-
-# Get all chunks of a field
-$.struct.name.chunked.*
-
-# Get first chunk only
-$.struct.name.chunked.[0]
-
-# Nested field access
-$.struct.orders..list.elements.struct.price
-```
-
-### 5.2 Recursive Descent (Find Anywhere)
-
-```bash
-# All flat encodings anywhere in tree
-$..flat
-
-# All dict encodings
-$..dict
-
-# All list encodings
-$..list
-
-# All struct encodings (including nested)
-$..struct
-```
-
-### 5.3 Filter by Encoding Properties
-
-```bash
-# Large uncompressed arrays (>1MB)
-$..flat[?(@._nbytes > 1000000)]
-
-# Small dictionary value sets (<1000 unique)
-$..dict.values.*[?(@._rows < 1000)]
-
-# Nullable columns
-$..*[?(@._dtype =~ "\\?$")]
-
-# Integer columns
-$..*[?(@._dtype =~ "^(i|u)(8|16|32|64)")]
-
-# String columns (utf8 or binary)
-$..*[?(@._dtype =~ "^(utf8|binary)")]
-
-# Deep nodes (depth > 3)
-$..*[?(@._depth > 3)]
-
-# Leaf nodes (no children beyond metadata)
-$..flat
-$..bitpacking
-$..fastlanes
-$..fsst
-$..alp
-```
-
-### 5.4 Compression Analysis Queries
-
-```bash
-# Uncompressed strings (flat utf8) - compression candidates
-$..flat[?(@._dtype == "utf8" || @._dtype == "utf8?")]
-
-# Large flat arrays that could use bitpacking
-$..flat[?(@._dtype =~ "^(i|u)" && @._nbytes > 100000)]
-
-# Dict with high cardinality (values nearly as many as rows)
-# Needs computed property or post-processing
-
-# Find FSST-encoded columns (already compressed strings)
-$..fsst
-
-# Find ALP-encoded columns (compressed floats)
-$..alp
-```
-
-### 5.5 Structure Analysis Queries
-
-```bash
-# Nested lists (list inside list)
-$..list..list
-
-# Structs inside lists (repeated nested records)
-$..list..struct
-
-# All fields of nested structs in lists
-$..list..struct.*
-
-# Chunked layouts (columnar organization)
-$..chunked
-
-# Multi-level chunking
-$..chunked..chunked
-```
-
-### 5.6 Path-Specific Queries
-
-```bash
-# Specific column encoding chain
-$.struct.user_id..*
-
-# All encodings under "orders" field
-$.struct.orders..*
-
-# Price field anywhere in structure
-$..*[?(@._path =~ "price")]
-```
+| Category | Types |
+|----------|-------|
+| Integers | `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64` |
+| Floats | `f32`, `f64` |
+| Boolean | `bool` |
+| Strings | `utf8`, `binary` |
+| Nullable | Suffix with `?`: `i64?`, `utf8?` |
+| List | `list<element_type>` |
+| Struct | `{field: type, ...}` |
 
 ---
 
-## 6. CLI Interface
+## 9. Comparison to Alternatives
 
-### 6.1 Command Structure
+### 9.1 Query Languages
 
-```bash
-vx tree layout <file> [OPTIONS]
+| Feature | JSONPath | XPath | jq |
+|---------|----------|-------|-----|
+| Recursive descent | `$..` | `//` | `..` |
+| Filters | `[?(@.x)]` | `[@x]` | `select(.x)` |
+| Regex | `=~` (some) | `matches()` | `test()` |
+| Learning curve | Low | Medium | High |
 
-OPTIONS:
-    -m, --match <JSONPATH>    Filter nodes matching JSONPath expression
-    -o, --output <FORMAT>     Output format: tree (default), json, paths, table
-    -v, --verbose             Include all metadata properties
-    -c, --context <N>         Show N ancestor levels for matches
-    -s, --stats               Show aggregate statistics for matches
-        --no-color            Disable colored output
-```
+### 9.2 Why JSONPath?
 
-### 6.2 Usage Examples
-
-```bash
-# Default tree view
-vx tree layout data.vtx
-
-# Find large flat arrays
-vx tree layout data.vtx -m '$..flat[?(@._nbytes > 1000000)]'
-
-# Output as JSON for piping to jq
-vx tree layout data.vtx -m '$..dict' -o json
-
-# Show paths only (for scripting)
-vx tree layout data.vtx -m '$..flat' -o paths
-
-# Table format with stats
-vx tree layout data.vtx -m '$..*' -o table --stats
-
-# Show matches with 2 levels of parent context
-vx tree layout data.vtx -m '$..flat' -c 2
-
-# Verbose output with all properties
-vx tree layout data.vtx -v
-```
-
-### 6.3 Output Formats
-
-#### Tree (default)
-```
-vortex.struct {user_id: i64, name: utf8} rows=1000000 nbytes=48.5MB
-├── user_id: vortex.chunked i64 rows=1000000 nbytes=8.0MB
-│   ├── [0]: vortex.fastlanes i64 rows=500000 nbytes=2.0MB [MATCH]
-│   └── [1]: vortex.fastlanes i64 rows=500000 nbytes=2.0MB [MATCH]
-└── name: vortex.chunked utf8 rows=1000000 nbytes=4.5MB
-    └── [0]: vortex.dict utf8 rows=1000000 nbytes=4.5MB
-        ├── codes: vortex.bitpacking u32 rows=1000000 nbytes=500KB
-        └── values: vortex.flat utf8 rows=847 nbytes=42KB [MATCH]
-```
-
-#### JSON
-```json
-{
-  "matches": [...],
-  "count": 3,
-  "total_nbytes": 4542350
-}
-```
-
-#### Paths
-```
-$.struct.user_id.chunked.[0].fastlanes
-$.struct.user_id.chunked.[1].fastlanes
-$.struct.name.chunked.[0].dict.values.flat
-```
-
-#### Table
-```
-PATH                                          ENCODING    DTYPE  ROWS      NBYTES
-$.struct.user_id.chunked.[0].fastlanes       fastlanes   i64    500000    2.0MB
-$.struct.user_id.chunked.[1].fastlanes       fastlanes   i64    500000    2.0MB
-$.struct.name.chunked.[0].dict.values.flat   flat        utf8   847       42KB
-
-Total: 3 matches, 4.04MB
-```
+- **Familiar**: Used in Kubernetes, REST APIs, etc.
+- **JSON native**: Output is already JSON
+- **Tool ecosystem**: `jq`, Python libraries, Rust crates
+- **Simple**: Covers 90% of use cases
 
 ---
 
-## 7. Implementation Plan
+## 10. Implementation Plan
 
 ### Phase 1: JSON Format
-- [ ] Modify `layout_to_json()` in `vortex-tui/src/tree.rs`
-- [ ] Add `_nbytes` calculation (sum of segment sizes)
-- [ ] Restructure output to use encoding names as keys
-- [ ] Add `_path` property generation
+- [ ] Implement `layout_to_json()` with new structure
+- [ ] Add `nbytes` calculation (sum of segment sizes)
+- [ ] Add `_` wrapper for struct fields
+- [ ] Add short encoding names (default)
 
 ### Phase 2: JSONPath Integration
 - [ ] Add `serde_json_path` dependency
-- [ ] Implement `--match` flag parsing
+- [ ] Implement `--match` flag
 - [ ] Filter and highlight matching nodes
 
 ### Phase 3: Output Formats
-- [ ] Implement `--output` flag with tree/json/paths/table
-- [ ] Add `--context` for showing ancestors
-- [ ] Add `--stats` for aggregations
+- [ ] `--output tree` (default, with highlighting)
+- [ ] `--output json` (matches as JSON)
+- [ ] `--output paths` (JSONPath strings)
+- [ ] `--output table` (tabular format)
 
-### Phase 4: Advanced Features
-- [ ] Computed properties (`_compression_ratio`, `_is_leaf`)
-- [ ] Regex support in filters (`=~`)
-- [ ] Multiple match expressions (OR)
-- [ ] Exclude expressions (`--exclude`)
-
----
-
-## 8. Alternatives Considered
-
-### 8.1 XPath
-- **Pro:** More powerful (axes, functions)
-- **Con:** XML-centric syntax, less familiar
-- **Decision:** JSONPath is more natural for JSON output
-
-### 8.2 jq
-- **Pro:** Extremely powerful
-- **Con:** Steep learning curve, full language
-- **Decision:** JSONPath for simple queries, pipe to `jq` for complex ones
-
-### 8.3 Custom DSL
-- **Pro:** Optimized for Vortex concepts
-- **Con:** Learning curve, maintenance burden
-- **Decision:** Leverage existing JSONPath ecosystem
-
-### 8.4 SQL over Tree
-- **Pro:** Familiar syntax
-- **Con:** Trees don't map well to tables
-- **Decision:** JSONPath better for hierarchical queries
+### Phase 4: Enhancements
+- [ ] `--strict` flag for full encoding names
+- [ ] `--context N` for ancestor display
+- [ ] `--stats` for aggregations
+- [ ] Per-namespace prefix configuration
 
 ---
 
-## 9. References
+## 11. References
 
 - [JSONPath Specification (RFC 9535)](https://www.rfc-editor.org/rfc/rfc9535)
 - [serde_json_path crate](https://docs.rs/serde_json_path)
 - [jq Manual](https://stedolan.github.io/jq/manual/)
-- [XPath 3.1 Specification](https://www.w3.org/TR/xpath-31/)
-
----
-
-## Appendix A: Encoding Types
-
-| Encoding | Description | Typical Children |
-|----------|-------------|------------------|
-| `flat` | Uncompressed Arrow-compatible | None |
-| `struct` | Named fields | Field names |
-| `list` | Variable-length lists | `offsets`, `elements` |
-| `chunked` | Row-chunked layout | `[0]`, `[1]`, ... |
-| `dict` | Dictionary encoding | `codes`, `values` |
-| `bitpacking` | Bit-packed integers | None |
-| `fastlanes` | FastLanes compression | None |
-| `fsst` | String compression | None |
-| `alp` | Float compression | None |
-| `runend` | Run-end encoding | `ends`, `values` |
-| `roaring` | Bitmap encoding | None |
-| `constant` | Single repeated value | None |
-| `sparse` | Sparse representation | `indices`, `values` |
-
----
-
-## Appendix B: Common Query Patterns
-
-### "Why is my file so big?"
-```bash
-vx tree layout f.vtx -m '$..*[?(@._nbytes > 10000000)]' -o table --stats
-```
-
-### "What compression is used for timestamps?"
-```bash
-vx tree layout f.vtx -m '$..*[?(@._path =~ "(time|date|ts|created)")]' -o table
-```
-
-### "Find compression opportunities"
-```bash
-# Large uncompressed strings
-vx tree layout f.vtx -m '$..flat[?(@._dtype =~ "utf8" && @._nbytes > 100000)]'
-
-# Large uncompressed integers
-vx tree layout f.vtx -m '$..flat[?(@._dtype =~ "^(i|u)" && @._nbytes > 100000)]'
-```
-
-### "Validate structure"
-```bash
-# Find unexpected nesting
-vx tree layout f.vtx -m '$..*[?(@._depth > 5)]'
-
-# Find missing compression
-vx tree layout f.vtx -m '$..flat[?(@._rows > 10000)]' -o table
-```
