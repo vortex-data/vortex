@@ -170,7 +170,7 @@ pub mod x86 {
     /// # Safety
     /// Requires AVX2 support. Check with `has_avx2()` before calling.
     #[target_feature(enable = "avx2")]
-    #[inline]
+    #[inline(never)]
     pub unsafe fn transpose_1024_avx2(input: &[u8; 128], output: &mut [u8; 128]) {
         // For AVX2, we can use vpmovmskb to extract MSBs efficiently
         // But we need arbitrary bit positions, not just MSB
@@ -235,7 +235,7 @@ pub mod x86 {
     /// # Safety
     /// Requires AVX2 and GFNI support.
     #[target_feature(enable = "avx2", enable = "gfni")]
-    #[inline]
+    #[inline(never)]
     pub unsafe fn transpose_1024_avx2_gfni(input: &[u8; 128], output: &mut [u8; 128]) {
         // GFNI can help with the bit extraction, but the main benefit is in
         // transposing 8x8 bit matrices within u64s. However, our pattern isn't
@@ -289,7 +289,7 @@ pub mod x86 {
     /// # Safety
     /// Requires AVX-512F, AVX-512BW, and GFNI support.
     #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "gfni")]
-    #[inline]
+    #[inline(never)]
     pub unsafe fn transpose_1024_avx512_gfni(input: &[u8; 128], output: &mut [u8; 128]) {
         use core::arch::x86_64::*;
 
