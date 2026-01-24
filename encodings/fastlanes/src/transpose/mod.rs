@@ -1420,6 +1420,200 @@ pub mod x86 {
             }
         }
     }
+
+    // ========================================================================
+    // Dual-block VBMI implementation for maximum throughput
+    // ========================================================================
+
+    /// Transpose two 1024-bit blocks using AVX-512 VBMI with full vectorization.
+    ///
+    /// Processes two blocks in parallel using interleaved VBMI operations.
+    /// This achieves better throughput than single-block by hiding latencies.
+    ///
+    /// # Safety
+    /// Requires AVX-512F, AVX-512BW, and AVX-512VBMI support.
+    #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vbmi")]
+    #[inline(never)]
+    pub unsafe fn transpose_1024x2_vbmi(
+        input0: &[u8; 128],
+        input1: &[u8; 128],
+        output0: &mut [u8; 128],
+        output1: &mut [u8; 128],
+    ) {
+        use core::arch::x86_64::*;
+
+        // Load all inputs (4 ZMM registers for 2 blocks)
+        let in0_lo = _mm512_loadu_si512(input0.as_ptr() as *const __m512i);
+        let in0_hi = _mm512_loadu_si512(input0.as_ptr().add(64) as *const __m512i);
+        let in1_lo = _mm512_loadu_si512(input1.as_ptr() as *const __m512i);
+        let in1_hi = _mm512_loadu_si512(input1.as_ptr().add(64) as *const __m512i);
+
+        // Load permutation indices (shared between both blocks)
+        let idx_first = _mm512_loadu_si512(GATHER_FIRST.as_ptr() as *const __m512i);
+        let idx_second = _mm512_loadu_si512(GATHER_SECOND.as_ptr() as *const __m512i);
+        let idx_scatter = _mm512_loadu_si512(SCATTER_8X8.as_ptr() as *const __m512i);
+
+        // Masks for 8x8 bit transpose
+        let mask1 = _mm512_set1_epi64(0x00AA00AA00AA00AAu64 as i64);
+        let mask2 = _mm512_set1_epi64(0x0000CCCC0000CCCCu64 as i64);
+        let mask3 = _mm512_set1_epi64(0x00000000F0F0F0F0u64 as i64);
+
+        // Process first halves of both blocks - interleaved for ILP
+        let g0_first = _mm512_permutex2var_epi8(in0_lo, idx_first, in0_hi);
+        let g1_first = _mm512_permutex2var_epi8(in1_lo, idx_first, in1_hi);
+
+        // 8x8 bit transpose - interleaved
+        let mut v0 = g0_first;
+        let mut v1 = g1_first;
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<7>(v0)), mask1);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<7>(v1)), mask1);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<7>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<7>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<14>(v0)), mask2);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<14>(v1)), mask2);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<14>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<14>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<28>(v0)), mask3);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<28>(v1)), mask3);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<28>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<28>(t1));
+
+        // Scatter and store first halves
+        let s0 = _mm512_permutexvar_epi8(idx_scatter, v0);
+        let s1 = _mm512_permutexvar_epi8(idx_scatter, v1);
+        _mm512_storeu_si512(output0.as_mut_ptr() as *mut __m512i, s0);
+        _mm512_storeu_si512(output1.as_mut_ptr() as *mut __m512i, s1);
+
+        // Process second halves - interleaved
+        let g0_second = _mm512_permutex2var_epi8(in0_lo, idx_second, in0_hi);
+        let g1_second = _mm512_permutex2var_epi8(in1_lo, idx_second, in1_hi);
+
+        let mut v0 = g0_second;
+        let mut v1 = g1_second;
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<7>(v0)), mask1);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<7>(v1)), mask1);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<7>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<7>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<14>(v0)), mask2);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<14>(v1)), mask2);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<14>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<14>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<28>(v0)), mask3);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<28>(v1)), mask3);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<28>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<28>(t1));
+
+        let s0 = _mm512_permutexvar_epi8(idx_scatter, v0);
+        let s1 = _mm512_permutexvar_epi8(idx_scatter, v1);
+        _mm512_storeu_si512(output0.as_mut_ptr().add(64) as *mut __m512i, s0);
+        _mm512_storeu_si512(output1.as_mut_ptr().add(64) as *mut __m512i, s1);
+    }
+
+    /// Untranspose two 1024-bit blocks using AVX-512 VBMI.
+    ///
+    /// # Safety
+    /// Requires AVX-512F, AVX-512BW, and AVX-512VBMI support.
+    #[target_feature(enable = "avx512f", enable = "avx512bw", enable = "avx512vbmi")]
+    #[inline(never)]
+    pub unsafe fn untranspose_1024x2_vbmi(
+        input0: &[u8; 128],
+        input1: &[u8; 128],
+        output0: &mut [u8; 128],
+        output1: &mut [u8; 128],
+    ) {
+        use core::arch::x86_64::*;
+
+        output0.fill(0);
+        output1.fill(0);
+
+        // Gather indices for transposed input (same as SCATTER_8X8 since it's self-inverse)
+        let idx = _mm512_loadu_si512(SCATTER_8X8.as_ptr() as *const __m512i);
+
+        let mask1 = _mm512_set1_epi64(0x00AA00AA00AA00AAu64 as i64);
+        let mask2 = _mm512_set1_epi64(0x0000CCCC0000CCCCu64 as i64);
+        let mask3 = _mm512_set1_epi64(0x00000000F0F0F0F0u64 as i64);
+
+        // First halves
+        let in0_first = _mm512_loadu_si512(input0.as_ptr() as *const __m512i);
+        let in1_first = _mm512_loadu_si512(input1.as_ptr() as *const __m512i);
+
+        let g0 = _mm512_permutexvar_epi8(idx, in0_first);
+        let g1 = _mm512_permutexvar_epi8(idx, in1_first);
+
+        let mut v0 = g0;
+        let mut v1 = g1;
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<7>(v0)), mask1);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<7>(v1)), mask1);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<7>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<7>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<14>(v0)), mask2);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<14>(v1)), mask2);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<14>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<14>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<28>(v0)), mask3);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<28>(v1)), mask3);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<28>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<28>(t1));
+
+        // Scatter to stride-16 output (still need scalar for this pattern)
+        let mut result0 = [0u64; 8];
+        let mut result1 = [0u64; 8];
+        _mm512_storeu_si512(result0.as_mut_ptr() as *mut __m512i, v0);
+        _mm512_storeu_si512(result1.as_mut_ptr() as *mut __m512i, v1);
+
+        for base_group in 0..8 {
+            let out_base = BASE_PATTERN_FIRST[base_group];
+            for i in 0..8 {
+                output0[out_base + i * 16] = (result0[base_group] >> (i * 8)) as u8;
+                output1[out_base + i * 16] = (result1[base_group] >> (i * 8)) as u8;
+            }
+        }
+
+        // Second halves
+        let in0_second = _mm512_loadu_si512(input0.as_ptr().add(64) as *const __m512i);
+        let in1_second = _mm512_loadu_si512(input1.as_ptr().add(64) as *const __m512i);
+
+        let g0 = _mm512_permutexvar_epi8(idx, in0_second);
+        let g1 = _mm512_permutexvar_epi8(idx, in1_second);
+
+        let mut v0 = g0;
+        let mut v1 = g1;
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<7>(v0)), mask1);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<7>(v1)), mask1);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<7>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<7>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<14>(v0)), mask2);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<14>(v1)), mask2);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<14>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<14>(t1));
+
+        let t0 = _mm512_and_si512(_mm512_xor_si512(v0, _mm512_srli_epi64::<28>(v0)), mask3);
+        let t1 = _mm512_and_si512(_mm512_xor_si512(v1, _mm512_srli_epi64::<28>(v1)), mask3);
+        v0 = _mm512_xor_si512(_mm512_xor_si512(v0, t0), _mm512_slli_epi64::<28>(t0));
+        v1 = _mm512_xor_si512(_mm512_xor_si512(v1, t1), _mm512_slli_epi64::<28>(t1));
+
+        _mm512_storeu_si512(result0.as_mut_ptr() as *mut __m512i, v0);
+        _mm512_storeu_si512(result1.as_mut_ptr() as *mut __m512i, v1);
+
+        for base_group in 0..8 {
+            let out_base = BASE_PATTERN_SECOND[base_group];
+            for i in 0..8 {
+                output0[out_base + i * 16] = (result0[base_group] >> (i * 8)) as u8;
+                output1[out_base + i * 16] = (result1[base_group] >> (i * 8)) as u8;
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -2094,6 +2288,83 @@ mod tests {
                 }
 
                 assert_eq!(input, roundtrip, "VBMI roundtrip failed for seed {}", seed);
+            }
+        }
+
+        #[test]
+        fn test_dual_block_vbmi_matches_baseline() {
+            if !x86::has_vbmi() {
+                eprintln!("Skipping VBMI dual-block test - not available");
+                return;
+            }
+
+            for seed in [0, 42, 123, 255] {
+                let input0 = generate_test_data(seed);
+                let input1 = generate_test_data(seed.wrapping_add(100));
+                let mut baseline_out0 = [0u8; 128];
+                let mut baseline_out1 = [0u8; 128];
+                let mut dual_out0 = [0u8; 128];
+                let mut dual_out1 = [0u8; 128];
+
+                transpose_1024_baseline(&input0, &mut baseline_out0);
+                transpose_1024_baseline(&input1, &mut baseline_out1);
+                unsafe {
+                    x86::transpose_1024x2_vbmi(&input0, &input1, &mut dual_out0, &mut dual_out1)
+                };
+
+                assert_eq!(
+                    baseline_out0, dual_out0,
+                    "dual-block VBMI transpose[0] doesn't match baseline for seed {}",
+                    seed
+                );
+                assert_eq!(
+                    baseline_out1, dual_out1,
+                    "dual-block VBMI transpose[1] doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_dual_block_vbmi_roundtrip() {
+            if !x86::has_vbmi() {
+                eprintln!("Skipping VBMI dual-block roundtrip test - not available");
+                return;
+            }
+
+            for seed in [0, 42, 123, 255] {
+                let input0 = generate_test_data(seed);
+                let input1 = generate_test_data(seed.wrapping_add(100));
+                let mut transposed0 = [0u8; 128];
+                let mut transposed1 = [0u8; 128];
+                let mut roundtrip0 = [0u8; 128];
+                let mut roundtrip1 = [0u8; 128];
+
+                unsafe {
+                    x86::transpose_1024x2_vbmi(
+                        &input0,
+                        &input1,
+                        &mut transposed0,
+                        &mut transposed1,
+                    );
+                    x86::untranspose_1024x2_vbmi(
+                        &transposed0,
+                        &transposed1,
+                        &mut roundtrip0,
+                        &mut roundtrip1,
+                    );
+                }
+
+                assert_eq!(
+                    input0, roundtrip0,
+                    "dual-block VBMI roundtrip[0] failed for seed {}",
+                    seed
+                );
+                assert_eq!(
+                    input1, roundtrip1,
+                    "dual-block VBMI roundtrip[1] failed for seed {}",
+                    seed
+                );
             }
         }
 
