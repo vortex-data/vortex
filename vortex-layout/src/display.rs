@@ -4,7 +4,9 @@
 use std::sync::Arc;
 
 use futures::future::try_join_all;
-use vortex_array::display::tree_model::{Attr, AttrValue, DisplayTreeNode};
+use vortex_array::display::tree_model::Attr;
+use vortex_array::display::tree_model::AttrValue;
+use vortex_array::display::tree_model::DisplayTreeNode;
 use vortex_array::serde::ArrayParts;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -300,14 +302,22 @@ impl DisplayLayoutTree {
 
         // For FlatLayout, show buffer info as inline attributes
         if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
-            add_flat_layout_attrs(&mut node, flat_layout, self.segment_buffer_sizes.as_ref(), &self.options);
+            add_flat_layout_attrs(
+                &mut node,
+                flat_layout,
+                self.segment_buffer_sizes.as_ref(),
+                &self.options,
+            );
         } else if self.options.segment_ids {
             // Not a FlatLayout - show segment IDs if any
             let segment_ids = layout.segment_ids();
             if !segment_ids.is_empty() {
-                let ids: Vec<AttrValue> =
-                    segment_ids.iter().map(|s| AttrValue::UInt(**s as u64)).collect();
-                node.nested_attrs.push(Attr::new("segments", AttrValue::List(ids)));
+                let ids: Vec<AttrValue> = segment_ids
+                    .iter()
+                    .map(|s| AttrValue::UInt(**s as u64))
+                    .collect();
+                node.nested_attrs
+                    .push(Attr::new("segments", AttrValue::List(ids)));
             }
         }
 
@@ -333,7 +343,8 @@ impl DisplayLayoutTree {
     /// Add inline attributes to a node for a layout.
     fn add_inline_attrs(&self, node: &mut DisplayTreeNode, layout: &LayoutRef) {
         if self.options.dtype {
-            node.attrs.push(Attr::new("dtype", layout.dtype().to_string()));
+            node.attrs
+                .push(Attr::new("dtype", layout.dtype().to_string()));
         }
 
         if self.options.children_count {
@@ -346,7 +357,8 @@ impl DisplayLayoutTree {
         if self.options.metadata_bytes {
             let metadata = layout.metadata();
             if !metadata.is_empty() {
-                node.attrs.push(Attr::new("metadata", format!("{} bytes", metadata.len())));
+                node.attrs
+                    .push(Attr::new("metadata", format!("{} bytes", metadata.len())));
             }
         }
 

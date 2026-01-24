@@ -95,6 +95,7 @@ futures = { workspace = true, features = ["executor"] }
 insta = { workspace = true }
 rand_distr = { workspace = true }
 rstest = { workspace = true }
+serde_json = { workspace = true }
 vortex-array = { path = ".", features = ["_test-harness", "table-display"] }
 
 [[bench]]

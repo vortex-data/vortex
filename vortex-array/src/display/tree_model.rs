@@ -14,7 +14,7 @@
 //! # Example using the trait (lazy)
 //!
 //! ```ignore
-//! use vortex_array::display::tree_model::{TreeDisplayable, TreeDisplay, Attr};
+//! use vortex_array::display::tree_model::{TreeDisplayable, TreeDisplay, Attr, MaybeOwned};
 //!
 //! struct MyNode { /* ... */ }
 //!
@@ -22,7 +22,7 @@
 //!     fn name(&self) -> std::borrow::Cow<'_, str> { "my.node".into() }
 //!     fn attrs(&self) -> Vec<Attr> { vec![] }
 //!     fn nested_attrs(&self) -> Vec<Attr> { vec![] }
-//!     fn children(&self) -> Vec<(std::borrow::Cow<'_, str>, &dyn TreeDisplayable)> { vec![] }
+//!     fn children(&self) -> Vec<(std::borrow::Cow<'_, str>, MaybeOwned<'_, dyn TreeDisplayable>)> { vec![] }
 //! }
 //!
 //! let node = MyNode { /* ... */ };
@@ -31,7 +31,7 @@
 //!
 //! # Example using DisplayTreeNode (eager)
 //!
-//! ```
+//! ```ignore
 //! use vortex_array::display::tree_model::{DisplayTreeNode, Attr, AttrValue};
 //!
 //! let node = DisplayTreeNode::new("vortex.struct")
@@ -41,16 +41,54 @@
 //! // Text output
 //! println!("{}", node);
 //!
-//! // JSON output
+//! // JSON output (requires serde feature)
 //! println!("{}", serde_json::to_string_pretty(&node).unwrap());
 //! ```
 
 use std::borrow::Cow;
-use std::fmt::{self, Display, Formatter};
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::fmt::{self};
+use std::ops::Deref;
 
 use indexmap::IndexMap;
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+/// A Cow-like type for trait objects that can be either borrowed or owned.
+///
+/// This is similar to `Cow` but works with unsized types like `dyn Trait`.
+/// It enables returning either borrowed references (zero-allocation) or
+/// owned boxed values (for computed children).
+pub enum MaybeOwned<'a, T: ?Sized> {
+    /// A borrowed reference.
+    Borrowed(&'a T),
+    /// An owned boxed value.
+    Owned(Box<T>),
+}
+
+impl<T: ?Sized> Deref for MaybeOwned<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            MaybeOwned::Borrowed(r) => r,
+            MaybeOwned::Owned(b) => b,
+        }
+    }
+}
+
+impl<'a, T: ?Sized> MaybeOwned<'a, T> {
+    /// Create a borrowed variant.
+    pub fn borrowed(r: &'a T) -> Self {
+        MaybeOwned::Borrowed(r)
+    }
+
+    /// Create an owned variant.
+    pub fn owned(b: Box<T>) -> Self {
+        MaybeOwned::Owned(b)
+    }
+}
 
 /// Trait for types that can be displayed as a tree.
 ///
@@ -72,7 +110,11 @@ pub trait TreeDisplayable {
     ///
     /// Returns a vector of (name, child) pairs. The name is used as a label
     /// in tree display (e.g., "numbers:" or "[0]:").
-    fn children(&self) -> Vec<(Cow<'_, str>, &dyn TreeDisplayable)> {
+    ///
+    /// Uses [`MaybeOwned`] to allow returning either borrowed references
+    /// (for types that store their children) or owned boxes (for types
+    /// that compute children on demand).
+    fn children(&self) -> Vec<(Cow<'_, str>, MaybeOwned<'_, dyn TreeDisplayable>)> {
         Vec::new()
     }
 
@@ -87,7 +129,7 @@ pub trait TreeDisplayable {
 
         for (child_name, child) in self.children() {
             node.children
-                .insert(child_name.into_owned(), child.to_tree_node());
+                .insert(child_name.into_owned(), child.deref().to_tree_node());
         }
 
         node
@@ -107,11 +149,7 @@ impl<T: TreeDisplayable> Display for TreeDisplay<'_, T> {
 }
 
 /// Write a tree node and its children with proper indentation.
-fn write_tree(
-    f: &mut Formatter<'_>,
-    node: &dyn TreeDisplayable,
-    prefix: &str,
-) -> fmt::Result {
+fn write_tree(f: &mut Formatter<'_>, node: &dyn TreeDisplayable, prefix: &str) -> fmt::Result {
     // Build the node line: "name, attr1: val1, attr2: val2"
     let name = node.name();
     write!(f, "{}", name)?;
@@ -127,14 +165,22 @@ fn write_tree(
     // Write nested attributes
     for (i, attr) in nested.iter().enumerate() {
         let is_last_item = children.is_empty() && i == nested.len() - 1;
-        let connector = if is_last_item { "└── " } else { "├── " };
+        let connector = if is_last_item {
+            "└── "
+        } else {
+            "├── "
+        };
         writeln!(f, "{}{}{}", prefix, connector, attr)?;
     }
 
     // Write children
     for (i, (child_name, child)) in children.iter().enumerate() {
         let is_last_child = i == children.len() - 1;
-        let connector = if is_last_child { "└── " } else { "├── " };
+        let connector = if is_last_child {
+            "└── "
+        } else {
+            "├── "
+        };
         let child_prefix = if is_last_child {
             format!("{}    ", prefix)
         } else {
@@ -142,7 +188,7 @@ fn write_tree(
         };
 
         write!(f, "{}{}{}: ", prefix, connector, child_name)?;
-        write_tree(f, *child, &child_prefix)?;
+        write_tree(f, child.deref(), &child_prefix)?;
     }
 
     Ok(())
@@ -223,10 +269,15 @@ impl TreeDisplayable for DisplayTreeNode {
         self.nested_attrs.clone()
     }
 
-    fn children(&self) -> Vec<(Cow<'_, str>, &dyn TreeDisplayable)> {
+    fn children(&self) -> Vec<(Cow<'_, str>, MaybeOwned<'_, dyn TreeDisplayable>)> {
         self.children
             .iter()
-            .map(|(name, child)| (Cow::Borrowed(name.as_str()), child as &dyn TreeDisplayable))
+            .map(|(name, child)| {
+                (
+                    Cow::Borrowed(name.as_str()),
+                    MaybeOwned::Borrowed(child as &dyn TreeDisplayable),
+                )
+            })
             .collect()
     }
 }
@@ -411,6 +462,7 @@ mod tests {
         assert!(output.contains("x: vortex.primitive"));
     }
 
+    #[cfg(feature = "serde")]
     #[test]
     fn test_json_serialization() {
         let child = DisplayTreeNode::new("vortex.primitive").with_attr("dtype", "i64");
@@ -492,8 +544,11 @@ mod tests {
                 vec![]
             }
 
-            fn children(&self) -> Vec<(Cow<'_, str>, &dyn TreeDisplayable)> {
-                vec![("my_child".into(), &self.child as &dyn TreeDisplayable)]
+            fn children(&self) -> Vec<(Cow<'_, str>, MaybeOwned<'_, dyn TreeDisplayable>)> {
+                vec![(
+                    "my_child".into(),
+                    MaybeOwned::Borrowed(&self.child as &dyn TreeDisplayable),
+                )]
             }
         }
 
@@ -512,7 +567,10 @@ mod tests {
         assert_eq!(tree_node.name, "parent");
         assert!(tree_node.children.contains_key("my_child"));
 
-        let json = serde_json::to_string(&tree_node).unwrap();
-        assert!(json.contains("\"my_child\""));
+        #[cfg(feature = "serde")]
+        {
+            let json = serde_json::to_string(&tree_node).unwrap();
+            assert!(json.contains("\"my_child\""));
+        }
     }
 }

@@ -10184,6 +10184,7 @@ dependencies = [
  "rstest_reuse",
  "rustc-hash",
  "serde",
+ "serde_json",
  "simdutf8",
  "tabled",
  "termtree",
