@@ -86,6 +86,156 @@ pub fn transpose_1024_scalar(input: &[u8; 128], output: &mut [u8; 128]) {
     }
 }
 
+/// Fast scalar transpose using the 8x8 bit matrix transpose algorithm.
+///
+/// This version uses 64-bit gather + parallel bit operations instead of
+/// extracting bits one by one. Typically 5-10x faster than the basic scalar version.
+#[inline(never)]
+pub fn transpose_1024_scalar_fast(input: &[u8; 128], output: &mut [u8; 128]) {
+    // Helper to perform 8x8 bit transpose on a u64 (each byte becomes a row)
+    #[inline(always)]
+    fn transpose_8x8(mut x: u64) -> u64 {
+        // Step 1: Transpose 2x2 bit blocks
+        let t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAu64;
+        x = x ^ t ^ (t << 7);
+        // Step 2: Transpose 4x4 bit blocks
+        let t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCu64;
+        x = x ^ t ^ (t << 14);
+        // Step 3: Transpose 8x8 bit blocks
+        let t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0u64;
+        x ^ t ^ (t << 28)
+    }
+
+    // Helper to gather 8 bytes at stride 16 into a u64
+    #[inline(always)]
+    fn gather(input: &[u8; 128], base: usize) -> u64 {
+        (input[base] as u64)
+            | ((input[base + 16] as u64) << 8)
+            | ((input[base + 32] as u64) << 16)
+            | ((input[base + 48] as u64) << 24)
+            | ((input[base + 64] as u64) << 32)
+            | ((input[base + 80] as u64) << 40)
+            | ((input[base + 96] as u64) << 48)
+            | ((input[base + 112] as u64) << 56)
+    }
+
+    // Process first half (8 base groups, fully unrolled)
+    let r0 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[0]));
+    let r1 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[1]));
+    let r2 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[2]));
+    let r3 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[3]));
+    let r4 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[4]));
+    let r5 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[5]));
+    let r6 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[6]));
+    let r7 = transpose_8x8(gather(input, BASE_PATTERN_FIRST[7]));
+
+    // Write first 64 output bytes (unrolled)
+    for bit_pos in 0..8 {
+        output[bit_pos * 8] = (r0 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 1] = (r1 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 2] = (r2 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 3] = (r3 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 4] = (r4 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 5] = (r5 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 6] = (r6 >> (bit_pos * 8)) as u8;
+        output[bit_pos * 8 + 7] = (r7 >> (bit_pos * 8)) as u8;
+    }
+
+    // Process second half
+    let r0 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[0]));
+    let r1 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[1]));
+    let r2 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[2]));
+    let r3 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[3]));
+    let r4 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[4]));
+    let r5 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[5]));
+    let r6 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[6]));
+    let r7 = transpose_8x8(gather(input, BASE_PATTERN_SECOND[7]));
+
+    for bit_pos in 0..8 {
+        output[64 + bit_pos * 8] = (r0 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 1] = (r1 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 2] = (r2 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 3] = (r3 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 4] = (r4 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 5] = (r5 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 6] = (r6 >> (bit_pos * 8)) as u8;
+        output[64 + bit_pos * 8 + 7] = (r7 >> (bit_pos * 8)) as u8;
+    }
+}
+
+/// Fast scalar untranspose using the 8x8 bit matrix transpose algorithm.
+#[inline(never)]
+pub fn untranspose_1024_scalar_fast(input: &[u8; 128], output: &mut [u8; 128]) {
+    #[inline(always)]
+    fn transpose_8x8(mut x: u64) -> u64 {
+        let t = (x ^ (x >> 7)) & 0x00AA00AA00AA00AAu64;
+        x = x ^ t ^ (t << 7);
+        let t = (x ^ (x >> 14)) & 0x0000CCCC0000CCCCu64;
+        x = x ^ t ^ (t << 14);
+        let t = (x ^ (x >> 28)) & 0x00000000F0F0F0F0u64;
+        x ^ t ^ (t << 28)
+    }
+
+    #[inline(always)]
+    fn gather_transposed(input: &[u8; 128], base_group: usize, offset: usize) -> u64 {
+        let mut result: u64 = 0;
+        for bit_pos in 0..8 {
+            result |= (input[offset + bit_pos * 8 + base_group] as u64) << (bit_pos * 8);
+        }
+        result
+    }
+
+    #[inline(always)]
+    fn scatter(output: &mut [u8; 128], base: usize, val: u64) {
+        output[base] = val as u8;
+        output[base + 16] = (val >> 8) as u8;
+        output[base + 32] = (val >> 16) as u8;
+        output[base + 48] = (val >> 24) as u8;
+        output[base + 64] = (val >> 32) as u8;
+        output[base + 80] = (val >> 40) as u8;
+        output[base + 96] = (val >> 48) as u8;
+        output[base + 112] = (val >> 56) as u8;
+    }
+
+    // First half (unrolled)
+    let r0 = transpose_8x8(gather_transposed(input, 0, 0));
+    let r1 = transpose_8x8(gather_transposed(input, 1, 0));
+    let r2 = transpose_8x8(gather_transposed(input, 2, 0));
+    let r3 = transpose_8x8(gather_transposed(input, 3, 0));
+    let r4 = transpose_8x8(gather_transposed(input, 4, 0));
+    let r5 = transpose_8x8(gather_transposed(input, 5, 0));
+    let r6 = transpose_8x8(gather_transposed(input, 6, 0));
+    let r7 = transpose_8x8(gather_transposed(input, 7, 0));
+
+    scatter(output, BASE_PATTERN_FIRST[0], r0);
+    scatter(output, BASE_PATTERN_FIRST[1], r1);
+    scatter(output, BASE_PATTERN_FIRST[2], r2);
+    scatter(output, BASE_PATTERN_FIRST[3], r3);
+    scatter(output, BASE_PATTERN_FIRST[4], r4);
+    scatter(output, BASE_PATTERN_FIRST[5], r5);
+    scatter(output, BASE_PATTERN_FIRST[6], r6);
+    scatter(output, BASE_PATTERN_FIRST[7], r7);
+
+    // Second half
+    let r0 = transpose_8x8(gather_transposed(input, 0, 64));
+    let r1 = transpose_8x8(gather_transposed(input, 1, 64));
+    let r2 = transpose_8x8(gather_transposed(input, 2, 64));
+    let r3 = transpose_8x8(gather_transposed(input, 3, 64));
+    let r4 = transpose_8x8(gather_transposed(input, 4, 64));
+    let r5 = transpose_8x8(gather_transposed(input, 5, 64));
+    let r6 = transpose_8x8(gather_transposed(input, 6, 64));
+    let r7 = transpose_8x8(gather_transposed(input, 7, 64));
+
+    scatter(output, BASE_PATTERN_SECOND[0], r0);
+    scatter(output, BASE_PATTERN_SECOND[1], r1);
+    scatter(output, BASE_PATTERN_SECOND[2], r2);
+    scatter(output, BASE_PATTERN_SECOND[3], r3);
+    scatter(output, BASE_PATTERN_SECOND[4], r4);
+    scatter(output, BASE_PATTERN_SECOND[5], r5);
+    scatter(output, BASE_PATTERN_SECOND[6], r6);
+    scatter(output, BASE_PATTERN_SECOND[7], r7);
+}
+
 /// Untranspose 1024 bits (inverse of transpose).
 #[inline(never)]
 pub fn untranspose_1024_baseline(input: &[u8; 128], output: &mut [u8; 128]) {
@@ -688,33 +838,262 @@ pub mod x86 {
     }
 }
 
+// ============================================================================
+// ARM64 NEON implementations
+// ============================================================================
+
+#[cfg(target_arch = "aarch64")]
+#[allow(unsafe_op_in_unsafe_fn)]
+pub mod aarch64 {
+    use super::*;
+
+    /// Check if NEON is available (always true on AArch64).
+    #[inline]
+    pub fn has_neon() -> bool {
+        // NEON is mandatory on AArch64
+        true
+    }
+
+    /// Transpose 1024 bits using ARM NEON.
+    ///
+    /// Uses the classic 8x8 bit matrix transpose algorithm with XOR and shift
+    /// operations, processing 2 groups in parallel with 128-bit NEON registers.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn transpose_1024_neon(input: &[u8; 128], output: &mut [u8; 128]) {
+        use core::arch::aarch64::*;
+
+        let mut buf = [0u8; 128];
+        core::ptr::copy_nonoverlapping(input.as_ptr(), buf.as_mut_ptr(), 128);
+
+        // Process groups in pairs (2 u64s at a time with 128-bit NEON)
+        // First half: 8 groups, process as 4 pairs
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let in_base_0 = BASE_PATTERN_FIRST[base_group_0];
+            let in_base_1 = BASE_PATTERN_FIRST[base_group_1];
+
+            // Gather 8 bytes at stride 16 into u64s
+            let gathered_0: u64 = (buf[in_base_0] as u64)
+                | ((buf[in_base_0 + 16] as u64) << 8)
+                | ((buf[in_base_0 + 32] as u64) << 16)
+                | ((buf[in_base_0 + 48] as u64) << 24)
+                | ((buf[in_base_0 + 64] as u64) << 32)
+                | ((buf[in_base_0 + 80] as u64) << 40)
+                | ((buf[in_base_0 + 96] as u64) << 48)
+                | ((buf[in_base_0 + 112] as u64) << 56);
+
+            let gathered_1: u64 = (buf[in_base_1] as u64)
+                | ((buf[in_base_1 + 16] as u64) << 8)
+                | ((buf[in_base_1 + 32] as u64) << 16)
+                | ((buf[in_base_1 + 48] as u64) << 24)
+                | ((buf[in_base_1 + 64] as u64) << 32)
+                | ((buf[in_base_1 + 80] as u64) << 40)
+                | ((buf[in_base_1 + 96] as u64) << 48)
+                | ((buf[in_base_1 + 112] as u64) << 56);
+
+            // Load into NEON register (2 x u64)
+            let mut v = vcombine_u64(vcreate_u64(gathered_0), vcreate_u64(gathered_1));
+
+            // 8x8 bit transpose using parallel XOR operations
+            // Step 1: Transpose 2x2 bit blocks
+            let mask1 = vdupq_n_u64(0x00AA00AA00AA00AAu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<7>(t));
+
+            // Step 2: Transpose 4x4 bit blocks
+            let mask2 = vdupq_n_u64(0x0000CCCC0000CCCCu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<14>(v)), mask2);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<14>(t));
+
+            // Step 3: Transpose 8x8 bit blocks
+            let mask3 = vdupq_n_u64(0x00000000F0F0F0F0u64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t));
+
+            // Extract results
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            // Write output bytes
+            for bit_pos in 0..8 {
+                output[bit_pos * 8 + base_group_0] = (result_0 >> (bit_pos * 8)) as u8;
+                output[bit_pos * 8 + base_group_1] = (result_1 >> (bit_pos * 8)) as u8;
+            }
+        }
+
+        // Second half: lanes 8-15
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let in_base_0 = BASE_PATTERN_SECOND[base_group_0];
+            let in_base_1 = BASE_PATTERN_SECOND[base_group_1];
+
+            let gathered_0: u64 = (buf[in_base_0] as u64)
+                | ((buf[in_base_0 + 16] as u64) << 8)
+                | ((buf[in_base_0 + 32] as u64) << 16)
+                | ((buf[in_base_0 + 48] as u64) << 24)
+                | ((buf[in_base_0 + 64] as u64) << 32)
+                | ((buf[in_base_0 + 80] as u64) << 40)
+                | ((buf[in_base_0 + 96] as u64) << 48)
+                | ((buf[in_base_0 + 112] as u64) << 56);
+
+            let gathered_1: u64 = (buf[in_base_1] as u64)
+                | ((buf[in_base_1 + 16] as u64) << 8)
+                | ((buf[in_base_1 + 32] as u64) << 16)
+                | ((buf[in_base_1 + 48] as u64) << 24)
+                | ((buf[in_base_1 + 64] as u64) << 32)
+                | ((buf[in_base_1 + 80] as u64) << 40)
+                | ((buf[in_base_1 + 96] as u64) << 48)
+                | ((buf[in_base_1 + 112] as u64) << 56);
+
+            let mut v = vcombine_u64(vcreate_u64(gathered_0), vcreate_u64(gathered_1));
+
+            let mask1 = vdupq_n_u64(0x00AA00AA00AA00AAu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<7>(t));
+
+            let mask2 = vdupq_n_u64(0x0000CCCC0000CCCCu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<14>(v)), mask2);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<14>(t));
+
+            let mask3 = vdupq_n_u64(0x00000000F0F0F0F0u64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t));
+
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            for bit_pos in 0..8 {
+                output[64 + bit_pos * 8 + base_group_0] = (result_0 >> (bit_pos * 8)) as u8;
+                output[64 + bit_pos * 8 + base_group_1] = (result_1 >> (bit_pos * 8)) as u8;
+            }
+        }
+    }
+
+    /// Untranspose 1024 bits using ARM NEON.
+    ///
+    /// # Safety
+    /// Requires AArch64 with NEON (always available on AArch64).
+    #[target_feature(enable = "neon")]
+    #[inline(never)]
+    pub unsafe fn untranspose_1024_neon(input: &[u8; 128], output: &mut [u8; 128]) {
+        use core::arch::aarch64::*;
+
+        output.fill(0);
+
+        // Process groups in pairs
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            // Gather 8 consecutive transposed bytes per group
+            let mut gathered_0: u64 = 0;
+            let mut gathered_1: u64 = 0;
+            for bit_pos in 0..8 {
+                gathered_0 |= (input[bit_pos * 8 + base_group_0] as u64) << (bit_pos * 8);
+                gathered_1 |= (input[bit_pos * 8 + base_group_1] as u64) << (bit_pos * 8);
+            }
+
+            let mut v = vcombine_u64(vcreate_u64(gathered_0), vcreate_u64(gathered_1));
+
+            // 8x8 bit transpose (same as forward - it's self-inverse)
+            let mask1 = vdupq_n_u64(0x00AA00AA00AA00AAu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<7>(t));
+
+            let mask2 = vdupq_n_u64(0x0000CCCC0000CCCCu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<14>(v)), mask2);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<14>(t));
+
+            let mask3 = vdupq_n_u64(0x00000000F0F0F0F0u64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t));
+
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            // Scatter to output at stride 16
+            let out_base_0 = BASE_PATTERN_FIRST[base_group_0];
+            let out_base_1 = BASE_PATTERN_FIRST[base_group_1];
+            for i in 0..8 {
+                output[out_base_0 + i * 16] = (result_0 >> (i * 8)) as u8;
+                output[out_base_1 + i * 16] = (result_1 >> (i * 8)) as u8;
+            }
+        }
+
+        // Second half
+        for pair in 0..4 {
+            let base_group_0 = pair * 2;
+            let base_group_1 = pair * 2 + 1;
+
+            let mut gathered_0: u64 = 0;
+            let mut gathered_1: u64 = 0;
+            for bit_pos in 0..8 {
+                gathered_0 |= (input[64 + bit_pos * 8 + base_group_0] as u64) << (bit_pos * 8);
+                gathered_1 |= (input[64 + bit_pos * 8 + base_group_1] as u64) << (bit_pos * 8);
+            }
+
+            let mut v = vcombine_u64(vcreate_u64(gathered_0), vcreate_u64(gathered_1));
+
+            let mask1 = vdupq_n_u64(0x00AA00AA00AA00AAu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<7>(v)), mask1);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<7>(t));
+
+            let mask2 = vdupq_n_u64(0x0000CCCC0000CCCCu64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<14>(v)), mask2);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<14>(t));
+
+            let mask3 = vdupq_n_u64(0x00000000F0F0F0F0u64);
+            let t = vandq_u64(veorq_u64(v, vshrq_n_u64::<28>(v)), mask3);
+            v = veorq_u64(veorq_u64(v, t), vshlq_n_u64::<28>(t));
+
+            let result_0 = vgetq_lane_u64::<0>(v);
+            let result_1 = vgetq_lane_u64::<1>(v);
+
+            let out_base_0 = BASE_PATTERN_SECOND[base_group_0];
+            let out_base_1 = BASE_PATTERN_SECOND[base_group_1];
+            for i in 0..8 {
+                output[out_base_0 + i * 16] = (result_0 >> (i * 8)) as u8;
+                output[out_base_1 + i * 16] = (result_1 >> (i * 8)) as u8;
+            }
+        }
+    }
+}
+
 /// Dispatch to the best available implementation at runtime.
 #[inline]
 pub fn transpose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
     #[cfg(target_arch = "x86_64")]
     {
         if x86::has_gfni() && x86::has_avx512() {
-            unsafe {
-                return x86::transpose_1024_avx512_gfni(input, output);
-            }
+            return unsafe { x86::transpose_1024_avx512_gfni(input, output) };
         }
         if x86::has_gfni() && x86::has_avx2() {
-            unsafe {
-                return x86::transpose_1024_avx2_gfni(input, output);
-            }
+            return unsafe { x86::transpose_1024_avx2_gfni(input, output) };
         }
         if x86::has_bmi2() {
-            unsafe {
-                return x86::transpose_1024_bmi2(input, output);
-            }
+            return unsafe { x86::transpose_1024_bmi2(input, output) };
         }
         if x86::has_avx2() {
-            unsafe {
-                return x86::transpose_1024_avx2(input, output);
-            }
+            return unsafe { x86::transpose_1024_avx2(input, output) };
         }
+        // Fall back to fast scalar on x86_64
+        transpose_1024_scalar_fast(input, output)
     }
-    transpose_1024_scalar(input, output)
+    #[cfg(target_arch = "aarch64")]
+    // NEON is always available on AArch64
+    unsafe {
+        aarch64::transpose_1024_neon(input, output)
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    transpose_1024_scalar_fast(input, output)
 }
 
 /// Dispatch untranspose to the best available implementation at runtime.
@@ -723,22 +1102,24 @@ pub fn untranspose_1024_best(input: &[u8; 128], output: &mut [u8; 128]) {
     #[cfg(target_arch = "x86_64")]
     {
         if x86::has_gfni() && x86::has_avx512() {
-            unsafe {
-                return x86::untranspose_1024_avx512_gfni(input, output);
-            }
+            return unsafe { x86::untranspose_1024_avx512_gfni(input, output) };
         }
         if x86::has_gfni() && x86::has_avx2() {
-            unsafe {
-                return x86::untranspose_1024_avx2_gfni(input, output);
-            }
+            return unsafe { x86::untranspose_1024_avx2_gfni(input, output) };
         }
         if x86::has_bmi2() {
-            unsafe {
-                return x86::untranspose_1024_bmi2(input, output);
-            }
+            return unsafe { x86::untranspose_1024_bmi2(input, output) };
         }
+        // Fall back to fast scalar on x86_64
+        untranspose_1024_scalar_fast(input, output)
     }
-    untranspose_1024_scalar(input, output)
+    #[cfg(target_arch = "aarch64")]
+    // NEON is always available on AArch64
+    unsafe {
+        aarch64::untranspose_1024_neon(input, output)
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    untranspose_1024_scalar_fast(input, output)
 }
 
 #[cfg(test)]
@@ -826,6 +1207,42 @@ mod tests {
             assert_eq!(
                 input, roundtrip,
                 "scalar roundtrip failed for seed {}",
+                seed
+            );
+        }
+    }
+
+    #[test]
+    fn test_scalar_fast_matches_baseline() {
+        for seed in [0, 42, 123, 255] {
+            let input = generate_test_data(seed);
+            let mut baseline_out = [0u8; 128];
+            let mut fast_out = [0u8; 128];
+
+            transpose_1024_baseline(&input, &mut baseline_out);
+            transpose_1024_scalar_fast(&input, &mut fast_out);
+
+            assert_eq!(
+                baseline_out, fast_out,
+                "scalar_fast transpose doesn't match baseline for seed {}",
+                seed
+            );
+        }
+    }
+
+    #[test]
+    fn test_scalar_fast_roundtrip() {
+        for seed in [0, 42, 123, 255] {
+            let input = generate_test_data(seed);
+            let mut transposed = [0u8; 128];
+            let mut roundtrip = [0u8; 128];
+
+            transpose_1024_scalar_fast(&input, &mut transposed);
+            untranspose_1024_scalar_fast(&transposed, &mut roundtrip);
+
+            assert_eq!(
+                input, roundtrip,
+                "scalar_fast roundtrip failed for seed {}",
                 seed
             );
         }
@@ -1039,6 +1456,63 @@ mod tests {
                 assert_eq!(
                     baseline_out, gfni_out,
                     "AVX-512+GFNI untranspose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+    }
+
+    #[cfg(target_arch = "aarch64")]
+    mod aarch64_tests {
+        use super::*;
+
+        #[test]
+        fn test_neon_matches_baseline() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut neon_out = [0u8; 128];
+
+                transpose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::transpose_1024_neon(&input, &mut neon_out) };
+
+                assert_eq!(
+                    baseline_out, neon_out,
+                    "NEON transpose doesn't match baseline for seed {}",
+                    seed
+                );
+            }
+        }
+
+        #[test]
+        fn test_neon_roundtrip() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut transposed = [0u8; 128];
+                let mut roundtrip = [0u8; 128];
+
+                unsafe {
+                    aarch64::transpose_1024_neon(&input, &mut transposed);
+                    aarch64::untranspose_1024_neon(&transposed, &mut roundtrip);
+                }
+
+                assert_eq!(input, roundtrip, "NEON roundtrip failed for seed {}", seed);
+            }
+        }
+
+        #[test]
+        fn test_untranspose_neon_matches_baseline() {
+            for seed in [0, 42, 123, 255] {
+                let input = generate_test_data(seed);
+                let mut baseline_out = [0u8; 128];
+                let mut neon_out = [0u8; 128];
+
+                untranspose_1024_baseline(&input, &mut baseline_out);
+                unsafe { aarch64::untranspose_1024_neon(&input, &mut neon_out) };
+
+                assert_eq!(
+                    baseline_out, neon_out,
+                    "NEON untranspose doesn't match baseline for seed {}",
                     seed
                 );
             }

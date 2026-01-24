@@ -23,9 +23,17 @@ fn main() {
     transpose::transpose_1024_scalar(black_box(&input), black_box(&mut output));
     println!("scalar: {:?}", &output[..8]);
 
+    transpose::transpose_1024_scalar_fast(black_box(&input), black_box(&mut output));
+    println!("scalar_fast: {:?}", &output[..8]);
+
     #[cfg(target_arch = "x86_64")]
     {
         use vortex_fastlanes::transpose::x86;
+
+        if x86::has_bmi2() {
+            unsafe { x86::transpose_1024_bmi2(black_box(&input), black_box(&mut output)) };
+            println!("bmi2: {:?}", &output[..8]);
+        }
 
         if x86::has_avx2() {
             unsafe { x86::transpose_1024_avx2(black_box(&input), black_box(&mut output)) };

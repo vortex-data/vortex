@@ -58,6 +58,7 @@ fn run_all_benchmarks(input: &[u8; 128], output: &mut [u8; 128]) {
     let modes = [
         "baseline",
         "scalar",
+        "scalar_fast",
         "bmi2",
         "avx2",
         "avx2_gfni",
@@ -78,6 +79,9 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
             }
             "scalar" => {
                 transpose::transpose_1024_scalar(black_box(input), black_box(output));
+            }
+            "scalar_fast" => {
+                transpose::transpose_1024_scalar_fast(black_box(input), black_box(output));
             }
             #[cfg(target_arch = "x86_64")]
             "bmi2" => {
@@ -131,6 +135,11 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
         "scalar" => {
             for _ in 0..MEASURE_ITERATIONS {
                 transpose::transpose_1024_scalar(black_box(input), black_box(output));
+            }
+        }
+        "scalar_fast" => {
+            for _ in 0..MEASURE_ITERATIONS {
+                transpose::transpose_1024_scalar_fast(black_box(input), black_box(output));
             }
         }
         #[cfg(target_arch = "x86_64")]

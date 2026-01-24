@@ -50,6 +50,17 @@ fn transpose_scalar(bencher: Bencher) {
 }
 
 #[divan::bench]
+fn transpose_scalar_fast(bencher: Bencher) {
+    let input = generate_test_data(42);
+    let mut output = [0u8; 128];
+
+    bencher.bench_local(|| {
+        transpose::transpose_1024_scalar_fast(&input, &mut output);
+        divan::black_box(&output);
+    });
+}
+
+#[divan::bench]
 fn transpose_best(bencher: Bencher) {
     let input = generate_test_data(42);
     let mut output = [0u8; 128];
@@ -250,6 +261,19 @@ fn transpose_scalar_throughput(bencher: Bencher) {
     bencher.bench_local(|| {
         for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
             transpose::transpose_1024_scalar(input, output);
+        }
+        divan::black_box(&outputs);
+    });
+}
+
+#[divan::bench]
+fn transpose_scalar_fast_throughput(bencher: Bencher) {
+    let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+    let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+    bencher.bench_local(|| {
+        for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
+            transpose::transpose_1024_scalar_fast(input, output);
         }
         divan::black_box(&outputs);
     });
