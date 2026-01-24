@@ -63,6 +63,8 @@ fn run_all_benchmarks(input: &[u8; 128], output: &mut [u8; 128]) {
         "avx2",
         "avx2_gfni",
         "avx512_gfni",
+        "avx512_vbmi",
+        "avx512_dual",
     ];
 
     for mode in &modes {
@@ -116,6 +118,31 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
                 if x86::has_avx512() && x86::has_gfni() {
                     unsafe {
                         x86::transpose_1024_avx512_gfni(black_box(input), black_box(output));
+                    }
+                }
+            }
+            #[cfg(target_arch = "x86_64")]
+            "avx512_vbmi" => {
+                use vortex_fastlanes::transpose::x86;
+                if x86::has_vbmi() {
+                    unsafe {
+                        x86::transpose_1024_vbmi(black_box(input), black_box(output));
+                    }
+                }
+            }
+            #[cfg(target_arch = "x86_64")]
+            "avx512_dual" => {
+                use vortex_fastlanes::transpose::x86;
+                if x86::has_avx512() {
+                    let input2 = *input;
+                    let mut output2 = [0u8; 128];
+                    unsafe {
+                        x86::transpose_1024x2_avx512(
+                            black_box(input),
+                            black_box(&input2),
+                            black_box(output),
+                            black_box(&mut output2),
+                        );
                     }
                 }
             }
@@ -195,6 +222,42 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
                 }
             } else {
                 println!("{:15} AVX-512+GFNI not available", mode);
+                return;
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        "avx512_vbmi" => {
+            use vortex_fastlanes::transpose::x86;
+            if x86::has_vbmi() {
+                for _ in 0..MEASURE_ITERATIONS {
+                    unsafe {
+                        x86::transpose_1024_vbmi(black_box(input), black_box(output));
+                    }
+                }
+            } else {
+                println!("{:15} AVX-512 VBMI not available", mode);
+                return;
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        "avx512_dual" => {
+            use vortex_fastlanes::transpose::x86;
+            if x86::has_avx512() {
+                let input2 = *input;
+                let mut output2 = [0u8; 128];
+                // Note: we do MEASURE_ITERATIONS/2 since each call processes 2 blocks
+                for _ in 0..MEASURE_ITERATIONS / 2 {
+                    unsafe {
+                        x86::transpose_1024x2_avx512(
+                            black_box(input),
+                            black_box(&input2),
+                            black_box(output),
+                            black_box(&mut output2),
+                        );
+                    }
+                }
+            } else {
+                println!("{:15} AVX-512 not available", mode);
                 return;
             }
         }
