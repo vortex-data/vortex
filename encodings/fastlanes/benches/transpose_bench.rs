@@ -67,6 +67,22 @@ mod x86_benches {
     use super::*;
 
     #[divan::bench]
+    fn transpose_bmi2(bencher: Bencher) {
+        if !x86::has_bmi2() {
+            eprintln!("BMI2 not available, skipping benchmark");
+            return;
+        }
+
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { x86::transpose_1024_bmi2(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
     fn transpose_avx2(bencher: Bencher) {
         if !x86::has_avx2() {
             eprintln!("AVX2 not available, skipping benchmark");
@@ -159,6 +175,22 @@ mod x86_untranspose_benches {
     use super::*;
 
     #[divan::bench]
+    fn untranspose_bmi2(bencher: Bencher) {
+        if !x86::has_bmi2() {
+            eprintln!("BMI2 not available, skipping benchmark");
+            return;
+        }
+
+        let input = generate_test_data(42);
+        let mut output = [0u8; 128];
+
+        bencher.bench_local(|| {
+            unsafe { x86::untranspose_1024_bmi2(&input, &mut output) };
+            divan::black_box(&output);
+        });
+    }
+
+    #[divan::bench]
     fn untranspose_avx2_gfni(bencher: Bencher) {
         if !x86::has_avx2() || !x86::has_gfni() {
             eprintln!("AVX2+GFNI not available, skipping benchmark");
@@ -241,6 +273,24 @@ mod x86_throughput_benches {
     use vortex_fastlanes::transpose::x86;
 
     use super::*;
+
+    #[divan::bench]
+    fn transpose_bmi2_throughput(bencher: Bencher) {
+        if !x86::has_bmi2() {
+            eprintln!("BMI2 not available, skipping benchmark");
+            return;
+        }
+
+        let inputs: Vec<[u8; 128]> = (0..BATCH_SIZE as u8).map(generate_test_data).collect();
+        let mut outputs = vec![[0u8; 128]; BATCH_SIZE];
+
+        bencher.bench_local(|| {
+            for (input, output) in inputs.iter().zip(outputs.iter_mut()) {
+                unsafe { x86::transpose_1024_bmi2(input, output) };
+            }
+            divan::black_box(&outputs);
+        });
+    }
 
     #[divan::bench]
     fn transpose_avx2_throughput(bencher: Bencher) {

@@ -55,7 +55,14 @@ fn run_all_benchmarks(input: &[u8; 128], output: &mut [u8; 128]) {
     println!("Iterations: {}", MEASURE_ITERATIONS);
     println!();
 
-    let modes = ["baseline", "scalar", "avx2", "avx2_gfni", "avx512_gfni"];
+    let modes = [
+        "baseline",
+        "scalar",
+        "bmi2",
+        "avx2",
+        "avx2_gfni",
+        "avx512_gfni",
+    ];
 
     for mode in &modes {
         run_benchmark(mode, input, output);
@@ -71,6 +78,15 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
             }
             "scalar" => {
                 transpose::transpose_1024_scalar(black_box(input), black_box(output));
+            }
+            #[cfg(target_arch = "x86_64")]
+            "bmi2" => {
+                use vortex_fastlanes::transpose::x86;
+                if x86::has_bmi2() {
+                    unsafe {
+                        x86::transpose_1024_bmi2(black_box(input), black_box(output));
+                    }
+                }
             }
             #[cfg(target_arch = "x86_64")]
             "avx2" => {
@@ -115,6 +131,20 @@ fn run_benchmark(mode: &str, input: &[u8; 128], output: &mut [u8; 128]) {
         "scalar" => {
             for _ in 0..MEASURE_ITERATIONS {
                 transpose::transpose_1024_scalar(black_box(input), black_box(output));
+            }
+        }
+        #[cfg(target_arch = "x86_64")]
+        "bmi2" => {
+            use vortex_fastlanes::transpose::x86;
+            if x86::has_bmi2() {
+                for _ in 0..MEASURE_ITERATIONS {
+                    unsafe {
+                        x86::transpose_1024_bmi2(black_box(input), black_box(output));
+                    }
+                }
+            } else {
+                println!("{:15} BMI2 not available", mode);
+                return;
             }
         }
         #[cfg(target_arch = "x86_64")]
