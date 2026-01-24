@@ -322,6 +322,7 @@ impl ZstdArray {
         level: i32,
         values_per_frame: usize,
         n_values: usize,
+        use_dictionary: bool,
     ) -> VortexResult<Frames> {
         let n_frames = frame_byte_starts.len();
 
@@ -336,7 +337,9 @@ impl ZstdArray {
         }
         debug_assert_eq!(sample_sizes.iter().sum::<usize>(), value_bytes.len());
 
-        let (dictionary, mut compressor) = if sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY {
+        let (dictionary, mut compressor) = if !use_dictionary
+            || sample_sizes.len() < MIN_SAMPLES_FOR_DICTIONARY
+        {
             // no dictionary
             (None, zstd::bulk::Compressor::new(level)?)
         } else {
@@ -375,10 +378,42 @@ impl ZstdArray {
         })
     }
 
+    /// Creates a ZstdArray from a primitive array.
+    ///
+    /// # Arguments
+    /// * `parray` - The primitive array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
     pub fn from_primitive(
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        Self::from_primitive_impl(parray, level, values_per_frame, true)
+    }
+
+    /// Creates a ZstdArray from a primitive array without using a dictionary.
+    ///
+    /// This is useful when the compressed data will be decompressed by systems
+    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
+    ///
+    /// # Arguments
+    /// * `parray` - The primitive array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_primitive_without_dict(
+        parray: &PrimitiveArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        Self::from_primitive_impl(parray, level, values_per_frame, false)
+    }
+
+    fn from_primitive_impl(
+        parray: &PrimitiveArray,
+        level: i32,
+        values_per_frame: usize,
+        use_dictionary: bool,
     ) -> VortexResult<Self> {
         let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
@@ -410,6 +445,7 @@ impl ZstdArray {
             level,
             values_per_frame,
             n_values,
+            use_dictionary,
         )?;
 
         let metadata = ZstdMetadata {
@@ -430,10 +466,42 @@ impl ZstdArray {
         ))
     }
 
+    /// Creates a ZstdArray from a VarBinView array.
+    ///
+    /// # Arguments
+    /// * `vbv` - The VarBinView array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
     pub fn from_var_bin_view(
         vbv: &VarBinViewArray,
         level: i32,
         values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        Self::from_var_bin_view_impl(vbv, level, values_per_frame, true)
+    }
+
+    /// Creates a ZstdArray from a VarBinView array without using a dictionary.
+    ///
+    /// This is useful when the compressed data will be decompressed by systems
+    /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
+    ///
+    /// # Arguments
+    /// * `vbv` - The VarBinView array to compress
+    /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
+    /// * `values_per_frame` - Number of values per frame (0 = single frame)
+    pub fn from_var_bin_view_without_dict(
+        vbv: &VarBinViewArray,
+        level: i32,
+        values_per_frame: usize,
+    ) -> VortexResult<Self> {
+        Self::from_var_bin_view_impl(vbv, level, values_per_frame, false)
+    }
+
+    fn from_var_bin_view_impl(
+        vbv: &VarBinViewArray,
+        level: i32,
+        values_per_frame: usize,
+        use_dictionary: bool,
     ) -> VortexResult<Self> {
         // Approach for strings: we prefix each string with its length as a u32.
         // This is the same as what Parquet does. In some cases it may be better
@@ -465,6 +533,7 @@ impl ZstdArray {
             level,
             values_per_frame,
             n_values,
+            use_dictionary,
         )?;
 
         let metadata = ZstdMetadata {

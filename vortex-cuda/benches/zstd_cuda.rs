@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::cast_possible_truncation)]
+
+use std::time::Duration;
+
+use criterion::BenchmarkId;
+use criterion::Criterion;
+use criterion::Throughput;
+use cudarc::driver::DevicePtrMut;
+use cudarc::driver::sys::CUevent_flags;
+use futures::executor::block_on;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_cuda::CudaSession;
+use vortex_cuda::ZstdKernelPrep;
+use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
+use vortex_cuda::zstd_kernel_prepare;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_session::VortexSession;
+use vortex_zstd::ZstdArray;
+
+const BENCH_ARGS: &[(usize, &str)] = &[
+    (1_000_000, "1M"),
+    (10_000_000, "10M"),
+    (100_000_000, "100M"),
+];
+
+/// Generate compressible string data by repeating patterns.
+fn generate_string_data(count: usize) -> Vec<&'static str> {
+    let patterns = &[
+        "the quick brown fox jumps over the lazy dog",
+        "hello world from vortex compression benchmark",
+        "lorem ipsum dolor sit amet consectetur adipiscing",
+        "testing cuda zstd decompression kernel performance",
+        "this is a longer test string with more characters here",
+        "short",
+        "another string for benchmarking purposes and timing",
+        "data compression is important for system performance",
+        "cuda acceleration enables faster data processing",
+        "vortex provides efficient data handling capabilities",
+    ];
+
+    (0..count).map(|i| patterns[i % patterns.len()]).collect()
+}
+
+/// Create a ZSTD-compressed array
+fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
+    let strings = generate_string_data(num_strings);
+    let var_bin_view = VarBinViewArray::from_iter_str(strings.iter().copied());
+
+    // Calculate uncompressed size
+    let uncompressed_size: usize = strings.iter().map(|s| s.len()).sum();
+
+    // Disable dictionary since nvCOMP doesn't support ZSTD dictionaries.
+    let zstd_compression_level = -10; // Less compression but faster.
+    let zstd_array =
+        ZstdArray::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
+
+    Ok((zstd_array, uncompressed_size))
+}
+
+/// Executes the ZSTD kernel and measures execution time using CUDA events.
+async fn execute_zstd_kernel(
+    exec: &mut ZstdKernelPrep,
+    cuda_ctx: &mut vortex_cuda::CudaExecutionCtx,
+) -> VortexResult<Duration> {
+    let stream = cuda_ctx.stream();
+    let ctx = stream.context();
+
+    // Record start event before kernel launch
+    let start_event = ctx
+        .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
+        .map_err(|e| vortex_err!("Failed to create start event: {:?}", e))?;
+    start_event
+        .record(stream)
+        .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
+
+    // Launch the decompression kernel
+    unsafe {
+        nvcomp_zstd::decompress_async(
+            exec.frame_ptrs_ptr as _,
+            exec.frame_sizes_ptr as _,
+            exec.output_sizes_ptr as _,
+            exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+            exec.num_frames,
+            exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+            exec.nvcomp_temp_buffer_size,
+            exec.output_ptrs_ptr as _,
+            exec.device_statuses.device_ptr_mut(stream).0 as _,
+            stream.cu_stream().cast(),
+        )
+        .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
+    }
+
+    // Record end event after kernel launch
+    let end_event = ctx
+        .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
+        .map_err(|e| vortex_err!("Failed to create end event: {:?}", e))?;
+
+    end_event
+        .record(stream)
+        .map_err(|e| vortex_err!("Failed to record end event: {:?}", e))?;
+
+    // Get elapsed time in milliseconds from CUDA events
+    let elapsed_ms = start_event
+        .elapsed_ms(&end_event)
+        .map_err(|e| vortex_err!("Failed to get elapsed time: {:?}", e))?;
+
+    Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
+}
+
+/// Benchmark ZSTD CUDA decompression kernel performance
+fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ZSTD_cuda");
+    group.sample_size(10);
+
+    for (num_strings, label) in BENCH_ARGS {
+        let (zstd_array, uncompressed_size) =
+            make_zstd_array(*num_strings).vortex_expect("failed to create ZSTD array");
+
+        group.throughput(Throughput::Bytes(uncompressed_size as u64));
+        group.bench_with_input(
+            BenchmarkId::new("decompress_kernel", label),
+            &zstd_array,
+            |b, zstd_array| {
+                b.iter_custom(|iters| {
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                        .vortex_expect("failed to create execution context");
+
+                    // Prepare kernel once, reuse across iterations
+                    let mut exec = block_on(zstd_kernel_prepare(zstd_array.clone(), &mut cuda_ctx))
+                        .vortex_expect("kernel setup failed");
+
+                    let mut total_time = Duration::ZERO;
+
+                    for _ in 0..iters {
+                        let kernel_time = block_on(execute_zstd_kernel(&mut exec, &mut cuda_ctx))
+                            .vortex_expect("kernel execution failed");
+
+                        total_time += kernel_time;
+                    }
+
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+criterion::criterion_group!(benches, benchmark_zstd_cuda_decompress);
+
+#[cfg(cuda_available)]
+criterion::criterion_main!(benches);
+
+#[cfg(not(cuda_available))]
+fn main() {}

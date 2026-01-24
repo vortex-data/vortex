@@ -15,6 +15,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::BinaryView;
 use vortex_array::arrays::VarBinViewArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
@@ -22,7 +23,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
@@ -35,66 +35,61 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
-/// CUDA executor for ZSTD decompression using nvCOMP.
-#[derive(Debug)]
-pub struct ZstdExecutor;
-
-impl ZstdExecutor {
-    fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
-        array.as_opt::<ZstdVTable>().cloned()
-    }
+/// ZSTD kernel execution parameters prepared from a compressed array.
+pub struct ZstdKernelPrep {
+    /// Device pointer to array of pointers to compressed frames.
+    pub frame_ptrs_ptr: u64,
+    /// Device pointer to array of compressed frame sizes.
+    pub frame_sizes_ptr: u64,
+    /// Device pointer to array of expected uncompressed sizes.
+    pub output_sizes_ptr: u64,
+    /// Device pointer to array of pointers to output buffers.
+    pub output_ptrs_ptr: u64,
+    /// Number of frames to decompress.
+    pub num_frames: usize,
+    /// Size of temporary buffer for nvcomp.
+    pub nvcomp_temp_buffer_size: usize,
+    /// Device buffer for actual decompressed sizes (output).
+    pub device_actual_sizes: CudaSlice<usize>,
+    /// Device buffer for per-chunk status codes.
+    pub device_statuses: CudaSlice<nvcompStatus_t>,
+    /// Temporary workspace buffer for nvcomp.
+    pub nvcomp_temp_buffer: CudaSlice<u8>,
+    /// Contiguous output buffer for all decompressed data.
+    pub device_output: CudaSlice<u8>,
+    /// Handles to device memory for compressed frames (kept alive to prevent deallocation).
+    pub device_frame_handles: Vec<BufferHandle>,
+    /// Handle to device memory for frame pointers array.
+    pub frame_ptrs_handle: BufferHandle,
+    /// Handle to device memory for frame sizes array.
+    pub frame_sizes_handle: BufferHandle,
+    /// Handle to device memory for output sizes array.
+    pub output_sizes_handle: BufferHandle,
+    /// Handle to device memory for output pointers array.
+    pub output_ptrs_handle: BufferHandle,
 }
 
-#[async_trait]
-impl CudaExecute for ZstdExecutor {
-    async fn execute(
-        &self,
-        array: ArrayRef,
-        ctx: &mut CudaExecutionCtx,
-    ) -> VortexResult<Canonical> {
-        let zstd = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
-
-        match zstd.as_ref().dtype() {
-            DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
-            other => {
-                tracing::debug!(
-                    dtype = %other,
-                    "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
-                );
-                zstd.decompress()?.to_canonical()
-            }
-        }
-    }
-}
-
-async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+/// Prepares ZSTD kernel metadata and device buffers for decompression.
+///
+/// Returns the handles and metadata needed for kernel execution.
+pub async fn zstd_kernel_prepare(
+    zstd_array: ZstdArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<ZstdKernelPrep> {
     let ZstdArrayParts {
         frames,
         metadata,
-        dtype,
-        validity,
-        n_rows,
         dictionary,
-        slice_start,
-        slice_stop,
-    } = array.into_parts();
+        ..
+    } = zstd_array.clone().into_parts();
 
     // nvCOMP doesn't support ZSTD dictionaries.
     if dictionary.is_some() {
-        vortex_panic!("ZSTD dictionary not supported on GPU, falling back to CPU");
+        return Err(vortex_err!("ZSTD dictionary not supported on GPU"));
     }
 
     if frames.is_empty() {
-        let result = unsafe {
-            VarBinViewArray::new_unchecked(
-                Buffer::<BinaryView>::empty(),
-                Arc::from([]),
-                dtype,
-                validity,
-            )
-        };
-
-        return Ok(Canonical::VarBinView(result));
+        return Err(vortex_err!("Empty ZSTD array"));
     }
 
     // Gather frames' metadata.
@@ -151,16 +146,6 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
             .collect::<Vec<_>>()
     };
 
-    let stream = ctx.stream();
-    macro_rules! dev_ptr {
-        ($slice:expr) => {
-            $slice.device_ptr(stream).0 as _
-        };
-        (mut $slice:expr) => {
-            $slice.device_ptr_mut(stream).0 as _
-        };
-    }
-
     // Copy metadata asynchronously to the device.
     let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
         ctx.copy_to_device(frame_ptrs)?,
@@ -169,39 +154,123 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         ctx.copy_to_device(output_ptrs)?
     )?;
 
-    // Note that `device_alloc` returns immediately and does not wait for the allocation to complete.
-    let mut device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(num_frames)?;
-    let mut device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(num_frames)?;
-    let mut nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
+    // Allocate working buffers
+    let device_actual_sizes: CudaSlice<usize> = ctx.device_alloc(num_frames)?;
+    let device_statuses: CudaSlice<nvcompStatus_t> = ctx.device_alloc(num_frames)?;
+    let nvcomp_temp_buffer: CudaSlice<u8> = ctx.device_alloc(nvcomp_temp_buffer_size)?;
+
+    macro_rules! device_ptr {
+        ($handle:expr, $type:ty) => {
+            $handle.cuda_view::<$type>()?.device_ptr(ctx.stream()).0
+        };
+    }
+
+    let frame_ptrs_ptr = device_ptr!(frame_ptrs_handle, u64);
+    let frame_sizes_ptr = device_ptr!(frame_sizes_handle, usize);
+    let output_sizes_ptr = device_ptr!(output_sizes_handle, usize);
+    let output_ptrs_ptr = device_ptr!(output_ptrs_handle, u64);
+
+    // Return device pointers and handles to keep device memory alive
+    Ok(ZstdKernelPrep {
+        frame_ptrs_ptr,
+        frame_sizes_ptr,
+        output_sizes_ptr,
+        output_ptrs_ptr,
+        num_frames,
+        nvcomp_temp_buffer_size,
+        device_actual_sizes,
+        device_statuses,
+        nvcomp_temp_buffer,
+        device_output,
+        device_frame_handles,
+        frame_ptrs_handle,
+        frame_sizes_handle,
+        output_sizes_handle,
+        output_ptrs_handle,
+    })
+}
+
+/// CUDA executor for ZSTD decompression using nvCOMP.
+#[derive(Debug)]
+pub struct ZstdExecutor;
+
+impl ZstdExecutor {
+    fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {
+        array.as_opt::<ZstdVTable>().cloned()
+    }
+}
+
+#[async_trait]
+impl CudaExecute for ZstdExecutor {
+    async fn execute(
+        &self,
+        array: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let zstd = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ZstdArray"))?;
+
+        match zstd.as_ref().dtype() {
+            DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
+            other => {
+                tracing::debug!(
+                    dtype = %other,
+                    "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
+                );
+                zstd.decompress()?.to_canonical()
+            }
+        }
+    }
+}
+
+async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+    let ZstdArrayParts {
+        frames,
+        metadata: _,
+        dtype,
+        validity,
+        n_rows,
+        dictionary: _,
+        slice_start,
+        slice_stop,
+    } = array.clone().into_parts();
+
+    if frames.is_empty() {
+        let result = unsafe {
+            VarBinViewArray::new_unchecked(
+                Buffer::<BinaryView>::empty(),
+                Arc::from([]),
+                dtype,
+                validity,
+            )
+        };
+
+        return Ok(Canonical::VarBinView(result));
+    }
+
+    let mut exec = zstd_kernel_prepare(array, ctx).await?;
+
+    let stream = ctx.stream();
 
     unsafe {
         nvcomp_zstd::decompress_async(
-            // Device pointer to array of pointers to compressed chunks
-            dev_ptr!(frame_ptrs_handle.cuda_view::<u64>()?),
-            // Device pointer to array of compressed chunk sizes
-            dev_ptr!(frame_sizes_handle.cuda_view::<usize>()?),
-            // Device pointer to array of expected uncompressed sizes
-            dev_ptr!(output_sizes_handle.cuda_view::<usize>()?),
-            // Device pointer to array for actual uncompressed sizes (output)
-            dev_ptr!(mut device_actual_sizes),
-            // Number of frames to decompress
-            num_frames,
-            // Device pointer to temporary workspace buffer
-            dev_ptr!(mut nvcomp_temp_buffer),
-            // Size of temporary buffer in bytes
-            nvcomp_temp_buffer_size,
-            // Device pointer to array of pointers to output buffers
-            dev_ptr!(output_ptrs_handle.cuda_view::<u64>()?),
-            // Device pointer to array for per-chunk status codes
-            dev_ptr!(mut device_statuses),
-            // CUDA stream to execute on
+            exec.frame_ptrs_ptr as _,
+            exec.frame_sizes_ptr as _,
+            exec.output_sizes_ptr as _,
+            exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+            exec.num_frames,
+            exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+            exec.nvcomp_temp_buffer_size,
+            exec.output_ptrs_ptr as _,
+            exec.device_statuses.device_ptr_mut(stream).0 as _,
             stream.cu_stream().cast(),
         )
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
 
-    // Copy decompressed data back to host.
-    let host_buffer = CudaDeviceBuffer::new(device_output)
+    // Unconditionally copy back to the host because Zstd arrays are fully
+    // self-contained as they have no parent or child encodings they might be
+    // nested in.
+    let host_buffer = CudaDeviceBuffer::new(exec.device_output)
         .copy_to_host(Alignment::new(1))?
         .await?;
 

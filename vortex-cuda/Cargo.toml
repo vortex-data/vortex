@@ -58,3 +58,7 @@ harness = false
 [[bench]]
 name = "dict_cuda"
 harness = false
+
+[[bench]]
+name = "zstd_cuda"
+harness = false

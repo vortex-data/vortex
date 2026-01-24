@@ -12,3 +12,5 @@ pub use decimal_byte_parts::DecimalBytePartsExecutor;
 pub use for_::FoRExecutor;
 pub use zigzag::ZigZagExecutor;
 pub use zstd::ZstdExecutor;
+pub use zstd::ZstdKernelPrep;
+pub use zstd::zstd_kernel_prepare;
