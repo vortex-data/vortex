@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use futures::future::try_join_all;
-use termtree::Tree;
+use vortex_array::display::tree_model::{Attr, AttrValue, DisplayTreeNode};
 use vortex_array::serde::ArrayParts;
 use vortex_error::VortexResult;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -14,6 +14,101 @@ use crate::layouts::flat::FlatLayout;
 use crate::layouts::flat::FlatVTable;
 use crate::segments::SegmentId;
 use crate::segments::SegmentSource;
+
+/// Options controlling which attributes are included in tree display.
+#[derive(Debug, Clone, Default)]
+pub struct TreeDisplayOptions {
+    /// Include the dtype attribute.
+    pub dtype: bool,
+    /// Include the child count attribute.
+    pub children_count: bool,
+    /// Include metadata size in bytes.
+    pub metadata_bytes: bool,
+    /// Include row count.
+    pub row_count: bool,
+    /// Include segment IDs.
+    pub segment_ids: bool,
+    /// Include buffer sizes for flat layouts.
+    pub buffer_sizes: bool,
+}
+
+impl TreeDisplayOptions {
+    /// Create options that include all attributes.
+    pub fn all() -> Self {
+        Self {
+            dtype: true,
+            children_count: true,
+            metadata_bytes: true,
+            row_count: true,
+            segment_ids: true,
+            buffer_sizes: true,
+        }
+    }
+
+    /// Create minimal options (just encoding name).
+    pub fn minimal() -> Self {
+        Self::default()
+    }
+
+    /// Create options suitable for verbose output.
+    pub fn verbose() -> Self {
+        Self::all()
+    }
+
+    /// Create options suitable for concise output.
+    pub fn concise() -> Self {
+        Self {
+            dtype: true,
+            children_count: true,
+            metadata_bytes: false,
+            row_count: false,
+            segment_ids: true,
+            buffer_sizes: true,
+        }
+    }
+
+    /// Builder: include dtype.
+    #[must_use]
+    pub fn with_dtype(mut self) -> Self {
+        self.dtype = true;
+        self
+    }
+
+    /// Builder: include children count.
+    #[must_use]
+    pub fn with_children_count(mut self) -> Self {
+        self.children_count = true;
+        self
+    }
+
+    /// Builder: include metadata bytes.
+    #[must_use]
+    pub fn with_metadata_bytes(mut self) -> Self {
+        self.metadata_bytes = true;
+        self
+    }
+
+    /// Builder: include row count.
+    #[must_use]
+    pub fn with_row_count(mut self) -> Self {
+        self.row_count = true;
+        self
+    }
+
+    /// Builder: include segment IDs.
+    #[must_use]
+    pub fn with_segment_ids(mut self) -> Self {
+        self.segment_ids = true;
+        self
+    }
+
+    /// Builder: include buffer sizes.
+    #[must_use]
+    pub fn with_buffer_sizes(mut self) -> Self {
+        self.buffer_sizes = true;
+        self
+    }
+}
 
 /// Display the layout as a tree, fetching segment sizes from the segment source.
 ///
@@ -45,7 +140,7 @@ pub(super) async fn display_tree_with_segment_sizes(
     Ok(DisplayLayoutTree {
         layout,
         segment_buffer_sizes: Some(segment_buffer_sizes),
-        verbose: true,
+        options: TreeDisplayOptions::verbose(),
     })
 }
 
@@ -71,140 +166,354 @@ fn collect_segments_to_fetch(
     Ok(())
 }
 
-/// Build a tree node for a FlatLayout, showing buffer sizes.
-fn format_flat_layout_buffers(
+/// Add buffer size attributes to a tree node for a FlatLayout.
+fn add_flat_layout_attrs(
+    node: &mut DisplayTreeNode,
     flat_layout: &FlatLayout,
     segment_buffer_sizes: Option<&HashMap<SegmentId, Vec<usize>>>,
-) -> String {
+    options: &TreeDisplayOptions,
+) {
     let segment_id = flat_layout.segment_id();
 
     // First, try to get buffer info from inline array_tree
     if let Some(array_tree) = flat_layout.array_tree()
         && let Ok(parts) = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
     {
-        return format_buffer_sizes(&parts.buffer_lengths(), *segment_id);
+        add_buffer_attrs(node, &parts.buffer_lengths(), *segment_id, options);
+        return;
     }
 
     // Otherwise, try to get from fetched segment info
     if let Some(sizes_map) = segment_buffer_sizes
         && let Some(buffer_sizes) = sizes_map.get(&segment_id)
     {
-        return format_buffer_sizes(buffer_sizes, *segment_id);
+        add_buffer_attrs(node, buffer_sizes, *segment_id, options);
+        return;
     }
 
     // Fallback: just show segment ID
-    format!("segment: {}", *segment_id)
+    if options.segment_ids {
+        node.attrs.push(Attr::new("segment", *segment_id as u64));
+    }
 }
 
-fn format_buffer_sizes(buffer_sizes: &[usize], segment_id: u32) -> String {
-    let buffer_sizes_str: Vec<String> = buffer_sizes.iter().map(|s| format!("{}B", s)).collect();
-    let total: usize = buffer_sizes.iter().sum();
-    format!(
-        "segment {}, buffers=[{}], total={}B",
-        segment_id,
-        buffer_sizes_str.join(", "),
-        total
-    )
+fn add_buffer_attrs(
+    node: &mut DisplayTreeNode,
+    buffer_sizes: &[usize],
+    segment_id: u32,
+    options: &TreeDisplayOptions,
+) {
+    if options.segment_ids {
+        node.attrs.push(Attr::new("segment", segment_id as u64));
+    }
+
+    if options.buffer_sizes {
+        // Format buffer sizes with "B" suffix for human-readable display
+        let buffer_str = format!(
+            "[{}]",
+            buffer_sizes
+                .iter()
+                .map(|s| format!("{}B", s))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        node.attrs.push(Attr::new("buffers", buffer_str));
+
+        let total: usize = buffer_sizes.iter().sum();
+        node.attrs.push(Attr::new("total", format!("{}B", total)));
+    }
 }
 
 /// Display wrapper for layout tree visualization.
+///
+/// This type provides both lazy text display (via [`Display`]) and eager JSON
+/// serialization (via [`to_tree_node()`] + [`serde::Serialize`]).
+///
+/// - For text output, use `format!("{}", tree)` or `tree.to_string()`. The tree
+///   is walked lazily during rendering.
+/// - For JSON output, call `tree.to_tree_node()` to build an owned [`DisplayTreeNode`],
+///   then serialize that.
+///
+/// # Example
+///
+/// ```ignore
+/// let layout = /* ... */;
+///
+/// // Concise text display
+/// println!("{}", layout.display_tree());
+///
+/// // Verbose text display
+/// println!("{}", layout.display_tree_verbose(true));
+///
+/// // Custom options
+/// let options = TreeDisplayOptions::minimal().with_dtype().with_row_count();
+/// let tree = DisplayLayoutTree::with_options(layout, options);
+/// println!("{}", tree);
+///
+/// // JSON output
+/// let json = serde_json::to_string(&tree.to_tree_node()?)?;
+/// ```
 pub struct DisplayLayoutTree {
     layout: LayoutRef,
     segment_buffer_sizes: Option<HashMap<SegmentId, Vec<usize>>>,
-    verbose: bool,
+    options: TreeDisplayOptions,
 }
 
 impl DisplayLayoutTree {
-    /// Create a new display tree without pre-fetched segment buffer sizes.
+    /// Create a new display tree with default (concise) options.
     pub fn new(layout: LayoutRef, verbose: bool) -> Self {
+        let options = if verbose {
+            TreeDisplayOptions::verbose()
+        } else {
+            TreeDisplayOptions::concise()
+        };
         Self {
             layout,
             segment_buffer_sizes: None,
-            verbose,
+            options,
         }
     }
 
-    fn make_tree(&self, layout: LayoutRef) -> VortexResult<Tree<String>> {
-        // Build the node label with encoding, dtype, and metadata
-        let mut node_parts = vec![
-            format!("{}", layout.encoding()),
-            format!("dtype: {}", layout.dtype()),
-        ];
+    /// Create a new display tree with custom options.
+    pub fn with_options(layout: LayoutRef, options: TreeDisplayOptions) -> Self {
+        Self {
+            layout,
+            segment_buffer_sizes: None,
+            options,
+        }
+    }
 
-        // Add child count if there are children
-        let nchildren = layout.nchildren();
-        if nchildren > 0 {
-            node_parts.push(format!("children: {}", nchildren));
+    /// Convert the layout tree to a [`DisplayTreeNode`] (eager).
+    ///
+    /// This walks the entire tree and builds an owned representation suitable
+    /// for JSON serialization. For text display, prefer using `Display` directly
+    /// as it walks the tree lazily.
+    pub fn to_tree_node(&self) -> VortexResult<DisplayTreeNode> {
+        self.make_tree_node(self.layout.clone())
+    }
+
+    fn make_tree_node(&self, layout: LayoutRef) -> VortexResult<DisplayTreeNode> {
+        let mut node = DisplayTreeNode::new(layout.encoding().to_string());
+
+        // Add inline attributes
+        self.add_inline_attrs(&mut node, &layout);
+
+        // For FlatLayout, show buffer info as inline attributes
+        if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
+            add_flat_layout_attrs(&mut node, flat_layout, self.segment_buffer_sizes.as_ref(), &self.options);
+        } else if self.options.segment_ids {
+            // Not a FlatLayout - show segment IDs if any
+            let segment_ids = layout.segment_ids();
+            if !segment_ids.is_empty() {
+                let ids: Vec<AttrValue> =
+                    segment_ids.iter().map(|s| AttrValue::UInt(**s as u64)).collect();
+                node.nested_attrs.push(Attr::new("segments", AttrValue::List(ids)));
+            }
         }
 
-        // Add metadata and row count if verbose
-        if self.verbose {
+        // Build child nodes
+        let children = layout.children()?;
+        let child_names: Vec<_> = layout.child_names().collect();
+
+        if !children.is_empty() && child_names.len() == children.len() {
+            for (child, name) in children.into_iter().zip(child_names.iter()) {
+                let child_node = self.make_tree_node(child)?;
+                node.children.insert(name.to_string(), child_node);
+            }
+        } else if !children.is_empty() {
+            for (i, child) in children.into_iter().enumerate() {
+                let child_node = self.make_tree_node(child)?;
+                node.children.insert(format!("[{}]", i), child_node);
+            }
+        }
+
+        Ok(node)
+    }
+
+    /// Add inline attributes to a node for a layout.
+    fn add_inline_attrs(&self, node: &mut DisplayTreeNode, layout: &LayoutRef) {
+        if self.options.dtype {
+            node.attrs.push(Attr::new("dtype", layout.dtype().to_string()));
+        }
+
+        if self.options.children_count {
+            let nchildren = layout.nchildren();
+            if nchildren > 0 {
+                node.attrs.push(Attr::new("children", nchildren as u64));
+            }
+        }
+
+        if self.options.metadata_bytes {
             let metadata = layout.metadata();
             if !metadata.is_empty() {
-                node_parts.push(format!("metadata: {} bytes", metadata.len()));
+                node.attrs.push(Attr::new("metadata", format!("{} bytes", metadata.len())));
             }
-            node_parts.push(format!("rows: {}", layout.row_count()));
+        }
+
+        if self.options.row_count {
+            node.attrs.push(Attr::new("rows", layout.row_count()));
+        }
+    }
+
+    /// Write a layout node and its children lazily during display.
+    fn write_layout(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        layout: &LayoutRef,
+        prefix: &str,
+        child_name: Option<&str>,
+    ) -> std::fmt::Result {
+        // Write the node line
+        if let Some(name) = child_name {
+            write!(f, "{}: ", name)?;
+        }
+        write!(f, "{}", layout.encoding())?;
+
+        // Write inline attrs based on options
+        if self.options.dtype {
+            write!(f, ", dtype: {}", layout.dtype())?;
+        }
+
+        if self.options.children_count {
+            let nchildren = layout.nchildren();
+            if nchildren > 0 {
+                write!(f, ", children: {}", nchildren)?;
+            }
+        }
+
+        if self.options.metadata_bytes {
+            let metadata = layout.metadata();
+            if !metadata.is_empty() {
+                write!(f, ", metadata: {} bytes", metadata.len())?;
+            }
+        }
+
+        if self.options.row_count {
+            write!(f, ", rows: {}", layout.row_count())?;
         }
 
         // For FlatLayout, show buffer info
         if let Some(flat_layout) = layout.as_opt::<FlatVTable>() {
-            node_parts.push(format_flat_layout_buffers(
-                flat_layout,
-                self.segment_buffer_sizes.as_ref(),
-            ));
-        } else {
-            // Not a FlatLayout - show segment IDs if any (for verbose mode)
-            if self.verbose {
-                let segment_ids = layout.segment_ids();
-                if !segment_ids.is_empty() {
-                    node_parts.push(format!(
-                        "segments: [{}]",
-                        segment_ids
-                            .iter()
-                            .map(|s| format!("{}", **s))
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ));
-                }
+            self.write_flat_layout_attrs(f, flat_layout)?;
+        }
+
+        writeln!(f)?;
+
+        // Write nested attrs for non-flat layouts (segment IDs)
+        if layout.as_opt::<FlatVTable>().is_none() && self.options.segment_ids {
+            let segment_ids = layout.segment_ids();
+            if !segment_ids.is_empty() {
+                let ids_str = segment_ids
+                    .iter()
+                    .map(|s| format!("{}", **s))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                writeln!(f, "{}    segments: [{}]", prefix, ids_str)?;
             }
         }
 
-        let node_name = node_parts.join(", ");
-
-        // Get children and child names directly from the layout
-        let children = layout.children()?;
+        // Write children
+        let children = layout.children().map_err(|_| std::fmt::Error)?;
         let child_names: Vec<_> = layout.child_names().collect();
+        let num_children = children.len();
 
-        // Build child trees
-        let child_trees: VortexResult<Vec<Tree<String>>> =
-            if !children.is_empty() && child_names.len() == children.len() {
-                // If we have names for all children, use them
-                children
-                    .into_iter()
-                    .zip(child_names.iter())
-                    .map(|(child, name)| {
-                        let child_tree = self.make_tree(child)?;
-                        Ok(Tree::new(format!("{}: {}", name, child_tree.root))
-                            .with_leaves(child_tree.leaves))
-                    })
-                    .collect()
-            } else if !children.is_empty() {
-                // No names available, just show children
-                children.into_iter().map(|c| self.make_tree(c)).collect()
+        for (i, child) in children.into_iter().enumerate() {
+            let is_last = i == num_children - 1;
+            let connector = if is_last { "└── " } else { "├── " };
+            let new_prefix = if is_last {
+                format!("{}    ", prefix)
             } else {
-                // Leaf node - no children
-                Ok(Vec::new())
+                format!("{}│   ", prefix)
             };
 
-        Ok(Tree::new(node_name).with_leaves(child_trees?))
+            let name = if child_names.len() == num_children {
+                child_names[i].to_string()
+            } else {
+                format!("[{}]", i)
+            };
+
+            write!(f, "{}{}", prefix, connector)?;
+            self.write_layout(f, &child, &new_prefix, Some(&name))?;
+        }
+
+        Ok(())
+    }
+
+    /// Write flat layout buffer attributes.
+    fn write_flat_layout_attrs(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        flat_layout: &FlatLayout,
+    ) -> std::fmt::Result {
+        let segment_id = flat_layout.segment_id();
+
+        // Try inline array_tree first
+        if let Some(array_tree) = flat_layout.array_tree()
+            && let Ok(parts) = ArrayParts::from_array_tree(array_tree.as_ref().to_vec())
+        {
+            return self.write_buffer_info(f, &parts.buffer_lengths(), *segment_id);
+        }
+
+        // Try fetched segment info
+        if let Some(sizes_map) = &self.segment_buffer_sizes
+            && let Some(buffer_sizes) = sizes_map.get(&segment_id)
+        {
+            return self.write_buffer_info(f, buffer_sizes, *segment_id);
+        }
+
+        // Fallback: just segment ID
+        if self.options.segment_ids {
+            write!(f, ", segment: {}", *segment_id)?;
+        }
+        Ok(())
+    }
+
+    /// Write buffer size info.
+    fn write_buffer_info(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+        buffer_sizes: &[usize],
+        segment_id: u32,
+    ) -> std::fmt::Result {
+        if self.options.segment_ids {
+            write!(f, ", segment: {}", segment_id)?;
+        }
+
+        if self.options.buffer_sizes {
+            let buffers_str = buffer_sizes
+                .iter()
+                .map(|s| format!("{}B", s))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let total: usize = buffer_sizes.iter().sum();
+            write!(f, ", buffers: [{}], total: {}B", buffers_str, total)?;
+        }
+
+        Ok(())
     }
 }
 
 impl std::fmt::Display for DisplayLayoutTree {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.make_tree(self.layout.clone()) {
-            Ok(tree) => write!(f, "{}", tree),
-            Err(e) => write!(f, "Error building layout tree: {}", e),
+        self.write_layout(f, &self.layout, "", None)
+    }
+}
+
+/// Serialize the layout tree to JSON.
+///
+/// This implementation is gated behind the `serde` feature on `vortex-array`.
+#[cfg(feature = "serde")]
+impl serde::Serialize for DisplayLayoutTree {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self.to_tree_node() {
+            Ok(node) => node.serialize(serializer),
+            Err(e) => Err(serde::ser::Error::custom(format!(
+                "Error building layout tree: {}",
+                e
+            ))),
         }
     }
 }

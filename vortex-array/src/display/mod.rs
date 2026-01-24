@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod tree;
+pub mod tree_model;
 
 use std::fmt::Display;
 

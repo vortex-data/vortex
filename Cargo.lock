@@ -4858,6 +4858,8 @@ checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
 dependencies = [
  "equivalent",
  "hashbrown 0.16.1",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -10165,6 +10167,7 @@ dependencies = [
  "getrandom 0.3.4",
  "goldenfile",
  "humansize",
+ "indexmap",
  "insta",
  "inventory",
  "itertools 0.14.0",
@@ -10745,7 +10748,7 @@ dependencies = [
  "prost 0.14.3",
  "rstest",
  "rustc-hash",
- "termtree",
+ "serde",
  "tokio",
  "tracing",
  "uuid",

@@ -33,7 +33,7 @@ pco = { workspace = true }
 pin-project-lite = { workspace = true }
 prost = { workspace = true }
 rustc-hash = { workspace = true }
-termtree = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true, features = ["rt"], optional = true }
 tracing = { workspace = true }
 uuid = { workspace = true }
@@ -64,6 +64,7 @@ vortex-utils = { workspace = true, features = ["_test-harness"] }
 
 [features]
 _test-harness = []
+serde = ["vortex-array/serde"]
 tokio = ["dep:tokio", "vortex-error/tokio"]
 zstd = ["dep:vortex-zstd"]
 
