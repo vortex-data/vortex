@@ -36,9 +36,9 @@ vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
 vortex-session = { workspace = true }
-vortex-zstd = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [dev-dependencies]
 criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
