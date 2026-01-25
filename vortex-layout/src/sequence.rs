@@ -1,6 +1,75 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Hierarchical sequence identifiers for deterministic ordering of concurrent operations.
+//!
+//! # Overview
+//!
+//! When scanning Vortex files, multiple file partitions are read concurrently for performance.
+//! However, query results must be returned in a deterministic order regardless of which
+//! partition completes first. The [`SequenceId`] system solves this by assigning hierarchical
+//! identifiers to each chunk of data, then using [`SequenceId::collapse`] to enforce ordering.
+//!
+//! # How It Works
+//!
+//! ## Hierarchical IDs
+//!
+//! Each [`SequenceId`] is a vector of indices forming a tree structure:
+//!
+//! ```text
+//! [0]           <- root
+//! [0, 0]        <- first child of root
+//! [0, 1]        <- second child of root
+//! [0, 1, 0]     <- first grandchild via second child
+//! [1]           <- sibling of root
+//! ```
+//!
+//! IDs are lexicographically ordered: `[0] < [0, 0] < [0, 1] < [1]`
+//!
+//! ## Usage in Scans
+//!
+//! During a scan:
+//!
+//! 1. A [`SequencePointer`] is created via [`SequenceId::root`]
+//! 2. Each chunk read from the layout gets a [`SequenceId`] via [`SequencePointer::advance`]
+//! 3. Recursive/nested reads use [`SequenceId::descend`] to create child sequences
+//! 4. Before emitting a chunk, [`SequenceId::collapse`] waits for all earlier IDs to complete
+//!
+//! ## The Collapse Mechanism
+//!
+//! [`SequenceId::collapse`] is an async method that blocks until all [`SequenceId`]s
+//! lexicographically smaller than the current one have been dropped. This ensures:
+//!
+//! - Chunks are emitted in the correct order
+//! - No earlier chunks can appear after `collapse` returns
+//! - Concurrent execution is preserved (later chunks can still be processed in parallel)
+//!
+//! # Example
+//!
+//! ```ignore
+//! // Create a sequence universe
+//! let mut pointer = SequenceId::root();
+//!
+//! // Spawn concurrent tasks, each getting a sequence ID
+//! let id1 = pointer.advance();  // [0]
+//! let id2 = pointer.advance();  // [1]
+//! let id3 = pointer.advance();  // [2]
+//!
+//! // Task with id2 finishes first, but must wait
+//! id2.collapse().await;  // Blocks until id1 is dropped
+//!
+//! // Now id2 can emit its results, knowing id1 is done
+//! ```
+//!
+//! # Thread Safety
+//!
+//! The [`SequenceUniverse`] uses an [`RwLock`] internally:
+//! - Read lock: checking if a sequence is first (fast path in `collapse`)
+//! - Write lock: creating/dropping sequences, inserting/removing wakers
+//!
+//! This allows multiple concurrent `collapse` polls to check their position without
+//! blocking each other, reducing contention in highly parallel scans.
+
 use std::cmp::Ordering;
 use std::collections::BTreeSet;
 use std::fmt;
