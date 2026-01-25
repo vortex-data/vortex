@@ -140,13 +140,13 @@ fn main() {
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
 
     // Set cuda_available cfg if CUDA is detected on the system.
-    // This gates tests and benchmarks that require CUDA at runtime.
+    // Gates tests and benchmarks that require CUDA at runtime.
     if cuda_available() {
         println!("cargo:rustc-cfg=cuda_available");
     }
 }
 
-/// Check if CUDA is availabile based on nvcc.
+/// Check if CUDA is available based on nvcc.
 fn cuda_available() -> bool {
     Command::new("nvcc").arg("--version").output().is_ok()
 }

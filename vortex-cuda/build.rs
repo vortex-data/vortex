@@ -18,7 +18,7 @@ fn main() {
     }
 
     // Include runtime library path for nvCOMP dylib.
-    let nvcomp_lib = env::var("DEP_NVCOMP_LIB_DIR").expect("Libary path for nvCOMP not found");
+    let nvcomp_lib = env::var("DEP_NVCOMP_LIB_DIR").expect("Library path for nvCOMP not found");
     println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
@@ -123,7 +123,7 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Check if CUDA is availabile based on nvcc.
+/// Check if CUDA is available based on nvcc.
 fn is_cuda_available() -> bool {
     Command::new("nvcc")
         .arg("--version")

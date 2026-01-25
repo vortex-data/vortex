@@ -10,7 +10,7 @@
 //! # Platform Support
 //!
 //! nvCOMP is only available on Linux x86_64 and ARM64. On other platforms,
-//! this crate still builds against the CUDA APIs but can't be run..
+//! this crate still builds against the CUDA APIs but can't be run.
 //!
 //! # Runtime Requirements
 //!
@@ -35,8 +35,7 @@ pub use error::NvcompError;
 mod tests {
     use crate::zstd;
 
-    /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync
-    /// through our safe wrapper.
+    /// Test that we can call nvcompBatchedZstdDecompressGetTempSizeAsync.
     #[test]
     fn test_get_decompress_temp_size() {
         let num_chunks = 10;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Safe wrappers around nvcomp's batched ZSTD decompression API.
+//! Wrappers around nvcomp's batched ZSTD decompression API.
 
 use std::ffi::c_void;
 
@@ -15,9 +15,9 @@ pub enum DecompressBackend {
     /// Let nvcomp auto-select the best backend for the hardware.
     #[default]
     Default,
-    /// Use hardware decompression engine.
+    /// Use hardware decompression
     Hardware,
-    /// Use CUDA implementation.
+    /// Use CUDA
     Cuda,
 }
 
@@ -34,7 +34,6 @@ impl DecompressBackend {
 /// Options for batched ZSTD decompression.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ZstdDecompressOpts {
-    /// Which decompression backend to use.
     pub backend: DecompressBackend,
 }
 
@@ -127,8 +126,8 @@ pub fn get_decompress_temp_size_with_opts(
 /// # Safety
 ///
 /// - All device pointers must be valid and point to properly allocated device memory
-/// - `device_compressed_ptrs` must point to `num_chunks` valid device pointers
-/// - `device_uncompressed_ptrs` must point to `num_chunks` valid device pointers
+/// - `device_compressed_ptrs` must point to valid device pointers
+/// - `device_uncompressed_ptrs` must point to valid device pointers
 /// - Each output buffer must have at least the corresponding `device_uncompressed_bytes` size
 /// - `device_temp_ptr` must have at least `temp_bytes` allocated
 /// - The stream must be valid
@@ -145,7 +144,7 @@ pub unsafe fn decompress_async(
     device_statuses: *mut sys::nvcompStatus_t,
     stream: sys::cudaStream_t,
 ) -> Result<(), NvcompError> {
-    // SAFETY: Caller guarantees all pointers are valid.
+    // SAFETY: Caller has to ensure all pointers are valid.
     unsafe {
         decompress_async_with_opts(
             device_compressed_ptrs,

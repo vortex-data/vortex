@@ -19,6 +19,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -28,6 +29,7 @@ use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 use vortex_zstd::ZstdArray;
 use vortex_zstd::ZstdArrayParts;
+use vortex_zstd::ZstdMetadata;
 use vortex_zstd::ZstdVTable;
 
 use crate::CudaBufferExt;
@@ -72,26 +74,17 @@ pub struct ZstdKernelPrep {
 /// Prepares ZSTD kernel metadata and device buffers for decompression.
 ///
 /// Returns the handles and metadata needed for kernel execution.
+///
+/// # Arguments
+///
+/// * `frames` - The compressed ZSTD frames (must not be empty)
+/// * `metadata` - The compression metadata containing frame sizes
+/// * `ctx` - The CUDA execution context
 pub async fn zstd_kernel_prepare(
-    zstd_array: ZstdArray,
+    frames: Vec<ByteBuffer>,
+    metadata: &ZstdMetadata,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<ZstdKernelPrep> {
-    let ZstdArrayParts {
-        frames,
-        metadata,
-        dictionary,
-        ..
-    } = zstd_array.clone().into_parts();
-
-    // nvCOMP doesn't support ZSTD dictionaries.
-    if dictionary.is_some() {
-        return Err(vortex_err!("ZSTD dictionary not supported on GPU"));
-    }
-
-    if frames.is_empty() {
-        return Err(vortex_err!("Empty ZSTD array"));
-    }
-
     // Gather frames' metadata.
     let frame_sizes: Vec<usize> = frames.iter().map(|f| f.len()).collect();
     let output_sizes: Vec<usize> = metadata
@@ -133,7 +126,7 @@ pub async fn zstd_kernel_prepare(
         })
         .collect::<VortexResult<Vec<_>>>()?;
 
-    // Build output_ptrs from output base pointer + cumulative offsets.
+    // Build output_ptrs from output base pointer + offsets.
     let output_ptrs = {
         let base_ptr = device_output.device_ptr(ctx.stream()).0;
         output_sizes
@@ -225,14 +218,19 @@ impl CudaExecute for ZstdExecutor {
 async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
     let ZstdArrayParts {
         frames,
-        metadata: _,
+        metadata,
         dtype,
         validity,
         n_rows,
-        dictionary: _,
+        dictionary,
         slice_start,
         slice_stop,
-    } = array.clone().into_parts();
+    } = array.into_parts();
+
+    // nvCOMP doesn't support ZSTD dictionaries.
+    if dictionary.is_some() {
+        return Err(vortex_err!("ZSTD dictionary not supported on GPU"));
+    }
 
     if frames.is_empty() {
         let result = unsafe {
@@ -247,7 +245,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         return Ok(Canonical::VarBinView(result));
     }
 
-    let mut exec = zstd_kernel_prepare(array, ctx).await?;
+    let mut exec = zstd_kernel_prepare(frames, &metadata, ctx).await?;
 
     let stream = ctx.stream();
 
@@ -267,9 +265,8 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
 
-    // Unconditionally copy back to the host because Zstd arrays are fully
-    // self-contained as they have no parent or child encodings they might be
-    // nested in.
+    // Unconditionally copy back to the host as Zstd arrays are fully
+    // self-contained. They neither have any parent or child encodings.
     let host_buffer = CudaDeviceBuffer::new(exec.device_output)
         .copy_to_host(Alignment::new(1))?
         .await?;

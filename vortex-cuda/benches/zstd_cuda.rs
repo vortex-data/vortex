@@ -22,6 +22,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 use vortex_zstd::ZstdArray;
+use vortex_zstd::ZstdArrayParts;
 
 const BENCH_ARGS: &[(usize, &str)] = &[
     (1_000_000, "1M"),
@@ -51,13 +52,10 @@ fn generate_string_data(count: usize) -> Vec<&'static str> {
 fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
     let strings = generate_string_data(num_strings);
     let var_bin_view = VarBinViewArray::from_iter_str(strings.iter().copied());
-
-    // Calculate uncompressed size
     let uncompressed_size: usize = strings.iter().map(|s| s.len()).sum();
-
-    // Disable dictionary since nvCOMP doesn't support ZSTD dictionaries.
     let zstd_compression_level = -10; // Less compression but faster.
     let zstd_array =
+        // Disable dictionary as nvCOMP doesn't support ZSTD dictionaries.
         ZstdArray::from_var_bin_view_without_dict(&var_bin_view, zstd_compression_level, 2048)?;
 
     Ok((zstd_array, uncompressed_size))
@@ -65,13 +63,12 @@ fn make_zstd_array(num_strings: usize) -> VortexResult<(ZstdArray, usize)> {
 
 /// Executes the ZSTD kernel and measures execution time using CUDA events.
 async fn execute_zstd_kernel(
-    exec: &mut ZstdKernelPrep,
+    mut exec: ZstdKernelPrep,
     cuda_ctx: &mut vortex_cuda::CudaExecutionCtx,
 ) -> VortexResult<Duration> {
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
 
-    // Record start event before kernel launch
     let start_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
         .map_err(|e| vortex_err!("Failed to create start event: {:?}", e))?;
@@ -79,7 +76,7 @@ async fn execute_zstd_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("Failed to record start event: {:?}", e))?;
 
-    // Launch the decompression kernel
+    // Launch the kernel
     unsafe {
         nvcomp_zstd::decompress_async(
             exec.frame_ptrs_ptr as _,
@@ -96,7 +93,6 @@ async fn execute_zstd_kernel(
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
 
-    // Record end event after kernel launch
     let end_event = ctx
         .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
         .map_err(|e| vortex_err!("Failed to create end event: {:?}", e))?;
@@ -105,7 +101,6 @@ async fn execute_zstd_kernel(
         .record(stream)
         .map_err(|e| vortex_err!("Failed to record end event: {:?}", e))?;
 
-    // Get elapsed time in milliseconds from CUDA events
     let elapsed_ms = start_event
         .elapsed_ms(&end_event)
         .map_err(|e| vortex_err!("Failed to get elapsed time: {:?}", e))?;
@@ -131,14 +126,15 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
                     let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
-                    // Prepare kernel once, reuse across iterations
-                    let mut exec = block_on(zstd_kernel_prepare(zstd_array.clone(), &mut cuda_ctx))
-                        .vortex_expect("kernel setup failed");
-
                     let mut total_time = Duration::ZERO;
 
                     for _ in 0..iters {
-                        let kernel_time = block_on(execute_zstd_kernel(&mut exec, &mut cuda_ctx))
+                        let ZstdArrayParts {
+                            frames, metadata, ..
+                        } = zstd_array.clone().into_parts();
+                        let exec = block_on(zstd_kernel_prepare(frames, &metadata, &mut cuda_ctx))
+                            .vortex_expect("kernel setup failed");
+                        let kernel_time = block_on(execute_zstd_kernel(exec, &mut cuda_ctx))
                             .vortex_expect("kernel execution failed");
 
                         total_time += kernel_time;
