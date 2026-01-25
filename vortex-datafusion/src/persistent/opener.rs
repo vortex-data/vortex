@@ -214,30 +214,42 @@ impl FileOpener for VortexOpener {
             let projector = leftover_projection.make_projector(&stream_schema)?;
 
             // We share our layout readers with others partitions in the scan, so we can only need to read each layout in each file once.
-            let layout_reader = match layout_reader.entry(file.object_meta.location.clone()) {
-                Entry::Occupied(mut occupied_entry) => {
-                    if let Some(reader) = occupied_entry.get().upgrade() {
-                        tracing::trace!("reusing layout reader for {}", occupied_entry.key());
-                        reader
-                    } else {
-                        tracing::trace!("creating layout reader for {}", occupied_entry.key());
+            // Try a read-only get first to minimize lock contention - most reads should hit the cache.
+            let layout_reader = if let Some(weak_reader) =
+                layout_reader.get(&file.object_meta.location)
+                && let Some(reader) = weak_reader.upgrade()
+            {
+                tracing::trace!("reusing layout reader for {}", file.object_meta.location);
+                reader
+            } else {
+                // Need to create or update - acquire write lock via entry()
+                match layout_reader.entry(file.object_meta.location.clone()) {
+                    Entry::Occupied(mut occupied_entry) => {
+                        if let Some(reader) = occupied_entry.get().upgrade() {
+                            // Another thread may have created the reader while we were waiting
+                            tracing::trace!("reusing layout reader for {}", occupied_entry.key());
+                            reader
+                        } else {
+                            tracing::trace!("creating layout reader for {}", occupied_entry.key());
+                            let reader = vxf.layout_reader().map_err(|e| {
+                                DataFusionError::Execution(format!(
+                                    "Failed to create layout reader: {e}"
+                                ))
+                            })?;
+                            occupied_entry.insert(Arc::downgrade(&reader));
+                            reader
+                        }
+                    }
+                    Entry::Vacant(vacant_entry) => {
+                        tracing::trace!("creating layout reader for {}", vacant_entry.key());
                         let reader = vxf.layout_reader().map_err(|e| {
                             DataFusionError::Execution(format!(
                                 "Failed to create layout reader: {e}"
                             ))
                         })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
+                        vacant_entry.insert(Arc::downgrade(&reader));
                         reader
                     }
-                }
-                Entry::Vacant(vacant_entry) => {
-                    tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
-                        DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
-                    })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
-
-                    reader
                 }
             };
 

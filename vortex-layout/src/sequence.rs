@@ -14,7 +14,7 @@ use std::task::Waker;
 
 use futures::Stream;
 use futures::StreamExt;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use pin_project_lite::pin_project;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
@@ -44,7 +44,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// recursively created sequence IDs.
 pub struct SequenceId {
     id: Vec<usize>,
-    universe: Arc<Mutex<SequenceUniverse>>,
+    universe: Arc<RwLock<SequenceUniverse>>,
 }
 
 impl PartialEq for SequenceId {
@@ -136,18 +136,18 @@ impl SequenceId {
 
     /// This is intentionally not pub. [SequencePointer::advance] is the only allowed way to create
     /// [SequenceId] instances
-    fn new(id: Vec<usize>, universe: Arc<Mutex<SequenceUniverse>>) -> Self {
+    fn new(id: Vec<usize>, universe: Arc<RwLock<SequenceUniverse>>) -> Self {
         // NOTE: This is the only place we construct a SequenceId, and
         // we immediately add it to the universe.
         let res = Self { id, universe };
-        res.universe.lock().add(&res);
+        res.universe.write().add(&res);
         res
     }
 }
 
 impl Drop for SequenceId {
     fn drop(&mut self) {
-        let waker = self.universe.lock().remove(self);
+        let waker = self.universe.write().remove(self);
         if let Some(w) = waker {
             w.wake();
         }
@@ -230,26 +230,33 @@ impl Future for WaitSequenceFuture<'_> {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut guard = self.0.universe.lock();
-        let current_first = guard
-            .active
-            .first()
-            .cloned()
-            .vortex_expect("if we have a future, we must have at least one active sequence");
-        if self.0.id == current_first {
-            guard.wakers.remove(&self.0.id);
-            return Poll::Ready(());
+        // Fast path: check with read lock if we're first
+        {
+            let guard = self.0.universe.read();
+            let current_first = guard
+                .active
+                .first()
+                .vortex_expect("if we have a future, we must have at least one active sequence");
+            if &self.0.id != current_first {
+                drop(guard);
+                // Not first - need write lock to insert waker
+                let mut guard = self.0.universe.write();
+                guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
+                return Poll::Pending;
+            }
         }
 
-        guard.wakers.insert(self.0.id.clone(), cx.waker().clone());
-        Poll::Pending
+        // We're first - need write lock to remove waker and complete
+        let mut guard = self.0.universe.write();
+        guard.wakers.remove(&self.0.id);
+        Poll::Ready(())
     }
 }
 
 /// If the future itself is dropped, we don't want to orphan the waker
 impl Drop for WaitSequenceFuture<'_> {
     fn drop(&mut self) {
-        self.0.universe.lock().wakers.remove(&self.0.id);
+        self.0.universe.write().wakers.remove(&self.0.id);
     }
 }
 
