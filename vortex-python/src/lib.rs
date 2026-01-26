@@ -47,6 +47,7 @@ static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::default().with_handle(RUNTIME.handle()));
 
 /// Vortex is an Apache Arrow-compatible toolkit for working with compressed array data.
+#[cfg(feature = "extension-module")]
 #[pymodule]
 fn _lib(py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     Python::attach(|py| -> PyResult<()> {
