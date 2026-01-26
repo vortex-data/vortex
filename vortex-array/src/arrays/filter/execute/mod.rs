@@ -26,13 +26,12 @@ use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
 use crate::compute::FilterKernel;
 use crate::validity::Validity;
 
 mod bool;
 mod primitive;
+mod varbinview;
 
 /// A helper function that lazily filters a [`Validity`] with a selection [`Mask`].
 ///
@@ -87,7 +86,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
         Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
-        Canonical::VarBinView(a) => Canonical::VarBinView(filter_varbinview(&a, mask)),
+        Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
         Canonical::Struct(a) => Canonical::Struct(filter_struct(&a, mask)),
@@ -106,14 +105,6 @@ fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
         .filter(array, mask)
         .vortex_expect("filter decimal array")
         .as_::<DecimalVTable>()
-        .clone()
-}
-
-fn filter_varbinview(array: &VarBinViewArray, mask: &Mask) -> VarBinViewArray {
-    VarBinViewVTable
-        .filter(array, mask)
-        .vortex_expect("filter varbinview array")
-        .as_::<VarBinViewVTable>()
         .clone()
 }
 
