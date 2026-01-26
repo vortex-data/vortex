@@ -24,13 +24,12 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
-use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
 use crate::compute::FilterKernel;
 use crate::validity::Validity;
 
 mod bool;
 mod primitive;
+mod struct_;
 mod varbinview;
 
 /// A helper function that lazily filters a [`Validity`] with a selection [`Mask`].
@@ -89,7 +88,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
-        Canonical::Struct(a) => Canonical::Struct(filter_struct(&a, mask)),
+        Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage()
@@ -123,13 +122,5 @@ fn filter_fixed_size_list(array: &FixedSizeListArray, mask: &Mask) -> FixedSizeL
         .filter(array, mask)
         .vortex_expect("filter fixed size list array")
         .as_::<FixedSizeListVTable>()
-        .clone()
-}
-
-fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
-    StructVTable
-        .filter(array, mask)
-        .vortex_expect("filter struct array")
-        .as_::<StructVTable>()
         .clone()
 }

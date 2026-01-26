@@ -10,7 +10,7 @@ use crate::compute::arrow_filter_fn;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Mask) -> VarBinViewArray {
     arrow_filter_fn(array.as_ref(), mask)
-        .vortex_expect("filter varbinview array")
+        .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinViewVTable>()
         .clone()
 }
