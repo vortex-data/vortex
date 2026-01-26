@@ -219,7 +219,7 @@ impl VortexReadAt for ByteBuffer {
     }
 
     fn concurrency(&self) -> usize {
-        16
+        byte_buffer_concurrency()
     }
 
     fn read_at(
@@ -296,6 +296,15 @@ impl VortexReadAt for ByteBuffer {
         }
         .boxed()
     }
+}
+
+fn byte_buffer_concurrency() -> usize {
+    const DEFAULT: usize = 16;
+    std::env::var("VORTEX_BYTE_BUFFER_CONCURRENCY")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT)
 }
 
 /// A wrapper that instruments a [`VortexReadAt`] with metrics.
