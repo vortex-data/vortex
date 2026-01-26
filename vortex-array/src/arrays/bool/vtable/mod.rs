@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -100,10 +99,9 @@ impl VTable for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let bits = BitBuffer::new_with_offset(buffer, len, metadata.offset as usize);
+        let buffer = buffers[0].clone();
 
-        BoolArray::try_new(bits, validity)
+        BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
