@@ -24,6 +24,7 @@ use vortex_error::vortex_ensure;
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
 use crate::WriteTarget;
+use crate::read::record_copy;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
@@ -218,7 +219,9 @@ impl VortexReadAt for ObjectStoreSource {
                             end,
                             range
                         );
+                        let copy_start = std::time::Instant::now();
                         target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
+                        record_copy(bytes.len(), copy_start.elapsed());
                         filled = end;
                     }
 

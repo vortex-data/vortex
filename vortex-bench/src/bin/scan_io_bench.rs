@@ -39,10 +39,16 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::BufferAllocator;
+use vortex::io::copy_stats;
+use vortex::io::default_alloc_stats;
+use vortex::io::reset_copy_stats;
+use vortex::io::reset_default_alloc_stats;
 use vortex::layout::LayoutReader;
 use vortex::layout::collect_segment_ids;
 use vortex::mask::Mask;
 use vortex::metrics::VortexMetrics;
+use vortex::file::segments::io_request_stats;
+use vortex::file::segments::reset_io_request_stats;
 use vortex_bench::SESSION;
 use vortex_cuda::CudaSessionExt;
 use vortex_cuda::PinnedByteBufferPool;
@@ -156,14 +162,16 @@ async fn main() -> Result<()> {
     let read_bytes = metrics.counter("vortex.io.read.total_size");
 
     #[allow(clippy::if_then_some_else_none)]
-    let gpu_allocator = if args.gpu {
+    let (gpu_allocator, pinned_pool) = if args.gpu {
         let cuda_session = SESSION.cuda_session();
         let pool = std::sync::Arc::new(PinnedByteBufferPool::new(cuda_session.context().clone()));
-        Some(std::sync::Arc::new(PinnedDeviceAllocator::from_session(
-            pool, &SESSION,
-        )?))
+        let allocator = std::sync::Arc::new(PinnedDeviceAllocator::from_session(
+            pool.clone(),
+            &SESSION,
+        )?);
+        (Some(allocator), Some(pool))
     } else {
-        None
+        (None, None)
     };
     let allocator: Option<std::sync::Arc<dyn BufferAllocator>> = gpu_allocator
         .as_ref()
@@ -184,6 +192,12 @@ async fn main() -> Result<()> {
         ))
     };
     read_bytes.clear();
+    reset_default_alloc_stats();
+    reset_copy_stats();
+    reset_io_request_stats();
+    if let Some(pool) = pinned_pool.as_ref() {
+        pool.reset_stats();
+    }
 
     let start = Instant::now();
     let bytes_before = read_bytes.count();
@@ -328,6 +342,7 @@ async fn main() -> Result<()> {
     if args.gpu {
         println!("gpu_sync_ms={:.2}", gpu_sync_ms);
     }
+    print_stats(pinned_pool.as_deref());
 
     Ok(())
 }
@@ -635,5 +650,35 @@ impl LayoutReader for BenchLayoutReader {
     ) -> VortexResult<futures::future::BoxFuture<'static, VortexResult<vortex::array::ArrayRef>>>
     {
         self.inner.projection_evaluation(row_range, expr, mask)
+    }
+}
+
+fn print_stats(pinned_pool: Option<&PinnedByteBufferPool>) {
+    let io = io_request_stats();
+    if io.registered > 0 || io.dispatched > 0 || io.completed > 0 {
+        println!(
+            "io_requests: registered={} polled={} dispatched={} completed={} max_in_flight={}",
+            io.registered, io.polled, io.dispatched, io.completed, io.max_in_flight
+        );
+    }
+    let copy = copy_stats();
+    if copy.bytes > 0 && copy.nanos > 0 {
+        let gb_per_s = copy.bytes as f64 / (copy.nanos as f64 / 1e9) / 1e9;
+        let ms = copy.nanos as f64 / 1e6;
+        println!(
+            "in_memory_memcpy: {:.2} GB/s ({:.2} ms total, {} copies)",
+            gb_per_s, ms, copy.count
+        );
+    }
+    let alloc = default_alloc_stats();
+    if alloc.count > 0 {
+        println!("default_allocs: {} ({} bytes)", alloc.count, alloc.bytes);
+    }
+    if let Some(pool) = pinned_pool {
+        let stats = pool.stats();
+        println!(
+            "pinned_pool: hits={} misses={} allocs={} puts={}",
+            stats.hits, stats.misses, stats.allocs, stats.puts
+        );
     }
 }

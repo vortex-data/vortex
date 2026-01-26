@@ -7,6 +7,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
+use std::time::Duration;
 use std::time::Instant;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
@@ -48,6 +49,13 @@ pub fn copy_stats() -> CopyStats {
         nanos: COPY_NANOS.load(Ordering::Relaxed),
         count: COPY_COUNT.load(Ordering::Relaxed),
     }
+}
+
+pub(crate) fn record_copy(bytes: usize, elapsed: Duration) {
+    let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+    COPY_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
+    COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
+    COPY_COUNT.fetch_add(1, Ordering::Relaxed);
 }
 
 /// Configuration for coalescing nearby I/O requests into single operations.
@@ -272,11 +280,7 @@ impl VortexReadAt for ByteBuffer {
                         target
                             .as_mut_slice()
                             .copy_from_slice(&buffer.as_ref()[start..end]);
-                        let elapsed = copy_start.elapsed();
-                        let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
-                        COPY_BYTES.fetch_add((end - start) as u64, Ordering::Relaxed);
-                        COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
-                        COPY_COUNT.fetch_add(1, Ordering::Relaxed);
+                        record_copy(end - start, copy_start.elapsed());
                         target.into_handle()
                     })
                     .await
@@ -287,11 +291,7 @@ impl VortexReadAt for ByteBuffer {
             target
                 .as_mut_slice()
                 .copy_from_slice(&buffer.as_ref()[start..end]);
-            let elapsed = copy_start.elapsed();
-            let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
-            COPY_BYTES.fetch_add((end - start) as u64, Ordering::Relaxed);
-            COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
-            COPY_COUNT.fetch_add(1, Ordering::Relaxed);
+            record_copy(end - start, copy_start.elapsed());
             target.into_handle()
         }
         .boxed()
