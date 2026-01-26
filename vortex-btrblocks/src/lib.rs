@@ -93,7 +93,15 @@ impl Default for GenerateStatsOptions {
     }
 }
 
+/// The size of each sampled run.
 const SAMPLE_SIZE: u32 = 64;
+/// The number of sampled runs.
+///
+/// # Warning
+///
+/// The product of SAMPLE_SIZE and SAMPLE_COUNT should be (roughly) a multiple of 1024 so that
+/// fastlanes bitpacking of sampled vectors does not introduce (large amounts of) padding.
+const SAMPLE_COUNT: u32 = 16;
 
 /// Stats for the compressor.
 pub trait CompressorStats: Debug + Clone {
@@ -173,6 +181,10 @@ pub trait Scheme: Debug {
     ) -> VortexResult<ArrayRef>;
 }
 
+fn nearest_multiple_of_16(x: u32) -> u32 {
+    x.saturating_add(8) & !15
+}
+
 fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     compressor: &T,
     stats: &T::StatsType,
@@ -187,24 +199,24 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         let source_len = stats.source().len();
 
         // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
-        let sample_count = usize::max(
-            (source_len / 100)
-                / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize"),
-            10,
+        let approximately_one_percent = (source_len / 100)
+            / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
+        let sample_count = u32::max(
+            nearest_multiple_of_16(
+                approximately_one_percent
+                    .try_into()
+                    .vortex_expect("sample count must fit in u32"),
+            ),
+            SAMPLE_COUNT,
         );
 
         tracing::trace!(
             "Sampling {} values out of {}",
-            SAMPLE_SIZE as usize * sample_count,
+            SAMPLE_SIZE as u64 * sample_count as u64,
             source_len
         );
 
-        stats.sample(
-            SAMPLE_SIZE,
-            sample_count
-                .try_into()
-                .vortex_expect("sample count must fit in u32"),
-        )
+        stats.sample(SAMPLE_SIZE, sample_count)
     };
 
     let after = compressor
