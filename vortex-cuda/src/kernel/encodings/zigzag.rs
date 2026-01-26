@@ -118,10 +118,11 @@ mod tests {
     use vortex_zigzag::ZigZagArray;
 
     use super::*;
+    use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
     #[tokio::test]
-    async fn test_cuda_zigzag_decompression_u32() {
+    async fn test_cuda_zigzag_decompression_u32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -131,26 +132,20 @@ mod tests {
 
         let zigzag_array = ZigZagArray::try_new(
             PrimitiveArray::new(Buffer::from(encoded_data), NonNullable).into_array(),
-        )
-        .vortex_expect("failed to create ZigZag array");
+        )?;
 
-        // Decode on CPU
-        let cpu_result = zigzag_array
-            .to_canonical()
-            .vortex_expect("CPU canonicalize failed");
+        let cpu_result = zigzag_array.to_canonical()?;
 
-        // Decode on GPU
         let gpu_result = ZigZagExecutor
             .execute(zigzag_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await?
+            .into_array();
 
-        // Copy GPU result back to host for comparison
-        let gpu_host = Buffer::<i32>::from_byte_buffer(
-            gpu_result.into_primitive().buffer_handle().to_host().await,
-        );
-        let gpu_array = PrimitiveArray::new(gpu_host, NonNullable);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_array.into_array());
+        Ok(())
     }
 }
