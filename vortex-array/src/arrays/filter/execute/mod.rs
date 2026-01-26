@@ -16,16 +16,13 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
-use crate::arrays::ListViewArray;
-use crate::arrays::ListViewRebuildMode;
-use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
-use crate::compute::FilterKernel;
 use crate::validity::Validity;
 
 mod bool;
 mod decimal;
 mod fixed_size_list;
+mod listview;
 mod primitive;
 mod struct_;
 mod varbinview;
@@ -73,7 +70,6 @@ pub(super) fn execute_filter_fast_paths(
     Ok(None)
 }
 
-// TODO(connor): Stop using the old compute kernels and move all code into this module.
 // TODO(connor): precondition about the mask due to the fast path, and this should probably just
 // take `MaskValues` instead.
 /// Filter a canonical array by a mask, returning a new canonical array.
@@ -84,7 +80,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
         Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
-        Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
+        Canonical::List(a) => Canonical::List(listview::filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => {
             Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
         }
@@ -93,18 +89,8 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
             let filtered_storage = a
                 .storage()
                 .filter(mask.clone())
-                .vortex_expect("filter extension storage");
+                .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
     }
-}
-
-fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
-    ListViewVTable
-        .filter(array, mask)
-        .vortex_expect("filter listview array")
-        .as_::<ListViewVTable>()
-        .clone()
-        .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
-        .vortex_expect("rebuild listview array")
 }
