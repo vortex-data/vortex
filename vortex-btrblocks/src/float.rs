@@ -5,6 +5,7 @@ pub(crate) mod dictionary;
 mod stats;
 
 use vortex_alp::ALPArray;
+use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
 use vortex_alp::RDEncoder;
 use vortex_alp::alp_encode;
@@ -28,6 +29,7 @@ pub use self::stats::FloatStats;
 use crate::Compressor;
 use crate::CompressorStats;
 use crate::GenerateStatsOptions;
+use crate::SAMPLE_SIZE;
 use crate::Scheme;
 use crate::estimate_compression_ratio_with_sampling;
 use crate::float::dictionary::dictionary_encode;
@@ -283,13 +285,46 @@ impl Scheme for ALPRDScheme {
             return Ok(0.0);
         }
 
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        let sample = if is_sample {
+            stats.clone()
+        } else {
+            // We want to sample about 1% of data
+            let source_len = stats.source().len();
+
+            // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
+            let sample_count = usize::max(
+                (source_len / 100)
+                    / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize"),
+                10,
+            );
+
+            tracing::trace!(
+                "Sampling {} values out of {}",
+                SAMPLE_SIZE as usize * sample_count,
+                source_len
+            );
+
+            stats.sample(
+                SAMPLE_SIZE,
+                sample_count
+                    .try_into()
+                    .vortex_expect("sample count must fit in u32"),
+            )
+        };
+
+        let compressed = self.compress(&sample, true, allowed_cascading, excludes)?;
+        let after = compressed.as_::<ALPRDVTable>();
+        let estimated_compressed_full_size =
+            ((after.right_bit_width() as u64 * after.len() as u64).div_ceil(8))
+                + after.left_parts().nbytes();
+        let uncompressed_full_size = sample.source().nbytes();
+
+        tracing::debug!(
+            "estimate_compression_ratio_with_sampling(compressor={self:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}",
+            uncompressed_full_size as f64 / estimated_compressed_full_size as f64
+        );
+
+        Ok(uncompressed_full_size as f64 / estimated_compressed_full_size as f64)
     }
 
     fn compress(
