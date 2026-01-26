@@ -29,6 +29,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["scalar"] }
+vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-vector = { workspace = true }
 

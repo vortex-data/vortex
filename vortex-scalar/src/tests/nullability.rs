@@ -9,10 +9,11 @@ mod tests {
 
     use rstest::rstest;
     use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::datetime::Date;
+    use vortex_dtype::datetime::TimeUnit;
+    use vortex_dtype::datetime::Timestamp;
 
     use crate::InnerScalarValue;
     use crate::PValue;
@@ -25,32 +26,16 @@ mod tests {
             DType::Null,
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
+            DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erase()),
+            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erase()),
         )]
         source_dtype: DType,
         #[values(
             DType::Null,
             DType::Bool(Nullability::Nullable),
             DType::Primitive(PType::I32, Nullability::Nullable),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("a"),
-                Arc::from(DType::Primitive(PType::U32, Nullability::Nullable)),
-                None,
-            ))),
-            DType::Extension(Arc::from(ExtDType::new(
-                ExtID::from("b"),
-                Arc::from(DType::Utf8(Nullability::Nullable)),
-                None,
-            )))
+            DType::Extension(Date::new(TimeUnit::Days, Nullability::Nullable).erase()),
+            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erase()),
         )]
         target_dtype: DType,
     ) {

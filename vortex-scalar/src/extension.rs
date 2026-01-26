@@ -121,8 +121,13 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 impl Scalar {
     /// Creates a new extension scalar wrapping the given storage value.
     pub fn extension<V: VTable>(ext_dtype: ExtDType<V>, value: Scalar) -> Self {
+        Self::extension_ref(ext_dtype.erase(), value)
+    }
+
+    /// Creates a new extension scalar wrapping the given storage value.
+    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
         assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::new(DType::Extension(ext_dtype.erase()), value.value().clone())
+        Self::new(DType::Extension(ext_dtype), value.value().clone())
     }
 }
 

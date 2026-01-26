@@ -10804,6 +10804,7 @@ dependencies = [
  "vortex-error",
  "vortex-mask",
  "vortex-proto",
+ "vortex-session",
  "vortex-utils",
  "vortex-vector",
 ]

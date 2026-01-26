@@ -268,7 +268,7 @@ impl Scalar {
                     })
                     .try_collect()?,
             ),
-            DType::Extension(ext_dtype) => Scalar::extension(
+            DType::Extension(ext_dtype) => Scalar::extension_ref(
                 ext_dtype.clone(),
                 Scalar::from_vector_scalar(scalar, ext_dtype.storage_dtype())?,
             ),

@@ -6,6 +6,7 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::DType;
 use crate::ExtDType;
@@ -29,10 +30,22 @@ pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
     fn id(&self) -> ExtID;
 
     /// Serialize the options into a byte vector.
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>>;
+    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>> {
+        _ = options;
+        vortex_bail!(
+            "Serialization not implemented for extension type {}",
+            self.id()
+        );
+    }
 
     /// Deserialize the options from a byte slice.
-    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options>;
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
+        _ = data;
+        vortex_bail!(
+            "Deserialization not implemented for extension type {}",
+            self.id()
+        );
+    }
 
     /// Validate that the given storage type is compatible with this extension type.
     fn validate(&self, options: &Self::Options, storage_dtype: &DType) -> VortexResult<()>;
