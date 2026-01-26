@@ -16,8 +16,6 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
@@ -27,6 +25,7 @@ use crate::validity::Validity;
 
 mod bool;
 mod decimal;
+mod fixed_size_list;
 mod primitive;
 mod struct_;
 mod varbinview;
@@ -86,7 +85,9 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
-        Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
+        Canonical::FixedSizeList(a) => {
+            Canonical::FixedSizeList(fixed_size_list::filter_fixed_size_list(&a, mask))
+        }
         Canonical::Struct(a) => Canonical::Struct(struct_::filter_struct(&a, mask)),
         Canonical::Extension(a) => {
             let filtered_storage = a
@@ -106,12 +107,4 @@ fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
         .clone()
         .rebuild(ListViewRebuildMode::MakeZeroCopyToList)
         .vortex_expect("rebuild listview array")
-}
-
-fn filter_fixed_size_list(array: &FixedSizeListArray, mask: &Mask) -> FixedSizeListArray {
-    FixedSizeListVTable
-        .filter(array, mask)
-        .vortex_expect("filter fixed size list array")
-        .as_::<FixedSizeListVTable>()
-        .clone()
 }
