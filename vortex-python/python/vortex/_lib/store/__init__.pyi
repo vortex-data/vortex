@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
+
 # TODO: move to reusable types package
 from collections.abc import Callable
 from pathlib import Path

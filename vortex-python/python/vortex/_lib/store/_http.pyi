@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
+
 from typing import Self
 
 from ._client import ClientConfig

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: MIT
+# SPDX-FileCopyrightText: Copyright (c) 2024 Development Seed
+
 from collections.abc import Coroutine
 from datetime import datetime
 from typing import Any, Protocol, Self, TypedDict, Unpack
