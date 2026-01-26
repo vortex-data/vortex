@@ -121,16 +121,18 @@ mod tests {
     use vortex_alp::Exponents;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity::NonNullable;
     use vortex_buffer::Buffer;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
     #[tokio::test]
-    async fn test_cuda_alp_decompression_f32() {
+    async fn test_cuda_alp_decompression_f32() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -145,34 +147,20 @@ mod tests {
             PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable).into_array(),
             exponents,
             None,
-        )
-        .vortex_expect("failed to create ALP array");
+        )?;
 
-        let result = ALPExecutor
+        let cpu_result = alp_array.to_canonical()?;
+
+        let gpu_result = ALPExecutor
             .execute(alp_array.to_array(), &mut cuda_ctx)
             .await
-            .vortex_expect("GPU decompression failed");
+            .vortex_expect("GPU decompression failed")
+            .into_host()
+            .await?
+            .into_array();
 
-        let result_buf =
-            Buffer::<f32>::from_byte_buffer(result.as_primitive().buffer_handle().to_host().await);
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
 
-        assert_eq!(result_buf.len(), encoded_data.len());
-
-        // Check decoded values
-        let expected: Vec<f32> = encoded_data.iter().map(|&v| v as f32 * 100.0).collect();
-        for (i, (&got, &want)) in result_buf
-            .as_slice()
-            .iter()
-            .zip(expected.iter())
-            .enumerate()
-        {
-            assert!(
-                (got - want).abs() < 1e-6,
-                "Mismatch at {}: got {}, want {}",
-                i,
-                got,
-                want
-            );
-        }
+        Ok(())
     }
 }

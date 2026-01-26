@@ -10348,6 +10348,7 @@ dependencies = [
  "vortex-error",
  "vortex-fastlanes",
  "vortex-nvcomp",
+ "vortex-scalar",
  "vortex-session",
  "vortex-utils",
  "vortex-zigzag",
