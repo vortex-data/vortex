@@ -42,6 +42,9 @@ fn is_pco_number_type(ptype: PType) -> bool {
 pub struct CompactCompressor {
     pco_level: usize,
     zstd_level: i32,
+    /// Dictionaries are trained from previously seen frames to improve compression ratio.
+    /// nvCOMP though doesn't support ZSTD dictionaries. Therefore, we need the option to
+    /// disable them for compatibility.
     zstd_use_dicts: bool,
     zstd_values_per_page: usize,
 }
@@ -94,11 +97,19 @@ impl CompactCompressor {
                     )?;
                     pco_array.into_array()
                 } else {
-                    let zstd_array = ZstdArray::from_primitive(
-                        primitive,
-                        self.zstd_level,
-                        self.zstd_values_per_page,
-                    )?;
+                    let zstd_array = if self.zstd_use_dicts {
+                        ZstdArray::from_primitive(
+                            primitive,
+                            self.zstd_level,
+                            self.zstd_values_per_page,
+                        )?
+                    } else {
+                        ZstdArray::from_primitive_without_dict(
+                            primitive,
+                            self.zstd_level,
+                            self.zstd_values_per_page,
+                        )?
+                    };
                     zstd_array.into_array()
                 }
             }
@@ -128,8 +139,17 @@ impl CompactCompressor {
             }
             Canonical::VarBinView(vbv) => {
                 // always zstd
-                ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.zstd_values_per_page)?
+                if self.zstd_use_dicts {
+                    ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.zstd_values_per_page)?
+                        .into_array()
+                } else {
+                    ZstdArray::from_var_bin_view_without_dict(
+                        vbv,
+                        self.zstd_level,
+                        self.zstd_values_per_page,
+                    )?
                     .into_array()
+                }
             }
             Canonical::Struct(struct_array) => {
                 // recurse
@@ -203,6 +223,7 @@ impl Default for CompactCompressor {
         Self {
             pco_level: pco::DEFAULT_COMPRESSION_LEVEL,
             zstd_level: 3,
+            zstd_use_dicts: true,
             // This is probably high enough to not hurt performance or
             // compression. It also currently aligns with the default strategy's
             // number of rows per statistic, which allows efficient pushdown
