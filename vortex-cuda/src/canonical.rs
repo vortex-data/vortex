@@ -61,7 +61,7 @@ impl CanonicalCudaExt for Canonical {
                     )
                 }))
             }
-            _ => todo!(),
+            _ => todo!("support other types once they have `BufferHandle`s"),
         }
     }
 }
