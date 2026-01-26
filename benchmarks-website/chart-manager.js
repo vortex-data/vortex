@@ -52,12 +52,49 @@ export const chartManager = {
     const actions = document.createElement("div");
     actions.className = "chart-actions";
 
+    // Create zoom/pan controls
+    const zoomControls = document.createElement("div");
+    zoomControls.className = "chart-zoom-controls";
+
+    const chartKey = `${name}-${index}`;
+    const createControlBtn = (text, title, clickHandler, dataAction) => {
+      const btn = document.createElement("button");
+      btn.className = "chart-zoom-btn";
+      btn.textContent = text;
+      btn.title = title;
+      btn.onclick = clickHandler;
+      btn.setAttribute("data-chart-key", chartKey);
+      btn.setAttribute("data-action", dataAction);
+      return btn;
+    };
+
+    const goToStartBtn = createControlBtn("|«", "Go to oldest", () =>
+      this.goToStart(name, index), "go-start");
+    const panLeftBtn = createControlBtn("«", "Pan left", () =>
+      this.panChart(name, index, -0.5), "pan-left");
+    const panRightBtn = createControlBtn("»", "Pan right", () =>
+      this.panChart(name, index, 0.5), "pan-right");
+    const goToEndBtn = createControlBtn("»|", "Go to latest", () =>
+      this.goToEnd(name, index), "go-end");
+    const zoomInBtn = createControlBtn("+", "Zoom in", () =>
+      this.zoomChart(name, index, 0.5), "zoom-in");
+    const zoomOutBtn = createControlBtn("−", "Zoom out", () =>
+      this.zoomChart(name, index, 2), "zoom-out");
+
+    zoomControls.appendChild(goToStartBtn);
+    zoomControls.appendChild(panLeftBtn);
+    zoomControls.appendChild(zoomInBtn);
+    zoomControls.appendChild(zoomOutBtn);
+    zoomControls.appendChild(panRightBtn);
+    zoomControls.appendChild(goToEndBtn);
+
     const fullscreenBtn = document.createElement("button");
     fullscreenBtn.className = "chart-action-btn";
     fullscreenBtn.textContent = "Fullscreen";
     fullscreenBtn.onclick = () =>
       chartManager.openModal(name, benchName, index);
 
+    actions.appendChild(zoomControls);
     actions.appendChild(fullscreenBtn);
     header.appendChild(title);
     header.appendChild(actions);
@@ -192,6 +229,9 @@ export const chartManager = {
     const chartKey = `${name}-${index}`;
     window.state.chartInstances.set(chartKey, { chart, data, options });
 
+    // Update navigation button states for initial load
+    this.updateNavigationButtons(chartKey);
+
     return chart;
   },
 
@@ -225,9 +265,7 @@ export const chartManager = {
       scales: {
         x: {
           title: {
-            display: true,
-            text: benchName,
-            padding: { bottom: 50 },
+            display: false,
           },
           min: isMobile
             ? 0 // Start from the beginning of the sliced data
@@ -239,6 +277,14 @@ export const chartManager = {
             ? limitedCommits.length - 1 // Use the length of the sliced data
             : undefined,
         },
+        x2: this.createDateAxis(limitedCommits, isMobile, {
+          min: isMobile
+            ? 0
+            : Math.max(0, dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS),
+          max: isMobile
+            ? limitedCommits.length - 1
+            : undefined,
+        }),
         y: yAxisScale,
       },
       plugins: this.createPlugins(
@@ -282,12 +328,139 @@ export const chartManager = {
     return scale;
   },
 
+  // Create a secondary x-axis that shows human-readable dates in a faded style
+  createDateAxis(limitedCommits, isMobile, initialRange = {}) {
+    // Format date in a human-readable way
+    const formatDate = (timestamp) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    };
+
+    return {
+      type: 'category',
+      position: 'bottom',
+      offset: true,
+      labels: limitedCommits.map(c => c?.timestamp ? formatDate(c.timestamp) : ''),
+      min: initialRange.min,
+      max: initialRange.max,
+      grid: {
+        display: false,
+        drawOnChartArea: false,
+      },
+      border: {
+        display: false,
+      },
+      ticks: {
+        display: !isMobile,
+        color: 'rgba(128, 128, 128, 0.5)', // Faded gray color
+        font: {
+          size: 10,
+          style: 'italic',
+        },
+        padding: 2,
+        maxRotation: 0,
+        autoSkip: false,
+        // Show only 5 labels: first, last, and 3 evenly spaced in between
+        callback: function(value, index, ticks) {
+          const totalTicks = ticks.length;
+          if (totalTicks <= 5) {
+            return this.getLabelForValue(index);
+          }
+
+          // Always show first and last
+          if (index === 0 || index === totalTicks - 1) {
+            return this.getLabelForValue(index);
+          }
+
+          // Show 3 evenly spaced labels in between (at 25%, 50%, 75%)
+          const step = (totalTicks - 1) / 4;
+          for (let i = 1; i <= 3; i++) {
+            const targetIndex = Math.round(step * i);
+            if (index === targetIndex) {
+              return this.getLabelForValue(index);
+            }
+          }
+
+          return null; // Hide this tick
+        },
+      },
+    };
+  },
+
+  // Sync the x2 (date) axis with the x (commit) axis
+  syncDateAxis(chart) {
+    if (!chart?.scales?.x || !chart?.scales?.x2) return;
+
+    const xScale = chart.scales.x;
+    chart.options.scales.x2.min = xScale.min;
+    chart.options.scales.x2.max = xScale.max;
+    chart.update('none');
+  },
+
   createPlugins(categoryName, isMobile, limitedCommits, index) {
+    const chartKey = `${categoryName}-${index}`;
+    const self = this;
+
+    // Debounced zoom/pan handler to fetch new data
+    let zoomPanTimeout = null;
+    const handleZoomPanComplete = (context) => {
+      const chart = context.chart;
+
+      // Immediately sync the date axis
+      self.syncDateAxis(chart);
+
+      // Clear previous timeout
+      if (zoomPanTimeout) {
+        clearTimeout(zoomPanTimeout);
+      }
+
+      // Debounce the data fetch
+      zoomPanTimeout = setTimeout(() => {
+        const xScale = chart.scales.x;
+
+        // Get the visible range indices
+        const visibleMin = Math.floor(xScale.min);
+        const visibleMax = Math.ceil(xScale.max);
+
+        // Get chart instance info
+        const chartInstance = window.state?.chartInstances?.get(chartKey);
+        if (!chartInstance) return;
+
+        // Map local indices to global commit indices
+        const originalData = chartInstance.originalData;
+        if (!originalData?.requestedRange) return;
+
+        // Calculate global indices based on the original request range
+        const globalStartIndex = originalData.requestedRange.startIndex + visibleMin;
+        const globalEndIndex = originalData.requestedRange.startIndex + visibleMax;
+
+        // Check if we need to fetch more data (zooming out or panning beyond current range)
+        const currentRangeStart = originalData.requestedRange.startIndex;
+        const currentRangeEnd = originalData.requestedRange.endIndex;
+
+        // Only fetch if zooming to a different downsample level would help
+        // or if we're showing data at boundaries that might benefit from more context
+        const currentLength = chart.data.labels.length;
+        const visibleLength = visibleMax - visibleMin + 1;
+
+        // If showing most of the data and it's downsampled, might want to fetch more detail
+        if (originalData.downsampleLevel !== '1x' && visibleLength < currentLength * 0.5) {
+          // Zooming in - might get better resolution
+          if (window.chartLoader?.refreshChartData) {
+            window.chartLoader.refreshChartData(chartKey, globalStartIndex, globalEndIndex);
+          }
+        }
+      }, 500); // 500ms debounce
+    };
+
     return {
       zoom: {
         zoom: {
           wheel: {
-            enabled: !isMobile,
+            enabled: false, // Disable wheel zoom - use button controls instead
             speed: CONFIG.ZOOM_SPEED,
             modifierKey: null,
           },
@@ -296,35 +469,13 @@ export const chartManager = {
             enabled: !isMobile,
             backgroundColor: "rgba(89, 113, 253, 0.1)",
           },
-          onZoom: !isMobile
-            ? ({ chart }) => {
-                window.zoomSync.synchronizeZoomForCategory(
-                  categoryName,
-                  chart,
-                  index,
-                  true,
-                  window.state,
-                  window.utils
-                );
-              }
-            : undefined,
+          onZoomComplete: handleZoomPanComplete,
         },
         pan: {
-          enabled: !isMobile,
+          enabled: false, // Disable drag panning - use button controls instead
           mode: "x",
           modifierKey: null,
-          onPan: !isMobile
-            ? ({ chart }) => {
-                window.zoomSync.synchronizeZoomForCategory(
-                  categoryName,
-                  chart,
-                  index,
-                  false,
-                  window.state,
-                  window.utils
-                );
-              }
-            : undefined,
+          onPanComplete: handleZoomPanComplete,
         },
         limits: {
           x: {
@@ -445,6 +596,322 @@ export const chartManager = {
     modal.classList.remove("active");
   },
 
+  // Pan chart by a percentage of the visible range
+  panChart(categoryName, index, direction) {
+    const chartKey = `${categoryName}-${index}`;
+    const chartData = window.state.chartInstances.get(chartKey);
+    if (!chartData?.chart) return;
+
+    const chart = chartData.chart;
+    const originalData = chartData.originalData;
+
+    // Get total commits from metadata (the full global range)
+    const totalGlobalCommits = window.state?.metadata?.commits?.length ||
+                               originalData?.originalLength ||
+                               chart.data.labels.length;
+
+    const xScale = chart.scales.x;
+    const localMin = xScale.min;
+    const localMax = xScale.max;
+    const localRange = localMax - localMin;
+    const localDataLength = chart.data.labels.length;
+
+    // Get the actual global range from requestedRange
+    const requestedRange = originalData?.requestedRange || { startIndex: 0, endIndex: localDataLength - 1, length: localDataLength };
+    const globalRangeStart = requestedRange.startIndex;
+    const globalRangeLength = requestedRange.length || (requestedRange.endIndex - globalRangeStart + 1);
+
+    // Calculate the proportion of the loaded data we're viewing
+    const viewProportion = localRange / Math.max(1, localDataLength - 1);
+    const viewStartProportion = localMin / Math.max(1, localDataLength - 1);
+
+    // Map to actual global indices
+    const currentGlobalViewLength = globalRangeLength * viewProportion;
+    const currentGlobalMin = globalRangeStart + (globalRangeLength * viewStartProportion);
+    const currentGlobalMax = currentGlobalMin + currentGlobalViewLength;
+
+    // Calculate pan amount in global terms
+    const panAmount = currentGlobalViewLength * direction;
+
+    // Calculate new global position
+    let newGlobalMin = currentGlobalMin + panAmount;
+    let newGlobalMax = currentGlobalMax + panAmount;
+
+    // Clamp to global bounds
+    if (newGlobalMin < 0) {
+      newGlobalMax -= newGlobalMin;
+      newGlobalMin = 0;
+    }
+    if (newGlobalMax > totalGlobalCommits - 1) {
+      newGlobalMin -= (newGlobalMax - (totalGlobalCommits - 1));
+      newGlobalMax = totalGlobalCommits - 1;
+    }
+    newGlobalMin = Math.max(0, Math.floor(newGlobalMin));
+    newGlobalMax = Math.min(totalGlobalCommits - 1, Math.ceil(newGlobalMax));
+
+    // Check if we need to load more data
+    const currentGlobalStart = requestedRange.startIndex;
+    const currentGlobalEnd = requestedRange.startIndex + chart.data.labels.length - 1;
+
+    if (newGlobalMin < currentGlobalStart || newGlobalMax > currentGlobalEnd) {
+      // Need to load more data - trigger refresh with new range
+      this.triggerDataRefreshWithRange(chartKey, newGlobalMin, newGlobalMax);
+    } else {
+      // Data is already loaded, just adjust the view
+      const newLocalMin = newGlobalMin - requestedRange.startIndex;
+      const newLocalMax = newGlobalMax - requestedRange.startIndex;
+
+      chart.options.scales.x.min = newLocalMin;
+      chart.options.scales.x.max = newLocalMax;
+      this.syncDateAxis(chart);
+
+      // Trigger data refresh for potential resolution change
+      this.triggerDataRefresh(chartKey, chart);
+    }
+
+    // Update navigation button states
+    this.updateNavigationButtons(chartKey);
+  },
+
+  // Zoom chart by a factor (< 1 = zoom in, > 1 = zoom out)
+  zoomChart(categoryName, index, factor) {
+    const chartKey = `${categoryName}-${index}`;
+    const chartData = window.state.chartInstances.get(chartKey);
+    if (!chartData?.chart) return;
+
+    const chart = chartData.chart;
+    const originalData = chartData.originalData;
+
+    // Get total commits from metadata (the full global range)
+    const totalGlobalCommits = window.state?.metadata?.commits?.length ||
+                               originalData?.originalLength ||
+                               chart.data.labels.length;
+
+    // Current local range (in downsampled indices)
+    const xScale = chart.scales.x;
+    const localMin = xScale.min;
+    const localMax = xScale.max;
+    const localRange = localMax - localMin;
+    const localDataLength = chart.data.labels.length;
+
+    // Get the actual global range from requestedRange
+    const requestedRange = originalData?.requestedRange || { startIndex: 0, endIndex: localDataLength - 1, length: localDataLength };
+    const globalRangeStart = requestedRange.startIndex;
+    const globalRangeEnd = requestedRange.endIndex;
+    const globalRangeLength = requestedRange.length || (globalRangeEnd - globalRangeStart + 1);
+
+    // Calculate the proportion of the loaded data we're viewing
+    const viewProportion = localRange / Math.max(1, localDataLength - 1);
+    const viewStartProportion = localMin / Math.max(1, localDataLength - 1);
+
+    // Map to actual global indices
+    const currentGlobalViewLength = globalRangeLength * viewProportion;
+    const globalMin = globalRangeStart + (globalRangeLength * viewStartProportion);
+    const globalMax = globalMin + currentGlobalViewLength;
+    const globalCenter = (globalMin + globalMax) / 2;
+
+    // Calculate new global range by scaling the ACTUAL global range we're viewing
+    const newGlobalRange = currentGlobalViewLength * factor;
+
+    // Minimum range check
+    const minRange = Math.min(CONFIG.MIN_VISIBLE_COMMITS, totalGlobalCommits);
+    if (newGlobalRange < minRange && factor < 1) return;
+
+    let newGlobalMin = globalCenter - newGlobalRange / 2;
+    let newGlobalMax = globalCenter + newGlobalRange / 2;
+
+    // Clamp to global bounds
+    if (newGlobalMin < 0) {
+      newGlobalMax -= newGlobalMin;
+      newGlobalMin = 0;
+    }
+    if (newGlobalMax > totalGlobalCommits - 1) {
+      newGlobalMin -= (newGlobalMax - (totalGlobalCommits - 1));
+      newGlobalMax = totalGlobalCommits - 1;
+    }
+    newGlobalMin = Math.max(0, Math.floor(newGlobalMin));
+    newGlobalMax = Math.min(totalGlobalCommits - 1, Math.ceil(newGlobalMax));
+
+    // Check if we need to load more data (zooming out beyond loaded range)
+    const currentGlobalStart = requestedRange.startIndex;
+    const currentGlobalEnd = requestedRange.startIndex + chart.data.labels.length - 1;
+
+    if (newGlobalMin < currentGlobalStart || newGlobalMax > currentGlobalEnd) {
+      // Need to load more data - trigger refresh with expanded range
+      this.triggerDataRefreshWithRange(chartKey, newGlobalMin, newGlobalMax);
+    } else {
+      // Data is already loaded, just adjust the view
+      const newLocalMin = newGlobalMin - requestedRange.startIndex;
+      const newLocalMax = newGlobalMax - requestedRange.startIndex;
+
+      chart.options.scales.x.min = newLocalMin;
+      chart.options.scales.x.max = newLocalMax;
+      this.syncDateAxis(chart);
+
+      // Still trigger refresh in case we want higher resolution data
+      this.triggerDataRefresh(chartKey, chart);
+    }
+
+    // Update navigation button states
+    this.updateNavigationButtons(chartKey);
+  },
+
+  // Go to the end of the chart (latest commits) - uses global range
+  goToEnd(categoryName, index) {
+    const chartKey = `${categoryName}-${index}`;
+    const chartData = window.state.chartInstances.get(chartKey);
+    if (!chartData?.chart) return;
+
+    const chart = chartData.chart;
+    const originalData = chartData.originalData;
+
+    // Get total commits from metadata (the full global range)
+    const totalGlobalCommits = window.state?.metadata?.commits?.length ||
+                               originalData?.originalLength ||
+                               chart.data.labels.length;
+
+    const xScale = chart.scales.x;
+    const visibleRange = xScale.max - xScale.min;
+
+    // Calculate new global range at the end
+    const newGlobalMax = totalGlobalCommits - 1;
+    const newGlobalMin = Math.max(0, newGlobalMax - visibleRange);
+
+    // Check if we need to load more data
+    const requestedRange = originalData?.requestedRange || { startIndex: 0 };
+    const currentGlobalEnd = requestedRange.startIndex + chart.data.labels.length - 1;
+
+    if (newGlobalMax > currentGlobalEnd) {
+      // Need to load more data
+      this.triggerDataRefreshWithRange(chartKey, newGlobalMin, newGlobalMax);
+    } else {
+      // Data is already loaded, just adjust the view
+      const newLocalMin = newGlobalMin - requestedRange.startIndex;
+      const newLocalMax = newGlobalMax - requestedRange.startIndex;
+
+      chart.options.scales.x.min = Math.max(0, newLocalMin);
+      chart.options.scales.x.max = Math.min(chart.data.labels.length - 1, newLocalMax);
+      this.syncDateAxis(chart);
+
+      this.triggerDataRefresh(chartKey, chart);
+    }
+
+    // Update navigation button states
+    this.updateNavigationButtons(chartKey);
+  },
+
+  // Go to the start of the chart (oldest commits) - uses global range
+  goToStart(categoryName, index) {
+    const chartKey = `${categoryName}-${index}`;
+    const chartData = window.state.chartInstances.get(chartKey);
+    if (!chartData?.chart) return;
+
+    const chart = chartData.chart;
+    const originalData = chartData.originalData;
+
+    // Get total commits from metadata (the full global range)
+    const totalGlobalCommits = window.state?.metadata?.commits?.length ||
+                               originalData?.originalLength ||
+                               chart.data.labels.length;
+
+    const xScale = chart.scales.x;
+    const visibleRange = xScale.max - xScale.min;
+
+    // Calculate new global range at the start
+    const newGlobalMin = 0;
+    const newGlobalMax = Math.min(totalGlobalCommits - 1, visibleRange);
+
+    // Check if we need to load more data
+    const requestedRange = originalData?.requestedRange || { startIndex: 0 };
+
+    if (newGlobalMin < requestedRange.startIndex) {
+      // Need to load more data
+      this.triggerDataRefreshWithRange(chartKey, newGlobalMin, newGlobalMax);
+    } else {
+      // Data is already loaded, just adjust the view
+      const newLocalMin = newGlobalMin - requestedRange.startIndex;
+      const newLocalMax = newGlobalMax - requestedRange.startIndex;
+
+      chart.options.scales.x.min = Math.max(0, newLocalMin);
+      chart.options.scales.x.max = Math.min(chart.data.labels.length - 1, newLocalMax);
+      this.syncDateAxis(chart);
+
+      this.triggerDataRefresh(chartKey, chart);
+    }
+
+    // Update navigation button states
+    this.updateNavigationButtons(chartKey);
+  },
+
+  // Trigger data refresh after zoom/pan
+  triggerDataRefresh(chartKey, chart) {
+    const chartInstance = window.state?.chartInstances?.get(chartKey);
+    if (!chartInstance?.originalData?.requestedRange) return;
+
+    const xScale = chart.scales.x;
+    const visibleMin = Math.floor(xScale.min);
+    const visibleMax = Math.ceil(xScale.max);
+
+    const originalData = chartInstance.originalData;
+    const globalStartIndex = originalData.requestedRange.startIndex + visibleMin;
+    const globalEndIndex = originalData.requestedRange.startIndex + visibleMax;
+
+    this.triggerDataRefreshWithRange(chartKey, globalStartIndex, globalEndIndex);
+  },
+
+  // Trigger data refresh with a specific global range
+  triggerDataRefreshWithRange(chartKey, globalStartIndex, globalEndIndex) {
+    // Debounce the refresh
+    if (this._refreshTimeout) {
+      clearTimeout(this._refreshTimeout);
+    }
+    this._refreshTimeout = setTimeout(() => {
+      if (window.chartLoader?.refreshChartData) {
+        window.chartLoader.refreshChartData(chartKey, globalStartIndex, globalEndIndex);
+      }
+    }, 300);
+  },
+
+  // Update navigation button states (disable at edges)
+  updateNavigationButtons(chartKey) {
+    const chartData = window.state?.chartInstances?.get(chartKey);
+    if (!chartData?.chart) return;
+
+    const chart = chartData.chart;
+    const originalData = chartData.originalData;
+
+    // Get global commits from metadata
+    const globalCommits = window.state?.metadata?.commits;
+    if (!globalCommits || globalCommits.length === 0) return;
+
+    const firstGlobalCommitId = globalCommits[0]?.id?.slice(0, 7);
+    const lastGlobalCommitId = globalCommits[globalCommits.length - 1]?.id?.slice(0, 7);
+
+    // Get current view's visible commit labels
+    const xScale = chart.scales.x;
+    const localMin = Math.floor(xScale.min);
+    const localMax = Math.ceil(xScale.max);
+
+    const labels = chart.data.labels;
+    const visibleFirstCommit = labels[localMin];
+    const visibleLastCommit = labels[localMax];
+
+    // Check if the visible edges match the global first/last commits
+    const atStart = visibleFirstCommit === firstGlobalCommitId;
+    const atEnd = visibleLastCommit === lastGlobalCommitId;
+
+    // Find and update buttons
+    const buttons = document.querySelectorAll(`button[data-chart-key="${chartKey}"]`);
+    buttons.forEach(btn => {
+      const action = btn.getAttribute("data-action");
+      if (action === "go-start" || action === "pan-left") {
+        btn.disabled = atStart;
+      } else if (action === "go-end" || action === "pan-right") {
+        btn.disabled = atEnd;
+      }
+    });
+  },
+
   cleanupCharts() {
     window.state.chartInstances.forEach((chartData) => {
       if (chartData?.chart) {
@@ -535,7 +1002,7 @@ export const chartManager = {
             const zoomEnabled = !currentIsMobile;
             chart.options.plugins.zoom.zoom.wheel.enabled = zoomEnabled;
             chart.options.plugins.zoom.zoom.pinch.enabled = zoomEnabled;
-            chart.options.plugins.zoom.zoom.drag.enabled = false;
+            chart.options.plugins.zoom.zoom.drag.enabled = zoomEnabled;
             chart.options.plugins.zoom.pan.enabled = zoomEnabled;
           }
 

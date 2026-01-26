@@ -949,6 +949,42 @@ body {
   border-color: var(--primary-color);
 }
 
+/* Chart zoom controls */
+.chart-zoom-controls {
+  display: flex;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+.chart-zoom-btn {
+  background: var(--bg-color);
+  border: 1px solid var(--border-color);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 28px;
+  transition: all 0.15s;
+  color: var(--text-secondary);
+}
+
+.chart-zoom-btn:hover {
+  background-color: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+}
+
+.chart-zoom-btn:active {
+  transform: scale(0.95);
+}
+
+.chart-zoom-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Back to Top Button */
 .back-to-top {
   position: fixed;
@@ -1444,25 +1480,24 @@ code, pre {
 .score-item {
   display: flex;
   align-items: center;
-  background: var(--bg-color);
-  padding: 10px 12px;
-  margin-bottom: 8px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-  transition: all 0.2s ease;
-  font-size: 13px;
+  background: transparent;
+  padding: 6px 0;
+  margin-bottom: 4px;
+  border-radius: 0;
+  border: none;
+  transition: none;
+  font-size: 14px;
   break-inside: avoid;
 }
 
 .score-item:hover {
-  border-color: var(--primary-color);
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 .score-rank {
-  font-weight: 600;
-  color: var(--primary-color);
-  min-width: 30px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 24px;
   font-size: 14px;
 }
 
@@ -1486,20 +1521,20 @@ code, pre {
 .score-value {
   font-family: 'Geist Mono', monospace;
   font-weight: 600;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  padding: 3px 10px;
+  color: white;
+  background: var(--primary-color);
+  padding: 2px 8px;
   border-radius: var(--radius-sm);
   font-size: 13px;
 }
 
 .score-runtime {
   font-family: 'Geist Mono', monospace;
-  font-weight: 600;
-  color: var(--primary-color);
-  background: rgba(89, 113, 253, 0.1);
-  padding: 3px 10px;
-  border-radius: var(--radius-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  padding: 0 4px;
+  border-radius: 0;
   font-size: 13px;
 }
 
@@ -1509,6 +1544,49 @@ code, pre {
   color: var(--text-secondary);
   font-style: italic;
   text-align: center;
+}
+
+/* Chart Loading Placeholder */
+.chart-canvas-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  max-height: 450px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+}
+
+.chart-loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top: 3px solid var(--primary-color);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+/* Match canvas sizes for placeholder */
+@media (min-width: 1600px) {
+  .chart-canvas-placeholder {
+    min-height: 360px;
+    max-height: 520px;
+  }
+}
+
+@media (min-width: 1920px) {
+  .chart-canvas-placeholder {
+    min-height: 400px;
+    max-height: 580px;
+  }
+}
+
+@media (max-width: 768px) {
+  .chart-canvas-placeholder {
+    min-height: 250px;
+    max-height: 350px;
+  }
 }
 
 .score-label {

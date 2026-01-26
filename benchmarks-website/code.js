@@ -6,52 +6,66 @@ import { utils } from './utils.js';
 import { chartManager } from './chart-manager.js';
 import { scoring } from './scoring.js';
 import { zoomSync } from './zoom-sync.js';
-import { workerManager } from './worker-manager.js';
 
-// Fun rendering messages
-const RENDERING_MESSAGES = [
-  "Materializing charts from the data dimension...",
-  "Rendering graphs faster than light travels...",
-  "Drawing charts with the precision of Leonardo da Vinci...",
-  "Manifesting benchmarks from the quantum realm...",
-  "Generating plots like Bob Ross paints happy trees...",
-  "Building charts with the power of the One Ring...",
-  "Crafting visualizations like Tony Stark builds suits...",
-  "Assembling graphs with Voltron-like precision...",
-];
-
-function getRandomRenderingMessage() {
-  return RENDERING_MESSAGES[Math.floor(Math.random() * RENDERING_MESSAGES.length)];
-}
+// API configuration - use relative URLs when served from server.js
+const API_BASE = '';  // Empty for same-origin requests
 
 // Main module
 window.initAndRender = (function () {
+  // Constants
+  const DEFAULT_COMMIT_RANGE = 100; // Show last 100 commits by default
+
   // State management
   const state = {
     currentView: "grid",
-    expandedSections: new Set(), // Start with all sections collapsed
+    expandedSections: new Set(),
     activeCategory: "all",
     activeTag: "all",
-    activeEngines: new Set(["all"]), // Changed to Set for multiple selections
+    activeEngines: new Set(["all"]),
     searchTerm: "",
     charts: [],
     chartInstances: new Map(),
     pendingZoomUpdates: new Map(),
     lastWindowWidth: window.innerWidth,
     isResizing: false,
+    metadata: null,  // Store metadata from API
+    loadedCharts: new Map(),  // Track which charts have been loaded
+    chartDataCache: new Map(),  // Cache chart data
+    groupFilterSettings: new Map(),  // Store filter settings per group
+    defaultStartCommitIndex: 0,  // Will be set after metadata loads
   };
 
   // DOM element cache
   const domElements = {};
   let chartObserver = null;
 
+  // API client module
+  const api = {
+    async fetchMetadata() {
+      const response = await fetch(`${API_BASE}/api/metadata`);
+      if (!response.ok) throw new Error(`Failed to fetch metadata: ${response.status}`);
+      return response.json();
+    },
+
+    async fetchChartData(groupName, chartName, startCommit = null, endCommit = null) {
+      let url = `${API_BASE}/api/data/${encodeURIComponent(groupName)}/${encodeURIComponent(chartName)}`;
+      const params = new URLSearchParams();
+      if (startCommit) params.set('start_commit', startCommit);
+      if (endCommit) params.set('end_commit', endCommit);
+      if (params.toString()) url += '?' + params.toString();
+
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to fetch chart data: ${response.status}`);
+      return response.json();
+    }
+  };
+
   // UI module
   const ui = {
     getTpchDescription(categoryName) {
       const scaleFactorMatch = categoryName.match(/SF=(\d+)/);
       const scaleFactor = scaleFactorMatch ? scaleFactorMatch[1] : null;
-      const scaleFactorInfo =
-        SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
+      const scaleFactorInfo = SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
 
       if (categoryName.includes("NVMe")) {
         return `TPC-H benchmark queries executed on local NVMe storage, testing analytical query performance at ${scaleFactorInfo}`;
@@ -64,8 +78,7 @@ window.initAndRender = (function () {
     getTpcdsDescription(categoryName) {
       const scaleFactorMatch = categoryName.match(/SF=(\d+)/);
       const scaleFactor = scaleFactorMatch ? scaleFactorMatch[1] : null;
-      const scaleFactorInfo =
-        SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
+      const scaleFactorInfo = SCALE_FACTOR_DESCRIPTIONS[scaleFactor] || "various scale factors";
 
       if (categoryName.includes("NVMe")) {
         return `TPC-DS benchmark queries executed on local NVMe storage, testing complex analytical query performance with a retail sales dataset at ${scaleFactorInfo}`;
@@ -85,50 +98,28 @@ window.initAndRender = (function () {
       return BENCHMARK_DESCRIPTIONS[baseCategory] || "";
     },
 
-    benchmarkGroupHasData(benchSet) {
-      if (!benchSet || benchSet.size === 0) return false;
-
-      // Check if any query in the benchmark set has data
-      for (const [queryName, queryData] of benchSet.entries()) {
-        if (!queryData.series || queryData.series.size === 0) continue;
-
-        // Check if any series has any non-null data
-        for (const [seriesName, seriesData] of queryData.series.entries()) {
-          for (let i = 0; i < seriesData.length; i++) {
-            if (seriesData[i] && seriesData[i].value !== null && seriesData[i].value !== undefined) {
-              return true;
-            }
-          }
-        }
-      }
-
-      return false;
-    },
-
-    createBenchmarkSection(name, benchSet, groupFilterSettings = {}) {
-      const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
-        groupFilterSettings;
+    createBenchmarkSectionFromMetadata(name, groupMetadata, groupFilterSettings = {}) {
+      const { keptCharts } = groupFilterSettings;
 
       const section = document.createElement("div");
       section.className = "benchmark-set";
       section.setAttribute("data-category", name);
 
       // Check if this benchmark group has any data
-      const hasData = this.benchmarkGroupHasData(benchSet);
+      const hasData = groupMetadata.hasData;
       if (!hasData) {
         section.classList.add("no-data");
       }
 
-      // Create wrapper for sticky header to maintain space
+      // Create wrapper for sticky header
       const stickyWrapper = document.createElement("div");
       stickyWrapper.className = "sticky-header-wrapper";
 
-      // Create sticky header container
       const stickyContainer = document.createElement("div");
       stickyContainer.className = "sticky-header-container";
 
       // Add header
-      const header = this.createSectionHeader(name, benchSet, keptCharts);
+      const header = this.createSectionHeaderFromMetadata(name, groupMetadata, keptCharts);
       stickyContainer.appendChild(header);
 
       // Add controls
@@ -140,51 +131,39 @@ window.initAndRender = (function () {
       stickyWrapper.appendChild(stickyContainer);
       section.appendChild(stickyWrapper);
 
-      // Add scoring summary for query benchmarks (after sticky container)
-      if (scoring.isQueryBenchmark(name) && benchSet) {
-        const scores = scoring.calculateClickBenchScore(benchSet);
-        const scoreSummary = scoring.formatScoresSummary(scores);
-        if (scoreSummary) {
-          section.appendChild(scoreSummary);
+      // Render summary from metadata (always visible, even when collapsed)
+      if (groupMetadata.summary) {
+        const summaryElement = this.renderSummaryFromMetadata(name, groupMetadata.summary);
+        if (summaryElement) {
+          section.appendChild(summaryElement);
         }
       }
 
-      // Add summary for Random Access benchmarks
-      if (scoring.isRandomAccessBenchmark(name) && benchSet) {
-        const metrics = scoring.calculateRandomAccessMetrics(benchSet);
-        const metricsSummary = scoring.formatRandomAccessSummary(metrics);
-        if (metricsSummary) {
-          section.appendChild(metricsSummary);
-        }
-      }
-
-      // Add summary for Compression benchmarks
-      if (scoring.isCompressionBenchmark(name) && benchSet) {
-        const metrics = scoring.calculateCompressionMetrics(benchSet);
-        const metricsSummary = scoring.formatCompressionSummary(metrics);
-        if (metricsSummary) {
-          section.appendChild(metricsSummary);
-        }
-      }
-
-      // Add summary for Compression Size benchmarks
-      if (scoring.isCompressionSizeBenchmark(name) && benchSet) {
-        const metrics = scoring.calculateCompressionSizeMetrics(benchSet);
-        const metricsSummary = scoring.formatCompressionSizeSummary(metrics);
-        if (metricsSummary) {
-          section.appendChild(metricsSummary);
-        }
-      }
+      // Add summary placeholder for additional scoring data (populated when charts load)
+      const summaryPlaceholder = document.createElement("div");
+      summaryPlaceholder.className = "benchmark-summary-placeholder";
+      summaryPlaceholder.setAttribute("data-group", name);
+      section.appendChild(summaryPlaceholder);
 
       // Add charts container
       const chartsContainer = document.createElement("div");
       chartsContainer.className = "benchmark-graphs";
+      chartsContainer.setAttribute("data-group", name);
 
-      // Add single-chart class if there's only one chart
-      const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
-      if (chartCount === 1) {
+      // Add chart placeholders based on metadata
+      const charts = keptCharts || groupMetadata.charts.map(c => c.name);
+      if (charts.length === 1) {
         chartsContainer.classList.add("single-chart");
       }
+
+      // Create placeholder for each chart
+      charts.forEach((chartName, index) => {
+        const chartMeta = groupMetadata.charts.find(c => c.name === chartName);
+        if (chartMeta) {
+          const placeholder = this.createChartPlaceholder(name, chartMeta, index);
+          chartsContainer.appendChild(placeholder);
+        }
+      });
 
       section.appendChild(chartsContainer);
 
@@ -194,19 +173,93 @@ window.initAndRender = (function () {
       return { section, chartsContainer };
     },
 
-    createSectionHeader(name, benchSet, keptCharts) {
+    createChartPlaceholder(groupName, chartMeta, index) {
+      const container = document.createElement("div");
+      container.className = "chart-container chart-placeholder fade-in";
+      container.setAttribute("data-benchmark", groupName);
+      container.setAttribute("data-chart", chartMeta.name);
+      container.setAttribute("data-chart-index", index);
+
+      const header = document.createElement("div");
+      header.className = "chart-header";
+
+      const title = document.createElement("h3");
+      title.className = "chart-title";
+      title.textContent = chartManager.remapNames(chartMeta.name);
+
+      const actions = document.createElement("div");
+      actions.className = "chart-actions";
+
+      // Create zoom controls
+      const zoomControls = this.createZoomControls(groupName, index);
+      actions.appendChild(zoomControls);
+
+      const fullscreenBtn = document.createElement("button");
+      fullscreenBtn.className = "chart-action-btn";
+      fullscreenBtn.textContent = "Fullscreen";
+      fullscreenBtn.onclick = () => chartManager.openModal(groupName, chartMeta.name, index);
+
+      actions.appendChild(fullscreenBtn);
+      header.appendChild(title);
+      header.appendChild(actions);
+      container.appendChild(header);
+
+      // Add loading placeholder for canvas area
+      const canvasPlaceholder = document.createElement("div");
+      canvasPlaceholder.className = "chart-canvas-placeholder";
+      canvasPlaceholder.innerHTML = '<div class="chart-loading-spinner"></div>';
+      container.appendChild(canvasPlaceholder);
+
+      return container;
+    },
+
+    createZoomControls(groupName, index) {
+      const zoomControls = document.createElement("div");
+      zoomControls.className = "chart-zoom-controls";
+
+      const chartKey = `${groupName}-${index}`;
+      const createControlBtn = (text, title, clickHandler, dataAction) => {
+        const btn = document.createElement("button");
+        btn.className = "chart-zoom-btn";
+        btn.textContent = text;
+        btn.title = title;
+        btn.onclick = clickHandler;
+        btn.setAttribute("data-chart-key", chartKey);
+        btn.setAttribute("data-action", dataAction);
+        return btn;
+      };
+
+      const goToStartBtn = createControlBtn("|«", "Go to oldest", () =>
+        chartManager.goToStart(groupName, index), "go-start");
+      const panLeftBtn = createControlBtn("«", "Pan left", () =>
+        chartManager.panChart(groupName, index, -0.5), "pan-left");
+      const panRightBtn = createControlBtn("»", "Pan right", () =>
+        chartManager.panChart(groupName, index, 0.5), "pan-right");
+      const goToEndBtn = createControlBtn("»|", "Go to latest", () =>
+        chartManager.goToEnd(groupName, index), "go-end");
+      const zoomInBtn = createControlBtn("+", "Zoom in", () =>
+        chartManager.zoomChart(groupName, index, 0.5), "zoom-in");
+      const zoomOutBtn = createControlBtn("−", "Zoom out", () =>
+        chartManager.zoomChart(groupName, index, 2), "zoom-out");
+
+      zoomControls.appendChild(goToStartBtn);
+      zoomControls.appendChild(panLeftBtn);
+      zoomControls.appendChild(zoomInBtn);
+      zoomControls.appendChild(zoomOutBtn);
+      zoomControls.appendChild(panRightBtn);
+      zoomControls.appendChild(goToEndBtn);
+
+      return zoomControls;
+    },
+
+    createSectionHeaderFromMetadata(name, groupMetadata, keptCharts) {
       const h1id = name.replace(/\s+/g, "_");
 
       const header = document.createElement("div");
       header.className = "benchmark-header";
 
-      // Check if the parent section has the no-data class
-      const section = document.querySelector(`[data-category="${name}"]`);
-      const hasNoData = section && section.classList.contains("no-data");
-
-      if (!hasNoData) {
+      if (groupMetadata.hasData) {
         header.onclick = (e) => {
-          // Don't toggle if clicking on info icon
           if (!e.target.closest(".info-icon")) {
             this.toggleSection(name);
           }
@@ -221,7 +274,6 @@ window.initAndRender = (function () {
       title.className = "benchmark-title";
       title.innerHTML = `<span class="collapse-icon">▼</span> ${name}`;
 
-      // Create a secondary container for link, info, and charts count
       const secondaryInfo = document.createElement("div");
       secondaryInfo.className = "benchmark-secondary-info";
 
@@ -235,7 +287,6 @@ window.initAndRender = (function () {
       };
       secondaryInfo.appendChild(linkBtn);
 
-      // Add info icon with tooltip
       const description = this.getDescription(name);
       if (description) {
         const infoIcon = document.createElement("div");
@@ -247,20 +298,12 @@ window.initAndRender = (function () {
 
       const meta = document.createElement("div");
       meta.className = "benchmark-meta";
-      const chartCount = keptCharts ? keptCharts.length : benchSet?.size || 0;
-
-      // Check if the parent section has the no-data class
-      const sectionHasNoData = section && section.classList.contains("no-data");
-      if (sectionHasNoData) {
-        meta.textContent = "No data available";
-      } else {
-        meta.textContent = `${chartCount} charts`;
-      }
+      const chartCount = keptCharts ? keptCharts.length : groupMetadata.totalCharts;
+      meta.textContent = groupMetadata.hasData ? `${chartCount} charts` : "No data available";
       secondaryInfo.appendChild(meta);
 
       titleWrapper.appendChild(title);
       titleWrapper.appendChild(secondaryInfo);
-
       header.appendChild(titleWrapper);
 
       return header;
@@ -279,12 +322,10 @@ window.initAndRender = (function () {
         label.textContent = "Show: ";
         container.appendChild(label);
 
-        Object.entries(ENGINE_LABELS).forEach(([engine, label]) => {
+        Object.entries(ENGINE_LABELS).forEach(([engine, labelText]) => {
           const btn = document.createElement("button");
-          btn.className =
-            "engine-filter-btn" +
-            (state.activeEngines.has(engine) ? " active" : "");
-          btn.textContent = label;
+          btn.className = "engine-filter-btn" + (state.activeEngines.has(engine) ? " active" : "");
+          btn.textContent = labelText;
           btn.setAttribute("data-engine", engine);
           btn.setAttribute("data-category", name);
           btn.onclick = () => this.filterEngine(name, engine);
@@ -307,11 +348,10 @@ window.initAndRender = (function () {
       return container;
     },
 
-    toggleSection(name) {
+    async toggleSection(name) {
       const section = document.querySelector(`[data-category="${name}"]`);
       if (!section) return;
 
-      // Don't toggle if section has no data
       if (section.classList.contains("no-data")) return;
 
       if (state.expandedSections.has(name)) {
@@ -320,6 +360,9 @@ window.initAndRender = (function () {
       } else {
         state.expandedSections.add(name);
         section.classList.remove("collapsed");
+
+        // Load charts for this section if not already loaded
+        await chartLoader.loadChartsForSection(name);
       }
     },
 
@@ -345,20 +388,16 @@ window.initAndRender = (function () {
     },
 
     filterEngine(categoryName, engine) {
-      // Handle "all" button specially
       if (engine === "all") {
         state.activeEngines.clear();
         state.activeEngines.add("all");
       } else {
-        // Remove "all" if selecting specific engine
         if (state.activeEngines.has("all")) {
           state.activeEngines.clear();
         }
 
-        // Toggle the selected engine
         if (state.activeEngines.has(engine)) {
           state.activeEngines.delete(engine);
-          // If no engines selected, revert to "all"
           if (state.activeEngines.size === 0) {
             state.activeEngines.add("all");
           }
@@ -367,23 +406,18 @@ window.initAndRender = (function () {
         }
       }
 
-      // Update URL with comma-separated engines
       const engineParam = state.activeEngines.has("all")
         ? "all"
         : Array.from(state.activeEngines).join(",");
       urlManager.updateParams({ engine: engineParam });
 
-      // Update all engine filter buttons
-      document
-        .querySelectorAll(".engine-filter-container")
-        .forEach((container) => {
-          container.querySelectorAll(".engine-filter-btn").forEach((btn) => {
-            const btnEngine = btn.getAttribute("data-engine");
-            btn.classList.toggle("active", state.activeEngines.has(btnEngine));
-          });
+      document.querySelectorAll(".engine-filter-container").forEach((container) => {
+        container.querySelectorAll(".engine-filter-btn").forEach((btn) => {
+          const btnEngine = btn.getAttribute("data-engine");
+          btn.classList.toggle("active", state.activeEngines.has(btnEngine));
         });
+      });
 
-      // Apply filter to charts
       this.applyEngineFilter();
     },
 
@@ -412,13 +446,9 @@ window.initAndRender = (function () {
 
       chart.data.datasets.forEach((dataset, index) => {
         const label = dataset.label.toLowerCase();
-
-        // Check if dataset should be visible based on selected engines
         const shouldShow =
           state.activeEngines.has("all") ||
-          Array.from(state.activeEngines).some((engine) =>
-            label.includes(engine)
-          );
+          Array.from(state.activeEngines).some((engine) => label.includes(engine));
 
         if (chart.isDatasetVisible(index) !== shouldShow) {
           updates.push({ index, visible: shouldShow });
@@ -444,6 +474,419 @@ window.initAndRender = (function () {
       });
       document.getElementById(`${view}-view`).classList.add("active");
     },
+
+    // Render summary from pre-calculated metadata
+    renderSummaryFromMetadata(groupName, summary) {
+      if (!summary) return null;
+
+      const formatTime = (ms) => {
+        if (ms < 1) return `${(ms * 1000).toFixed(0)}μs`;
+        if (ms < 1000) return `${ms.toFixed(1)}ms`;
+        if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+        return `${(ms / 60000).toFixed(1)}m`;
+      };
+
+      const summaryDiv = document.createElement("div");
+      summaryDiv.className = "benchmark-scores-summary";
+
+      const title = document.createElement("h3");
+      title.className = "scores-title";
+      title.textContent = summary.title;
+      summaryDiv.appendChild(title);
+
+      const scoresList = document.createElement("div");
+      scoresList.className = "scores-list";
+
+      if (summary.type === 'randomAccess' && summary.rankings) {
+        summary.rankings.forEach((item, index) => {
+          const scoreItem = document.createElement("div");
+          scoreItem.className = "score-item";
+          scoreItem.innerHTML = `
+            <span class="score-rank">#${index + 1}</span>
+            <span class="score-series">${item.name}</span>
+            <span class="score-metrics">
+              <span class="score-value">${formatTime(item.time)}</span>
+              <span class="score-runtime">${item.ratio.toFixed(2)}x</span>
+            </span>
+          `;
+          scoresList.appendChild(scoreItem);
+        });
+      } else if (summary.type === 'compression') {
+        if (summary.compressRatio !== null) {
+          const compressItem = document.createElement("div");
+          compressItem.className = "score-item";
+          compressItem.innerHTML = `
+            <span class="score-rank">⚡</span>
+            <span class="score-series">Write Speed (Compression)</span>
+            <span class="score-metrics">
+              <span class="score-value">${summary.compressRatio.toFixed(2)}x</span>
+            </span>
+          `;
+          scoresList.appendChild(compressItem);
+        }
+        if (summary.decompressRatio !== null) {
+          const decompressItem = document.createElement("div");
+          decompressItem.className = "score-item";
+          decompressItem.innerHTML = `
+            <span class="score-rank">📤</span>
+            <span class="score-series">Scan Speed (Decompression)</span>
+            <span class="score-metrics">
+              <span class="score-value">${summary.decompressRatio.toFixed(2)}x</span>
+            </span>
+          `;
+          scoresList.appendChild(decompressItem);
+        }
+      } else if (summary.type === 'compressionSize') {
+        const minItem = document.createElement("div");
+        minItem.className = "score-item";
+        minItem.innerHTML = `
+          <span class="score-rank">⬇️</span>
+          <span class="score-series">Min Size Ratio</span>
+          <span class="score-metrics">
+            <span class="score-value">${summary.minRatio.toFixed(2)}x</span>
+          </span>
+        `;
+        scoresList.appendChild(minItem);
+
+        const meanItem = document.createElement("div");
+        meanItem.className = "score-item";
+        meanItem.innerHTML = `
+          <span class="score-rank">📊</span>
+          <span class="score-series">Mean Size Ratio</span>
+          <span class="score-metrics">
+            <span class="score-value">${summary.meanRatio.toFixed(2)}x</span>
+          </span>
+        `;
+        scoresList.appendChild(meanItem);
+
+        const maxItem = document.createElement("div");
+        maxItem.className = "score-item";
+        maxItem.innerHTML = `
+          <span class="score-rank">⬆️</span>
+          <span class="score-series">Max Size Ratio</span>
+          <span class="score-metrics">
+            <span class="score-value">${summary.maxRatio.toFixed(2)}x</span>
+          </span>
+        `;
+        scoresList.appendChild(maxItem);
+      } else if (summary.type === 'queryBenchmark' && summary.rankings) {
+        summary.rankings.forEach((item, index) => {
+          const scoreItem = document.createElement("div");
+          scoreItem.className = "score-item";
+          scoreItem.innerHTML = `
+            <span class="score-rank">#${index + 1}</span>
+            <span class="score-series">${item.name}</span>
+            <span class="score-metrics">
+              <span class="score-value">${item.score.toFixed(2)}x</span>
+              <span class="score-runtime">${formatTime(item.totalRuntime)}</span>
+            </span>
+          `;
+          scoresList.appendChild(scoreItem);
+        });
+      }
+
+      summaryDiv.appendChild(scoresList);
+
+      const explanation = document.createElement("div");
+      explanation.className = "scores-explanation";
+      explanation.textContent = summary.explanation;
+      summaryDiv.appendChild(explanation);
+
+      return summaryDiv;
+    },
+  };
+
+  // Chart loader module - handles lazy loading of chart data
+  const chartLoader = {
+    loadingGroups: new Set(),
+
+    async loadChartsForSection(groupName) {
+      // Check if already loading or loaded
+      if (this.loadingGroups.has(groupName)) return;
+      if (state.loadedCharts.has(groupName)) return;
+
+      this.loadingGroups.add(groupName);
+
+      const section = document.querySelector(`[data-category="${groupName}"]`);
+      if (!section) {
+        this.loadingGroups.delete(groupName);
+        return;
+      }
+
+      const groupMetadata = state.metadata.groups[groupName];
+      if (!groupMetadata || !groupMetadata.hasData) {
+        this.loadingGroups.delete(groupName);
+        return;
+      }
+
+      const filterSettings = state.groupFilterSettings.get(groupName) || {};
+      const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } = filterSettings;
+
+      const chartsContainer = section.querySelector('.benchmark-graphs');
+      if (!chartsContainer) {
+        this.loadingGroups.delete(groupName);
+        return;
+      }
+
+      // Load each chart
+      const chartNames = keptCharts || groupMetadata.charts.map(c => c.name);
+      const loadedData = new Map();
+
+      // Determine default range (last DEFAULT_COMMIT_RANGE commits)
+      const startCommit = state.defaultStartCommitIndex > 0
+        ? state.metadata.commits[state.defaultStartCommitIndex]?.id
+        : null;
+
+      // Load chart data in parallel
+      const loadPromises = chartNames.map(async (chartName) => {
+        try {
+          const data = await api.fetchChartData(groupName, chartName, startCommit, null);
+          loadedData.set(chartName, data);
+        } catch (err) {
+          console.error(`Failed to load chart ${groupName}/${chartName}:`, err);
+        }
+      });
+
+      await Promise.all(loadPromises);
+
+      // Summaries are now rendered from metadata, no need to recalculate
+
+      // Replace placeholders with actual charts
+      const placeholders = chartsContainer.querySelectorAll('.chart-placeholder');
+      placeholders.forEach((placeholder, index) => {
+        const chartName = placeholder.getAttribute('data-chart');
+        const chartData = loadedData.get(chartName);
+
+        if (chartData) {
+          // Replace placeholder with real chart
+          this.replaceWithChart(placeholder, groupName, chartName, chartData, index, filterSettings);
+        }
+      });
+
+      state.loadedCharts.set(groupName, loadedData);
+      this.loadingGroups.delete(groupName);
+
+      // Update zoom sync cache for this category
+      window.zoomSync.updateCacheForCategory(groupName);
+    },
+
+    convertToBenchSet(loadedData) {
+      const benchSet = new Map();
+      for (const [chartName, chartData] of loadedData.entries()) {
+        const series = new Map();
+        for (const [seriesName, seriesData] of Object.entries(chartData.series)) {
+          // API now returns raw values, wrap in objects for scoring functions
+          series.set(seriesName, seriesData.map(d => d !== null ? { value: d } : null));
+        }
+        benchSet.set(chartName, {
+          unit: chartData.unit,
+          commits: chartData.commits,
+          series: series
+        });
+      }
+      return benchSet;
+    },
+
+    async populateSummary(section, groupName, benchSet) {
+      const summaryPlaceholder = section.querySelector('.benchmark-summary-placeholder');
+      if (!summaryPlaceholder) return;
+
+      // Add scoring summaries based on benchmark type
+      if (scoring.isQueryBenchmark(groupName) && benchSet.size > 0) {
+        const scores = scoring.calculateClickBenchScore(benchSet);
+        const scoreSummary = scoring.formatScoresSummary(scores);
+        if (scoreSummary) {
+          summaryPlaceholder.appendChild(scoreSummary);
+        }
+      }
+
+      if (scoring.isRandomAccessBenchmark(groupName) && benchSet.size > 0) {
+        const metrics = scoring.calculateRandomAccessMetrics(benchSet);
+        const metricsSummary = scoring.formatRandomAccessSummary(metrics);
+        if (metricsSummary) {
+          summaryPlaceholder.appendChild(metricsSummary);
+        }
+      }
+
+      if (scoring.isCompressionBenchmark(groupName) && benchSet.size > 0) {
+        const metrics = scoring.calculateCompressionMetrics(benchSet);
+        const metricsSummary = scoring.formatCompressionSummary(metrics);
+        if (metricsSummary) {
+          summaryPlaceholder.appendChild(metricsSummary);
+        }
+      }
+
+      if (scoring.isCompressionSizeBenchmark(groupName) && benchSet.size > 0) {
+        const metrics = scoring.calculateCompressionSizeMetrics(benchSet);
+        const metricsSummary = scoring.formatCompressionSizeSummary(metrics);
+        if (metricsSummary) {
+          summaryPlaceholder.appendChild(metricsSummary);
+        }
+      }
+    },
+
+    replaceWithChart(placeholder, groupName, chartName, chartData, index, filterSettings) {
+      const { hiddenDatasets, removedDatasets, renamedDatasets } = filterSettings;
+
+      // Create canvas element
+      const canvas = document.createElement("canvas");
+      canvas.id = `chart-${groupName}-${index}`;
+
+      // Remove placeholder content and add canvas
+      const canvasPlaceholder = placeholder.querySelector('.chart-canvas-placeholder');
+      if (canvasPlaceholder) {
+        canvasPlaceholder.replaceWith(canvas);
+      }
+
+      placeholder.classList.remove('chart-placeholder');
+
+      // Build dataset for Chart.js
+      const labels = chartData.commits.map(c => c.id.slice(0, 7));
+      const datasets = [];
+
+      for (const [seriesName, seriesData] of Object.entries(chartData.series)) {
+        if (removedDatasets && removedDatasets.has(seriesName)) continue;
+
+        const displayName = renamedDatasets?.[seriesName] || seriesName;
+        const color = utils.stringToColor(displayName);
+
+        // seriesData from API contains raw values (numbers or null)
+        datasets.push({
+          label: displayName,
+          data: seriesData,
+          borderColor: color,
+          backgroundColor: color + "60",
+          hidden: (hiddenDatasets && hiddenDatasets.has(seriesName)) ||
+                  seriesName.toLowerCase().startsWith("wide table cols")
+        });
+      }
+
+      const isMobile = utils.isMobile();
+      const options = chartManager.createChartOptions(
+        groupName,
+        chartName,
+        { commits: chartData.commits, unit: chartData.unit },
+        chartData.commits,
+        isMobile,
+        index
+      );
+
+      const chart = new Chart(canvas, {
+        type: "line",
+        data: { labels, datasets },
+        options: options
+      });
+
+      const chartKey = `${groupName}-${index}`;
+      state.chartInstances.set(chartKey, {
+        chart,
+        data: { labels, datasets },
+        options,
+        chartName,
+        groupName,
+        originalData: chartData,  // Store original response for range info
+        filterSettings
+      });
+
+      // Update navigation button states for initial load
+      if (chartManager?.updateNavigationButtons) {
+        chartManager.updateNavigationButtons(chartKey);
+      }
+    },
+
+    // Fetch new data when zoom/pan changes the visible range
+    async refreshChartData(chartKey, startCommitIndex, endCommitIndex) {
+      const chartInstance = state.chartInstances.get(chartKey);
+      if (!chartInstance) return;
+
+      const { chart, groupName, chartName, filterSettings, originalData } = chartInstance;
+      if (!chart || !originalData) return;
+
+      // Get commit IDs for the range
+      const allCommits = state.metadata.commits;
+      const startCommit = allCommits[startCommitIndex]?.id || null;
+      const endCommit = allCommits[endCommitIndex]?.id || null;
+
+      try {
+        const newData = await api.fetchChartData(groupName, chartName, startCommit, endCommit);
+
+        // Update chart with new data
+        const { hiddenDatasets, removedDatasets, renamedDatasets } = filterSettings || {};
+
+        const newLabels = newData.commits.map(c => c.id.slice(0, 7));
+        const newDatasets = [];
+
+        for (const [seriesName, seriesData] of Object.entries(newData.series)) {
+          if (removedDatasets && removedDatasets.has(seriesName)) continue;
+
+          const displayName = renamedDatasets?.[seriesName] || seriesName;
+          const color = utils.stringToColor(displayName);
+
+          newDatasets.push({
+            label: displayName,
+            data: seriesData,
+            borderColor: color,
+            backgroundColor: color + "60",
+            hidden: (hiddenDatasets && hiddenDatasets.has(seriesName)) ||
+                    seriesName.toLowerCase().startsWith("wide table cols")
+          });
+        }
+
+        // Preserve hidden state from current chart
+        const currentHiddenState = new Map();
+        chart.data.datasets.forEach((ds, idx) => {
+          currentHiddenState.set(ds.label, !chart.isDatasetVisible(idx));
+        });
+
+        // Apply hidden state to new datasets
+        newDatasets.forEach(ds => {
+          if (currentHiddenState.has(ds.label)) {
+            ds.hidden = currentHiddenState.get(ds.label);
+          }
+        });
+
+        // Update chart
+        chart.data.labels = newLabels;
+        chart.data.datasets = newDatasets;
+
+        // Reset zoom limits based on new data length
+        if (chart.options.plugins.zoom?.limits?.x) {
+          chart.options.plugins.zoom.limits.x.max = newLabels.length - 1;
+        }
+
+        // Update x-axis to show all new data
+        chart.options.scales.x.min = 0;
+        chart.options.scales.x.max = newLabels.length - 1;
+
+        // Update x2 (date) axis labels and range
+        if (chart.options.scales.x2) {
+          const formatDate = (timestamp) => {
+            if (!timestamp) return '';
+            const date = new Date(timestamp);
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+          };
+          chart.options.scales.x2.labels = newData.commits.map(c => c?.timestamp ? formatDate(c.timestamp) : '');
+          chart.options.scales.x2.min = 0;
+          chart.options.scales.x2.max = newLabels.length - 1;
+        }
+
+        chart.update('none');
+
+        // Update stored data
+        chartInstance.originalData = newData;
+
+        console.log(`Refreshed chart ${chartKey} with ${newLabels.length} points (${newData.downsampleLevel})`);
+
+        // Update navigation button states after data refresh
+        if (chartManager?.updateNavigationButtons) {
+          chartManager.updateNavigationButtons(chartKey);
+        }
+      } catch (err) {
+        console.error(`Failed to refresh chart ${chartKey}:`, err);
+      }
+    }
   };
 
   // URL management module
@@ -462,20 +905,14 @@ window.initAndRender = (function () {
       const params = new URLSearchParams(window.location.search);
 
       Object.entries(updates).forEach(([key, value]) => {
-        if (
-          value &&
-          value !== "all" &&
-          !(key === "expanded" && value === "false")
-        ) {
+        if (value && value !== "all" && !(key === "expanded" && value === "false")) {
           params.set(key, value);
         } else {
           params.delete(key);
         }
       });
 
-      const newURL =
-        window.location.pathname +
-        (params.toString() ? "?" + params.toString() : "");
+      const newURL = window.location.pathname + (params.toString() ? "?" + params.toString() : "");
       window.history.replaceState({}, "", newURL);
     },
 
@@ -484,7 +921,6 @@ window.initAndRender = (function () {
 
       state.activeTag = params.tag;
 
-      // Handle comma-separated engines
       if (params.engine && params.engine !== "all") {
         const engines = params.engine.split(",");
         state.activeEngines.clear();
@@ -517,15 +953,12 @@ window.initAndRender = (function () {
       state.activeTag = tag;
       urlManager.updateParams({ tag });
 
-      // Filter sections
       document.querySelectorAll(".benchmark-set").forEach((section) => {
         const category = section.getAttribute("data-category");
         const tags = CATEGORY_TAGS[category] || [];
-        section.style.display =
-          tag === "all" || tags.includes(tag) ? "block" : "none";
+        section.style.display = tag === "all" || tags.includes(tag) ? "block" : "none";
       });
 
-      // Filter navigation
       document.querySelectorAll(".toc-list li").forEach((navItem) => {
         const link = navItem.querySelector("a");
         if (link) {
@@ -533,17 +966,13 @@ window.initAndRender = (function () {
           const targetSection = document.getElementById(targetId);
 
           if (targetSection?.closest(".benchmark-set")) {
-            const category = targetSection
-              .closest(".benchmark-set")
-              .getAttribute("data-category");
+            const category = targetSection.closest(".benchmark-set").getAttribute("data-category");
             const tags = CATEGORY_TAGS[category] || [];
-            navItem.style.display =
-              tag === "all" || tags.includes(tag) ? "block" : "none";
+            navItem.style.display = tag === "all" || tags.includes(tag) ? "block" : "none";
           }
         }
       });
 
-      // Update clear filter button
       const clearBtn = domElements.clearFilter;
       if (clearBtn) {
         clearBtn.style.display = tag === "all" ? "none" : "block";
@@ -555,17 +984,12 @@ window.initAndRender = (function () {
       state.searchTerm = term.toLowerCase();
 
       document.querySelectorAll(".chart-container").forEach((chart) => {
-        const benchmarkName = chart
-          .getAttribute("data-benchmark")
-          .toLowerCase();
+        const benchmarkName = chart.getAttribute("data-benchmark").toLowerCase();
         const chartName = chart.getAttribute("data-chart").toLowerCase();
-        const matches =
-          benchmarkName.includes(state.searchTerm) ||
-          chartName.includes(state.searchTerm);
+        const matches = benchmarkName.includes(state.searchTerm) || chartName.includes(state.searchTerm);
         chart.style.display = matches ? "block" : "none";
       });
 
-      // Then, hide sections that have no visible charts
       document.querySelectorAll(".benchmark-set").forEach((section) => {
         const visibleCharts = section.querySelectorAll(
           ".chart-container[style='display: block;'], .chart-container:not([style]), .chart-container[style='']"
@@ -577,23 +1001,30 @@ window.initAndRender = (function () {
 
   // Navigation management module
   const navigationManager = {
-    expandAll() {
+    async expandAll() {
       const sections = document.querySelectorAll(".benchmark-set");
       const updates = [];
 
-      sections.forEach((section) => {
-        // Skip sections with no data
-        if (section.classList.contains("no-data")) return;
+      for (const section of sections) {
+        if (section.classList.contains("no-data")) continue;
 
         const category = section.getAttribute("data-category");
         state.expandedSections.add(category);
         if (section.classList.contains("collapsed")) {
           updates.push(() => section.classList.remove("collapsed"));
         }
-      });
+      }
 
       utils.batchDOMUpdates(updates);
       urlManager.updateParams({ expanded: "true" });
+
+      // Load charts for all expanded sections
+      for (const section of sections) {
+        if (!section.classList.contains("no-data")) {
+          const category = section.getAttribute("data-category");
+          await chartLoader.loadChartsForSection(category);
+        }
+      }
     },
 
     collapseAll() {
@@ -612,29 +1043,18 @@ window.initAndRender = (function () {
       urlManager.updateParams({ expanded: "false" });
     },
 
-    focusOnGroup(groupName) {
-      // Find target section
-      const targetSection = document.querySelector(
-        `[data-category="${groupName}"]`
-      );
+    async focusOnGroup(groupName) {
+      const targetSection = document.querySelector(`[data-category="${groupName}"]`);
       if (targetSection) {
-        // Just scroll to the section without expanding it
-        // The user can click to expand if they want to see the charts
-
-        // Close sidebar after navigation on mobile
         if (utils.isMobile()) {
           domElements.sidebar.classList.remove("active");
         }
 
-        // Scroll to section
         const targetId = targetSection.querySelector(".benchmark-title").id;
         const targetElement = document.getElementById(targetId);
-        const headerHeight =
-          document.querySelector(".sticky-header").offsetHeight;
-        const elementPosition =
-          targetElement.getBoundingClientRect().top + window.pageYOffset;
-        const offsetPosition =
-          elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
+        const headerHeight = document.querySelector(".sticky-header").offsetHeight;
+        const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+        const offsetPosition = elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
 
         window.scrollTo({
           top: offsetPosition,
@@ -653,12 +1073,8 @@ window.initAndRender = (function () {
 
     handleScroll() {
       const scrollY = window.scrollY;
-      domElements.backToTop.classList.toggle(
-        "visible",
-        scrollY > CONFIG.BACK_TO_TOP_THRESHOLD
-      );
+      domElements.backToTop.classList.toggle("visible", scrollY > CONFIG.BACK_TO_TOP_THRESHOLD);
 
-      // Update active nav item
       const sections = document.querySelectorAll(".benchmark-set");
       let current = "";
 
@@ -677,147 +1093,36 @@ window.initAndRender = (function () {
 
   // Initialization module
   const initializer = {
-    async loadData() {
-      const [dataResponse, commitsResponse] = await Promise.all([
-        this.fetchAndParseGzippedJsonl(
-          "https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
-        ),
-        fetch(
-          "https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
-        ).then((r) => r.text()),
-      ]);
-
-      // Return parsed data for worker processing
-      // dataResponse is now an array of parsed objects instead of a string
-      return {
-        benchmarkData: dataResponse,
-        commitsData: commitsResponse
-      };
-    },
-
-    async fetchAndParseGzippedJsonl(url) {
-      const response = await fetch(url);
-      const decompressedStream = response.body.pipeThrough(
-        new DecompressionStream("gzip")
-      );
-      const reader = decompressedStream.getReader();
-      const decoder = new TextDecoder();
-
-      let buffer = '';
-      const lines = [];
-
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-
-          // Process complete lines
-          const parts = buffer.split('\n');
-          // Keep the last part (incomplete line) in the buffer
-          buffer = parts.pop();
-
-          // Parse and collect complete lines
-          for (const line of parts) {
-            const trimmed = line.trim();
-            if (trimmed.length > 0) {
-              try {
-                lines.push(JSON.parse(trimmed));
-              } catch (e) {
-                console.warn('Failed to parse JSONL line:', trimmed, e);
-              }
-            }
-          }
-        }
-
-        if (done) {
-          // Process any remaining buffer
-          buffer += decoder.decode();
-          const trimmed = buffer.trim();
-          if (trimmed.length > 0) {
-            try {
-              lines.push(JSON.parse(trimmed));
-            } catch (e) {
-              console.warn('Failed to parse final JSONL line:', trimmed, e);
-            }
-          }
-          break;
-        }
-      }
-
-      return lines;
-    },
-
-    parseJsonl(jsonl) {
-      return jsonl
-        .split("\n")
-        .filter((line) => line.trim().length !== 0)
-        .map((line) => JSON.parse(line));
-    },
-
-    updateLoadingProgress(progress, message) {
-      const main = domElements.main || document.getElementById("main");
-      const loadingIndicator = main.querySelector('.loading-indicator');
-
-      if (loadingIndicator) {
-        const progressText = loadingIndicator.querySelector('p');
-        if (progressText) {
-          progressText.textContent = `${message} (${Math.round(progress)}%)`;
-        }
-      }
-    },
-
     initializeControls() {
-      // Cache DOM elements
       const elementIds = [
-        "menu-toggle",
-        "sidebar",
-        "sidebar-close",
-        "sidebar-overlay",
-        "expand-all",
-        "collapse-all",
-        "grid-view",
-        "list-view",
-        "category-filter",
-        "clear-filter",
-        "search-filter",
-        "back-to-top",
-        "modal-close",
-        "chart-modal",
-        "main",
-        "toc",
+        "menu-toggle", "sidebar", "sidebar-close", "sidebar-overlay",
+        "expand-all", "collapse-all", "grid-view", "list-view",
+        "category-filter", "clear-filter", "search-filter",
+        "back-to-top", "modal-close", "chart-modal", "main", "toc",
       ];
 
       elementIds.forEach((id) => {
-        const camelCaseId = id.replace(/-(.)/g, (_match, char) =>
-          char.toUpperCase()
-        );
+        const camelCaseId = id.replace(/-(.)/g, (_match, char) => char.toUpperCase());
         domElements[camelCaseId] = document.getElementById(id);
       });
 
-      // Initialize sidebar state on desktop
       if (window.innerWidth >= 1200) {
         const sidebarPref = localStorage.getItem("sidebarCollapsed");
         if (domElements.sidebar) {
-          // Set default to collapsed (true) on first visit
           if (sidebarPref === null) {
             localStorage.setItem("sidebarCollapsed", "true");
           }
 
-          // Apply saved preference
           if (sidebarPref === "false") {
-            // User previously opened sidebar via toggle
             domElements.sidebar.classList.remove("collapsed");
             domElements.sidebar.classList.add("open");
           } else {
-            // Default collapsed or user previously closed it via toggle
             domElements.sidebar.classList.add("collapsed");
             domElements.sidebar.classList.remove("open");
           }
         }
       }
 
-      // Initialize chart observer for lazy loading
       if ("IntersectionObserver" in window) {
         chartObserver = new IntersectionObserver(
           (entries) => {
@@ -834,18 +1139,13 @@ window.initAndRender = (function () {
               }
             });
           },
-          {
-            rootMargin: CONFIG.CHART_OBSERVER_MARGIN,
-          }
+          { rootMargin: CONFIG.CHART_OBSERVER_MARGIN }
         );
 
-        // Initialize sticky header observer
         const stickyObserver = new IntersectionObserver(
           (entries) => {
             entries.forEach((entry) => {
-              const stickyContainer = entry.target.querySelector(
-                ".sticky-header-container"
-              );
+              const stickyContainer = entry.target.querySelector(".sticky-header-container");
               if (stickyContainer) {
                 if (entry.intersectionRatio < 1) {
                   stickyContainer.classList.add("is-stuck");
@@ -855,13 +1155,9 @@ window.initAndRender = (function () {
               }
             });
           },
-          {
-            threshold: [1],
-            rootMargin: "-72px 0px 0px 0px", // Adjust based on header height
-          }
+          { threshold: [1], rootMargin: "-72px 0px 0px 0px" }
         );
 
-        // Observe all sticky header wrappers after DOM is ready
         setTimeout(() => {
           document.querySelectorAll(".sticky-header-wrapper").forEach((wrapper) => {
             stickyObserver.observe(wrapper);
@@ -869,31 +1165,20 @@ window.initAndRender = (function () {
         }, 100);
       }
 
-      // Make chartObserver globally available for modules
       window.chartObserver = chartObserver;
-
-      // Initialize zoom sync
       zoomSync.init(state, utils);
-
-      // Set up event listeners
       this.setupEventListeners();
     },
 
     setupEventListeners() {
-      // Sidebar toggle (for both mobile and desktop)
       domElements.menuToggle.addEventListener("click", () => {
         const isDesktop = window.innerWidth >= 1200;
         if (isDesktop) {
-          // On desktop, toggle collapsed state
           domElements.sidebar.classList.toggle("collapsed");
           domElements.sidebar.classList.toggle("open");
-
-          // Save preference to localStorage
-          const isCollapsed =
-            domElements.sidebar.classList.contains("collapsed");
+          const isCollapsed = domElements.sidebar.classList.contains("collapsed");
           localStorage.setItem("sidebarCollapsed", isCollapsed.toString());
         } else {
-          // On mobile/tablet, toggle active state
           domElements.sidebar.classList.toggle("active");
         }
       });
@@ -909,33 +1194,23 @@ window.initAndRender = (function () {
         }
       });
 
-      // Sidebar overlay click (mobile and desktop) - only closes, doesn't toggle
       domElements.sidebarOverlay.addEventListener("click", () => {
         const isDesktop = window.innerWidth >= 1200;
         if (isDesktop) {
-          // On desktop, close sidebar (don't toggle, just close)
           domElements.sidebar.classList.add("collapsed");
           domElements.sidebar.classList.remove("open");
           localStorage.setItem("sidebarCollapsed", "true");
         } else {
-          // On mobile/tablet, remove active state
           domElements.sidebar.classList.remove("active");
         }
       });
 
-      // Expand/Collapse
-      domElements.expandAll.addEventListener("click", () =>
-        navigationManager.expandAll()
-      );
-      domElements.collapseAll.addEventListener("click", () =>
-        navigationManager.collapseAll()
-      );
+      domElements.expandAll.addEventListener("click", () => navigationManager.expandAll());
+      domElements.collapseAll.addEventListener("click", () => navigationManager.collapseAll());
 
-      // View controls
       domElements.gridView.addEventListener("click", () => ui.setView("grid"));
       domElements.listView.addEventListener("click", () => ui.setView("list"));
 
-      // Filters
       domElements.categoryFilter.addEventListener("change", (e) => {
         filterManager.filterByTag(e.target.value);
       });
@@ -954,7 +1229,6 @@ window.initAndRender = (function () {
         debouncedSearch(e.target.value);
       });
 
-      // Scroll handling
       const throttledScroll = utils.throttle(
         () => navigationManager.handleScroll(),
         CONFIG.THROTTLE_SCROLL
@@ -965,17 +1239,13 @@ window.initAndRender = (function () {
         window.scrollTo({ top: 0, behavior: "smooth" });
       });
 
-      // Modal
-      domElements.modalClose.addEventListener("click", () =>
-        chartManager.closeModal()
-      );
+      domElements.modalClose.addEventListener("click", () => chartManager.closeModal());
       domElements.chartModal.addEventListener("click", (e) => {
         if (e.target.id === "chart-modal") {
           chartManager.closeModal();
         }
       });
 
-      // Outside click for sidebar on mobile only
       document.addEventListener("click", (e) => {
         if (
           utils.isMobile() &&
@@ -987,29 +1257,22 @@ window.initAndRender = (function () {
         }
       });
 
-      // Window resize handler
       const debouncedResize = utils.debounce(() => {
         chartManager.updateChartsForResize();
 
         const isDesktop = window.innerWidth >= 1200;
         const wasDesktop = state.lastWindowWidth >= 1200;
 
-        // Handle sidebar state when crossing desktop/mobile threshold
         if (wasDesktop && !isDesktop) {
-          // Moving from desktop to mobile
           domElements.sidebar.classList.remove("collapsed");
           domElements.sidebar.classList.remove("active");
         } else if (!wasDesktop && isDesktop) {
-          // Moving from mobile to desktop
           domElements.sidebar.classList.remove("active");
-          // Restore saved collapsed state
           const sidebarPref = localStorage.getItem("sidebarCollapsed");
-          // Set default to collapsed (true) on first visit
           if (sidebarPref === null) {
             localStorage.setItem("sidebarCollapsed", "true");
           }
 
-          // Apply saved preference
           if (sidebarPref === "false") {
             domElements.sidebar.classList.remove("collapsed");
             domElements.sidebar.classList.add("open");
@@ -1019,7 +1282,6 @@ window.initAndRender = (function () {
           }
         }
 
-        // Update last window width
         state.lastWindowWidth = window.innerWidth;
       }, CONFIG.RESIZE_DEBOUNCE);
 
@@ -1027,283 +1289,115 @@ window.initAndRender = (function () {
     },
   };
 
-  // Async function to render all benchmark sets with batching
-  async function renderBenchmarkSetsAsync(grouped, main, toc, keptGroups) {
-    const batchSize = 1; // Render 1 benchmark set at a time for maximum responsiveness
-    let currentBatch = 0;
-    let totalSets = 0;
-
-    // Determine what we're rendering
-    let renderQueue = [];
-    if (keptGroups === undefined) {
-      renderQueue = grouped.map(({ name, dataSet }) => ({ name, dataSet, groupFilterSettings: {} }));
-    } else {
-      const dataSetsMap = new Map(
-        grouped.map(({ name, dataSet }) => [name, dataSet])
-      );
-      renderQueue = keptGroups.map(([name, groupFilterSettings]) => ({
-        name,
-        dataSet: dataSetsMap.get(name),
-        groupFilterSettings
-      }));
-    }
-
-    totalSets = renderQueue.length;
-
-    // Process in batches
-    for (let i = 0; i < renderQueue.length; i += batchSize) {
-      const batch = renderQueue.slice(i, i + batchSize);
-
-      // Render this batch
-      for (const { name, dataSet, groupFilterSettings } of batch) {
-        // Add placeholder while rendering
-        const placeholder = document.createElement('div');
-        placeholder.className = 'benchmark-placeholder';
-        placeholder.innerHTML = `
-          <div class="benchmark-header">
-            <div class="title-wrapper">
-              <h1 class="benchmark-title">
-                <span class="collapse-icon">▼</span> ${name}
-              </h1>
-              <div class="benchmark-secondary-info">
-                <div class="benchmark-meta">Loading...</div>
-              </div>
-            </div>
-          </div>
-        `;
-        main.appendChild(placeholder);
-
-        await renderBenchmarkSet(name, dataSet, main, toc, groupFilterSettings);
-
-        // Remove placeholder after rendering
-        if (placeholder.parentNode) {
-          placeholder.remove();
-        }
-
-        currentBatch++;
-      }
-
-      // Update progress and yield control after each batch
-      const progress = (currentBatch / totalSets) * 100;
-      const progressElement = document.getElementById('rendering-progress');
-      if (progressElement) {
-        progressElement.textContent = `${getRandomRenderingMessage()} ${currentBatch}/${totalSets} (${Math.round(progress)}%)`;
-      }
-
-      if (i + batchSize < renderQueue.length) {
-        // Yield control to prevent UI freezing
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-  }
-
-  // Async render benchmark set function
-  async function renderBenchmarkSet(
-    name,
-    benchSet,
-    main,
-    toc,
-    groupFilterSettings = {}
-  ) {
-    const { section, chartsContainer } = ui.createBenchmarkSection(
-      name,
-      benchSet,
-      groupFilterSettings
-    );
-
-    // Add fade-in animation effect
-    section.style.opacity = '0';
-    section.style.transform = 'translateY(20px)';
-    section.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
-
-    main.appendChild(section);
-
-    // Trigger fade-in animation
-    requestAnimationFrame(() => {
-      section.style.opacity = '1';
-      section.style.transform = 'translateY(0)';
-    });
-
-    // Create TOC entry
-    const tocLi = document.createElement("li");
-    const tocLink = document.createElement("a");
-    const h1id = name.replace(/\s+/g, "_");
-    tocLink.href = "#" + h1id;
-    tocLink.innerHTML = name;
-    tocLink.onclick = (e) => {
-      e.preventDefault();
-
-      // Auto-expand the section if it's collapsed (but not if it has no data)
-      const targetSection = document.querySelector(`[data-category="${name}"]`);
-      if (targetSection && targetSection.classList.contains("collapsed") && !targetSection.classList.contains("no-data")) {
-        state.expandedSections.add(name);
-        targetSection.classList.remove("collapsed");
-      }
-
-      // Close sidebar after navigation on mobile
-      if (utils.isMobile()) {
-        domElements.sidebar.classList.remove("active");
-      }
-
-      const targetElement = document.getElementById(h1id);
-      const headerHeight =
-        document.querySelector(".sticky-header").offsetHeight;
-      const elementPosition =
-        targetElement.getBoundingClientRect().top + window.pageYOffset;
-      const offsetPosition =
-        elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
-
-      window.scrollTo({
-        top: offsetPosition,
-        behavior: "smooth",
-      });
-
-      navigationManager.updateActiveNavItem(h1id);
-    };
-    tocLi.appendChild(tocLink);
-    toc.appendChild(tocLi);
-
-    // Render charts
-    let chartIndex = 0;
-    const { keptCharts, hiddenDatasets, removedDatasets, renamedDatasets } =
-      groupFilterSettings;
-
-    // Render charts with async yielding to prevent UI blocking
-    await renderChartsAsync(
-      benchSet,
-      keptCharts,
-      chartsContainer,
-      name,
-      hiddenDatasets,
-      removedDatasets,
-      renamedDatasets,
-      chartIndex
-    );
-
-    // Update zoom sync cache for this category
-    window.zoomSync.updateCacheForCategory(name);
-  }
-
-  // Async function to render charts with yielding
-  async function renderChartsAsync(
-    benchSet,
-    keptCharts,
-    chartsContainer,
-    name,
-    hiddenDatasets,
-    removedDatasets,
-    renamedDatasets,
-    startIndex
-  ) {
-    let chartIndex = startIndex;
-    const chartsToRender = [];
-
-    // Collect all charts to render
-    if (keptCharts === undefined) {
-      if (benchSet !== undefined) {
-        for (const [benchName, benches] of benchSet.entries()) {
-          chartsToRender.push({ benchName, benches });
-        }
-      }
-    } else if (keptCharts) {
-      for (const benchName of keptCharts) {
-        const benches = benchSet.get(benchName);
-        if (benches) {
-          chartsToRender.push({ benchName, benches });
-        }
-      }
-    } else {
-      // This is the case when keptCharts is not defined at all (not undefined, just missing)
-      if (benchSet !== undefined) {
-        for (const [benchName, benches] of benchSet.entries()) {
-          chartsToRender.push({ benchName, benches });
-        }
-      }
-    }
-
-    // Render charts with yielding between each one
-    for (let i = 0; i < chartsToRender.length; i++) {
-      const { benchName, benches } = chartsToRender[i];
-
-      state.charts.push(
-        chartManager.renderChart(
-          chartsContainer,
-          name,
-          benchName,
-          benches,
-          hiddenDatasets,
-          removedDatasets,
-          renamedDatasets,
-          chartIndex++
-        )
-      );
-
-      // Yield control after each chart to prevent blocking
-      // Only yield if there are more charts to render
-      if (i < chartsToRender.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 0));
-      }
-    }
-  }
-
   // Main initialization
   return async function initAndRender(keptGroups) {
     try {
-      // Make necessary objects globally available for modules BEFORE rendering charts
       window.state = state;
       window.domElements = domElements;
       window.zoomSync = zoomSync;
       window.utils = utils;
+      window.chartLoader = chartLoader;
 
-      // Initialize workers
-      workerManager.init();
+      const main = document.getElementById("main");
+      const toc = document.getElementById("toc");
 
-      const { benchmarkData, commitsData } = await initializer.loadData();
-
-      // Process data using worker or fallback
-      const grouped = await workerManager.processData(
-        benchmarkData,
-        commitsData,
-        keptGroups,
-        initializer.updateLoadingProgress
-      );
-
-      const main = domElements.main || document.getElementById("main");
-      const toc = domElements.toc || document.getElementById("toc");
-
-      // Clear loading indicator and show rendering progress
+      // Show loading
       main.innerHTML = `
         <div class="loading-indicator">
-          <div class="loading-spinner"></div>
-          <p id="rendering-progress">${getRandomRenderingMessage()} Preparing to render charts...</p>
+          <div class="spinner"></div>
+          <p>Loading benchmark metadata...</p>
         </div>
       `;
 
-      // Render all charts with batching to prevent UI freezing
-      await renderBenchmarkSetsAsync(grouped, main, toc, keptGroups);
+      // Fetch metadata
+      const metadata = await api.fetchMetadata();
+      state.metadata = metadata;
 
-      // Remove rendering progress indicator
-      const loadingIndicator = main.querySelector('.loading-indicator');
-      if (loadingIndicator) {
-        loadingIndicator.remove();
+      // Calculate default start commit index (last DEFAULT_COMMIT_RANGE commits)
+      const totalCommits = metadata.commits?.length || 0;
+      state.defaultStartCommitIndex = Math.max(0, totalCommits - DEFAULT_COMMIT_RANGE);
+
+      // Store filter settings for each group
+      if (keptGroups) {
+        keptGroups.forEach(([name, settings]) => {
+          state.groupFilterSettings.set(name, settings);
+        });
+      }
+
+      // Clear loading indicator
+      main.innerHTML = '';
+
+      // Render sections from metadata
+      const groupsToRender = keptGroups
+        ? keptGroups.map(([name, settings]) => ({ name, settings }))
+        : Object.keys(metadata.groups).map(name => ({ name, settings: {} }));
+
+      for (const { name, settings } of groupsToRender) {
+        const groupMetadata = metadata.groups[name];
+        if (!groupMetadata) continue;
+
+        const { section } = ui.createBenchmarkSectionFromMetadata(name, groupMetadata, settings);
+
+        section.style.opacity = '0';
+        section.style.transform = 'translateY(20px)';
+        section.style.transition = 'opacity 0.3s ease-out, transform 0.3s ease-out';
+
+        main.appendChild(section);
+
+        requestAnimationFrame(() => {
+          section.style.opacity = '1';
+          section.style.transform = 'translateY(0)';
+        });
+
+        // Create TOC entry
+        const tocLi = document.createElement("li");
+        const tocLink = document.createElement("a");
+        const h1id = name.replace(/\s+/g, "_");
+        tocLink.href = "#" + h1id;
+        tocLink.innerHTML = name;
+        tocLink.onclick = async (e) => {
+          e.preventDefault();
+
+          const targetSection = document.querySelector(`[data-category="${name}"]`);
+          if (targetSection && targetSection.classList.contains("collapsed") && !targetSection.classList.contains("no-data")) {
+            state.expandedSections.add(name);
+            targetSection.classList.remove("collapsed");
+            await chartLoader.loadChartsForSection(name);
+          }
+
+          if (utils.isMobile()) {
+            domElements.sidebar.classList.remove("active");
+          }
+
+          const targetElement = document.getElementById(h1id);
+          const headerHeight = document.querySelector(".sticky-header").offsetHeight;
+          const elementPosition = targetElement.getBoundingClientRect().top + window.pageYOffset;
+          const offsetPosition = elementPosition - headerHeight - CONFIG.SCROLL_OFFSET_PADDING;
+
+          window.scrollTo({
+            top: offsetPosition,
+            behavior: "smooth",
+          });
+
+          navigationManager.updateActiveNavItem(h1id);
+        };
+        tocLi.appendChild(tocLink);
+        toc.appendChild(tocLi);
+
+        // Update zoom sync cache for this category
+        window.zoomSync.updateCacheForCategory(name);
       }
 
       initializer.initializeControls();
       urlManager.initializeFromParams();
 
-      // Clean up workers after initialization (give more time for any pending operations)
-      setTimeout(() => {
-        workerManager.terminate();
-      }, 5000);
-
-      // Ensure workers and zoom sync are cleaned up on page unload
       window.addEventListener('beforeunload', () => {
-        workerManager.terminate();
         window.zoomSync.cleanup();
       });
+
     } catch (error) {
       console.error("Failed to load benchmark data:", error);
-      const main = domElements.main || document.getElementById("main");
+      const main = document.getElementById("main");
       main.innerHTML = `
         <div class="loading-indicator">
           <p style="color: red;">Failed to load benchmark data. Please try refreshing the page.</p>

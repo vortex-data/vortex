@@ -24,19 +24,6 @@
       rel="stylesheet"
       href="https://unpkg.com/geist@1.3.0/dist/fonts/geist-mono/style.css"
     />
-
-    <link
-      rel="preload"
-      href="https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz"
-      as="fetch"
-      crossorigin
-    />
-    <link
-      rel="preload"
-      href="https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json"
-      as="fetch"
-      crossorigin
-    />
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
@@ -52,7 +39,7 @@
 
     <!-- <script src="data.js"></script> -->
     <script type="module" id="main-script">
-      import "./code.js";
+      import "./code.js?v=2";
 
       // Wait for initialization to complete
       const waitForInit = () => {
