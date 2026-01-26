@@ -357,8 +357,7 @@ impl SparseArray {
                 &Scalar::bool(true, Nullability::NonNullable),
             )?
             .to_bool()
-            .bit_buffer()
-            .clone(),
+            .to_bit_buffer(),
         );
 
         let non_top_values = filter(array, &non_top_mask)?;

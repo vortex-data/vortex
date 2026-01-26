@@ -261,7 +261,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_BOOLEAN => {
             let data = vector.as_slice_with_len::<bool>(len);
 
-            Ok(BoolArray::from_bit_buffer(
+            Ok(BoolArray::new(
                 BitBuffer::from(data),
                 vector.validity_ref(data.len()).to_validity(),
             )
@@ -580,7 +580,10 @@ mod tests {
         let vortex_array = result.to_bool();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.bit_buffer().iter().collect::<Vec<_>>(), values);
+        assert_eq!(
+            vortex_array.to_bit_buffer().iter().collect::<Vec<_>>(),
+            values
+        );
     }
 
     #[test]

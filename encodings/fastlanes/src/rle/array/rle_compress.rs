@@ -118,7 +118,7 @@ fn padded_validity(array: &PrimitiveArray) -> Validity {
             let mut builder = BitBufferMut::with_capacity(padded_len);
 
             let bool_array = validity_array.to_bool();
-            builder.append_buffer(bool_array.bit_buffer());
+            builder.append_buffer(&bool_array.to_bit_buffer());
             builder.append_n(false, padded_len - len);
 
             Validity::from(builder.freeze())

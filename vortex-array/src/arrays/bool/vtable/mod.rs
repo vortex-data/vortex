@@ -64,7 +64,7 @@ impl VTable for BoolVTable {
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
-        let bit_offset = array.bit_buffer().offset();
+        let bit_offset = array.to_bit_buffer().offset();
         assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
         Ok(ProstMetadata(BoolMetadata {
             offset: u32::try_from(bit_offset).vortex_expect("checked"),
@@ -136,8 +136,8 @@ impl VTable for BoolVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            BoolArray::from_bit_buffer(
-                array.bit_buffer().slice(range.clone()),
+            BoolArray::new(
+                array.to_bit_buffer().slice(range.clone()),
                 array.validity().slice(range)?,
             )
             .into_array(),

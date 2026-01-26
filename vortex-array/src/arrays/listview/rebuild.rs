@@ -321,7 +321,7 @@ mod tests {
         let offsets = PrimitiveArray::from_iter(vec![0u32, 1, 2]).into_array();
         let sizes = PrimitiveArray::from_iter(vec![2u32, 1, 1]).into_array();
         let validity = Validity::Array(
-            BoolArray::from_bit_buffer(
+            BoolArray::new(
                 BitBuffer::from(vec![true, false, true]),
                 Validity::NonNullable,
             )

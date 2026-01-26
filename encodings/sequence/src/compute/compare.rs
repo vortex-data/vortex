@@ -55,9 +55,7 @@ impl CompareKernel for SequenceVTable {
 
         if let Some(set_idx) = set_idx {
             let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(
-                BoolArray::from_bit_buffer(buffer, validity).to_array(),
-            ))
+            Ok(Some(BoolArray::new(buffer, validity).to_array()))
         } else {
             Ok(Some(
                 ConstantArray::new(
@@ -151,8 +149,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
+            result.to_bool().to_bit_buffer(),
+            BoolArray::from_iter(vec![false, false, true, false]).to_bit_buffer(),
         )
     }
 
@@ -165,8 +163,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
+            result.to_bool().to_bit_buffer(),
+            BoolArray::from_iter(vec![false, false, true, false]).to_bit_buffer(),
         )
     }
 
@@ -179,8 +177,8 @@ mod tests {
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
         assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, false, false]).bit_buffer(),
+            result.to_bool().to_bit_buffer(),
+            BoolArray::from_iter(vec![false, false, false, false]).to_bit_buffer(),
         )
     }
 }

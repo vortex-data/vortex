@@ -211,7 +211,7 @@ impl Validity {
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
-                    Validity::from(is_valid.bit_buffer() & !make_invalid)
+                    Validity::from(is_valid.to_bit_buffer() & !make_invalid)
                 }
             },
         }
@@ -257,8 +257,8 @@ impl Validity {
                 let lhs = lhs.to_bool();
                 let rhs = rhs.to_bool();
 
-                let lhs = lhs.bit_buffer();
-                let rhs = rhs.bit_buffer();
+                let lhs = lhs.to_bit_buffer();
+                let rhs = rhs.to_bit_buffer();
 
                 Validity::from(lhs.bitand(rhs))
             }
@@ -414,7 +414,7 @@ impl PartialEq for Validity {
             (Self::Array(a), Self::Array(b)) => {
                 let a = a.to_bool();
                 let b = b.to_bool();
-                a.bit_buffer() == b.bit_buffer()
+                a.to_bit_buffer() == b.to_bit_buffer()
             }
             _ => false,
         }
@@ -466,7 +466,7 @@ impl Validity {
         } else if buffer.true_count() == 0 {
             Validity::AllInvalid
         } else {
-            Validity::Array(BoolArray::from_bit_buffer(buffer, Validity::NonNullable).into_array())
+            Validity::Array(BoolArray::new(buffer, Validity::NonNullable).into_array())
         }
     }
 
@@ -500,7 +500,7 @@ impl IntoArray for Mask {
 impl IntoArray for &MaskValues {
     #[inline]
     fn into_array(self) -> ArrayRef {
-        BoolArray::from_bit_buffer(self.bit_buffer().clone(), Validity::NonNullable).into_array()
+        BoolArray::new(self.bit_buffer().clone(), Validity::NonNullable).into_array()
     }
 }
 

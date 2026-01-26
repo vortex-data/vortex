@@ -331,8 +331,7 @@ fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexRe
         )
     };
 
-    let bools =
-        BoolArray::from_bit_buffer(BitBuffer::full(fill_bool, patches.array_len()), validity);
+    let bools = BoolArray::new(BitBuffer::full(fill_bool, patches.array_len()), validity);
 
     Ok(Canonical::Bool(bools.patch(patches)?))
 }

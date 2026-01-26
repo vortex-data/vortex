@@ -28,8 +28,16 @@ impl CanonicalCudaExt for Canonical {
             Canonical::Bool(bool) => {
                 // NOTE: update to copy to host when adding buffer handle.
                 // Also update other method to copy validity to host.
-                let BoolArrayParts { bits, validity, .. } = bool.into_parts();
-                Ok(Canonical::Bool(BoolArray::from_bit_buffer(bits, validity)))
+                let BoolArrayParts {
+                    bits,
+                    validity,
+                    offset,
+                    len,
+                    ..
+                } = bool.into_parts();
+                Ok(Canonical::Bool(BoolArray::new_handle(
+                    bits, offset, len, validity,
+                )))
             }
             Canonical::Primitive(prim) => {
                 let PrimitiveArrayParts {

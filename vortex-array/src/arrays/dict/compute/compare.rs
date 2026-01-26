@@ -85,7 +85,7 @@ mod tests {
         .unwrap();
         let res = res.to_bool();
         assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
+            res.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![true, false, false]
         );
     }
@@ -106,7 +106,7 @@ mod tests {
         .unwrap();
         let res = res.to_bool();
         assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
+            res.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, true, true]
         );
     }
@@ -131,7 +131,7 @@ mod tests {
         .unwrap();
         let res = res.to_bool();
         assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
+            res.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
@@ -161,7 +161,7 @@ mod tests {
         .unwrap();
         let res = res.to_bool();
         assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
+            res.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, false]
         );
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);

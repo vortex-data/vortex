@@ -292,7 +292,7 @@ fn test_vortex_scan_constant() {
 fn test_vortex_scan_booleans() {
     let file = RUNTIME.block_on(async {
         let flags = vec![true, false, true, true, false];
-        let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
+        let flags_array = BoolArray::new(flags.into(), Validity::NonNullable);
         write_single_column_vortex_file("flag", flags_array).await
     });
     let true_count: i64 =
@@ -303,7 +303,7 @@ fn test_vortex_scan_booleans() {
 #[test]
 fn test_vortex_multi_column() {
     let file = RUNTIME.block_on(async {
-        let f1 = BoolArray::from_bit_buffer(
+        let f1 = BoolArray::new(
             vec![true, false, true, true, false].into(),
             Validity::NonNullable,
         )
@@ -719,7 +719,7 @@ async fn write_vortex_file_with_encodings() -> NamedTempFile {
     let constant_str = ConstantArray::new(Scalar::from("constant_value"), 5);
 
     // 2. Boolean
-    let bool_array = BoolArray::from_bit_buffer(
+    let bool_array = BoolArray::new(
         vec![true, false, true, false, true].into(),
         Validity::NonNullable,
     );

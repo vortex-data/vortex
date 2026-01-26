@@ -115,7 +115,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     let bool_result = compare(&expected_array, &output_array, Operator::Eq)
         .vortex_expect("compare operation should succeed in fuzz test")
         .to_bool();
-    let true_count = bool_result.bit_buffer().true_count();
+    let true_count = bool_result.to_bit_buffer().true_count();
     if true_count != expected_array.len()
         && (bool_result.all_valid().vortex_expect("all_valid")
             || expected_array.all_valid().vortex_expect("all_valid"))

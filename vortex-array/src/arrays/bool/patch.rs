@@ -27,14 +27,14 @@ impl BoolArray {
             for (idx, value) in indices
                 .as_slice::<I>()
                 .iter()
-                .zip_eq(values.bit_buffer().iter())
+                .zip_eq(values.to_bit_buffer().iter())
             {
                 #[allow(clippy::cast_possible_truncation)]
                 own_values.set_to(*idx as usize - offset, value);
             }
         });
 
-        Ok(Self::from_bit_buffer(own_values.freeze(), patched_validity))
+        Ok(Self::new(own_values.freeze(), patched_validity))
     }
 }
 

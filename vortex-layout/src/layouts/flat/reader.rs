@@ -322,8 +322,8 @@ mod test {
                 .to_bool();
 
             assert_eq!(
-                &BitBuffer::from_iter([false, false, false, true, true]),
-                result.bit_buffer()
+                BitBuffer::from_iter([false, false, false, true, true]),
+                result.to_bit_buffer()
             );
         })
     }
