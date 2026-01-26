@@ -828,7 +828,7 @@ mod tests {
 
         let numbers = [0, 10, 50, 100, 1000, 3000]
             .into_iter()
-            .map(|i| 1234 * i)
+            .map(|i| 12340 * i) // must be big enough to not prefer fastlanes.bitpacked
             .collect_vec();
 
         let mut rng = StdRng::seed_from_u64(1u64);
@@ -999,7 +999,7 @@ mod scheme_selection_tests {
         let mut codes = Vec::with_capacity(65_535);
         let numbers: Vec<i32> = [0, 10, 50, 100, 1000, 3000]
             .into_iter()
-            .map(|i| 1234 * i)
+            .map(|i| 12340 * i) // must be big enough to not prefer fastlanes.bitpacked
             .collect();
 
         let mut rng = StdRng::seed_from_u64(1u64);
@@ -1020,7 +1020,7 @@ mod scheme_selection_tests {
     fn test_runend_compressed() {
         let mut values: Vec<i32> = Vec::new();
         for i in 0..100 {
-            values.extend(iter::repeat_n(1_000_000 + i, 10));
+            values.extend(iter::repeat_n((i32::MAX - 50).wrapping_add(i), 10));
         }
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
