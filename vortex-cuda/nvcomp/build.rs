@@ -109,20 +109,6 @@ fn main() {
         );
     }
 
-    // Link against nvcomp dynamically.
-    println!("cargo:rustc-link-search=native={}", lib_dir.display());
-    println!("cargo:rustc-link-lib=dylib=nvcomp");
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
-
-    // Export the library path for downstream crates via the `links` manifest key.
-    // Downstream crates can access this via `env::var("DEP_NVCOMP_LIB_DIR")` in their
-    // build.rs and add their own rpath:
-    //
-    // if let Ok(nvcomp_lib) = env::var("DEP_NVCOMP_LIB_DIR") {
-    //     println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
-    // }
-    println!("cargo:lib_dir={}", lib_dir.display());
-
     let bindings = bindgen::Builder::default()
         .header(include_dir.join("nvcomp.h").to_string_lossy())
         .header(include_dir.join("nvcomp/zstd.h").to_string_lossy())
@@ -142,6 +128,19 @@ fn main() {
     // Set cuda_available cfg if CUDA is detected on the system.
     // Gates tests and benchmarks that require CUDA at runtime.
     if cuda_available() {
+        // Link against nvcomp dynamically.
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+        println!("cargo:rustc-link-lib=dylib=nvcomp");
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+
+        // Export the library path for downstream crates via the `links` manifest key.
+        // Downstream crates can access this via `env::var("DEP_NVCOMP_LIB_DIR")` in their
+        // build.rs and add their own rpath:
+        //
+        // if let Ok(nvcomp_lib) = env::var("DEP_NVCOMP_LIB_DIR") {
+        //     println!("cargo:rustc-link-arg=-Wl,-rpath,{nvcomp_lib}");
+        // }
+        println!("cargo:lib_dir={}", lib_dir.display());
         println!("cargo:rustc-cfg=cuda_available");
     }
 }
