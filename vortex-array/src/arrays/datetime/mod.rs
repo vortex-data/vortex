@@ -191,7 +191,7 @@ impl TemporalArray {
     }
 
     /// Retrieve the extension DType associated with the underlying array.
-    pub fn ext_dtype(&self) -> Arc<ExtDType> {
+    pub fn ext_dtype(&self) -> ExtDTypeRef {
         self.ext.ext_dtype().clone()
     }
 

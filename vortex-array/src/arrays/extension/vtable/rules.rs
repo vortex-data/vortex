@@ -71,7 +71,7 @@ mod tests {
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;
 
-    fn test_ext_dtype() -> Arc<ExtDType> {
+    fn test_ext_dtype() -> ExtDTypeRef {
         Arc::new(ExtDType::new(
             ExtID::new("test_ext".into()),
             Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),

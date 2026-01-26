@@ -30,12 +30,12 @@ pub struct ExtensionBuilder {
 
 impl ExtensionBuilder {
     /// Creates a new `ExtensionBuilder` with a capacity of [`DEFAULT_BUILDER_CAPACITY`].
-    pub fn new(ext_dtype: Arc<ExtDType>) -> Self {
+    pub fn new(ext_dtype: ExtDTypeRef) -> Self {
         Self::with_capacity(ext_dtype, DEFAULT_BUILDER_CAPACITY)
     }
 
     /// Creates a new `ExtensionBuilder` with the given `capacity`.
-    pub fn with_capacity(ext_dtype: Arc<ExtDType>, capacity: usize) -> Self {
+    pub fn with_capacity(ext_dtype: ExtDTypeRef, capacity: usize) -> Self {
         Self {
             storage: builder_with_capacity(ext_dtype.storage_dtype(), capacity),
             dtype: DType::Extension(ext_dtype),
@@ -54,7 +54,7 @@ impl ExtensionBuilder {
     }
 
     /// The [`ExtDType`] of this builder.
-    fn ext_dtype(&self) -> Arc<ExtDType> {
+    fn ext_dtype(&self) -> ExtDTypeRef {
         if let DType::Extension(ext_dtype) = &self.dtype {
             ext_dtype.clone()
         } else {

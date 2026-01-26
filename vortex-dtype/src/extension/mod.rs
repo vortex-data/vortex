@@ -65,6 +65,11 @@ impl<V: VTable> ExtDType<V> {
         &self.0.options
     }
 
+    /// Returns the storage dtype of the extension type.
+    pub fn storage_dtype(&self) -> &DType {
+        &self.0.storage_dtype
+    }
+
     /// Erase the concrete type information, returning a type-erased extension dtype.
     pub fn erase(self) -> ExtDTypeRef {
         ExtDTypeRef(self.0)
@@ -74,6 +79,17 @@ impl<V: VTable> ExtDType<V> {
 /// Type-erased extension dtype - for heterogeneous storage
 #[derive(Clone)]
 pub struct ExtDTypeRef(Arc<dyn ExtDTypeImpl>);
+
+impl Display for ExtDTypeRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let options = format!("{}", self.options_ref());
+        if options.is_empty() {
+            write!(f, "{}", self.id())
+        } else {
+            write!(f, "{}[{}]", self.id(), options)
+        }
+    }
+}
 
 impl Debug for ExtDTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -120,6 +136,15 @@ impl ExtDTypeRef {
             return self.clone();
         }
         self.0.with_nullability(nullability)
+    }
+
+    /// Compute equality ignoring nullability.
+    pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
+        self.id() == other.id()
+            && self
+                .storage_dtype()
+                .eq_ignore_nullability(other.storage_dtype())
+            && self.options_ref() == other.options_ref()
     }
 }
 

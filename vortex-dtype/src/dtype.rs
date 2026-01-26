@@ -194,9 +194,9 @@ impl DType {
                         .zip_eq(rhs_dtype.fields())
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
-            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => lhs_extdtype
-                .storage_dtype()
-                .eq_ignore_nullability(rhs_extdtype.storage_dtype()),
+            (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
+                lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
+            }
             _ => false,
         }
     }
@@ -508,5 +508,31 @@ impl Display for DType {
                 write!(f, "){}", ext.storage_dtype().nullability())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::DType;
+    use crate::Nullability;
+    use crate::datetime::Time;
+    use crate::datetime::TimeUnit;
+    use crate::datetime::Timestamp;
+
+    #[test]
+    fn test_ext_dtype_eq_ignore_nullability() {
+        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullability::Nullable).erase());
+        let d2 = DType::Extension(Time::new(TimeUnit::Days, Nullability::NonNullable).erase());
+        assert!(d1.eq_ignore_nullability(&d2));
+
+        let t1 = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullability::Nullable)
+                .erase(),
+        );
+        let t2 = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullability::Nullable)
+                .erase(),
+        );
+        assert!(!t1.eq_ignore_nullability(&t2));
     }
 }

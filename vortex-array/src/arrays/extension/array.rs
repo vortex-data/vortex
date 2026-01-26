@@ -94,7 +94,7 @@ pub struct ExtensionArray {
 }
 
 impl ExtensionArray {
-    pub fn new(ext_dtype: Arc<ExtDType>, storage: ArrayRef) -> Self {
+    pub fn new(ext_dtype: ExtDTypeRef, storage: ArrayRef) -> Self {
         assert_eq!(
             ext_dtype.storage_dtype(),
             storage.dtype(),
@@ -107,7 +107,7 @@ impl ExtensionArray {
         }
     }
 
-    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+    pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext) = &self.dtype else {
             unreachable!("ExtensionArray: dtype must be an ExtDType")
         };

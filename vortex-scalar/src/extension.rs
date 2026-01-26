@@ -4,12 +4,11 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::is_temporal_ext_type;
+use vortex_dtype::extension::ExtDTypeRef;
+use vortex_dtype::extension::VTable;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -22,32 +21,13 @@ use crate::ScalarValue;
 /// Extension types allow wrapping a storage type with custom semantics.
 #[derive(Debug, Clone)]
 pub struct ExtScalar<'a> {
-    ext_dtype: &'a ExtDType,
+    ext_dtype: &'a ExtDTypeRef,
     value: &'a ScalarValue,
 }
 
 impl Display for ExtScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        // Specialized handling for date/time/timestamp builtin extension types.
-        if is_temporal_ext_type(self.ext_dtype().id()) {
-            let metadata =
-                TemporalMetadata::try_from(self.ext_dtype()).map_err(|_| std::fmt::Error)?;
-
-            let maybe_timestamp = self
-                .storage()
-                .as_primitive()
-                .as_::<i64>()
-                .map(|maybe_timestamp| metadata.to_jiff(maybe_timestamp))
-                .transpose()
-                .map_err(|_| std::fmt::Error)?;
-
-            match maybe_timestamp {
-                None => write!(f, "null"),
-                Some(v) => write!(f, "{v}"),
-            }
-        } else {
-            write!(f, "{}({})", self.ext_dtype().id(), self.storage())
-        }
+        write!(f, "{}({})", self.ext_dtype(), self.storage())
     }
 }
 
@@ -96,7 +76,7 @@ impl<'a> ExtScalar<'a> {
     }
 
     /// Returns the extension data type.
-    pub fn ext_dtype(&self) -> &'a ExtDType {
+    pub fn ext_dtype(&self) -> &'a ExtDTypeRef {
         self.ext_dtype
     }
 
@@ -140,36 +120,70 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 
 impl Scalar {
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension(ext_dtype: Arc<ExtDType>, value: Scalar) -> Self {
-        // TODO(joe): enable once we use rust duckdb
-        // assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::new(DType::Extension(ext_dtype), value.value().clone())
+    pub fn extension<V: VTable>(ext_dtype: ExtDType<V>, value: Scalar) -> Self {
+        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
+        Self::new(DType::Extension(ext_dtype.erase()), value.value().clone())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_dtype::DType;
     use vortex_dtype::ExtDType;
     use vortex_dtype::ExtID;
-    use vortex_dtype::ExtMetadata;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::extension::VTable;
+    use vortex_error::VortexResult;
 
     use crate::ExtScalar;
     use crate::InnerScalarValue;
     use crate::Scalar;
     use crate::ScalarValue;
 
+    #[derive(Debug, Clone, Default)]
+    struct TestExt;
+    impl VTable for TestExt {
+        type Options = usize;
+
+        fn id(&self) -> ExtID {
+            ExtID::new_ref("test_ext")
+        }
+
+        fn serialize(&self, _options: &Self::Options) -> VortexResult<Vec<u8>> {
+            unimplemented!();
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Options> {
+            unimplemented!();
+        }
+
+        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    impl TestExt {
+        fn new_nullable() -> ExtDType<TestExt> {
+            ExtDType::try_new(0usize, DType::Primitive(PType::I32, Nullability::Nullable)).unwrap()
+        }
+
+        fn new_non_nullable() -> ExtDType<TestExt> {
+            ExtDType::try_new(
+                0usize,
+                DType::Primitive(PType::I32, Nullability::NonNullable),
+            )
+            .unwrap()
+        }
+
+        fn new_with_metadata(i: usize) -> ExtDType<TestExt> {
+            ExtDType::try_new(i, DType::Primitive(PType::I32, Nullability::NonNullable)).unwrap()
+        }
+    }
+
     #[test]
     fn test_ext_scalar_equality() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar1 = Scalar::extension(
             ext_dtype.clone(),
@@ -194,11 +208,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_partial_ord() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar1 = Scalar::extension(
             ext_dtype.clone(),
@@ -218,16 +228,38 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_partial_ord_different_types() {
-        let ext_dtype1 = Arc::new(ExtDType::new(
-            ExtID::new("type1".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
-        let ext_dtype2 = Arc::new(ExtDType::new(
-            ExtID::new("type2".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        #[derive(Clone, Debug, Default)]
+        struct TestExt2;
+        impl VTable for TestExt2 {
+            type Options = usize;
+
+            fn id(&self) -> ExtID {
+                ExtID::new_ref("test_ext_2")
+            }
+
+            fn serialize(&self, _options: &Self::Options) -> VortexResult<Vec<u8>> {
+                unimplemented!();
+            }
+
+            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Options> {
+                unimplemented!();
+            }
+
+            fn validate(
+                &self,
+                _options: &Self::Options,
+                _storage_dtype: &DType,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
+        let ext_dtype1 = TestExt::new_non_nullable();
+        let ext_dtype2 = ExtDType::<TestExt2>::try_new(
+            0usize,
+            DType::Primitive(PType::I32, Nullability::Nullable),
+        )
+        .unwrap();
 
         let scalar1 = Scalar::extension(
             ext_dtype1,
@@ -249,18 +281,13 @@ mod tests {
     fn test_ext_scalar_hash() {
         use vortex_utils::aliases::hash_set::HashSet;
 
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
-
+        let ext_dtype = TestExt::new_non_nullable();
         let scalar1 = Scalar::extension(
             ext_dtype.clone(),
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
         let scalar2 = Scalar::extension(
-            ext_dtype,
+            ext_dtype.clone(),
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
@@ -272,13 +299,8 @@ mod tests {
         assert_eq!(set.len(), 1);
 
         // Different value should hash differently
-        let ext_dtype2 = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
         let scalar3 = Scalar::extension(
-            ext_dtype2,
+            ext_dtype.clone(),
             Scalar::primitive(43i32, Nullability::NonNullable),
         );
         set.insert(scalar3);
@@ -287,11 +309,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_storage() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let storage_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let ext_scalar = Scalar::extension(ext_dtype, storage_scalar.clone());
@@ -302,12 +320,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_ext_dtype() {
-        let ext_id = ExtID::new("test_ext".into());
-        let ext_dtype = Arc::new(ExtDType::new(
-            ext_id.clone(),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar = Scalar::extension(
             ext_dtype.clone(),
@@ -315,17 +328,13 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        assert_eq!(ext.ext_dtype().id(), &ext_id);
-        assert_eq!(ext.ext_dtype(), ext_dtype.as_ref());
+        assert_eq!(ext.ext_dtype().id(), ext_dtype.id());
+        assert_eq!(ext.ext_dtype(), &ext_dtype.erase());
     }
 
     #[test]
     fn test_ext_scalar_cast_to_storage() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar = Scalar::extension(
             ext_dtype,
@@ -360,11 +369,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_cast_to_self() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar = Scalar::extension(
             ext_dtype.clone(),
@@ -372,6 +377,7 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext_dtype = ext_dtype.erase();
 
         // Cast to same extension type
         let casted = ext.cast(&DType::Extension(ext_dtype.clone())).unwrap();
@@ -385,11 +391,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_cast_incompatible() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar = Scalar::extension(
             ext_dtype,
@@ -405,11 +407,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_cast_null_to_non_nullable() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            None,
-        ));
+        let ext_dtype = TestExt::new_non_nullable();
 
         let scalar = Scalar::extension(
             ext_dtype,
@@ -434,35 +432,23 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_with_metadata() {
-        let metadata = ExtMetadata::new(vec![1u8, 2, 3].into());
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext_with_meta".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            Some(metadata),
-        ));
-
+        let ext_dtype = TestExt::new_with_metadata(1234);
         let scalar = Scalar::extension(
             ext_dtype.clone(),
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
+        let ext_dtype = ext_dtype.erase();
+
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        assert_eq!(ext.ext_dtype(), ext_dtype.as_ref());
-        assert!(ext.ext_dtype().metadata().is_some());
+        assert_eq!(ext.ext_dtype(), &ext_dtype);
+        assert_eq!(ext.ext_dtype().options::<TestExt>(), &1234);
     }
 
     #[test]
     fn test_ext_scalar_equality_ignores_nullability() {
-        let ext_dtype_non_null = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
-        let ext_dtype_nullable = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::Nullable)),
-            None,
-        ));
+        let ext_dtype_non_null = TestExt::new_non_nullable();
+        let ext_dtype_nullable = TestExt::new_nullable();
 
         let scalar1 = Scalar::extension(
             ext_dtype_non_null,

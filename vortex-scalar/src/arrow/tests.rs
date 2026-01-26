@@ -6,16 +6,19 @@ use std::sync::Arc;
 use arrow_array::Datum;
 use rstest::rstest;
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::datetime::DATE_ID;
-use vortex_dtype::datetime::TIME_ID;
-use vortex_dtype::datetime::TIMESTAMP_ID;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Date;
+use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::extension::VTable;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Scalar;
+
+// FIXME(ngates): add some tests for timestamp with timezone
 
 #[test]
 fn test_null_scalar_to_arrow() {
@@ -260,14 +263,30 @@ fn test_list_scalar_to_arrow_todo() {
 fn test_non_temporal_extension_to_arrow_todo() {
     use vortex_dtype::ExtDType;
     use vortex_dtype::ExtID;
-    use vortex_dtype::ExtMetadata;
 
-    let ext_dtype = Arc::new(ExtDType::new(
-        ExtID::new("test_ext".into()),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(ExtMetadata::new(vec![].into())),
-    ));
+    #[derive(Debug, Clone, Default)]
+    struct SomeExt;
+    impl VTable for SomeExt {
+        type Options = String;
 
+        fn id(&self) -> ExtID {
+            ExtID::new_ref("some_ext")
+        }
+
+        fn serialize(&self, _options: &Self::Options) -> VortexResult<Vec<u8>> {
+            vortex_bail!("not implemented")
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Options> {
+            vortex_bail!("not implemented")
+        }
+
+        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    let ext_dtype = ExtDType::<SomeExt>::try_new("".into(), DType::Null).unwrap();
     let scalar = Scalar::extension(
         ext_dtype,
         Scalar::primitive(42i32, Nullability::NonNullable),
@@ -286,13 +305,7 @@ fn test_temporal_time_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let metadata = TemporalMetadata::Time(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Time::new(time_unit, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
@@ -311,13 +324,7 @@ fn test_temporal_time_to_arrow(
 
 #[test]
 fn test_temporal_time_d_unsupported() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Days);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Time::new(TimeUnit::Days, Nullability::NonNullable);
     let scalar = Scalar::extension(ext_dtype, Scalar::primitive(1i32, Nullability::NonNullable));
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
@@ -335,13 +342,7 @@ fn test_temporal_date_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let metadata = TemporalMetadata::Date(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        DATE_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Date::new(time_unit, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
@@ -363,13 +364,7 @@ fn test_temporal_date_to_arrow(
 #[case(TimeUnit::Microseconds, PType::I64)]
 #[case(TimeUnit::Seconds, PType::I32)]
 fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PType) {
-    let metadata = TemporalMetadata::Date(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        DATE_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Date::new(time_unit, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         match ptype {
@@ -392,13 +387,7 @@ fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PT
 #[case(TimeUnit::Milliseconds, 1234567890000i64)]
 #[case(TimeUnit::Seconds, 1234567890i64)]
 fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: i64) {
-    let metadata = TemporalMetadata::Timestamp(time_unit, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Timestamp::new(time_unit, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         Scalar::primitive(value, Nullability::NonNullable),
@@ -410,13 +399,7 @@ fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: 
 
 #[test]
 fn test_temporal_timestamp_d_unsupported() {
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::Days, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Timestamp::new(TimeUnit::Days, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         Scalar::primitive(19000i64, Nullability::NonNullable),
@@ -431,13 +414,7 @@ fn test_temporal_timestamp_d_unsupported() {
 
 #[test]
 fn test_temporal_with_null_value() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Time::new(TimeUnit::Nanoseconds, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
@@ -449,13 +426,7 @@ fn test_temporal_with_null_value() {
 
 #[test]
 fn test_temporal_non_primitive_storage_error() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Utf8(Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
+    let ext_dtype = Time::new(TimeUnit::Nanoseconds, Nullability::NonNullable);
     let scalar = Scalar::extension(
         ext_dtype,
         Scalar::utf8("not a timestamp", Nullability::NonNullable),

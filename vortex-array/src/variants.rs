@@ -189,7 +189,7 @@ pub struct ExtensionTyped<'a>(&'a dyn Array);
 
 impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].
-    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+    pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext_dtype) = self.0.dtype() else {
             vortex_panic!("Expected ExtDType")
         };

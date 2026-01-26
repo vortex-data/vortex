@@ -189,8 +189,8 @@ macro_rules! impl_temporal_metadata_try_from {
 
 impl_temporal_metadata_try_from!(ExtDType);
 impl_temporal_metadata_try_from!(&ExtDType);
-impl_temporal_metadata_try_from!(Arc<ExtDType>);
-impl_temporal_metadata_try_from!(&Arc<ExtDType>);
+impl_temporal_metadata_try_from!(ExtDTypeRef);
+impl_temporal_metadata_try_from!(&ExtDTypeRef);
 impl_temporal_metadata_try_from!(Box<ExtDType>);
 impl_temporal_metadata_try_from!(&Box<ExtDType>);
 
