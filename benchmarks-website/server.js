@@ -797,7 +797,7 @@ function handleMetadataRequest(res) {
   sendJson(res, 200, dataStore.metadata);
 }
 
-function handleDataRequest(res, groupName, chartName, startCommit, endCommit) {
+function handleDataRequest(res, groupName, chartName, startTimestamp, endTimestamp) {
   if (!dataStore.downsampledData) {
     sendJson(res, 503, { error: 'Data not yet loaded' });
     return;
@@ -818,18 +818,33 @@ function handleDataRequest(res, groupName, chartName, startCommit, endCommit) {
   // Get full data
   const fullData = chartVersions['1x'];
 
-  // Determine range
+  // Determine range using timestamps (in ms)
   let startIndex = 0;
   let endIndex = fullData.commits.length - 1;
 
-  if (startCommit) {
-    const idx = fullData.commits.findIndex(c => c.id === startCommit || c.id.startsWith(startCommit));
+  // Helper to get timestamp in ms from commit (handles both ISO string and ms number)
+  const getTimestampMs = (commit) => {
+    if (!commit?.timestamp) return 0;
+    if (typeof commit.timestamp === 'number') return commit.timestamp;
+    return new Date(commit.timestamp).getTime();
+  };
+
+  if (startTimestamp) {
+    const ts = parseInt(startTimestamp, 10);
+    // Find first commit with timestamp >= startTimestamp
+    const idx = fullData.commits.findIndex(c => getTimestampMs(c) >= ts);
     if (idx !== -1) startIndex = idx;
   }
 
-  if (endCommit) {
-    const idx = fullData.commits.findIndex(c => c.id === endCommit || c.id.startsWith(endCommit));
-    if (idx !== -1) endIndex = idx;
+  if (endTimestamp) {
+    const ts = parseInt(endTimestamp, 10);
+    // Find last commit with timestamp <= endTimestamp
+    for (let i = fullData.commits.length - 1; i >= 0; i--) {
+      if (getTimestampMs(fullData.commits[i]) <= ts) {
+        endIndex = i;
+        break;
+      }
+    }
   }
 
   const rangeLength = endIndex - startIndex + 1;
@@ -969,10 +984,10 @@ const server = http.createServer((req, res) => {
     const parts = pathname.replace('/api/data/', '').split('/');
     const groupName = decodeURIComponent(parts[0] || '');
     const chartName = decodeURIComponent(parts.slice(1).join('/') || '');
-    const startCommit = params.get('start_commit');
-    const endCommit = params.get('end_commit');
+    const startTimestamp = params.get('start');
+    const endTimestamp = params.get('end');
 
-    handleDataRequest(res, groupName, chartName, startCommit, endCommit);
+    handleDataRequest(res, groupName, chartName, startTimestamp, endTimestamp);
     return;
   }
 

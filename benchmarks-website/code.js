@@ -39,6 +39,13 @@ window.initAndRender = (function () {
   const domElements = {};
   let chartObserver = null;
 
+  // Helper to convert timestamp to milliseconds (handles ISO string or number)
+  const toTimestampMs = (timestamp) => {
+    if (!timestamp) return null;
+    if (typeof timestamp === 'number') return timestamp;
+    return new Date(timestamp).getTime();
+  };
+
   // API client module
   const api = {
     async fetchMetadata() {
@@ -47,11 +54,12 @@ window.initAndRender = (function () {
       return response.json();
     },
 
-    async fetchChartData(groupName, chartName, startCommit = null, endCommit = null) {
+    async fetchChartData(groupName, chartName, startTimestamp = null, endTimestamp = null) {
       let url = `${API_BASE}/api/data/${encodeURIComponent(groupName)}/${encodeURIComponent(chartName)}`;
       const params = new URLSearchParams();
-      if (startCommit) params.set('start_commit', startCommit);
-      if (endCommit) params.set('end_commit', endCommit);
+      // Convert timestamps to ms if they're ISO strings
+      if (startTimestamp) params.set('start', toTimestampMs(startTimestamp));
+      if (endTimestamp) params.set('end', toTimestampMs(endTimestamp));
       if (params.toString()) url += '?' + params.toString();
 
       const response = await fetch(url);
@@ -632,15 +640,15 @@ window.initAndRender = (function () {
       const chartNames = keptCharts || groupMetadata.charts.map(c => c.name);
       const loadedData = new Map();
 
-      // Determine default range (last DEFAULT_COMMIT_RANGE commits)
-      const startCommit = state.defaultStartCommitIndex > 0
-        ? state.metadata.commits[state.defaultStartCommitIndex]?.id
+      // Determine default range (last DEFAULT_COMMIT_RANGE commits) using timestamps
+      const startTimestamp = state.defaultStartCommitIndex > 0
+        ? state.metadata.commits[state.defaultStartCommitIndex]?.timestamp
         : null;
 
       // Load chart data in parallel
       const loadPromises = chartNames.map(async (chartName) => {
         try {
-          const data = await api.fetchChartData(groupName, chartName, startCommit, null);
+          const data = await api.fetchChartData(groupName, chartName, startTimestamp, null);
           loadedData.set(chartName, data);
         } catch (err) {
           console.error(`Failed to load chart ${groupName}/${chartName}:`, err);
@@ -740,8 +748,17 @@ window.initAndRender = (function () {
 
       placeholder.classList.remove('chart-placeholder');
 
+      // Format date helper
+      const formatDate = (timestamp) => {
+        if (!timestamp) return '';
+        const date = new Date(timestamp);
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+      };
+
       // Build dataset for Chart.js
-      const labels = chartData.commits.map(c => c.id.slice(0, 7));
+      const labels = chartData.commits.map(c => formatDate(c.timestamp));
       const datasets = [];
 
       for (const [seriesName, seriesData] of Object.entries(chartData.series)) {
@@ -795,25 +812,34 @@ window.initAndRender = (function () {
     },
 
     // Fetch new data when zoom/pan changes the visible range
-    async refreshChartData(chartKey, startCommitIndex, endCommitIndex) {
+    async refreshChartData(chartKey, startIndex, endIndex) {
       const chartInstance = state.chartInstances.get(chartKey);
       if (!chartInstance) return;
 
       const { chart, groupName, chartName, filterSettings, originalData } = chartInstance;
       if (!chart || !originalData) return;
 
-      // Get commit IDs for the range
+      // Get timestamps for the range
       const allCommits = state.metadata.commits;
-      const startCommit = allCommits[startCommitIndex]?.id || null;
-      const endCommit = allCommits[endCommitIndex]?.id || null;
+      const startTimestamp = allCommits[startIndex]?.timestamp || null;
+      const endTimestamp = allCommits[endIndex]?.timestamp || null;
 
       try {
-        const newData = await api.fetchChartData(groupName, chartName, startCommit, endCommit);
+        const newData = await api.fetchChartData(groupName, chartName, startTimestamp, endTimestamp);
 
         // Update chart with new data
         const { hiddenDatasets, removedDatasets, renamedDatasets } = filterSettings || {};
 
-        const newLabels = newData.commits.map(c => c.id.slice(0, 7));
+        // Format date helper
+        const formatDate = (timestamp) => {
+          if (!timestamp) return '';
+          const date = new Date(timestamp);
+          const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+          return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+        };
+
+        const newLabels = newData.commits.map(c => formatDate(c.timestamp));
         const newDatasets = [];
 
         for (const [seriesName, seriesData] of Object.entries(newData.series)) {
@@ -859,19 +885,6 @@ window.initAndRender = (function () {
         chart.options.scales.x.max = newLabels.length - 1;
 
         // Update x2 (date) axis labels and range
-        if (chart.options.scales.x2) {
-          const formatDate = (timestamp) => {
-            if (!timestamp) return '';
-            const date = new Date(timestamp);
-            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-            return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-          };
-          chart.options.scales.x2.labels = newData.commits.map(c => c?.timestamp ? formatDate(c.timestamp) : '');
-          chart.options.scales.x2.min = 0;
-          chart.options.scales.x2.max = newLabels.length - 1;
-        }
-
         chart.update('none');
 
         // Update stored data

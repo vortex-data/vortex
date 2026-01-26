@@ -168,8 +168,18 @@ export const chartManager = {
     const startIndex = Math.max(0, dataset.commits.length - maxDataPoints);
 
     const limitedCommits = dataset.commits.slice(startIndex);
+
+    // Format date for x-axis labels
+    const formatDate = (timestamp) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    };
+
     const data = {
-      labels: limitedCommits.map((commit) => commit.id.slice(0, 7)),
+      labels: limitedCommits.map((commit) => formatDate(commit.timestamp)),
       datasets: Array.from(dataset.series)
         .filter(([name, benches]) => {
           return removedDatasets === undefined || !removedDatasets.has(name);
@@ -264,27 +274,45 @@ export const chartManager = {
       animation: false,
       scales: {
         x: {
+          type: 'category',
           title: {
             display: false,
           },
-          min: isMobile
-            ? 0 // Start from the beginning of the sliced data
-            : Math.max(
-                0,
-                dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS
-              ),
-          max: isMobile
-            ? limitedCommits.length - 1 // Use the length of the sliced data
-            : undefined,
-        },
-        x2: this.createDateAxis(limitedCommits, isMobile, {
+          ticks: {
+            display: !isMobile,
+            maxRotation: 0,
+            autoSkip: false,
+            // Show only 5 labels based on visible range
+            callback: function(value, index, ticks) {
+              const totalTicks = ticks.length;
+              if (totalTicks <= 5) {
+                return this.getLabelForValue(value);
+              }
+
+              // Always show first and last visible tick
+              if (index === 0 || index === totalTicks - 1) {
+                return this.getLabelForValue(value);
+              }
+
+              // Show 3 evenly spaced labels in between (at 25%, 50%, 75%)
+              const step = (totalTicks - 1) / 4;
+              for (let i = 1; i <= 3; i++) {
+                const targetIndex = Math.round(step * i);
+                if (index === targetIndex) {
+                  return this.getLabelForValue(value);
+                }
+              }
+
+              return null; // Hide this tick
+            },
+          },
+          // Always use limitedCommits.length for consistency
           min: isMobile
             ? 0
-            : Math.max(0, dataset.commits.length - CONFIG.DEFAULT_VISIBLE_COMMITS),
-          max: isMobile
-            ? limitedCommits.length - 1
-            : undefined,
-        }),
+            : Math.max(0, limitedCommits.length - CONFIG.DEFAULT_VISIBLE_COMMITS),
+          // Explicitly set max to ensure zoom plugin maps pixels correctly
+          max: limitedCommits.length - 1,
+        },
         y: yAxisScale,
       },
       plugins: this.createPlugins(
@@ -328,78 +356,6 @@ export const chartManager = {
     return scale;
   },
 
-  // Create a secondary x-axis that shows human-readable dates in a faded style
-  createDateAxis(limitedCommits, isMobile, initialRange = {}) {
-    // Format date in a human-readable way
-    const formatDate = (timestamp) => {
-      if (!timestamp) return '';
-      const date = new Date(timestamp);
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-    };
-
-    return {
-      type: 'category',
-      position: 'bottom',
-      offset: true,
-      labels: limitedCommits.map(c => c?.timestamp ? formatDate(c.timestamp) : ''),
-      min: initialRange.min,
-      max: initialRange.max,
-      grid: {
-        display: false,
-        drawOnChartArea: false,
-      },
-      border: {
-        display: false,
-      },
-      ticks: {
-        display: !isMobile,
-        color: 'rgba(128, 128, 128, 0.5)', // Faded gray color
-        font: {
-          size: 10,
-          style: 'italic',
-        },
-        padding: 2,
-        maxRotation: 0,
-        autoSkip: false,
-        // Show only 5 labels: first, last, and 3 evenly spaced in between
-        callback: function(value, index, ticks) {
-          const totalTicks = ticks.length;
-          if (totalTicks <= 5) {
-            return this.getLabelForValue(index);
-          }
-
-          // Always show first and last
-          if (index === 0 || index === totalTicks - 1) {
-            return this.getLabelForValue(index);
-          }
-
-          // Show 3 evenly spaced labels in between (at 25%, 50%, 75%)
-          const step = (totalTicks - 1) / 4;
-          for (let i = 1; i <= 3; i++) {
-            const targetIndex = Math.round(step * i);
-            if (index === targetIndex) {
-              return this.getLabelForValue(index);
-            }
-          }
-
-          return null; // Hide this tick
-        },
-      },
-    };
-  },
-
-  // Sync the x2 (date) axis with the x (commit) axis
-  syncDateAxis(chart) {
-    if (!chart?.scales?.x || !chart?.scales?.x2) return;
-
-    const xScale = chart.scales.x;
-    chart.options.scales.x2.min = xScale.min;
-    chart.options.scales.x2.max = xScale.max;
-    chart.update('none');
-  },
-
   createPlugins(categoryName, isMobile, limitedCommits, index) {
     const chartKey = `${categoryName}-${index}`;
     const self = this;
@@ -408,9 +364,6 @@ export const chartManager = {
     let zoomPanTimeout = null;
     const handleZoomPanComplete = (context) => {
       const chart = context.chart;
-
-      // Immediately sync the date axis
-      self.syncDateAxis(chart);
 
       // Clear previous timeout
       if (zoomPanTimeout) {
@@ -468,6 +421,7 @@ export const chartManager = {
           drag: {
             enabled: !isMobile,
             backgroundColor: "rgba(89, 113, 253, 0.1)",
+            threshold: 5,
           },
           onZoomComplete: handleZoomPanComplete,
         },
@@ -494,6 +448,16 @@ export const chartManager = {
       },
       tooltip: {
         callbacks: {
+          title: (contexts) => {
+            if (!contexts.length) return '';
+            const dataIndex = contexts[0].dataIndex;
+            const commit = limitedCommits[dataIndex];
+            if (!commit) return '';
+            // Show date and short commit hash
+            const date = new Date(commit.timestamp).toLocaleDateString();
+            const shortHash = commit.id?.slice(0, 7) || '';
+            return `${date} (${shortHash})`;
+          },
           afterLabel: this.createTooltipCallback(limitedCommits),
         },
       },
@@ -555,12 +519,15 @@ export const chartManager = {
       const commit = limitedCommits[dataIndex];
       if (!commit) return [];
 
+      // Handle author as string or object
+      const authorName = typeof commit.author === 'string'
+        ? commit.author
+        : commit.author?.name || 'Unknown';
+
       return [
         "",
         commit.message.split("\n")[0],
-        `${commit.author.name} - ${new Date(
-          commit.timestamp
-        ).toLocaleDateString()}`,
+        authorName,
       ];
     };
   },
@@ -663,7 +630,6 @@ export const chartManager = {
 
       chart.options.scales.x.min = newLocalMin;
       chart.options.scales.x.max = newLocalMax;
-      this.syncDateAxis(chart);
 
       // Trigger data refresh for potential resolution change
       this.triggerDataRefresh(chartKey, chart);
@@ -746,7 +712,6 @@ export const chartManager = {
 
       chart.options.scales.x.min = newLocalMin;
       chart.options.scales.x.max = newLocalMax;
-      this.syncDateAxis(chart);
 
       // Still trigger refresh in case we want higher resolution data
       this.triggerDataRefresh(chartKey, chart);
@@ -791,7 +756,6 @@ export const chartManager = {
 
       chart.options.scales.x.min = Math.max(0, newLocalMin);
       chart.options.scales.x.max = Math.min(chart.data.labels.length - 1, newLocalMax);
-      this.syncDateAxis(chart);
 
       this.triggerDataRefresh(chartKey, chart);
     }
@@ -834,7 +798,6 @@ export const chartManager = {
 
       chart.options.scales.x.min = Math.max(0, newLocalMin);
       chart.options.scales.x.max = Math.min(chart.data.labels.length - 1, newLocalMax);
-      this.syncDateAxis(chart);
 
       this.triggerDataRefresh(chartKey, chart);
     }
@@ -884,21 +847,30 @@ export const chartManager = {
     const globalCommits = window.state?.metadata?.commits;
     if (!globalCommits || globalCommits.length === 0) return;
 
-    const firstGlobalCommitId = globalCommits[0]?.id?.slice(0, 7);
-    const lastGlobalCommitId = globalCommits[globalCommits.length - 1]?.id?.slice(0, 7);
+    // Format date helper (same as used for labels)
+    const formatDate = (timestamp) => {
+      if (!timestamp) return '';
+      const date = new Date(timestamp);
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    };
 
-    // Get current view's visible commit labels
+    const firstGlobalDate = formatDate(globalCommits[0]?.timestamp);
+    const lastGlobalDate = formatDate(globalCommits[globalCommits.length - 1]?.timestamp);
+
+    // Get current view's visible date labels
     const xScale = chart.scales.x;
     const localMin = Math.floor(xScale.min);
     const localMax = Math.ceil(xScale.max);
 
     const labels = chart.data.labels;
-    const visibleFirstCommit = labels[localMin];
-    const visibleLastCommit = labels[localMax];
+    const visibleFirstDate = labels[localMin];
+    const visibleLastDate = labels[localMax];
 
-    // Check if the visible edges match the global first/last commits
-    const atStart = visibleFirstCommit === firstGlobalCommitId;
-    const atEnd = visibleLastCommit === lastGlobalCommitId;
+    // Check if the visible edges match the global first/last dates
+    const atStart = visibleFirstDate === firstGlobalDate;
+    const atEnd = visibleLastDate === lastGlobalDate;
 
     // Find and update buttons
     const buttons = document.querySelectorAll(`button[data-chart-key="${chartKey}"]`);
