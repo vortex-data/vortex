@@ -83,7 +83,7 @@ pub(super) fn execute_filter_fast_paths(
 /// Filter a canonical array by a mask, returning a new canonical array.
 pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
     match canonical {
-        Canonical::Null(a) => Canonical::Null(filter_null(&a, mask)),
+        Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
         Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
@@ -91,12 +91,14 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
         Canonical::Struct(a) => Canonical::Struct(filter_struct(&a, mask)),
-        Canonical::Extension(a) => Canonical::Extension(filter_extension(&a, mask)),
+        Canonical::Extension(a) => {
+            let filtered_storage = a
+                .storage()
+                .filter(mask.clone())
+                .vortex_expect("filter extension storage");
+            Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
+        }
     }
-}
-
-fn filter_null(_array: &NullArray, mask: &Mask) -> NullArray {
-    NullArray::new(mask.true_count())
 }
 
 fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
@@ -139,12 +141,4 @@ fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
         .vortex_expect("filter struct array")
         .as_::<StructVTable>()
         .clone()
-}
-
-fn filter_extension(array: &ExtensionArray, mask: &Mask) -> ExtensionArray {
-    let filtered_storage = array
-        .storage()
-        .filter(mask.clone())
-        .vortex_expect("filter extension storage");
-    ExtensionArray::new(array.ext_dtype().clone(), filtered_storage)
 }
