@@ -91,7 +91,6 @@ fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_dtype::D
 /// - `Ok(true)` - test passed, keep in corpus
 /// - `Ok(false)` - test skipped (e.g., no CUDA), reject from corpus
 /// - `Err(_)` - a bug was found
-#[cfg(cuda_available)]
 #[allow(clippy::result_large_err)]
 pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     use vortex::VortexSessionDefault;
@@ -100,6 +99,11 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     use vortex_cuda::CudaSession;
     use vortex_cuda::executor::CudaArrayExt;
     use vortex_error::VortexExpect;
+
+    // Runtime check - skip if CUDA is not available
+    if !vortex_cuda::cuda_available() {
+        return Ok(false);
+    }
 
     let FuzzCompressGpu { array } = fuzz;
 
@@ -185,14 +189,4 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     }
 
     Ok(true)
-}
-
-/// No-op fallback when CUDA is not available.
-#[cfg(not(cuda_available))]
-pub async fn run_compress_gpu(_fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
-    use vortex_error::vortex_err;
-    VortexFuzzResult::Err(VortexFuzzError::VortexError(
-        vortex_err!("cannot run outside cuda env"),
-        Backtrace::capture(),
-    ))
 }
