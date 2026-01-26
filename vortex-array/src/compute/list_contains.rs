@@ -100,7 +100,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///     list_array.len()).as_ref()
 /// ).unwrap();
 ///
-/// assert_eq!(matches.to_bool().to_bit_buffer(), &bitbuffer![false, true, false]);
+/// assert_eq!(matches.to_bool().to_bit_buffer(), bitbuffer![false, true, false]);
 /// ```
 // TODO(joe): ensure that list_contains_scalar from (548303761b4270b583ef34f6ca6e3c2b134a242a)
 // is implemented here.

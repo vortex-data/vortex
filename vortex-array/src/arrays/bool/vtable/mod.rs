@@ -63,10 +63,9 @@ impl VTable for BoolVTable {
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
-        let bit_offset = array.to_bit_buffer().offset();
-        assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
+        assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
-            offset: u32::try_from(bit_offset).vortex_expect("checked"),
+            offset: u32::try_from(array.offset).vortex_expect("checked"),
         }))
     }
 

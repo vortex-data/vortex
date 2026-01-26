@@ -15,7 +15,7 @@ use crate::vtable::BaseArrayVTable;
 
 impl BaseArrayVTable<BoolVTable> for BoolVTable {
     fn len(array: &BoolArray) -> usize {
-        array.bits.len()
+        array.len
     }
 
     fn dtype(array: &BoolArray) -> &DType {
