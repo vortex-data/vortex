@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
-use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::filter::execute::filter_validity;
+use crate::arrays::filter::execute::values_to_mask;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -33,7 +36,7 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
-pub fn filter_listview(array: &ListViewArray, selection_mask: &Mask) -> ListViewArray {
+pub fn filter_listview(array: &ListViewArray, selection_mask: &Arc<MaskValues>) -> ListViewArray {
     let elements = array.elements();
     let offsets = array.offsets();
     let sizes = array.sizes();
@@ -46,11 +49,12 @@ pub fn filter_listview(array: &ListViewArray, selection_mask: &Mask) -> ListView
     );
 
     // Simply filter the offsets and sizes arrays.
+    let mask_for_filter = values_to_mask(selection_mask);
     let new_offsets = offsets
-        .filter(selection_mask.clone())
+        .filter(mask_for_filter.clone())
         .vortex_expect("ListViewArray offsets are guaranteed to support filter");
     let new_sizes = sizes
-        .filter(selection_mask.clone())
+        .filter(mask_for_filter)
         .vortex_expect("ListViewArray sizes are guaranteed to support filter");
 
     // SAFETY: Filter operation maintains all `ListViewArray` invariants:

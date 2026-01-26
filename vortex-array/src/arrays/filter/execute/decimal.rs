@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexExpect;
-use vortex_mask::Mask;
 use vortex_mask::MaskIter;
+use vortex_mask::MaskValues;
 
 use crate::arrays::DecimalArray;
 use crate::arrays::filter::execute::filter_validity;
@@ -15,15 +16,10 @@ use crate::vtable::ValidityHelper;
 /// Threshold for choosing between indices vs slices filtering strategy.
 const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
-// TODO(connor): Use the optimized filters over slices in `vortex-compute`.
-pub fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
+pub fn filter_decimal(array: &DecimalArray, mask: &Arc<MaskValues>) -> DecimalArray {
     let filtered_validity = filter_validity(array.validity().clone(), mask);
 
-    let mask_values = mask
-        .values()
-        .vortex_expect("Mask::AllTrue and Mask::AllFalse are handled by execute_filter_fast_paths");
-
-    match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+    match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
         MaskIter::Indices(indices) => match_each_decimal_value_type!(array.values_type(), |T| {
             let filtered = filter_indices::<T>(array.buffer().as_slice(), indices.iter().copied());
             // SAFETY: Filter preserves the decimal dtype from the source array. The buffer is

@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
-use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::filter::execute::values_to_mask;
 use crate::compute::arrow_filter_fn;
 
-pub fn filter_varbinview(array: &VarBinViewArray, mask: &Mask) -> VarBinViewArray {
-    arrow_filter_fn(array.as_ref(), mask)
+pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
+    arrow_filter_fn(array.as_ref(), &values_to_mask(mask))
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinViewVTable>()
         .clone()

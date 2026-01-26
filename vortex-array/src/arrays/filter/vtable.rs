@@ -108,10 +108,13 @@ impl VTable for FilterVTable {
         if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
             return Ok(canonical);
         }
+        let Mask::Values(mask_values) = &array.mask else {
+            unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
+        };
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        let canonical = execute_filter(array.child.clone().execute(ctx)?, &array.mask);
+        let canonical = execute_filter(array.child.clone().execute(ctx)?, mask_values);
 
         // Verify the resulting length and type.
         let result_len = array.mask.true_count();

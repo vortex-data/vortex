@@ -1,23 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
-use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::arrays::filter::execute::filter_validity;
+use crate::arrays::filter::execute::values_to_mask;
 use crate::vtable::ValidityHelper;
 
-pub fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
+pub fn filter_struct(array: &StructArray, mask: &Arc<MaskValues>) -> StructArray {
     let filtered_validity = filter_validity(array.validity().clone(), mask);
 
+    let mask_for_filter = values_to_mask(mask);
     let fields: Vec<ArrayRef> = array
         .unmasked_fields()
         .iter()
         .map(|field| {
             field
-                .filter(mask.clone())
+                .filter(mask_for_filter.clone())
                 .vortex_expect("StructArray fields are guaranteed to support filter")
         })
         .collect();

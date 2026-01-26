@@ -5,9 +5,12 @@
 //!
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
 
+use std::sync::Arc;
+
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 use vortex_scalar::Scalar;
 
 use crate::Canonical;
@@ -27,15 +30,21 @@ mod primitive;
 mod struct_;
 mod varbinview;
 
-/// A helper function that lazily filters a [`Validity`] with a selection [`Mask`].
+/// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
+#[inline]
+fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
+    Mask::Values(values.clone())
+}
+
+/// A helper function that lazily filters a [`Validity`] with a selection mask.
 ///
 /// If the validity is a [`Validity::Array`], then this wraps it in a `FilterArray` instead of
 /// eagerly filtering the values immediately.
-fn filter_validity(validity: Validity, mask: &Mask) -> Validity {
+fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
     match validity {
         v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
         Validity::Array(arr) => {
-            Validity::Array(FilterArray::new(arr.clone(), mask.clone()).into_array())
+            Validity::Array(FilterArray::new(arr.clone(), values_to_mask(mask)).into_array())
         }
     }
 }
@@ -70,10 +79,8 @@ pub(super) fn execute_filter_fast_paths(
     Ok(None)
 }
 
-// TODO(connor): precondition about the mask due to the fast path, and this should probably just
-// take `MaskValues` instead.
 /// Filter a canonical array by a mask, returning a new canonical array.
-pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
+pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Canonical {
     match canonical {
         Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
@@ -88,7 +95,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage()
-                .filter(mask.clone())
+                .filter(values_to_mask(mask))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }

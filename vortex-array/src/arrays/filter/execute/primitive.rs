@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
-use vortex_mask::Mask;
 use vortex_mask::MaskIter;
+use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::execute::filter_validity;
@@ -15,7 +17,7 @@ use crate::arrays::filter::execute::filter_validity;
 pub const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 // TODO(connor): Use the optimized filters over slices in `vortex-compute`.
-pub fn filter_primitive(array: &PrimitiveArray, mask: &Mask) -> PrimitiveArray {
+pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
     let validity = array
         .validity()
         .vortex_expect("missing PrimitiveArray validity");
@@ -38,14 +40,14 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Mask) -> PrimitiveArray {
 ///
 /// # Arguments
 /// * `values` - The source slice of values to filter
-/// * `mask` - The mask indicating which elements to keep (must have `values()` available)
+/// * `mask` - The mask indicating which elements to keep
 /// * `selectivity_threshold` - Threshold for choosing between indices vs slices strategy
-pub fn filter_slice<T: Copy>(values: &[T], mask: &Mask, selectivity_threshold: f64) -> Buffer<T> {
-    let mask_values = mask
-        .values()
-        .vortex_expect("AllTrue and AllFalse should be handled by caller");
-
-    match mask_values.threshold_iter(selectivity_threshold) {
+pub fn filter_slice<T: Copy>(
+    values: &[T],
+    mask: &MaskValues,
+    selectivity_threshold: f64,
+) -> Buffer<T> {
+    match mask.threshold_iter(selectivity_threshold) {
         MaskIter::Indices(indices) => indices
             .iter()
             .copied()
