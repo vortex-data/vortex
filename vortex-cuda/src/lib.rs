@@ -3,12 +3,14 @@
 
 //! CUDA support for Vortex arrays.
 
+mod canonical;
 mod device_buffer;
 pub mod executor;
 mod kernel;
 mod session;
 mod stream;
 
+pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
