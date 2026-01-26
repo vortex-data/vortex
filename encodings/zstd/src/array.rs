@@ -397,6 +397,10 @@ impl ZstdArray {
     /// This is useful when the compressed data will be decompressed by systems
     /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
     ///
+    /// Note: Without a dictionary, each frame is compressed independently.
+    /// Dictionaries are trained from sample data from previously seen frames,
+    /// to improve compression ratio.
+    ///
     /// # Arguments
     /// * `parray` - The primitive array to compress
     /// * `level` - Zstd compression level (0 = default, negative = fast, positive = better compression)
@@ -484,6 +488,10 @@ impl ZstdArray {
     ///
     /// This is useful when the compressed data will be decompressed by systems
     /// that don't support ZSTD dictionaries (e.g., nvCOMP on GPU).
+    ///
+    /// Note: Without a dictionary, each frame is compressed independently.
+    /// Dictionaries are trained from sample data from previously seen frames,
+    /// to improve compression ratio.
     ///
     /// # Arguments
     /// * `vbv` - The VarBinView array to compress
