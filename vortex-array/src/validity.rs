@@ -27,7 +27,6 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::compute::fill_null;
-use crate::compute::filter;
 use crate::compute::sum;
 use crate::compute::take;
 use crate::patches::Patches;
@@ -192,7 +191,7 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
+            Validity::Array(arr) => Ok(Validity::Array(arr.filter(mask.clone())?)),
         }
     }
 

@@ -24,7 +24,6 @@ use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListBuilder;
-use crate::compute::filter;
 use crate::validity::Validity;
 
 #[test]
@@ -101,7 +100,7 @@ fn test_simple_list_filter() {
         .unwrap()
         .into_array();
 
-    let filtered = filter(&list, &Mask::from(BitBuffer::from(vec![false, true, true])));
+    let filtered = list.filter(Mask::from(BitBuffer::from(vec![false, true, true])));
 
     assert!(filtered.is_ok())
 }
@@ -120,7 +119,7 @@ fn test_list_filter_dense_mask() {
     // Dense mask: keep most elements (indices 1, 2, 3, 4, 5).
     let mask = Mask::from(BitBuffer::from(vec![false, true, true, true, true, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     // Should have 5 lists remaining.
     assert_eq!(filtered.len(), 5);
@@ -153,7 +152,7 @@ fn test_list_filter_sparse_mask() {
         true, false, false, false, false, true,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     // Should have 2 lists remaining.
     assert_eq!(filtered.len(), 2);
@@ -183,7 +182,7 @@ fn test_list_filter_empty_lists() {
 
     let mask = Mask::from(BitBuffer::from(vec![true, true, true, false, false, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 4);
 
@@ -214,7 +213,7 @@ fn test_list_filter_with_nulls() {
 
     let mask = Mask::from(BitBuffer::from(vec![true, true, false, true, true]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 4);
 
@@ -238,7 +237,7 @@ fn test_list_filter_all_true() {
 
     let mask = Mask::AllTrue(4);
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     // All lists should be preserved.
     assert_eq!(filtered.len(), 4);
@@ -260,7 +259,7 @@ fn test_list_filter_all_false() {
 
     let mask = Mask::AllFalse(4);
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     // When mask is AllFalse, filter returns a canonical empty array (ListViewArray).
     // We need to check the length directly without casting to a specific type.
@@ -280,7 +279,7 @@ fn test_list_filter_single_element() {
 
     let mask = Mask::from(BitBuffer::from(vec![false, false, true, false, false]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 1);
 
@@ -311,7 +310,7 @@ fn test_list_filter_alternating_pattern() {
         true, false, true, false, true, false, true, false, true, false, true, false,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 6);
 
@@ -345,7 +344,7 @@ fn test_list_filter_variable_sizes() {
         true, false, true, true, false, true, true, true,
     ]));
 
-    let filtered = filter(&list, &mask).unwrap();
+    let filtered = list.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 6);
 

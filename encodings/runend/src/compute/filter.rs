@@ -13,7 +13,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
@@ -54,7 +53,7 @@ impl FilterKernel for RunEndVTable {
                                 mask_values.bit_buffer(),
                             )?
                         });
-                    let values = filter(array.values(), &values_mask)?;
+                    let values = array.values().filter(values_mask)?;
 
                     // SAFETY: guaranteed by implementation of filter_run_end_primitive
                     unsafe {
@@ -88,7 +87,7 @@ pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef
                     .bit_buffer(),
             )?
         });
-    let values = filter(array.values(), &values_mask)?;
+    let values = array.values().filter(values_mask)?;
 
     // SAFETY: enforced by filter_run_end_primitive
     unsafe {
