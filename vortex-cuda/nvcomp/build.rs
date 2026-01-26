@@ -58,7 +58,6 @@ fn main() {
     );
 
     let include_dir = nvcomp_dir.join("include");
-    let lib_dir = nvcomp_dir.join("lib");
 
     if !include_dir.exists() {
         let response = reqwest::blocking::get(&url)
