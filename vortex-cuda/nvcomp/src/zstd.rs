@@ -94,7 +94,7 @@ pub fn get_decompress_temp_size_with_opts(
     let mut temp_bytes: usize = 0;
 
     let status = unsafe {
-        (library.batched_zstd_decompress_get_temp_size_async)(
+        library.nvcompBatchedZstdDecompressGetTempSizeAsync(
             num_chunks,
             max_uncompressed_chunk_bytes,
             opts.to_nvcomp(),
@@ -187,7 +187,7 @@ pub unsafe fn decompress_async_with_opts(
     let library = nvcomp_library()?;
 
     let status = unsafe {
-        (library.batched_zstd_decompress_async)(
+        library.nvcompBatchedZstdDecompressAsync(
             device_compressed_ptrs,
             device_compressed_bytes,
             device_uncompressed_bytes,

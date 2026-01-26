@@ -18,14 +18,10 @@
 //!
 //! The nvcomp library must be available at runtime.
 
-use std::ffi::c_void;
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use libloading::Library;
-use libloading::Symbol;
-
-/// Raw FFI type definitions from bindgen (no function declarations).
+/// Raw FFI type definitions and dynamically-loaded function pointers from bindgen.
 #[allow(
     non_upper_case_globals,
     non_camel_case_types,
@@ -41,86 +37,21 @@ pub mod zstd;
 pub use error::NvcompError;
 
 /// The loaded nvcomp library instance.
-static NVCOMP_LIB: OnceLock<Result<NvcompLibrary, String>> = OnceLock::new();
+static NVCOMP_LIB: OnceLock<Result<sys::NvcompLibrary, String>> = OnceLock::new();
 
-/// A loaded nvcomp library with function pointers.
-pub struct NvcompLibrary {
-    // Keep the library handle alive
-    #[allow(dead_code)]
-    library: Library,
+fn load_nvcomp() -> Result<sys::NvcompLibrary, String> {
+    let lib_name = "libnvcomp.so";
+    let build_lib_dir = env!("OUT_DIR");
+    let sdk_lib_path = PathBuf::from(build_lib_dir)
+        .join("nvcomp-sdk")
+        .join("lib")
+        .join(lib_name);
 
-    // Function pointers
-    pub(crate) batched_zstd_decompress_get_temp_size_async: BatchedZstdDecompressGetTempSizeAsyncFn,
-    pub(crate) batched_zstd_decompress_async: BatchedZstdDecompressAsyncFn,
-}
-
-// Function pointer types matching the nvcomp C API
-type BatchedZstdDecompressGetTempSizeAsyncFn = unsafe extern "C" fn(
-    num_chunks: usize,
-    max_uncompressed_chunk_bytes: usize,
-    opts: sys::nvcompBatchedZstdDecompressOpts_t,
-    temp_bytes: *mut usize,
-    max_total_uncompressed_bytes: usize,
-) -> sys::nvcompStatus_t;
-
-type BatchedZstdDecompressAsyncFn = unsafe extern "C" fn(
-    device_compressed_ptrs: *const *const c_void,
-    device_compressed_bytes: *const usize,
-    device_uncompressed_bytes: *const usize,
-    device_actual_uncompressed_bytes: *mut usize,
-    batch_size: usize,
-    device_temp_ptr: *mut c_void,
-    temp_bytes: usize,
-    device_uncompressed_ptr: *const *mut c_void,
-    opts: sys::nvcompBatchedZstdDecompressOpts_t,
-    device_statuses: *mut sys::nvcompStatus_t,
-    stream: sys::cudaStream_t,
-) -> sys::nvcompStatus_t;
-
-impl NvcompLibrary {
-    /// Loads the nvcomp library from the given path.
-    ///
-    /// # Safety
-    ///
-    /// The library at the given path must be a valid nvcomp shared library.
-    unsafe fn load_from_path(lib_path: &std::path::Path) -> Result<Self, String> {
-        let library = unsafe {
-            Library::new(lib_path).map_err(|e| format!("Failed to load nvcomp library: {e}"))?
-        };
-
-        // Load function pointers
-        let batched_zstd_decompress_get_temp_size_async = unsafe {
-            let sym: Symbol<BatchedZstdDecompressGetTempSizeAsyncFn> = library
-                .get(b"nvcompBatchedZstdDecompressGetTempSizeAsync\0")
-                .map_err(|e| {
-                    format!("Failed to load nvcompBatchedZstdDecompressGetTempSizeAsync: {e}")
-                })?;
-            *sym
-        };
-
-        let batched_zstd_decompress_async = unsafe {
-            let sym: Symbol<BatchedZstdDecompressAsyncFn> = library
-                .get(b"nvcompBatchedZstdDecompressAsync\0")
-                .map_err(|e| format!("Failed to load nvcompBatchedZstdDecompressAsync: {e}"))?;
-            *sym
-        };
-
-        Ok(Self {
-            library,
-            batched_zstd_decompress_get_temp_size_async,
-            batched_zstd_decompress_async,
-        })
-    }
-
-    fn load_nvcomp() -> Result<Self, String> {
-        let lib_name = "libnvcomp.so";
-        let build_lib_dir = env!("OUT_DIR");
-        let sdk_lib_path = PathBuf::from(build_lib_dir)
-            .join("nvcomp-sdk")
-            .join("lib")
-            .join(lib_name);
-
-        unsafe { Self::load_from_path(&sdk_lib_path) }
+    // SAFETY: The library at the SDK path is a valid nvcomp shared library
+    // downloaded during the build process.
+    unsafe {
+        sys::NvcompLibrary::new(&sdk_lib_path)
+            .map_err(|e| format!("Failed to load nvcomp library: {e}"))
     }
 }
 
@@ -128,9 +59,9 @@ impl NvcompLibrary {
 ///
 /// The library is loaded lazily on first access. Returns an error if the
 /// library cannot be found or loaded.
-pub fn nvcomp_library() -> Result<&'static NvcompLibrary, NvcompError> {
+pub fn nvcomp_library() -> Result<&'static sys::NvcompLibrary, NvcompError> {
     NVCOMP_LIB
-        .get_or_init(NvcompLibrary::load_nvcomp)
+        .get_or_init(load_nvcomp)
         .as_ref()
         .map_err(|e| NvcompError::LibraryLoadError(e.clone()))
 }
