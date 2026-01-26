@@ -14,7 +14,6 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use super::execute::execute_filter;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -22,10 +21,10 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
+use crate::arrays::filter::execute::execute_filter;
+use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -139,35 +138,6 @@ impl VTable for FilterVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-}
-
-/// Check for some fast-path execution conditions.
-pub(super) fn execute_filter_fast_paths(
-    array: &FilterArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
-    let true_count = array.mask.true_count();
-
-    // Empty result - mask selects nothing
-    if true_count == 0 {
-        return Ok(Some(Canonical::empty(array.dtype())));
-    }
-
-    // Full pass-through - mask selects everything
-    if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone().execute(ctx)?));
-    }
-
-    // All null - child has no valid values
-    if array.validity_mask()?.true_count() == 0 {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
-                .into_array()
-                .execute(ctx)?,
-        ));
-    }
-
-    Ok(None)
 }
 
 impl BaseArrayVTable<FilterVTable> for FilterVTable {

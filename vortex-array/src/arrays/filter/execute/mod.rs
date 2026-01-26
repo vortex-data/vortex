@@ -6,14 +6,18 @@
 //! The main entrypoint is [`execute_filter`] which filters any [`Canonical`] array.
 
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
 
 use crate::Canonical;
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionArray;
+use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewArray;
@@ -25,15 +29,62 @@ use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::compute::FilterKernel;
+use crate::validity::Validity;
 
+mod bool;
 mod primitive;
 
+/// A helper function that lazily filters a [`Validity`] with a selection [`Mask`].
+///
+/// If the validity is a [`Validity::Array`], then this wraps it in a `FilterArray` instead of
+/// eagerly filtering the values immediately.
+fn filter_validity(validity: Validity, mask: &Mask) -> Validity {
+    match validity {
+        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
+        Validity::Array(arr) => {
+            Validity::Array(FilterArray::new(arr.clone(), mask.clone()).into_array())
+        }
+    }
+}
+
+/// Check for some fast-path execution conditions before calling [`execute_filter`].
+pub(super) fn execute_filter_fast_paths(
+    array: &FilterArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<Canonical>> {
+    let true_count = array.mask.true_count();
+
+    // If the mask selects nothing, the output is empty.
+    if true_count == 0 {
+        return Ok(Some(Canonical::empty(array.dtype())));
+    }
+
+    // If the mask selects everything, then we can just fully decompress the whole thing.
+    if true_count == array.mask.len() {
+        return Ok(Some(array.child.clone().execute(ctx)?));
+    }
+
+    // Also check if the array itself is completely null, in which case we only care about the total
+    // number of nulls, not the values.
+    if array.validity_mask()?.true_count() == 0 {
+        return Ok(Some(
+            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
+                .into_array()
+                .execute(ctx)?,
+        ));
+    }
+
+    Ok(None)
+}
+
 // TODO(connor): Stop using the old compute kernels and move all code into this module.
+// TODO(connor): precondition about the mask due to the fast path, and this should probably just
+// take `MaskValues` instead.
 /// Filter a canonical array by a mask, returning a new canonical array.
 pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
     match canonical {
         Canonical::Null(a) => Canonical::Null(filter_null(&a, mask)),
-        Canonical::Bool(a) => Canonical::Bool(filter_bool(&a, mask)),
+        Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
         Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(filter_varbinview(&a, mask)),
@@ -48,14 +99,6 @@ fn filter_null(_array: &NullArray, mask: &Mask) -> NullArray {
     NullArray::new(mask.true_count())
 }
 
-fn filter_bool(array: &BoolArray, mask: &Mask) -> BoolArray {
-    BoolVTable
-        .filter(array, mask)
-        .vortex_expect("filter bool array")
-        .as_::<BoolVTable>()
-        .clone()
-}
-
 fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
     DecimalVTable
         .filter(array, mask)
@@ -64,7 +107,6 @@ fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
         .clone()
 }
 
-/// Filter a VarBinViewArray - delegates to Arrow filter.
 fn filter_varbinview(array: &VarBinViewArray, mask: &Mask) -> VarBinViewArray {
     VarBinViewVTable
         .filter(array, mask)

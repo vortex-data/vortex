@@ -8,31 +8,26 @@ use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
 
-use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
-use crate::arrays::filter::FilterArray;
-use crate::validity::Validity;
+use crate::arrays::filter::execute::filter_validity;
 
 /// Threshold for choosing between indices vs slices filtering strategy.
 pub const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 // TODO(connor): Use the optimized filters over slices in `vortex-compute`.
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Mask) -> PrimitiveArray {
-    // Lazy validity: wrap in FilterArray instead of eagerly filtering
-    let validity = match array.validity().vortex_expect("primitive validity") {
-        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
-        Validity::Array(arr) => {
-            Validity::Array(FilterArray::new(arr.clone(), mask.clone()).into_array())
-        }
-    };
+    let validity = array
+        .validity()
+        .vortex_expect("missing PrimitiveArray validity");
+    let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
-        let filtered = filter_slice(
+        let filtered_buffer = filter_slice(
             array.as_slice::<T>(),
             mask,
             FILTER_SLICES_SELECTIVITY_THRESHOLD,
         );
-        PrimitiveArray::new(filtered, validity)
+        PrimitiveArray::new(filtered_buffer, filtered_validity)
     })
 }
 
