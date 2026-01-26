@@ -198,7 +198,7 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         // We want to sample about 1% of data
         let source_len = stats.source().len();
 
-        // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
+        // We want to sample about 1% of data, while keeping a minimal sample of 1024 values.
         let approximately_one_percent = (source_len / 100)
             / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
         let sample_count = u32::max(
