@@ -10612,6 +10612,7 @@ dependencies = [
  "smol",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "vortex-array",
  "vortex-buffer",

@@ -33,6 +33,7 @@ pin-project-lite = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 handle = "1.0.2"
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-array = { workspace = true }

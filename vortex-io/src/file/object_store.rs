@@ -7,12 +7,15 @@ use std::sync::Arc;
 use async_compat::Compat;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
+use tokio::io::AsyncReadExt;
+use tokio_util::io::StreamReader;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
@@ -36,6 +39,7 @@ const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 
 /// Default number of concurrent requests to allow.
 const DEFAULT_CONCURRENCY: usize = 192;
+const STREAM_READ_ENV: &str = "VORTEX_S3_STREAM_READ_EXACT";
 
 /// An object store backed I/O source.
 pub struct ObjectStoreSource {
@@ -78,6 +82,14 @@ impl ObjectStoreSource {
         self.coalesce_config = config;
         self
     }
+}
+
+fn use_stream_reader() -> bool {
+    std::env::var(STREAM_READ_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .map(|value| value != 0)
+        .unwrap_or(false)
 }
 
 impl VortexReadAt for ObjectStoreSource {
@@ -208,30 +220,37 @@ impl VortexReadAt for ObjectStoreSource {
                     unreachable!("File payload not supported on wasm32")
                 }
                 GetResultPayload::Stream(mut byte_stream) => {
-                    let mut filled = 0usize;
-                    while let Some(bytes) = byte_stream.next().await {
-                        let bytes = bytes?;
-                        let end = filled + bytes.len();
+                    if use_stream_reader() {
+                        let mut reader = StreamReader::new(byte_stream.map_err(io::Error::other));
+                        let copy_start = std::time::Instant::now();
+                        reader.read_exact(target.as_mut_slice()).await?;
+                        record_copy(length, copy_start.elapsed());
+                    } else {
+                        let mut filled = 0usize;
+                        while let Some(bytes) = byte_stream.next().await {
+                            let bytes = bytes?;
+                            let end = filled + bytes.len();
+                            vortex_ensure!(
+                                end <= length,
+                                "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
+                                length,
+                                end,
+                                range
+                            );
+                            let copy_start = std::time::Instant::now();
+                            target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
+                            record_copy(bytes.len(), copy_start.elapsed());
+                            filled = end;
+                        }
+
                         vortex_ensure!(
-                            end <= length,
-                            "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
+                            filled == length,
+                            "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                            filled,
                             length,
-                            end,
                             range
                         );
-                        let copy_start = std::time::Instant::now();
-                        target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
-                        record_copy(bytes.len(), copy_start.elapsed());
-                        filled = end;
                     }
-
-                    vortex_ensure!(
-                        filled == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
-                        filled,
-                        length,
-                        range
-                    );
                 }
             }
 
