@@ -459,9 +459,10 @@ mod tests {
 
     #[test]
     fn test_missing_extension_storage() {
+        // Use a registered extension type ID so we can reach the storage_dtype check
         let pb_dtype = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
-                id: "test.ext".to_string(),
+                id: "vortex.date".to_string(),
                 storage_dtype: None,
                 metadata: None,
             }))),
@@ -473,7 +474,7 @@ mod tests {
             result
                 .unwrap_err()
                 .to_string()
-                .contains("storage_dtype must be provided")
+                .contains("Extension DType missing storage proto")
         );
     }
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Datetime extension DTypes, compatible with Apache Arrow.
+
 mod date;
 mod matcher;
 // mod temporal;
