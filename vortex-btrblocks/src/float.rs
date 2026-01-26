@@ -316,7 +316,11 @@ impl Scheme for ALPRDScheme {
         let after = compressed.as_::<ALPRDVTable>();
         let estimated_compressed_full_size =
             ((after.right_bit_width() as u64 * after.len() as u64).div_ceil(8))
-                + after.left_parts().nbytes();
+                + after.left_parts().nbytes()
+                + after
+                    .left_parts_patches()
+                    .map(|x| x.indices().nbytes() + x.values().nbytes())
+                    .unwrap_or(0);
         let uncompressed_full_size = sample.source().nbytes();
 
         tracing::debug!(
