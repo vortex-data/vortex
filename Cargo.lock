@@ -2504,6 +2504,7 @@ dependencies = [
  "tokio",
  "url",
  "vortex-bench",
+ "vortex-cuda",
  "vortex-datafusion",
 ]
 
@@ -3814,6 +3815,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-bench",
+ "vortex-cuda",
  "vortex-duckdb",
 ]
 
@@ -10800,6 +10802,7 @@ name = "vortex-nvcomp"
 version = "0.1.0"
 dependencies = [
  "bindgen",
+ "libloading 0.8.9",
  "reqwest",
  "tar",
  "xz2",

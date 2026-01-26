@@ -7,6 +7,7 @@ use std::ffi::c_void;
 
 use crate::error::NvcompError;
 use crate::error::check_status;
+use crate::nvcomp_library;
 use crate::sys;
 
 /// Backend selection for nvcomp decompression.
@@ -88,10 +89,12 @@ pub fn get_decompress_temp_size_with_opts(
     max_total_uncompressed_bytes: usize,
     opts: ZstdDecompressOpts,
 ) -> Result<usize, NvcompError> {
+    let library = nvcomp_library()?;
+
     let mut temp_bytes: usize = 0;
 
     let status = unsafe {
-        sys::nvcompBatchedZstdDecompressGetTempSizeAsync(
+        (library.batched_zstd_decompress_get_temp_size_async)(
             num_chunks,
             max_uncompressed_chunk_bytes,
             opts.to_nvcomp(),
@@ -181,8 +184,10 @@ pub unsafe fn decompress_async_with_opts(
     stream: sys::cudaStream_t,
     opts: ZstdDecompressOpts,
 ) -> Result<(), NvcompError> {
+    let library = nvcomp_library()?;
+
     let status = unsafe {
-        sys::nvcompBatchedZstdDecompressAsync(
+        (library.batched_zstd_decompress_async)(
             device_compressed_ptrs,
             device_compressed_bytes,
             device_uncompressed_bytes,

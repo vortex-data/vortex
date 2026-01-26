@@ -12,12 +12,12 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-links = "nvcomp"
 
 [lints]
 workspace = true
 
 [dependencies]
+libloading = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

@@ -123,7 +123,7 @@ fn benchmark_dict_u32_u8(c: &mut Criterion) {
             &dict_array,
             |b, dict_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     // Get values and codes arrays
@@ -187,7 +187,7 @@ fn benchmark_dict_u32_u16(c: &mut Criterion) {
             &dict_array,
             |b, dict_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let values: Vec<u32> = (0..4096).map(|i| i * 100).collect();
@@ -250,7 +250,7 @@ fn benchmark_dict_u64_u8(c: &mut Criterion) {
             &dict_array,
             |b, dict_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let values: Vec<u64> = (0..256).map(|i| i * 1_000_000).collect();
@@ -313,7 +313,7 @@ fn benchmark_dict_u64_u32(c: &mut Criterion) {
             &dict_array,
             |b, dict_array| {
                 b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(VortexSession::empty())
+                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                         .vortex_expect("failed to create execution context");
 
                     let values: Vec<u64> = (0..65536).map(|i| i * 1000).collect();

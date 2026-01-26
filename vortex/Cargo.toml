@@ -26,7 +26,7 @@ vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-compute = { workspace = true }
-vortex-cuda = { workspace = true, optional = true }
+
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, default-features = true }
@@ -51,6 +51,9 @@ vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+vortex-cuda = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }

@@ -6,8 +6,10 @@
 use crate::sys;
 
 /// Error type for nvcomp operations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NvcompError {
+    /// Failed to load the nvcomp library at runtime.
+    LibraryLoadError(String),
     /// Invalid value provided.
     InvalidValue,
     /// Operation not supported.
@@ -43,6 +45,7 @@ pub enum NvcompError {
 impl std::fmt::Display for NvcompError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::LibraryLoadError(msg) => write!(f, "nvcomp: failed to load library: {}", msg),
             Self::InvalidValue => write!(f, "nvcomp: invalid value"),
             Self::NotSupported => write!(f, "nvcomp: operation not supported"),
             Self::CannotDecompress => write!(f, "nvcomp: cannot decompress"),
