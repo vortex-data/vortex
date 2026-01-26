@@ -181,10 +181,6 @@ pub trait Scheme: Debug {
     ) -> VortexResult<ArrayRef>;
 }
 
-fn nearest_multiple_of_16(x: u32) -> u32 {
-    x.saturating_add(8) & !15
-}
-
 fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
     compressor: &T,
     stats: &T::StatsType,
@@ -202,10 +198,11 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         let approximately_one_percent = (source_len / 100)
             / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
         let sample_count = u32::max(
-            nearest_multiple_of_16(
+            u32::next_multiple_of(
                 approximately_one_percent
                     .try_into()
                     .vortex_expect("sample count must fit in u32"),
+                16,
             ),
             SAMPLE_COUNT,
         );
