@@ -14,7 +14,7 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use super::execute::filter_canonical;
+use super::execute::execute_filter;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -106,24 +106,27 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        if let Some(canonical) = execute_fast_path(array, ctx)? {
+        if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
             return Ok(canonical);
         }
 
-        let canonical = filter_canonical(array.child.clone().execute(ctx)?, &array.mask);
+        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
+        // so now we can just execute the filter without worrying.
+        let canonical = execute_filter(array.child.clone().execute(ctx)?, &array.mask);
 
+        // Verify the resulting length and type.
         let result_len = array.mask.true_count();
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Filter result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
         vortex_ensure!(
             canonical.as_ref().len() == result_len,
             "Filter result length mismatch: expected {}, got {}",
             result_len,
             canonical.as_ref().len()
+        );
+        vortex_ensure!(
+            canonical.as_ref().dtype() == array.dtype(),
+            "Filter result dtype mismatch: expected {:?}, got {:?}",
+            array.dtype(),
+            canonical.as_ref().dtype()
         );
 
         Ok(canonical)
@@ -138,8 +141,8 @@ impl VTable for FilterVTable {
     }
 }
 
-/// Check for fast-path execution conditions.
-pub(super) fn execute_fast_path(
+/// Check for some fast-path execution conditions.
+pub(super) fn execute_filter_fast_paths(
     array: &FilterArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Option<Canonical>> {
