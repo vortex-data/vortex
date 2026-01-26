@@ -125,9 +125,8 @@ mod tests {
         assert_eq!(list_scalar.nbytes(), 3 * 4); // 3 * i32
 
         // Test extension scalar
-        let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable);
-        let ext_scalar = Scalar::extension(
-            ext_dtype,
+        let ext_scalar = Scalar::extension::<Date>(
+            TimeUnit::Days,
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
         assert_eq!(ext_scalar.nbytes(), 4); // i32 storage

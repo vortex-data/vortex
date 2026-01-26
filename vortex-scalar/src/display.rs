@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn display_local_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Timestamp::new_with_tz(TimeUnit::Seconds, None, Nullable).erase())
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erase())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");

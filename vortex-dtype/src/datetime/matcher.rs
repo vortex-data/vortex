@@ -1,22 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
+
+use vortex_error::VortexResult;
+
 use crate::datetime::Date;
 use crate::datetime::Time;
 use crate::datetime::Timestamp;
+use crate::datetime::TimestampOptions;
 use crate::extension::ExtDTypeRef;
 use crate::extension::Matcher;
 use crate::extension::VTable;
-
-/// Options for temporal extension data types.
-pub enum TemporalOptions<'a> {
-    /// Options for Timestamp dtypes
-    Timestamp(&'a <Timestamp as VTable>::Options),
-    /// Options for Date dtypes
-    Date(&'a <Date as VTable>::Options),
-    /// Options for Time dtypes
-    Time(&'a <Time as VTable>::Options),
-}
 
 /// Matcher for temporal extension data types.
 pub struct AnyTemporal;
@@ -28,12 +23,72 @@ impl Matcher for AnyTemporal {
         if let Some(opts) = item.try_options::<Timestamp>() {
             return Some(TemporalOptions::Timestamp(opts));
         }
-        if let Some(opts) = item.try_options::<Time>() {
+        if let Some(opts) = item.try_options::<Date>() {
             return Some(TemporalOptions::Date(opts));
         }
         if let Some(opts) = item.try_options::<Time>() {
             return Some(TemporalOptions::Time(opts));
         }
         None
+    }
+}
+
+/// Options for temporal extension data types.
+pub enum TemporalOptions<'a> {
+    /// Options for Timestamp dtypes
+    Timestamp(&'a <Timestamp as VTable>::Options),
+    /// Options for Date dtypes
+    Date(&'a <Date as VTable>::Options),
+    /// Options for Time dtypes
+    Time(&'a <Time as VTable>::Options),
+}
+
+// TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex-scalar.
+//  Currently this is used largely to implement scalar display hacks.
+impl TemporalOptions<'_> {
+    /// Convert a timestamp value to a Jiff value.
+    pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
+        match self {
+            TemporalOptions::Time(unit) => Ok(TemporalJiff::Time(
+                jiff::civil::Time::MIN.checked_add(unit.to_jiff_span(v)?)?,
+            )),
+            TemporalOptions::Date(unit) => Ok(TemporalJiff::Date(
+                jiff::civil::Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
+            )),
+            TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => match tz {
+                None => Ok(TemporalJiff::Unzoned(
+                    jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?
+                        .checked_add(unit.to_jiff_span(v)?)?,
+                )),
+                Some(tz) => Ok(TemporalJiff::Zoned(
+                    jiff::Timestamp::UNIX_EPOCH
+                        .checked_add(unit.to_jiff_span(v)?)?
+                        .in_tz(tz.as_ref())?,
+                )),
+            },
+        }
+    }
+}
+
+/// A Jiff representation of a temporal value.
+pub enum TemporalJiff {
+    /// A time value.
+    Time(jiff::civil::Time),
+    /// A date value.
+    Date(jiff::civil::Date),
+    /// A zone-naive timestamp value.
+    Unzoned(jiff::civil::DateTime),
+    /// A zoned timestamp value.
+    Zoned(jiff::Zoned),
+}
+
+impl Display for TemporalJiff {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TemporalJiff::Time(t) => write!(f, "{t}"),
+            TemporalJiff::Date(d) => write!(f, "{d}"),
+            TemporalJiff::Unzoned(dt) => write!(f, "{dt}"),
+            TemporalJiff::Zoned(z) => write!(f, "{z}"),
+        }
     }
 }

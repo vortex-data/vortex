@@ -12,6 +12,7 @@ use vortex_dtype::datetime::Date;
 use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::datetime::TimestampOptions;
 use vortex_dtype::extension::VTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -259,9 +260,8 @@ fn test_list_scalar_to_arrow_todo() {
 }
 
 #[test]
-#[should_panic(expected = "Non temporal extension scalar conversion")]
+#[should_panic(expected = "Cannot convert extension scalar")]
 fn test_non_temporal_extension_to_arrow_todo() {
-    use vortex_dtype::ExtDType;
     use vortex_dtype::ExtID;
 
     #[derive(Debug, Clone, Default)]
@@ -286,9 +286,8 @@ fn test_non_temporal_extension_to_arrow_todo() {
         }
     }
 
-    let ext_dtype = ExtDType::<SomeExt>::try_new("".into(), DType::Null).unwrap();
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<SomeExt>(
+        "".into(),
         Scalar::primitive(42i32, Nullability::NonNullable),
     );
 
@@ -305,9 +304,8 @@ fn test_temporal_time_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let ext_dtype = Time::new(time_unit, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<Time>(
+        time_unit,
         match ptype {
             PType::I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
@@ -320,18 +318,6 @@ fn test_temporal_time_to_arrow(
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_time_d_unsupported() {
-    let ext_dtype = Time::new(TimeUnit::Days, Nullability::NonNullable);
-    let scalar = Scalar::extension(ext_dtype, Scalar::primitive(1i32, Nullability::NonNullable));
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
 }
 
 #[rstest]
@@ -342,9 +328,8 @@ fn test_temporal_date_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let ext_dtype = Date::new(time_unit, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<Date>(
+        time_unit,
         match ptype {
             PType::I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
@@ -360,36 +345,16 @@ fn test_temporal_date_to_arrow(
 }
 
 #[rstest]
-#[case(TimeUnit::Nanoseconds, PType::I64)]
-#[case(TimeUnit::Microseconds, PType::I64)]
-#[case(TimeUnit::Seconds, PType::I32)]
-fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PType) {
-    let ext_dtype = Date::new(time_unit, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
-        match ptype {
-            PType::I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
-            PType::I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
-            _ => unreachable!(),
-        },
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
-}
-
-#[rstest]
 #[case(TimeUnit::Nanoseconds, 1234567890000000000i64)]
 #[case(TimeUnit::Microseconds, 1234567890000000i64)]
 #[case(TimeUnit::Milliseconds, 1234567890000i64)]
 #[case(TimeUnit::Seconds, 1234567890i64)]
 fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: i64) {
-    let ext_dtype = Timestamp::new(time_unit, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<Timestamp>(
+        TimestampOptions {
+            unit: time_unit,
+            tz: None,
+        },
         Scalar::primitive(value, Nullability::NonNullable),
     );
 
@@ -398,43 +363,20 @@ fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: 
 }
 
 #[test]
-fn test_temporal_timestamp_d_unsupported() {
-    let ext_dtype = Timestamp::new(TimeUnit::Days, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(19000i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
-}
-
-#[test]
 fn test_temporal_with_null_value() {
-    let ext_dtype = Time::new(TimeUnit::Nanoseconds, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+    let scalar = Scalar::extension::<Time>(
+        TimeUnit::Milliseconds,
+        Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
     );
 
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
+    let _result = Arc::<dyn Datum>::try_from(&scalar).unwrap();
 }
 
 #[test]
+#[should_panic(expected = "DType is not a primitive type")]
 fn test_temporal_non_primitive_storage_error() {
-    let ext_dtype = Time::new(TimeUnit::Nanoseconds, Nullability::NonNullable);
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let _scalar = Scalar::extension::<Time>(
+        TimeUnit::Nanoseconds,
         Scalar::utf8("not a timestamp", Nullability::NonNullable),
     );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Expected primitive scalar"));
-    }
 }

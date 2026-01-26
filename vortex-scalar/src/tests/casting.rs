@@ -14,22 +14,41 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
+    use vortex_dtype::extension::VTable;
     use vortex_dtype::half::f16;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
 
     use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
 
+    #[derive(Clone, Debug, Default)]
+    struct Apples;
+    impl VTable for Apples {
+        type Options = usize;
+
+        fn id(&self) -> ExtID {
+            ExtID::new_ref("apples")
+        }
+
+        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    impl Apples {
+        fn new() -> ExtDType<Apples> {
+            ExtDType::try_new(0, DType::Primitive(PType::U16, Nullability::NonNullable))
+                .vortex_expect("valid apples dtype")
+        }
+    }
+
     #[test]
     fn cast_to_from_extension_types() {
-        let apples = ExtDType::new(
-            ExtID::new(Arc::from("apples")),
-            Arc::from(DType::Primitive(PType::U16, Nullability::NonNullable)),
-            None,
-        );
-        let ext_dtype = DType::Extension(Arc::from(apples.clone()));
+        let apples = Apples::new();
+        let ext_dtype = DType::Extension(apples.clone().erase());
         let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
         let storage_scalar = Scalar::new(
             DType::clone(apples.storage_dtype()),
@@ -76,12 +95,10 @@ mod tests {
         assert_eq!(actual.dtype(), expected_dtype);
 
         // cast from *incompatible* storage type to extension
-        let apples_u8 = ExtDType::new(
-            ExtID::new(Arc::from("apples")),
-            Arc::from(DType::Primitive(PType::U8, Nullability::NonNullable)),
-            None,
-        );
-        let expected_dtype = &DType::Extension(Arc::from(apples_u8));
+        let apples_u8 =
+            ExtDType::<Apples>::try_new(0, DType::Primitive(PType::U8, Nullability::NonNullable))
+                .unwrap();
+        let expected_dtype = &DType::Extension(apples_u8.erase());
         let result = storage_scalar.cast(expected_dtype);
         assert!(
             result
@@ -294,16 +311,33 @@ mod tests {
     #[test]
     fn test_extension_dtype_coercion() {
         // Create an extension type with f16 storage
-        let ext_id = ExtID::new("test_f16_ext".into());
-        let storage_dtype = Arc::new(DType::Primitive(PType::F16, Nullability::NonNullable));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, storage_dtype, None));
+        #[derive(Debug, Clone, Default)]
+        struct F16Ext;
+        impl VTable for F16Ext {
+            type Options = usize;
+
+            fn id(&self) -> ExtID {
+                ExtID::new_ref("f16_ext")
+            }
+
+            fn validate(
+                &self,
+                _options: &Self::Options,
+                _storage_dtype: &DType,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
+        let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
+        let ext_dtype = ExtDType::<F16Ext>::try_new(0, storage_dtype).unwrap();
 
         // Test f16 value stored as u64 gets coerced through extension type
         let f16_value = f16::from_f32(0.42);
         let u64_bits = f16_value.to_bits() as u64;
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
+            DType::Extension(ext_dtype.erase()),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
 
@@ -322,8 +356,25 @@ mod tests {
     #[test]
     fn test_extension_dtype_nested_struct_coercion() {
         // Create an extension type with struct storage that contains f16 field
-        let ext_id = ExtID::new("test_struct_ext".into());
-        let struct_dtype = Arc::new(DType::Struct(
+        #[derive(Debug, Clone, Default)]
+        struct StructExt;
+        impl VTable for StructExt {
+            type Options = usize;
+
+            fn id(&self) -> ExtID {
+                ExtID::new_ref("struct_ext")
+            }
+
+            fn validate(
+                &self,
+                _options: &Self::Options,
+                _storage_dtype: &DType,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
+        let struct_dtype = DType::Struct(
             StructFields::from_iter([
                 (
                     "id",
@@ -335,8 +386,8 @@ mod tests {
                 ),
             ]),
             Nullability::NonNullable,
-        ));
-        let ext_dtype = Arc::new(ExtDType::new(ext_id, struct_dtype, None));
+        );
+        let ext_dtype = ExtDType::<StructExt>::try_new(0, struct_dtype).unwrap();
 
         // Create struct value with f16 stored as u64
         let f16_value = f16::from_f32(1.5);
@@ -348,7 +399,7 @@ mod tests {
         ];
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype),
+            DType::Extension(ext_dtype.erase()),
             ScalarValue(InnerScalarValue::List(field_values.into())),
         );
 

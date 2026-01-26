@@ -24,7 +24,7 @@ use crate::extension::ExtDTypeRef;
 /// The public API for defining new extension DTypes.
 pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
     /// Associated type containing the deserialized metadata for this extension type
-    type Options: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Eq + Hash;
+    type Options: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtID;
@@ -79,5 +79,14 @@ impl<V: VTable> DynVTable for V {
 
     fn clone_box(&self) -> Box<dyn DynVTable> {
         Box::new(self.clone())
+    }
+}
+
+/// An empty options struct for extension dtypes that do not require any options.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct EmptyOptions;
+impl Display for EmptyOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "")
     }
 }

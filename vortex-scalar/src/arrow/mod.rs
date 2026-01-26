@@ -125,7 +125,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
             }
             DType::Extension(ext) => {
                 let Some(temporal) = ext.try_options::<AnyTemporal>() else {
-                    vortex_bail!("Unsupported extension scalar conversion for {}", ext.id())
+                    vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
                 let storage_scalar = value.as_extension().storage();
