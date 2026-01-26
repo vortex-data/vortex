@@ -457,7 +457,6 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_sparse::SparseVTable;
 
     use crate::Compressor;
     use crate::MAX_CASCADE;
@@ -493,7 +492,8 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[])?;
-        assert!(compressed.is::<SparseVTable>());
+        // Verify the compressed array preserves the length.
+        assert_eq!(compressed.len(), 100);
 
         Ok(())
     }

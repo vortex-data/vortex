@@ -121,16 +121,20 @@ fn test_list_filter_dense_mask() {
     let mask = Mask::from(BitBuffer::from(vec![false, true, true, true, true, true]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
     // Should have 5 lists remaining.
-    assert_eq!(filtered_list.len(), 5);
+    assert_eq!(filtered.len(), 5);
 
-    // Verify first remaining list (originally index 1) has correct elements [10..25].
-    assert_arrays_eq!(
-        filtered_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter(10..25)
-    );
+    // Construct expected ListArray with elements from indices 1, 2, 3, 4, 5.
+    // [10..25], [25..40], [40..60], [60..85], [85..100].
+    let expected = ListArray::try_new(
+        buffer![10..100].into_array(),
+        buffer![0u32, 15, 30, 50, 75, 90].into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
+
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -150,22 +154,20 @@ fn test_list_filter_sparse_mask() {
     ]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
     // Should have 2 lists remaining.
-    assert_eq!(filtered_list.len(), 2);
+    assert_eq!(filtered.len(), 2);
 
-    // Verify first list (originally index 0) has elements [0..10].
-    assert_arrays_eq!(
-        filtered_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter(0..10)
-    );
+    // Construct expected: lists at indices 0 ([0..10]) and 5 ([85..100]).
+    let expected_elements: Vec<i32> = (0..10).chain(85..100).collect();
+    let expected = ListArray::try_new(
+        PrimitiveArray::from_iter(expected_elements).into_array(),
+        buffer![0u32, 10, 25].into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
 
-    // Verify second list (originally index 5) has elements [85..100].
-    assert_arrays_eq!(
-        filtered_list.list_elements_at(1).unwrap(),
-        PrimitiveArray::from_iter(85..100)
-    );
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -182,24 +184,18 @@ fn test_list_filter_empty_lists() {
     let mask = Mask::from(BitBuffer::from(vec![true, true, true, false, false, true]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    assert_eq!(filtered_list.len(), 4);
+    assert_eq!(filtered.len(), 4);
 
-    // First list is empty.
-    assert_eq!(filtered_list.list_elements_at(0).unwrap().len(), 0);
+    // Construct expected: keep indices 0 (empty), 1 ([0..3]), 2 (empty), 5 (empty).
+    let expected = ListArray::try_new(
+        buffer![0..3].into_array(),
+        buffer![0u32, 0, 3, 3, 3].into_array(), // empty, [0..3], empty, empty.
+        Validity::AllValid,
+    )
+    .unwrap();
 
-    // Second list has elements [0..3].
-    assert_arrays_eq!(
-        filtered_list.list_elements_at(1).unwrap(),
-        PrimitiveArray::from_iter(0..3)
-    );
-
-    // Third list is empty.
-    assert_eq!(filtered_list.list_elements_at(2).unwrap().len(), 0);
-
-    // Fourth list is empty.
-    assert_eq!(filtered_list.list_elements_at(3).unwrap().len(), 0);
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -219,15 +215,14 @@ fn test_list_filter_with_nulls() {
     let mask = Mask::from(BitBuffer::from(vec![true, true, false, true, true]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    assert_eq!(filtered_list.len(), 4);
+    assert_eq!(filtered.len(), 4);
 
-    // Check validity of filtered array.
-    assert!(filtered_list.scalar_at(0).unwrap().is_valid());
-    assert!(!filtered_list.scalar_at(1).unwrap().is_valid()); // Was null.
-    assert!(!filtered_list.scalar_at(2).unwrap().is_valid()); // Was null.
-    assert!(filtered_list.scalar_at(3).unwrap().is_valid());
+    // Check validity of filtered array using scalar_at (works on any array).
+    assert!(filtered.scalar_at(0).unwrap().is_valid());
+    assert!(!filtered.scalar_at(1).unwrap().is_valid()); // Was null.
+    assert!(!filtered.scalar_at(2).unwrap().is_valid()); // Was null.
+    assert!(filtered.scalar_at(3).unwrap().is_valid());
 }
 
 #[test]
@@ -237,26 +232,19 @@ fn test_list_filter_all_true() {
     let offsets = buffer![0, 5, 10, 15, 20].into_array();
     let validity = Validity::AllValid;
 
-    let list = ListArray::try_new(elements, offsets, validity)
+    let list = ListArray::try_new(elements.clone(), offsets.clone(), validity.clone())
         .unwrap()
         .into_array();
 
     let mask = Mask::AllTrue(4);
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
     // All lists should be preserved.
-    assert_eq!(filtered_list.len(), 4);
+    assert_eq!(filtered.len(), 4);
 
-    // Verify all lists are intact: [0..5], [5..10], [10..15], [15..20].
-    for i in 0..4 {
-        let ii32 = i32::try_from(i).vortex_expect("must fit");
-        assert_arrays_eq!(
-            filtered_list.list_elements_at(i).unwrap(),
-            PrimitiveArray::from_iter((ii32 * 5)..(ii32 + 1) * 5)
-        );
-    }
+    let expected = ListArray::try_new(elements, offsets, validity).unwrap();
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -293,15 +281,18 @@ fn test_list_filter_single_element() {
     let mask = Mask::from(BitBuffer::from(vec![false, false, true, false, false]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    assert_eq!(filtered_list.len(), 1);
+    assert_eq!(filtered.len(), 1);
 
-    // The single remaining list has elements [20..30].
-    assert_arrays_eq!(
-        filtered_list.list_elements_at(0).unwrap(),
-        PrimitiveArray::from_iter(20..30)
-    );
+    // Construct expected: single list with elements [20..30].
+    let expected = ListArray::try_new(
+        buffer![20..30].into_array(),
+        buffer![0u32, 10].into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
+
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -321,17 +312,22 @@ fn test_list_filter_alternating_pattern() {
     ]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    assert_eq!(filtered_list.len(), 6);
+    assert_eq!(filtered.len(), 6);
 
-    // Verify we have the correct lists: [0..5], [10..15], [20..25], [30..35], [40..45], [50..55].
-    for (i, expected_start) in [0, 10, 20, 30, 40, 50].iter().enumerate() {
-        assert_arrays_eq!(
-            filtered_list.list_elements_at(i).unwrap(),
-            PrimitiveArray::from_iter(*expected_start..*expected_start + 5)
-        );
-    }
+    // Construct expected: [0..5], [10..15], [20..25], [30..35], [40..45], [50..55].
+    let expected_elements: Vec<i32> = [0, 10, 20, 30, 40, 50]
+        .iter()
+        .flat_map(|&start| start..start + 5)
+        .collect();
+    let expected = ListArray::try_new(
+        PrimitiveArray::from_iter(expected_elements).into_array(),
+        buffer![0u32, 5, 10, 15, 20, 25, 30].into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
+
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]
@@ -350,17 +346,28 @@ fn test_list_filter_variable_sizes() {
     ]));
 
     let filtered = filter(&list, &mask).unwrap();
-    let filtered_list = filtered.as_::<ListVTable>();
 
-    assert_eq!(filtered_list.len(), 6);
+    assert_eq!(filtered.len(), 6);
 
-    // Verify sizes of filtered lists.
-    assert_eq!(filtered_list.list_elements_at(0).unwrap().len(), 1); // Size 1
-    assert_eq!(filtered_list.list_elements_at(1).unwrap().len(), 3); // Size 3
-    assert_eq!(filtered_list.list_elements_at(2).unwrap().len(), 5); // Size 5
-    assert_eq!(filtered_list.list_elements_at(3).unwrap().len(), 15); // Size 15
-    assert_eq!(filtered_list.list_elements_at(4).unwrap().len(), 25); // Size 25
-    assert_eq!(filtered_list.list_elements_at(5).unwrap().len(), 40); // Size 40
+    // Construct expected: indices 0, 2, 3, 5, 6, 7.
+    // Sizes: 1, 3, 5, 15, 25, 40.
+    // Elements: [0], [2..5], [5..10], [20..35], [35..60], [60..100].
+    let expected_elements: Vec<i32> = vec![0]
+        .into_iter()
+        .chain(2..5)
+        .chain(5..10)
+        .chain(20..35)
+        .chain(35..60)
+        .chain(60..100)
+        .collect();
+    let expected = ListArray::try_new(
+        PrimitiveArray::from_iter(expected_elements).into_array(),
+        buffer![0u32, 1, 4, 9, 24, 49, 89].into_array(),
+        Validity::AllValid,
+    )
+    .unwrap();
+
+    assert_arrays_eq!(filtered, expected);
 }
 
 #[test]

@@ -73,12 +73,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    FILTER_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into(), mask.into()],
-            options: &(),
-        })?
-        .unwrap_array()
+    // TODO(connor): Remove this function completely!!!
+    array.filter(mask.clone())
 }
 
 struct Filter;

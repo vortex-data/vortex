@@ -88,7 +88,7 @@ fn test_fsst_array_ops() {
     let mask = Mask::from_iter([false, true, true]);
 
     let fsst_filtered = filter(&fsst_array, &mask).unwrap();
-    assert!(fsst_filtered.is::<FSSTVTable>());
+
     assert_eq!(fsst_filtered.len(), 2);
     assert_nth_scalar!(
         fsst_filtered,
