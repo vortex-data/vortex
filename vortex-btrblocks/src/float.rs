@@ -482,6 +482,7 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::display::DisplayOptions;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer_mut;
@@ -522,7 +523,14 @@ mod tests {
 
         let floats = values.into_array().to_primitive();
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[])?;
-        println!("compressed: {}", compressed.display_tree());
+        assert_eq!(compressed.len(), 1024);
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.dict(f32, len=1024)");
+
         Ok(())
     }
 
@@ -557,10 +565,14 @@ mod tests {
         let floats = array.finish_into_primitive();
 
         let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[])?;
-
-        // Verify the compressed array has the same length and is not empty.
         assert_eq!(compressed.len(), 96);
-        assert!(!compressed.is_empty());
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.primitive(f32?, len=96)");
+
         Ok(())
     }
 }
