@@ -14,8 +14,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionArray;
 use crate::arrays::FilterArray;
 use crate::arrays::FixedSizeListArray;
@@ -28,6 +26,7 @@ use crate::compute::FilterKernel;
 use crate::validity::Validity;
 
 mod bool;
+mod decimal;
 mod primitive;
 mod struct_;
 mod varbinview;
@@ -84,7 +83,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
         Canonical::Null(_) => Canonical::Null(NullArray::new(mask.true_count())),
         Canonical::Bool(a) => Canonical::Bool(bool::filter_bool(&a, mask)),
         Canonical::Primitive(a) => Canonical::Primitive(primitive::filter_primitive(&a, mask)),
-        Canonical::Decimal(a) => Canonical::Decimal(filter_decimal(&a, mask)),
+        Canonical::Decimal(a) => Canonical::Decimal(decimal::filter_decimal(&a, mask)),
         Canonical::VarBinView(a) => Canonical::VarBinView(varbinview::filter_varbinview(&a, mask)),
         Canonical::List(a) => Canonical::List(filter_listview(&a, mask)),
         Canonical::FixedSizeList(a) => Canonical::FixedSizeList(filter_fixed_size_list(&a, mask)),
@@ -97,14 +96,6 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Mask) -> Canonical {
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
     }
-}
-
-fn filter_decimal(array: &DecimalArray, mask: &Mask) -> DecimalArray {
-    DecimalVTable
-        .filter(array, mask)
-        .vortex_expect("filter decimal array")
-        .as_::<DecimalVTable>()
-        .clone()
 }
 
 fn filter_listview(array: &ListViewArray, mask: &Mask) -> ListViewArray {
