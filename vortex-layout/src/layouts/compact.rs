@@ -42,7 +42,8 @@ fn is_pco_number_type(ptype: PType) -> bool {
 pub struct CompactCompressor {
     pco_level: usize,
     zstd_level: i32,
-    values_per_page: usize,
+    zstd_use_dicts: bool,
+    zstd_values_per_page: usize,
 }
 
 impl CompactCompressor {
@@ -56,14 +57,19 @@ impl CompactCompressor {
         self
     }
 
+    pub fn with_zstd_use_dicts(mut self, use_dicts: bool) -> Self {
+        self.zstd_use_dicts = use_dicts;
+        self
+    }
+
     /// Sets the number of non-null primitive values to store per
     /// separately-decompressible page/frame.
     ///
     /// Fewer values per page can reduce the time to query a small slice of rows, but too
     /// few can increase compressed size and (de)compression time. The default is 0, which
     /// is used for maximally-large pages.
-    pub fn with_values_per_page(mut self, values_per_page: usize) -> Self {
-        self.values_per_page = values_per_page;
+    pub fn with_zstd_values_per_page(mut self, values_per_page: usize) -> Self {
+        self.zstd_values_per_page = values_per_page;
         self
     }
 
@@ -81,14 +87,17 @@ impl CompactCompressor {
                 let ptype = primitive.ptype();
 
                 if is_pco_number_type(ptype) {
-                    let pco_array =
-                        PcoArray::from_primitive(primitive, self.pco_level, self.values_per_page)?;
+                    let pco_array = PcoArray::from_primitive(
+                        primitive,
+                        self.pco_level,
+                        self.zstd_values_per_page,
+                    )?;
                     pco_array.into_array()
                 } else {
                     let zstd_array = ZstdArray::from_primitive(
                         primitive,
                         self.zstd_level,
-                        self.values_per_page,
+                        self.zstd_values_per_page,
                     )?;
                     zstd_array.into_array()
                 }
@@ -119,7 +128,7 @@ impl CompactCompressor {
             }
             Canonical::VarBinView(vbv) => {
                 // always zstd
-                ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.values_per_page)?
+                ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.zstd_values_per_page)?
                     .into_array()
             }
             Canonical::Struct(struct_array) => {
@@ -198,7 +207,7 @@ impl Default for CompactCompressor {
             // compression. It also currently aligns with the default strategy's
             // number of rows per statistic, which allows efficient pushdown
             // (but nothing enforces this).
-            values_per_page: 8192,
+            zstd_values_per_page: 8192,
         }
     }
 }

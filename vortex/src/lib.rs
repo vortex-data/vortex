@@ -248,7 +248,7 @@ mod test {
 
         // Or apply generally stronger compression with the compact compressor
         let compressed = CompactCompressor::default()
-            .with_values_per_page(8192)
+            .with_zstd_values_per_page(8192)
             .compress(array.as_ref())?;
         println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
