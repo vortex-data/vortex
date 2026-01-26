@@ -4,7 +4,6 @@
 use std::ops::Deref;
 
 use pyo3::PyClass;
-use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use vortex::array::Array;
 use vortex::array::ArrayAdapter;
@@ -180,10 +179,12 @@ impl PyNativeArray {
             return Self::with_subclass(py, array, PySequenceArray);
         }
 
-        Err(PyTypeError::new_err(format!(
-            "Unrecognized native array {}",
-            array.encoding_id()
-        )))
+        Ok(Bound::new(
+            py,
+            PyClassInitializer::from(PyArray).add_subclass(PyNativeArray(array)),
+        )?
+        .into_any()
+        .cast_into::<PyNativeArray>()?)
     }
 
     fn with_subclass<S: PyClass<BaseType = PyNativeArray>>(
