@@ -32,7 +32,6 @@ use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::DefaultVortexReaderFactory;
@@ -46,7 +45,6 @@ use crate::convert::exprs::ExpressionConvertor;
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) session: VortexSession,
-    pub(crate) file_cache: VortexFileCache,
     pub(crate) table_schema: TableSchema,
     pub(crate) projection: ProjectionExprs,
     /// Combined predicate expression containing all filters from DataFusion query planning.
@@ -67,18 +65,13 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(
-        table_schema: TableSchema,
-        session: VortexSession,
-        file_cache: VortexFileCache,
-    ) -> Self {
+    pub(crate) fn new(table_schema: TableSchema, session: VortexSession) -> Self {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
 
         Self {
             session,
-            file_cache,
             table_schema,
             projection,
             full_predicate: None,
@@ -151,7 +144,6 @@ impl FileSource for VortexSource {
             file_pruning_predicate: self.full_predicate.clone(),
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
-            file_cache: self.file_cache.clone(),
             batch_size,
             limit: base_config.limit,
             metrics: partition_metrics,
