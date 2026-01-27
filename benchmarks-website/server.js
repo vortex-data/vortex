@@ -530,7 +530,7 @@ const server = http.createServer((req, res) => {
     );
   }
 
-  const fp = path.join(__dirname, path_ === '/' ? 'index.html' : path_);
+  const fp = path.join(__dirname, 'dist', path_ === '/' ? 'index.html' : path_);
   if (!fp.startsWith(__dirname) || fp.includes('/sample/')) { res.writeHead(403); return res.end('Forbidden'); }
   serveFile(res, fp);
 });
