@@ -14,6 +14,7 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
@@ -49,6 +50,9 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
+
+    /// Returns the alignment of the buffer.
+    fn alignment(&self) -> Alignment;
 
     /// Returns true if the buffer is empty.
     fn is_empty(&self) -> bool {
@@ -127,6 +131,40 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(bytes) => bytes.len(),
             Inner::Device(device) => device.len(),
+        }
+    }
+
+    /// Returns the alignment of the buffer.
+    pub fn alignment(&self) -> Alignment {
+        match &self.0 {
+            Inner::Host(bytes) => bytes.alignment(),
+            Inner::Device(device) => device.alignment(),
+        }
+    }
+
+    /// Returns true if the buffer is aligned to the given alignment.
+    pub fn is_aligned(&self, alignment: Alignment) -> bool {
+        self.alignment().is_aligned_to(alignment)
+    }
+
+    /// Ensure the buffer satisfies the requested alignment.
+    ///
+    /// Host buffers will be copied if necessary. Device buffers will error if the
+    /// alignment requirement is not met.
+    pub fn ensure_aligned(&self, alignment: Alignment) -> VortexResult<Self> {
+        match &self.0 {
+            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.clone().aligned(alignment))),
+            Inner::Device(device) => {
+                if device.alignment().is_aligned_to(alignment) {
+                    Ok(self.clone())
+                } else {
+                    vortex_bail!(
+                        "Device buffer alignment {} does not satisfy required alignment {}",
+                        device.alignment(),
+                        alignment
+                    );
+                }
+            }
         }
     }
 

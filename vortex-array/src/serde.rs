@@ -492,11 +492,7 @@ impl ArrayParts {
     ) -> VortexResult<Self> {
         // We align each buffer individually, so we remove alignment requirements on the segment
         // for host-resident buffers. Device buffers are sliced directly.
-        let segment = if let Some(host) = segment.as_host_opt() {
-            BufferHandle::new_host(host.clone().aligned(Alignment::none()))
-        } else {
-            segment
-        };
+        let segment = segment.ensure_aligned(Alignment::none())?;
 
         let fb_buffer = FlatBuffer::align_from(array_tree);
 
@@ -507,7 +503,7 @@ impl ArrayParts {
             let flatbuffer_loc = fb_root._tab.loc();
 
             let mut offset = 0;
-            let buffers: Arc<[_]> = fb_array
+            let buffers: VortexResult<Vec<_>> = fb_array
                 .buffers()
                 .unwrap_or_default()
                 .iter()
@@ -519,19 +515,14 @@ impl ArrayParts {
 
                     // Extract a buffer and ensure it's aligned, copying if necessary
                     let buffer = segment.slice(offset..(offset + buffer_len));
-                    let buffer = if let Some(host) = buffer.as_host_opt() {
-                        BufferHandle::new_host(
-                            host.clone().aligned(Alignment::from_exponent(
-                                fb_buf.alignment_exponent(),
-                            )),
-                        )
-                    } else {
-                        buffer
-                    };
+                    let buffer = buffer.ensure_aligned(Alignment::from_exponent(
+                        fb_buf.alignment_exponent(),
+                    ))?;
                     offset += buffer_len;
-                    buffer
+                    Ok(buffer)
                 })
                 .collect();
+            let buffers: Arc<[_]> = buffers?.into();
 
             (flatbuffer_loc, buffers)
         };

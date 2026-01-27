@@ -17,6 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity::NonNullable;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
@@ -144,7 +145,8 @@ fn benchmark_dict_u32_u8(c: &mut Criterion) {
                         let output_slice = cuda_ctx
                             .device_alloc::<u32>(dict_array.len())
                             .vortex_expect("failed to allocate output");
-                        let output_device = CudaDeviceBuffer::new(output_slice);
+                        let output_device =
+                            CudaDeviceBuffer::new(output_slice, Alignment::of::<u32>());
 
                         let kernel_time = launch_dict_kernel_timed(
                             codes_device
@@ -207,7 +209,8 @@ fn benchmark_dict_u32_u16(c: &mut Criterion) {
                         let output_slice = cuda_ctx
                             .device_alloc::<u32>(dict_array.len())
                             .vortex_expect("failed to allocate output");
-                        let output_device = CudaDeviceBuffer::new(output_slice);
+                        let output_device =
+                            CudaDeviceBuffer::new(output_slice, Alignment::of::<u32>());
 
                         let kernel_time = launch_dict_kernel_timed(
                             codes_device
@@ -270,7 +273,8 @@ fn benchmark_dict_u64_u8(c: &mut Criterion) {
                         let output_slice = cuda_ctx
                             .device_alloc::<u64>(dict_array.len())
                             .vortex_expect("failed to allocate output");
-                        let output_device = CudaDeviceBuffer::new(output_slice);
+                        let output_device =
+                            CudaDeviceBuffer::new(output_slice, Alignment::of::<u64>());
 
                         let kernel_time = launch_dict_kernel_timed(
                             codes_device
@@ -333,7 +337,8 @@ fn benchmark_dict_u64_u32(c: &mut Criterion) {
                         let output_slice = cuda_ctx
                             .device_alloc::<u64>(dict_array.len())
                             .vortex_expect("failed to allocate output");
-                        let output_device = CudaDeviceBuffer::new(output_slice);
+                        let output_device =
+                            CudaDeviceBuffer::new(output_slice, Alignment::of::<u64>());
 
                         let kernel_time = launch_dict_kernel_timed(
                             codes_device

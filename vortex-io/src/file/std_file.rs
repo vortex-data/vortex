@@ -18,13 +18,11 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
-use crate::WriteTarget;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
@@ -110,7 +108,7 @@ impl VortexReadAt for FileReadAdapter {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = self.file.clone();
         let handle = self.handle.clone();
         async move {
@@ -119,29 +117,9 @@ impl VortexReadAt for FileReadAdapter {
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
                     unsafe { buffer.set_len(length) };
                     read_exact_at(&file, &mut buffer, offset)?;
-                    Ok(buffer.freeze())
+                    Ok(BufferHandle::new_host(buffer.freeze()))
                 })
                 .await
-        }
-        .boxed()
-    }
-
-    fn read_at_into(
-        &self,
-        offset: u64,
-        mut target: Box<dyn WriteTarget>,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let file = self.file.clone();
-        let handle = self.handle.clone();
-        async move {
-            let target = handle
-                .spawn_blocking(move || {
-                    read_exact_at(&file, target.as_mut_slice(), offset)?;
-                    Ok::<_, io::Error>(target)
-                })
-                .await
-                .map_err(io::Error::other)?;
-            target.into_handle().await
         }
         .boxed()
     }

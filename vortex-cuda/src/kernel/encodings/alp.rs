@@ -18,6 +18,7 @@ use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -83,7 +84,7 @@ where
 
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(array_len)?;
-    let output_buf = CudaDeviceBuffer::new(output_slice);
+    let output_buf = CudaDeviceBuffer::new(output_slice, Alignment::of::<A>());
     let output_view = output_buf.as_view();
 
     let array_len_u64 = array_len as u64;

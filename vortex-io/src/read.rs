@@ -11,12 +11,15 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
 
-use crate::WriteTarget;
+use crate::BufferAllocator;
+use crate::ReadRegion;
+
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
 pub struct CoalesceConfig {
@@ -73,7 +76,7 @@ pub trait VortexReadAt: Send + Sync + 'static {
     /// Asynchronously get the number of bytes of the underlying source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 
-    /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
+    /// Request an asynchronous positional read. Results will be returned as a [`BufferHandle`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error.
@@ -82,13 +85,6 @@ pub trait VortexReadAt: Send + Sync + 'static {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
-
-    /// Read into a pre-allocated target buffer.
-    fn read_at_into(
-        &self,
-        offset: u64,
-        target: Box<dyn WriteTarget>,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>>;
 }
 
@@ -114,16 +110,8 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        self.as_ref().read_at(offset, length, alignment)
-    }
-
-    fn read_at_into(
-        &self,
-        offset: u64,
-        target: Box<dyn WriteTarget>,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        self.as_ref().read_at_into(offset, target)
+        self.as_ref().read_at(offset, length, alignment)
     }
 }
 
@@ -149,16 +137,8 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
-        self.as_ref().read_at(offset, length, alignment)
-    }
-
-    fn read_at_into(
-        &self,
-        offset: u64,
-        target: Box<dyn WriteTarget>,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        self.as_ref().read_at_into(offset, target)
+        self.as_ref().read_at(offset, length, alignment)
     }
 
     // fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
@@ -183,7 +163,7 @@ impl VortexReadAt for ByteBuffer {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let buffer = self.clone();
         async move {
             let start = usize::try_from(offset).vortex_expect("start too big for usize");
@@ -197,33 +177,9 @@ impl VortexReadAt for ByteBuffer {
                     buffer.len()
                 );
             }
-            Ok(buffer.slice_unaligned(start..end).aligned(alignment))
-        }
-        .boxed()
-    }
-
-    fn read_at_into(
-        &self,
-        offset: u64,
-        mut target: Box<dyn WriteTarget>,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let buffer = self.clone();
-        async move {
-            let start = usize::try_from(offset).vortex_expect("start too big for usize");
-            let end = usize::try_from(offset + target.len() as u64)
-                .vortex_expect("end too big for usize");
-            if end > buffer.len() {
-                vortex_bail!(
-                    "Requested range {}..{} out of bounds for buffer of length {}",
-                    start,
-                    end,
-                    buffer.len()
-                );
-            }
-            target
-                .as_mut_slice()
-                .copy_from_slice(&buffer.as_ref()[start..end]);
-            target.into_handle().await
+            Ok(BufferHandle::new_host(
+                buffer.slice_unaligned(start..end).aligned(alignment),
+            ))
         }
         .boxed()
     }
@@ -236,6 +192,19 @@ pub struct InstrumentedReadAt<T: VortexReadAt + Clone> {
     sizes: Arc<Histogram>,
     total_size: Arc<Counter>,
     durations: Arc<Timer>,
+}
+
+/// A wrapper that uses an allocator to produce the returned buffer handle.
+#[derive(Clone)]
+pub struct AllocatingReadAt<T: VortexReadAt + Clone> {
+    read: T,
+    allocator: Arc<dyn BufferAllocator>,
+}
+
+impl<T: VortexReadAt + Clone> AllocatingReadAt<T> {
+    pub fn new(read: T, allocator: Arc<dyn BufferAllocator>) -> Self {
+        Self { read, allocator }
+    }
 }
 
 impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
@@ -298,7 +267,7 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let durations = self.durations.clone();
         let sizes = self.sizes.clone();
         let total_size = self.total_size.clone();
@@ -312,23 +281,54 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
         }
         .boxed()
     }
+}
 
-    fn read_at_into(
+impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
+    fn uri(&self) -> Option<&Arc<str>> {
+        self.read.uri()
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.read.coalesce_config()
+    }
+
+    fn concurrency(&self) -> usize {
+        self.read.concurrency()
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.read.size()
+    }
+
+    fn read_at(
         &self,
         offset: u64,
-        target: Box<dyn WriteTarget>,
+        length: usize,
+        alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let durations = self.durations.clone();
-        let sizes = self.sizes.clone();
-        let total_size = self.total_size.clone();
-        let length = target.len();
-        let read_fut = self.read.read_at_into(offset, target);
+        let read = self.read.clone();
+        let allocator = self.allocator.clone();
         async move {
-            let _timer = durations.time();
-            let result = read_fut.await;
-            sizes.update(length as i64);
-            total_size.add(length as i64);
-            result
+            let handle = read.read_at(offset, length, alignment).await?;
+            if handle.is_on_device() {
+                return Ok(handle);
+            }
+
+            let host = handle
+                .as_host_opt()
+                .ok_or_else(|| vortex_err!("expected host buffer"))?;
+            let mut target = allocator.allocate(length, alignment)?;
+            match target.region() {
+                ReadRegion::HostSlice(slice) => {
+                    slice.copy_from_slice(host.as_slice());
+                }
+                ReadRegion::Registered(_) | ReadRegion::Device(_) => {
+                    return Err(vortex_err!(
+                        "AllocatingReadAt does not support non-host read regions"
+                    ));
+                }
+            }
+            target.into_handle().await
         }
         .boxed()
     }
@@ -362,7 +362,7 @@ mod tests {
         let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
 
         let result = data.read_at(1, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.as_ref(), &[2, 3, 4]);
+        assert_eq!(result.to_host_sync().as_ref(), &[2, 3, 4]);
     }
 
     #[tokio::test]
@@ -378,7 +378,7 @@ mod tests {
         let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
 
         let result = data.read_at(2, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.as_ref(), &[3, 4, 5]);
+        assert_eq!(result.to_host_sync().as_ref(), &[3, 4, 5]);
 
         let size = data.size().await.unwrap();
         assert_eq!(size, 5);

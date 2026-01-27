@@ -135,22 +135,29 @@ impl CoalescedRequest {
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
         match result {
             Ok(buffer) => {
-                if let Some(host) = buffer.as_host_opt() {
-                    let host = host.clone().aligned(Alignment::none());
-                    for req in self.requests.into_iter() {
-                        let start = usize::try_from(req.offset - self.range.start)
-                            .vortex_expect("invalid offset");
-                        let end = start + req.length;
-                        let slice = host.slice(start..end).aligned(req.alignment);
-                        req.resolve(Ok(BufferHandle::new_host(slice)));
+                let base = match buffer.ensure_aligned(Alignment::none()) {
+                    Ok(base) => base,
+                    Err(e) => {
+                        let e = Arc::new(e);
+                        for req in self.requests.into_iter() {
+                            req.resolve(Err(VortexError::from(e.clone())));
+                        }
+                        return;
                     }
-                } else {
-                    for req in self.requests.into_iter() {
-                        let start = usize::try_from(req.offset - self.range.start)
-                            .vortex_expect("invalid offset");
-                        let end = start + req.length;
-                        req.resolve(Ok(buffer.slice(start..end)));
-                    }
+                };
+
+                for req in self.requests.into_iter() {
+                    let start = usize::try_from(req.offset - self.range.start)
+                        .vortex_expect("invalid offset");
+                    let end = start + req.length;
+                    let slice = match base.slice(start..end).ensure_aligned(req.alignment) {
+                        Ok(slice) => slice,
+                        Err(e) => {
+                            req.resolve(Err(e));
+                            continue;
+                        }
+                    };
+                    req.resolve(Ok(slice));
                 }
             }
             Err(e) => {

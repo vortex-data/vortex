@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::AllocatingReadAt;
 use vortex_io::BufferAllocator;
 use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
@@ -169,7 +170,11 @@ impl VortexOpenOptions {
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
         let metrics = self.metrics.clone().unwrap_or_default();
         let reader = InstrumentedReadAt::new(reader, &metrics);
-        let reader: Arc<dyn VortexReadAt> = Arc::new(reader);
+        let reader: Arc<dyn VortexReadAt> = if let Some(allocator) = &self.allocator {
+            Arc::new(AllocatingReadAt::new(reader, allocator.clone()))
+        } else {
+            Arc::new(reader)
+        };
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
@@ -186,12 +191,11 @@ impl VortexOpenOptions {
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(
-            FileSegmentSource::open_with_allocator(
+            FileSegmentSource::open(
                 footer.segment_map().clone(),
                 reader,
                 self.session.handle(),
                 metrics.clone(),
-                self.allocator.clone(),
             ),
         ));
 
@@ -225,7 +229,8 @@ impl VortexOpenOptions {
         let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = read
             .read_at(initial_offset, initial_read_size, Alignment::none())
-            .await?;
+            .await?
+            .try_into_host_sync()?;
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
@@ -234,7 +239,10 @@ impl VortexOpenOptions {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = read.read_at(offset, len, Alignment::none()).await?;
+                    let more_data = read
+                        .read_at(offset, len, Alignment::none())
+                        .await?
+                        .try_into_host_sync()?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
@@ -332,7 +340,7 @@ mod tests {
             offset: u64,
             length: usize,
             alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             self.total_read.fetch_add(length, Ordering::Relaxed);
             let _ = self.first_read_len.compare_exchange(
                 0,
@@ -341,22 +349,6 @@ mod tests {
                 Ordering::Relaxed,
             );
             self.inner.read_at(offset, length, alignment)
-        }
-
-        fn read_at_into(
-            &self,
-            offset: u64,
-            target: Box<dyn vortex_io::WriteTarget>,
-        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-            let length = target.len();
-            self.total_read.fetch_add(length, Ordering::Relaxed);
-            let _ = self.first_read_len.compare_exchange(
-                0,
-                length,
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            );
-            self.inner.read_at_into(offset, target)
         }
 
         fn concurrency(&self) -> usize {

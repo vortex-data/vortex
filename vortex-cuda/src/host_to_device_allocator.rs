@@ -14,7 +14,8 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::BufferAllocator;
-use vortex_io::WriteTarget;
+use vortex_io::ReadRegion;
+use vortex_io::ReadTarget;
 use vortex_session::VortexSession;
 
 use crate::device_buffer::CudaDeviceBuffer;
@@ -38,7 +39,7 @@ impl HostToDeviceAllocator {
 }
 
 impl BufferAllocator for HostToDeviceAllocator {
-    fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<Box<dyn WriteTarget>> {
+    fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<Box<dyn ReadTarget>> {
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
         unsafe { buffer.set_len(len) };
         Ok(Box::new(NaiveDeviceWriteTarget {
@@ -55,13 +56,13 @@ struct NaiveDeviceWriteTarget {
     alignment: Alignment,
 }
 
-impl WriteTarget for NaiveDeviceWriteTarget {
-    fn as_mut_slice(&mut self) -> &mut [u8] {
-        self.buffer.as_mut()
-    }
-
+impl ReadTarget for NaiveDeviceWriteTarget {
     fn len(&self) -> usize {
         self.buffer.len()
+    }
+
+    fn region(&mut self) -> ReadRegion<'_> {
+        ReadRegion::HostSlice(self.buffer.as_mut())
     }
 
     fn into_handle(self: Box<Self>) -> BoxFuture<'static, VortexResult<BufferHandle>> {
@@ -69,16 +70,6 @@ impl WriteTarget for NaiveDeviceWriteTarget {
         let alignment = self.alignment;
         let host = self.buffer;
         async move {
-            let ptr = host.as_ref().as_ptr() as usize;
-            let align = *alignment;
-            if align > 1 && ptr % align != 0 {
-                return Err(vortex_err!(
-                    "Host buffer not aligned to {} (ptr=0x{:x})",
-                    align,
-                    ptr
-                ));
-            }
-
             let len = host.len();
             let mut device = unsafe { stream.alloc::<u8>(len) }
                 .map_err(|e| vortex_err!("Failed to allocate device memory: {e}"))?;
@@ -95,7 +86,9 @@ impl WriteTarget for NaiveDeviceWriteTarget {
             // Keep the host buffer alive until the copy completes.
             let _keep_alive = host;
 
-            Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device))))
+            Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+                device, alignment,
+            ))))
         }
         .boxed()
     }

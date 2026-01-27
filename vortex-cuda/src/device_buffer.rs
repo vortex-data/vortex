@@ -27,11 +27,12 @@ pub struct CudaDeviceBuffer<T> {
     offset: usize,
     len: usize,
     device_ptr: u64,
+    alignment: Alignment,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     /// Creates a new CUDA device buffer from a [`CudaSlice`].
-    pub fn new(cuda_slice: CudaSlice<T>) -> Self {
+    pub fn new(cuda_slice: CudaSlice<T>, alignment: Alignment) -> Self {
         let len = cuda_slice.len();
         let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
 
@@ -40,6 +41,7 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
             offset: 0,
             len,
             device_ptr,
+            alignment,
         }
     }
 
@@ -107,6 +109,10 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// Returns the number of elements in the buffer of type T.
     fn len(&self) -> usize {
         self.len * size_of::<T>()
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
     }
 
     /// Synchronous copy of CUDA device to host memory.
@@ -185,6 +191,14 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
         let new_offset = self.offset + range.start;
         let new_len = range.end - range.start;
+        let byte_offset = new_offset * size_of::<T>();
+        let alignment = if byte_offset == 0 {
+            self.alignment
+        } else {
+            let offset_alignment = 1usize << byte_offset.trailing_zeros();
+            let max_alignment = *self.alignment;
+            Alignment::new(offset_alignment.min(max_alignment))
+        };
 
         assert!(
             range.end <= self.len,
@@ -198,6 +212,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
+            alignment,
         })
     }
 

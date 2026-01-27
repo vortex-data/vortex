@@ -15,7 +15,6 @@ use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -23,7 +22,6 @@ use vortex_error::vortex_ensure;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
-use crate::WriteTarget;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
@@ -110,7 +108,7 @@ impl VortexReadAt for ObjectStoreSource {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let store = self.store.clone();
         let path = self.path.clone();
         let handle = self.handle.clone();
@@ -163,75 +161,7 @@ impl VortexReadAt for ObjectStoreSource {
                 }
             };
 
-            Ok(buffer.freeze())
-        })
-        .boxed()
-    }
-
-    fn read_at_into(
-        &self,
-        offset: u64,
-        mut target: Box<dyn WriteTarget>,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let store = self.store.clone();
-        let path = self.path.clone();
-        let handle = self.handle.clone();
-        let length = target.len();
-        let range = offset..(offset + length as u64);
-
-        Compat::new(async move {
-            let response = store
-                .get_opts(
-                    &path,
-                    GetOptions {
-                        range: Some(GetRange::Bounded(range.clone())),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-
-            match response.payload {
-                #[cfg(not(target_arch = "wasm32"))]
-                GetResultPayload::File(file, _) => {
-                    target = handle
-                        .spawn_blocking(move || {
-                            read_exact_at(&file, target.as_mut_slice(), range.start)?;
-                            Ok::<_, io::Error>(target)
-                        })
-                        .await
-                        .map_err(io::Error::other)?;
-                }
-                #[cfg(target_arch = "wasm32")]
-                GetResultPayload::File(..) => {
-                    unreachable!("File payload not supported on wasm32")
-                }
-                GetResultPayload::Stream(mut byte_stream) => {
-                    let mut filled = 0usize;
-                    while let Some(bytes) = byte_stream.next().await {
-                        let bytes = bytes?;
-                        let end = filled + bytes.len();
-                        vortex_ensure!(
-                            end <= length,
-                            "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
-                            length,
-                            end,
-                            range
-                        );
-                        target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
-                        filled = end;
-                    }
-
-                    vortex_ensure!(
-                        filled == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
-                        filled,
-                        length,
-                        range
-                    );
-                }
-            }
-
-            target.into_handle().await
+            Ok(BufferHandle::new_host(buffer.freeze()))
         })
         .boxed()
     }
