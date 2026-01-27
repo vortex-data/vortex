@@ -139,9 +139,12 @@ where
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayRef;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_dtype::DType;
@@ -156,14 +159,12 @@ mod tests {
         alp: &ALPArray,
         value: F,
         operator: Operator,
-    ) -> Option<Vec<bool>>
+    ) -> Option<ArrayRef>
     where
         F::ALPInt: Into<Scalar>,
         <F as ALPFloat>::ALPInt: Debug,
     {
-        alp_scalar_compare(alp, value, operator)
-            .unwrap()
-            .map(|a| a.to_bool().to_bit_buffer().iter().collect())
+        alp_scalar_compare(alp, value, operator).unwrap()
     }
 
     #[test]
@@ -276,25 +277,25 @@ mod tests {
         );
 
         let r_gte = test_alp_compare(&encoded, -0.00000001_f32, Operator::Gte).unwrap();
-        assert_eq!(r_gte, vec![true; 10]);
+        assert_arrays_eq!(&r_gte, &BoolArray::from_iter([true; 10]));
 
         let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gte).unwrap();
-        assert_eq!(r_gte, vec![true; 10]);
+        assert_arrays_eq!(&r_gte, &BoolArray::from_iter([true; 10]));
 
         let r_gt = test_alp_compare(&encoded, -0.0000000001f32, Operator::Gt).unwrap();
-        assert_eq!(r_gt, vec![true; 10]);
+        assert_arrays_eq!(&r_gt, &BoolArray::from_iter([true; 10]));
 
         let r_gte = test_alp_compare(&encoded, -0.0_f32, Operator::Gt).unwrap();
-        assert_eq!(r_gte, vec![true; 10]);
+        assert_arrays_eq!(&r_gte, &BoolArray::from_iter([true; 10]));
 
         let r_lte = test_alp_compare(&encoded, 0.06051_f32, Operator::Lte).unwrap();
-        assert_eq!(r_lte, vec![true; 10]);
+        assert_arrays_eq!(&r_lte, &BoolArray::from_iter([true; 10]));
 
         let r_lt = test_alp_compare(&encoded, 0.06051_f32, Operator::Lt).unwrap();
-        assert_eq!(r_lt, vec![true; 10]);
+        assert_arrays_eq!(&r_lt, &BoolArray::from_iter([true; 10]));
 
         let r_lt = test_alp_compare(&encoded, -0.00001_f32, Operator::Lt).unwrap();
-        assert_eq!(r_lt, vec![false; 10]);
+        assert_arrays_eq!(&r_lt, &BoolArray::from_iter([false; 10]));
     }
 
     #[test]
@@ -342,7 +343,7 @@ mod tests {
 
         let gte = test_alp_compare(&encoded, value, Operator::Gt).unwrap();
 
-        assert_eq!(gte, [result; 10]);
+        assert_arrays_eq!(&gte, &BoolArray::from_iter([result; 10]));
     }
 
     #[rstest]
@@ -356,6 +357,6 @@ mod tests {
 
         let lt = test_alp_compare(&encoded, value, Operator::Lt).unwrap();
 
-        assert_eq!(lt, [result; 10]);
+        assert_arrays_eq!(&lt, &BoolArray::from_iter([result; 10]));
     }
 }

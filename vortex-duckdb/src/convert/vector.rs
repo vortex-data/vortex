@@ -580,9 +580,9 @@ mod tests {
         let vortex_array = result.to_bool();
 
         assert_eq!(vortex_array.len(), len);
-        assert_eq!(
-            vortex_array.to_bit_buffer().iter().collect::<Vec<_>>(),
-            values
+        assert_arrays_eq!(
+            vortex_array,
+            BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)])
         );
     }
 

@@ -61,10 +61,11 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
+    use crate::assert_arrays_eq;
     use crate::compute::Operator;
     use crate::compute::compare;
     use crate::validity::Validity;
@@ -83,11 +84,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
-        assert_eq!(
-            res.to_bit_buffer().iter().collect::<Vec<_>>(),
-            vec![true, false, false]
-        );
+        assert_arrays_eq!(res, BoolArray::from_iter([true, false, false]));
     }
 
     #[test]
@@ -104,11 +101,7 @@ mod tests {
             Operator::Gt,
         )
         .unwrap();
-        let res = res.to_bool();
-        assert_eq!(
-            res.to_bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, true, true]
-        );
+        assert_arrays_eq!(res, BoolArray::from_iter([false, true, true]));
     }
 
     #[test]
@@ -129,11 +122,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
-        assert_eq!(
-            res.to_bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, false, false]
-        );
+        assert_arrays_eq!(res, BoolArray::from_iter([None, Some(false), None]));
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
             res.validity_mask().unwrap(),
@@ -159,11 +148,7 @@ mod tests {
             Operator::Eq,
         )
         .unwrap();
-        let res = res.to_bool();
-        assert_eq!(
-            res.to_bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, false, false]
-        );
+        assert_arrays_eq!(res, BoolArray::from_iter([Some(false), Some(false), None]));
         assert_eq!(res.dtype().nullability(), Nullability::Nullable);
         assert_eq!(
             res.validity_mask().unwrap(),

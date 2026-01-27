@@ -377,7 +377,6 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
@@ -387,6 +386,7 @@ mod tests {
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::expr::Expression;
     use vortex_array::expr::col;
@@ -590,9 +590,9 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, true, true],
-            result.to_bit_buffer().iter().collect_vec()
+        assert_arrays_eq!(
+            result.into_array(),
+            BoolArray::from_iter([true, true, true])
         );
     }
 
@@ -608,10 +608,7 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, false, false],
-            result.to_bool().to_bit_buffer().iter().collect::<Vec<_>>()
-        );
+        assert_arrays_eq!(result.to_bool(), BoolArray::from_iter([true, false, false]));
     }
 
     #[rstest]
@@ -632,11 +629,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.len(), 2);
-
-        assert_eq!(
-            vec![true, false],
-            result.to_bool().to_bit_buffer().iter().collect::<Vec<_>>()
-        );
+        assert_arrays_eq!(result.to_bool(), BoolArray::from_iter([true, false]));
     }
 
     #[rstest]

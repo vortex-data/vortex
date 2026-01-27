@@ -245,6 +245,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
@@ -417,7 +418,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), expected);
+            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
         })
     }
 

@@ -289,11 +289,12 @@ fn row_idx_array_future(
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
@@ -433,9 +434,9 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                vec![true, false, true, false, true],
-                result.to_bit_buffer().iter().collect_vec()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([true, false, true, false, true])
             );
         })
     }
