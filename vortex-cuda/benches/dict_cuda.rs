@@ -17,6 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity::NonNullable;
+use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;

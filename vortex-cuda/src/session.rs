@@ -16,6 +16,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
+use crate::stream::VortexCudaStream;
 
 /// CUDA session for GPU accelerated execution.
 ///
@@ -42,15 +43,18 @@ impl CudaSession {
     pub fn create_execution_ctx(
         vortex_session: &vortex_session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
-        let stream = vortex_session
-            .cuda_session()
-            .context
-            .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))?;
+        let stream = vortex_session.cuda_session().new_stream()?;
         Ok(CudaExecutionCtx::new(
             stream,
             vortex_session.create_execution_ctx(),
         ))
+    }
+
+    /// Create a new CUDA stream.
+    pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
+        Ok(VortexCudaStream(self.context.new_stream().map_err(
+            |e| vortex_err!("Failed to create CUDA stream: {}", e),
+        )?))
     }
 
     /// Registers CUDA support for an array encoding.

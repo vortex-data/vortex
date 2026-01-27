@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -27,11 +29,17 @@ pub struct CudaDeviceBuffer<T> {
     offset: usize,
     len: usize,
     device_ptr: u64,
+    alignment: Alignment,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     /// Creates a new CUDA device buffer from a [`CudaSlice`].
     pub fn new(cuda_slice: CudaSlice<T>) -> Self {
+        Self::new_aligned(cuda_slice, Alignment::of::<T>())
+    }
+
+    pub fn new_aligned(cuda_slice: CudaSlice<T>, alignment: Alignment) -> Self {
+        assert!(alignment.is_aligned_to(Alignment::of::<T>()));
         let len = cuda_slice.len();
         let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
 
@@ -40,6 +48,7 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
             offset: 0,
             len,
             device_ptr,
+            alignment,
         }
     }
 
@@ -107,6 +116,10 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// Returns the number of elements in the buffer of type T.
     fn len(&self) -> usize {
         self.len * size_of::<T>()
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
     }
 
     /// Synchronous copy of CUDA device to host memory.
@@ -185,6 +198,19 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
         let new_offset = self.offset + range.start;
         let new_len = range.end - range.start;
+        let byte_offset = new_offset * size_of::<T>();
+        let alignment = if byte_offset == 0 {
+            self.alignment
+        } else {
+            // TODO(joe): self.alignment is an under approx
+            min(
+                self.alignment,
+                Alignment::from_exponent(
+                    u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
+                        .vortex_expect("impossible"),
+                ),
+            )
+        };
 
         assert!(
             range.end <= self.len,
@@ -198,6 +224,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
+            alignment,
         })
     }
 

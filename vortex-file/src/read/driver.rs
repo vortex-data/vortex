@@ -326,7 +326,7 @@ mod tests {
     use futures::StreamExt;
     use futures::stream;
     use vortex_buffer::Alignment;
-    use vortex_buffer::ByteBuffer;
+    use vortex_array::buffer::BufferHandle;
     use vortex_error::VortexResult;
 
     use super::*;
@@ -336,7 +336,7 @@ mod tests {
         id: usize,
         offset: u64,
         length: usize,
-    ) -> (ReadRequest, oneshot::Receiver<VortexResult<ByteBuffer>>) {
+    ) -> (ReadRequest, oneshot::Receiver<VortexResult<BufferHandle>>) {
         let (tx, rx) = oneshot::channel();
         (
             ReadRequest {
