@@ -299,8 +299,7 @@ mod tests {
             validity_builder.append(false);
             let validity_boolean_buffer = validity_builder.freeze();
             let validity = Validity::Array(
-                BoolArray::from_bit_buffer(validity_boolean_buffer.clone(), Validity::NonNullable)
-                    .into_array(),
+                BoolArray::new(validity_boolean_buffer.clone(), Validity::NonNullable).into_array(),
             );
             let array = StructArray::try_new(
                 FieldNames::from([FieldName::from("a"), FieldName::from("b")]),

@@ -266,7 +266,7 @@ mod tests {
                 .evaluate(&bools.to_array())
                 .unwrap()
                 .to_bool()
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]

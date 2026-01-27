@@ -980,7 +980,7 @@ unsafe fn apply_patches_to_buffer_inner<P, I>(
         Validity::Array(array) => {
             // Some patch values may be null, check each one.
             let bool_array = array.to_bool();
-            let mask = bool_array.bit_buffer();
+            let mask = bool_array.to_bit_buffer();
             for (patch_idx, (&i, &value)) in patch_indices.iter().zip_eq(patch_values).enumerate() {
                 let index = i.as_() - patch_offset;
 

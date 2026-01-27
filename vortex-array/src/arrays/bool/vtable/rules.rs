@@ -44,8 +44,8 @@ impl ArrayParentReduceRule<BoolVTable> for BoolMaskedValidityRule {
         // Merge the parent's validity mask into the child's validity
         // TODO(joe): make this lazy
         Ok(Some(
-            BoolArray::from_bit_buffer(
-                array.bit_buffer().clone(),
+            BoolArray::new(
+                array.to_bit_buffer(),
                 array.validity().clone().and(parent.validity().clone()),
             )
             .into_array(),

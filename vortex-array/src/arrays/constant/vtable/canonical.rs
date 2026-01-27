@@ -53,7 +53,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
 
     Ok(match array.dtype() {
         DType::Null => Canonical::Null(NullArray::new(array.len())),
-        DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
+        DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if BoolScalar::try_from(scalar)
                 .vortex_expect("must be bool")
                 .value()

@@ -51,7 +51,7 @@ impl Canonical {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
             Canonical::Bool(a) => {
-                Vector::Bool(BoolVector::new(a.bit_buffer().clone(), a.validity_mask()?))
+                Vector::Bool(BoolVector::new(a.to_bit_buffer(), a.validity_mask()?))
             }
             Canonical::Primitive(a) => {
                 let ptype = a.ptype();

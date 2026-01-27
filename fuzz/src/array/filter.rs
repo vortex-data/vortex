@@ -38,11 +38,11 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            Ok(BoolArray::from_bit_buffer(
+            Ok(BoolArray::new(
                 BitBuffer::from_iter(
                     filter
                         .iter()
-                        .zip(bool_array.bit_buffer().iter())
+                        .zip(bool_array.to_bit_buffer().iter())
                         .filter(|(f, _)| **f)
                         .map(|(_, v)| v),
                 ),

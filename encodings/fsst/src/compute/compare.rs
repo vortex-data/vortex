@@ -78,7 +78,7 @@ fn compare_fsst_constant(
         };
 
         return Ok(Some(
-            BoolArray::from_bit_buffer(
+            BoolArray::new(
                 buffer,
                 Validity::copy_from_array(left.as_ref())?
                     .union_nullability(right.dtype().nullability()),
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
         assert_eq!(
-            equals.bit_buffer().into_iter().collect::<Vec<_>>(),
+            equals.to_bit_buffer().into_iter().collect::<Vec<_>>(),
             vec![false, false, true, false, false]
         );
 
@@ -172,7 +172,7 @@ mod tests {
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
         assert_eq!(
-            not_equals.bit_buffer().into_iter().collect::<Vec<_>>(),
+            not_equals.to_bit_buffer().into_iter().collect::<Vec<_>>(),
             vec![true, true, false, true, true]
         );
 

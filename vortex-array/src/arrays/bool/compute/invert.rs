@@ -16,10 +16,7 @@ use crate::vtable::ValidityHelper;
 
 impl InvertKernel for BoolVTable {
     fn invert(&self, array: &BoolArray) -> VortexResult<ArrayRef> {
-        Ok(
-            BoolArray::from_bit_buffer(array.bit_buffer().not(), array.validity().clone())
-                .into_array(),
-        )
+        Ok(BoolArray::new(array.to_bit_buffer().not(), array.validity().clone()).into_array())
     }
 }
 

@@ -25,7 +25,7 @@ impl FillNullKernel for DecimalVTable {
 
         Ok(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid.to_bool().bit_buffer().not();
+                let is_invalid = is_valid.to_bool().to_bit_buffer().not();
                 match_each_decimal_value_type!(array.values_type(), |T| {
                     let mut buffer = array.buffer::<T>().into_mut();
                     let decimal_scalar = fill_value.as_decimal();

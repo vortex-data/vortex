@@ -343,7 +343,7 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
+                let mask = Mask::from_buffer(validity.to_bool().to_bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
@@ -610,7 +610,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             vec![true, false, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
+            result.to_bool().to_bit_buffer().iter().collect::<Vec<_>>()
         );
     }
 
@@ -635,7 +635,7 @@ mod tests {
 
         assert_eq!(
             vec![true, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
+            result.to_bool().to_bit_buffer().iter().collect::<Vec<_>>()
         );
     }
 

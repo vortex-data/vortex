@@ -214,6 +214,6 @@ mod tests {
         expected: T,
     ) {
         let result = result.unwrap().unwrap().to_bool();
-        assert_eq!(result.bit_buffer(), &BitBuffer::from_iter(expected));
+        assert_eq!(result.to_bit_buffer(), BitBuffer::from_iter(expected));
     }
 }

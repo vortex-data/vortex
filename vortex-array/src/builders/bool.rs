@@ -64,7 +64,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::from_bit_buffer(
+        BoolArray::new(
             mem::take(&mut self.inner).freeze(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
@@ -117,7 +117,7 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let bool_array = array.to_bool();
 
-        self.inner.append_buffer(bool_array.bit_buffer());
+        self.inner.append_buffer(&bool_array.to_bit_buffer());
         self.nulls.append_validity_mask(
             bool_array
                 .validity_mask()
@@ -200,7 +200,7 @@ mod tests {
         let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
-        assert_eq!(canon_into.bit_buffer(), into_canon.bit_buffer());
+        assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }
 

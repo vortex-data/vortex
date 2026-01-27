@@ -23,9 +23,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
     }
     Ok(match canonical {
         Canonical::Null(_array) => Scalar::null(DType::Null),
-        Canonical::Bool(array) => {
-            Scalar::bool(array.bit_buffer().value(index), array.dtype().nullability())
-        }
+        Canonical::Bool(array) => Scalar::bool(
+            array.to_bit_buffer().value(index),
+            array.dtype().nullability(),
+        ),
         Canonical::Primitive(array) => {
             match_each_native_ptype!(array.ptype(), |T| {
                 Scalar::primitive(array.as_slice::<T>()[index], array.dtype().nullability())

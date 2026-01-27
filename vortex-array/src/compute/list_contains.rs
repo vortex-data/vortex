@@ -100,7 +100,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///     list_array.len()).as_ref()
 /// ).unwrap();
 ///
-/// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
+/// assert_eq!(matches.to_bool().to_bit_buffer(), bitbuffer![false, true, false]);
 /// ```
 // TODO(joe): ensure that list_contains_scalar from (548303761b4270b583ef34f6ca6e3c2b134a242a)
 // is implemented here.
@@ -315,7 +315,7 @@ fn list_contains_scalar(
         })
     });
 
-    Ok(BoolArray::from_bit_buffer(
+    Ok(BoolArray::new(
         list_matches,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -344,8 +344,8 @@ where
 
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits =
-                BitIndexIterator::new(matches.bit_buffer().inner().as_ref(), offset, size);
+            let bits = matches.to_bit_buffer();
+            let mut set_bits = BitIndexIterator::new(bits.inner().as_ref(), offset, size);
             set_bits.next().is_some()
         })
         .collect::<BitBuffer>()
@@ -380,10 +380,7 @@ fn list_false_or_null(
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
             let buffer = BitBuffer::new_unset(list_array.len());
-            Ok(
-                BoolArray::from_bit_buffer(buffer, Validity::Array(validity_array.clone()))
-                    .into_array(),
-            )
+            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
         }
     }
 }
@@ -409,7 +406,7 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::from_bit_buffer(
+    Ok(BoolArray::new(
         buffer,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -476,7 +473,7 @@ mod tests {
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
-        BoolArray::from_bit_buffer(values.into_iter().collect(), validity)
+        BoolArray::new(values.into_iter().collect(), validity)
     }
 
     #[rstest]
@@ -597,7 +594,7 @@ mod tests {
         )
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
-        assert_eq!(contains.to_bool().bit_buffer(), &bitbuffer![true, true],);
+        assert_eq!(contains.to_bool().to_bit_buffer(), bitbuffer![true, true],);
     }
 
     #[test]

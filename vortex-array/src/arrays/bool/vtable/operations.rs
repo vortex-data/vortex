@@ -11,7 +11,7 @@ use crate::vtable::OperationsVTable;
 impl OperationsVTable<BoolVTable> for BoolVTable {
     fn scalar_at(array: &BoolArray, index: usize) -> VortexResult<Scalar> {
         Ok(Scalar::bool(
-            array.bit_buffer().value(index),
+            array.to_bit_buffer().value(index),
             array.dtype().nullability(),
         ))
     }
@@ -30,8 +30,8 @@ mod tests {
         let arr = BoolArray::from_iter(iter::repeat_n(Some(true), 100));
         let sliced_arr = arr.slice(8..16).unwrap().to_bool();
         assert_eq!(sliced_arr.len(), 8);
-        assert_eq!(sliced_arr.bit_buffer().len(), 8);
-        assert_eq!(sliced_arr.bit_buffer().offset(), 0);
+        assert_eq!(sliced_arr.to_bit_buffer().len(), 8);
+        assert_eq!(sliced_arr.to_bit_buffer().offset(), 0);
     }
 
     #[test]

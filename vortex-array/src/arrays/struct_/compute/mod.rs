@@ -203,7 +203,7 @@ mod tests {
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
-        let zs = BoolArray::from_bit_buffer(
+        let zs = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
         );

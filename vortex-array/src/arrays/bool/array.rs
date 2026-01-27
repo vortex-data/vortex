@@ -13,6 +13,7 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::bool;
+use crate::buffer::BufferHandle;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -51,14 +52,18 @@ use crate::validity::Validity;
 #[derive(Clone, Debug)]
 pub struct BoolArray {
     pub(super) dtype: DType,
-    pub(super) bits: BitBuffer,
+    pub(super) bits: BufferHandle,
+    pub(super) offset: usize,
+    pub(super) len: usize,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
 }
 
 pub struct BoolArrayParts {
     pub dtype: DType,
-    pub bits: BitBuffer,
+    pub bits: BufferHandle,
+    pub offset: usize,
+    pub len: usize,
     pub validity: Validity,
 }
 
@@ -72,6 +77,16 @@ impl BoolArray {
         Self::try_new(bits, validity).vortex_expect("Failed to create BoolArray")
     }
 
+    /// Constructs a new `BoolArray` from a `BufferHandle`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the validity length is not equal to the bit buffer length.
+    pub fn new_handle(handle: BufferHandle, offset: usize, len: usize, validity: Validity) -> Self {
+        Self::try_new_from_handle(handle, offset, len, validity)
+            .vortex_expect("Failed to create BoolArray from BufferHandle")
+    }
+
     /// Constructs a new `BoolArray`.
     ///
     /// See [`BoolArray::new_unchecked`] for more information.
@@ -83,9 +98,51 @@ impl BoolArray {
     pub fn try_new(bits: BitBuffer, validity: Validity) -> VortexResult<Self> {
         let bits = bits.shrink_offset();
         Self::validate(&bits, &validity)?;
+
+        let (offset, len, buffer) = bits.into_inner();
+
+        Ok(Self {
+            dtype: DType::Bool(validity.nullability()),
+            bits: BufferHandle::new_host(buffer),
+            offset,
+            len,
+            validity,
+            stats_set: ArrayStats::default(),
+        })
+    }
+
+    /// Build a new bool array from a `BufferHandle`, returning an error if the offset is
+    /// too large or the buffer is not large enough to hold the values.
+    ///
+    /// # Error
+    ///
+    /// Error if the inputs fail validation. See also `try_new`.
+    pub fn try_new_from_handle(
+        bits: BufferHandle,
+        offset: usize,
+        len: usize,
+        validity: Validity,
+    ) -> VortexResult<Self> {
+        vortex_ensure!(offset < 8, "BitBuffer offset must be <8, got {}", offset);
+        if let Some(validity_len) = validity.maybe_len() {
+            vortex_ensure!(
+                validity_len == len,
+                "BoolArray of size {} cannot be built with validity of size {validity_len}",
+                len,
+            );
+        }
+
+        vortex_ensure!(
+            bits.len() * 8 >= (len + offset),
+            "provided BufferHandle with offset {offset} len {len} had size {} bits",
+            bits.len() * 8,
+        );
+
         Ok(Self {
             dtype: DType::Bool(validity.nullability()),
             bits,
+            offset,
+            len,
             validity,
             stats_set: ArrayStats::default(),
         })
@@ -100,9 +157,13 @@ impl BoolArray {
         if cfg!(debug_assertions) {
             Self::new(bits, validity)
         } else {
+            let (offset, len, buffer) = bits.into_inner();
+
             Self {
                 dtype: DType::Bool(validity.nullability()),
-                bits,
+                bits: BufferHandle::new_host(buffer),
+                offset,
+                len,
                 validity,
                 stats_set: ArrayStats::default(),
             }
@@ -137,27 +198,9 @@ impl BoolArray {
         BoolArrayParts {
             dtype: self.dtype,
             bits: self.bits,
+            offset: self.offset,
+            len: self.len,
             validity: self.validity,
-        }
-    }
-
-    /// Creates a new [`BoolArray`] from a [`BitBuffer`] and [`Validity`] directly.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the validity is [`Validity::Array`] and the length is not the same as the buffer.
-    pub fn from_bit_buffer(buffer: BitBuffer, validity: Validity) -> Self {
-        if let Some(validity_len) = validity.maybe_len() {
-            assert_eq!(buffer.len(), validity_len);
-        }
-
-        // Shrink the buffer to remove any whole bytes.
-        let buffer = buffer.shrink_offset();
-        Self {
-            dtype: DType::Bool(validity.nullability()),
-            bits: buffer,
-            validity,
-            stats_set: ArrayStats::default(),
         }
     }
 
@@ -171,22 +214,19 @@ impl BoolArray {
     ) -> Self {
         let mut buffer = BitBufferMut::new_unset(length);
         indices.into_iter().for_each(|idx| buffer.set(idx));
-        Self::from_bit_buffer(buffer.freeze(), validity)
+        Self::new(buffer.freeze(), validity)
     }
 
     /// Returns the underlying [`BitBuffer`] of the array.
-    pub fn bit_buffer(&self) -> &BitBuffer {
-        assert!(
-            self.bits.offset() < 8,
-            "Offset must be <8, did we forget to call shrink_offset? Found {}",
-            self.bits.offset()
-        );
-        &self.bits
+    pub fn to_bit_buffer(&self) -> BitBuffer {
+        self.clone().into_bit_buffer()
     }
 
-    /// Returns the underlying [`BitBuffer`] ofthe array
+    /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        self.bits
+        let buffer = self.bits.as_host().clone();
+
+        BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     pub fn to_mask(&self) -> Mask {
@@ -198,7 +238,7 @@ impl BoolArray {
     pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
         Ok(self
             .all_valid()?
-            .then(|| Mask::from_buffer(self.bit_buffer().clone())))
+            .then(|| Mask::from_buffer(self.to_bit_buffer())))
     }
 
     pub fn to_mask_fill_null_false(&self) -> Mask {
@@ -215,9 +255,9 @@ impl BoolArray {
             .validity_mask()
             .unwrap_or_else(|_| Mask::new_true(self.len()))
         {
-            Mask::AllTrue(_) => self.bit_buffer().clone(),
+            Mask::AllTrue(_) => self.to_bit_buffer(),
             Mask::AllFalse(_) => return Mask::new_false(self.len()),
-            Mask::Values(validity) => validity.bit_buffer() & self.bit_buffer(),
+            Mask::Values(validity) => validity.bit_buffer() & self.to_bit_buffer(),
         };
         Mask::from_buffer(buffer)
     }
@@ -225,7 +265,7 @@ impl BoolArray {
 
 impl From<BitBuffer> for BoolArray {
     fn from(value: BitBuffer) -> Self {
-        Self::from_bit_buffer(value, Validity::NonNullable)
+        Self::new(value, Validity::NonNullable)
     }
 }
 
@@ -239,7 +279,7 @@ impl FromIterator<Option<bool>> for BoolArray {
     fn from_iter<I: IntoIterator<Item = Option<bool>>>(iter: I) -> Self {
         let (buffer, nulls) = BooleanArray::from_iter(iter).into_parts();
 
-        Self::from_bit_buffer(
+        Self::new(
             BitBuffer::from(buffer),
             nulls
                 .map(|n| Validity::from(BitBuffer::from(n.into_inner())))
@@ -368,7 +408,7 @@ mod tests {
     #[test]
     fn patch_bools_owned() {
         let arr = BoolArray::from(BitBuffer::new_set(16));
-        let buf_ptr = arr.bit_buffer().inner().as_ptr();
+        let buf_ptr = arr.to_bit_buffer().inner().as_ptr();
 
         let patches = Patches::new(
             arr.len(),
@@ -379,7 +419,7 @@ mod tests {
         )
         .unwrap();
         let arr = arr.patch(&patches).unwrap();
-        assert_eq!(arr.bit_buffer().inner().as_ptr(), buf_ptr);
+        assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);
 
         let values = arr.into_bit_buffer();
         assert_eq!(values.inner().as_slice(), &[254, 255]);

@@ -348,8 +348,8 @@ mod tests {
             .to_bool();
 
             assert_eq!(
-                &BitBuffer::from_iter([false, false, true, false, false]),
-                result.bit_buffer()
+                BitBuffer::from_iter([false, false, true, false, false]),
+                result.to_bit_buffer()
             );
         })
     }
@@ -389,8 +389,8 @@ mod tests {
             .to_bool();
 
             assert_eq!(
-                &BitBuffer::from_iter([false, false, false, false, true]),
-                result.bit_buffer()
+                BitBuffer::from_iter([false, false, false, false, true]),
+                result.to_bit_buffer()
             );
         })
     }
@@ -435,7 +435,7 @@ mod tests {
 
             assert_eq!(
                 vec![true, false, true, false, true],
-                result.bit_buffer().iter().collect_vec()
+                result.to_bit_buffer().iter().collect_vec()
             );
         })
     }

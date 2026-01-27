@@ -65,7 +65,7 @@ pub fn search_sorted_canonical_array(
             let bool_array = array.to_bool();
             let validity = bool_array.validity_mask()?.to_bit_buffer();
             let opt_values = bool_array
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
                 .zip(validity.iter())
                 .map(|(b, v)| v.then_some(b))
