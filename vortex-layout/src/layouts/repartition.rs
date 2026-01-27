@@ -43,7 +43,7 @@ pub struct RepartitionWriterOptions {
     ///
     /// 2. Variable length types are expensive to pack due to the need to read each element length.
     ///
-    /// 3. View types are expensive to pack due to each view sharing an aribtrary slice of data.
+    /// 3. View types are expensive to pack due to each view sharing an arbitrary slice of data.
     pub block_size_target: Option<u64>,
     pub canonicalize: bool,
 }
