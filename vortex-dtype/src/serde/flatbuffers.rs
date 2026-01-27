@@ -15,6 +15,7 @@ use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::dtype as fbd;
+use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::DecimalDType;
@@ -23,10 +24,6 @@ use crate::FieldDType;
 use crate::PType;
 use crate::StructFields;
 use crate::flatbuffers as fb;
-
-mod project;
-use vortex_session::VortexSession;
-
 use crate::session::DTypeSessionExt;
 
 /// A lazily evaluated DType, parsed on access from an underlying flatbuffer.

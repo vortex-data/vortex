@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_extension_round_trip() {
         let ext_dtype =
-            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erase());
+            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased());
         let converted = round_trip_dtype(&ext_dtype);
         assert_eq!(ext_dtype, converted);
     }

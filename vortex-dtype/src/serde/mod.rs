@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Serde serialization and deserialization for DTypes
+
 pub(crate) mod flatbuffers;
 
 mod proto;

@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
+use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -124,9 +123,9 @@ impl ArrayBuilder for ExtensionBuilder {
 
 #[cfg(test)]
 mod tests {
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
     use vortex_dtype::Nullability;
+    use vortex_dtype::datetime::Date;
+    use vortex_dtype::datetime::TimeUnit;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -136,25 +135,18 @@ mod tests {
 
     #[test]
     fn test_append_scalar() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(
-                vortex_dtype::PType::I32,
-                Nullability::Nullable,
-            )),
-            None,
-        ));
+        let ext_dtype = Date::new(TimeUnit::Days, Nullability::Nullable).erased();
 
         let mut builder = ExtensionBuilder::new(ext_dtype.clone());
 
         // Test appending a valid extension value.
         let storage1 = Scalar::from(42i32);
-        let ext_scalar1 = Scalar::extension(ext_dtype.clone(), storage1);
+        let ext_scalar1 = Scalar::extension::<Date>(TimeUnit::Days, storage1);
         builder.append_scalar(&ext_scalar1).unwrap();
 
         // Test appending another value.
         let storage2 = Scalar::from(84i32);
-        let ext_scalar2 = Scalar::extension(ext_dtype.clone(), storage2);
+        let ext_scalar2 = Scalar::extension::<Date>(TimeUnit::Days, storage2);
         builder.append_scalar(&ext_scalar2).unwrap();
 
         // Test appending null value.
@@ -162,7 +154,7 @@ mod tests {
             vortex_dtype::PType::I32,
             Nullability::Nullable,
         ));
-        let null_scalar = Scalar::extension(ext_dtype.clone(), null_storage);
+        let null_scalar = Scalar::extension::<Date>(TimeUnit::Days, null_storage);
         builder.append_scalar(&null_scalar).unwrap();
 
         let array = builder.finish_into_extension();

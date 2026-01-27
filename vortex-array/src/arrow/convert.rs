@@ -236,8 +236,7 @@ where
 
     match value.data_type() {
         DataType::Timestamp(time_unit, tz) => {
-            let tz = tz.as_ref().map(|s| s.to_string());
-            TemporalArray::new_timestamp(arr, time_unit.into(), tz).into()
+            TemporalArray::new_timestamp(arr, time_unit.into(), tz.clone()).into()
         }
         DataType::Time32(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
         DataType::Time64(time_unit) => TemporalArray::new_time(arr, time_unit.into()).into(),
@@ -656,12 +655,10 @@ mod tests {
     use arrow_schema::Fields;
     use arrow_schema::Schema;
     use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_dtype::datetime::TIMESTAMP_ID;
-    use vortex_dtype::datetime::TemporalMetadata;
     use vortex_dtype::datetime::TimeUnit;
+    use vortex_dtype::datetime::Timestamp;
 
     use crate::ArrayRef;
     use crate::IntoArray;
@@ -1041,26 +1038,26 @@ mod tests {
         assert_eq!(vortex_array.len(), 4);
         assert_eq!(
             vortex_array.dtype(),
-            &DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-                Some(
-                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
-                        .into()
+            &DType::Extension(
+                Timestamp::new_with_tz(
+                    TimeUnit::Microseconds,
+                    Some("UTC".into()),
+                    Nullability::Nullable
                 )
-            )))
+                .erased()
+            ),
         );
         assert_eq!(vortex_array_non_null.len(), 4);
         assert_eq!(
             vortex_array_non_null.dtype(),
-            &DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-                Some(
-                    TemporalMetadata::Timestamp(TimeUnit::Microseconds, Some("UTC".to_string()))
-                        .into()
+            &DType::Extension(
+                Timestamp::new_with_tz(
+                    TimeUnit::Microseconds,
+                    Some("UTC".into()),
+                    Nullability::NonNullable
                 )
-            )))
+                .erased()
+            )
         );
     }
 

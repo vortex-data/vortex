@@ -74,7 +74,7 @@ impl<V: VTable> DynVTable for V {
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
         let options = VTable::deserialize(self, data)?;
-        Ok(ExtDType::try_with_vtable(self.clone(), options, storage_dtype)?.erase())
+        Ok(ExtDType::try_with_vtable(self.clone(), options, storage_dtype)?.erased())
     }
 
     fn clone_box(&self) -> Box<dyn DynVTable> {

@@ -521,17 +521,17 @@ mod test {
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {
-        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullability::Nullable).erase());
-        let d2 = DType::Extension(Time::new(TimeUnit::Days, Nullability::NonNullable).erase());
+        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullability::Nullable).erased());
+        let d2 = DType::Extension(Time::new(TimeUnit::Days, Nullability::NonNullable).erased());
         assert!(d1.eq_ignore_nullability(&d2));
 
         let t1 = DType::Extension(
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullability::Nullable)
-                .erase(),
+                .erased(),
         );
         let t2 = DType::Extension(
             Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullability::Nullable)
-                .erase(),
+                .erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
     }

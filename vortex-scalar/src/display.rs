@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn display_time() {
         fn dtype() -> DType {
-            DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erase())
+            DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -216,7 +216,7 @@ mod tests {
     #[test]
     fn display_date() {
         fn dtype() -> DType {
-            DType::Extension(Date::new(TimeUnit::Days, Nullable).erase())
+            DType::Extension(Date::new(TimeUnit::Days, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -258,7 +258,7 @@ mod tests {
     #[test]
     fn display_local_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erase())
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -283,7 +283,7 @@ mod tests {
         fn dtype() -> DType {
             DType::Extension(
                 Timestamp::new_with_tz(TimeUnit::Seconds, Some("Pacific/Guam".into()), Nullable)
-                    .erase(),
+                    .erased(),
             )
         }
 

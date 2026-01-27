@@ -141,7 +141,7 @@ impl Scalar {
     pub fn extension<V: VTable + Default>(options: V::Options, value: Scalar) -> Self {
         let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
-        Self::new(DType::Extension(ext_dtype.erase()), value.value().clone())
+        Self::new(DType::Extension(ext_dtype.erased()), value.value().clone())
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
@@ -316,7 +316,7 @@ mod tests {
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
         assert_eq!(ext.ext_dtype().id(), ext_dtype.id());
-        assert_eq!(ext.ext_dtype(), &ext_dtype.erase());
+        assert_eq!(ext.ext_dtype(), &ext_dtype.erased());
     }
 
     #[test]
@@ -362,7 +362,7 @@ mod tests {
         );
 
         let ext = ExtScalar::try_from(&scalar).unwrap();
-        let ext_dtype = ext_dtype.erase();
+        let ext_dtype = ext_dtype.erased();
 
         // Cast to same extension type
         let casted = ext.cast(&DType::Extension(ext_dtype.clone())).unwrap();

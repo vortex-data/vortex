@@ -11,6 +11,7 @@ use vortex_dtype::ExtID;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
+use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
@@ -65,16 +66,9 @@ use crate::builders::builder_with_capacity;
     3,
     Nullability::NonNullable
 ))]
-#[case::extension_simple(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.extension"),
-    Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-    None
-))))]
-#[case::extension_with_metadata(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.temperature"),
-    Arc::new(DType::Primitive(PType::F64, Nullability::NonNullable)),
-    Some([0u8].as_slice().into())
-))))]
+#[case::extension(DType::Extension(
+    Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
+))]
 fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     let num_elements = 5;
 
@@ -166,19 +160,11 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     Nullability::NonNullable
 ), 3)]
 #[case::extension(
-    DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.ext"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None
-    ))),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable)),
     1
 )]
 #[case::extension_multiple(
-    DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.ext"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None
-    ))),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable)),
     3
 )]
 #[should_panic(expected = "non-nullable")]
@@ -382,11 +368,8 @@ fn test_to_canonical_struct() {
 
 #[test]
 fn test_to_canonical_extension() {
-    let dtype = DType::Extension(Arc::new(ExtDType::new(
-        ExtID::from("test.extension"),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        None,
-    )));
+    let dtype =
+        DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased());
     compare_to_canonical_methods(&dtype, |builder| {
         let ext_dtype = match &dtype {
             DType::Extension(ext) => ext.clone(),
@@ -513,11 +496,9 @@ fn test_to_canonical_f32() {
     3,
     Nullability::Nullable
 ))]
-#[case::extension_non_nullable(DType::Extension(Arc::new(ExtDType::new(
-    ExtID::from("test.ext"),
-    Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-    None
-))))]
+#[case::extension_non_nullable(DType::Extension(
+Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
+))]
 fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     let num_elements = 3;
     let mut builder = builder_with_capacity(&dtype, num_elements * 2);

@@ -13,6 +13,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_session::VortexSession;
 
 use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
@@ -55,8 +56,12 @@ impl VTable for GetItem {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let opts = pb::GetItemOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let opts = pb::GetItemOpts::decode(_metadata)?;
         Ok(FieldName::from(opts.path))
     }
 

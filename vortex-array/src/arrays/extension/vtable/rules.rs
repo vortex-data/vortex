@@ -47,14 +47,16 @@ impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::ExtDType;
+    use vortex_dtype::ExtDTypeRef;
     use vortex_dtype::ExtID;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::extension::EmptyOptions;
+    use vortex_dtype::extension::VTable;
+    use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
@@ -71,12 +73,27 @@ mod tests {
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;
 
+    #[derive(Clone, Debug, Default)]
+    struct TestExt;
+    impl VTable for TestExt {
+        type Options = EmptyOptions;
+
+        fn id(&self) -> ExtID {
+            ExtID::new_ref("test_ext")
+        }
+
+        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
     fn test_ext_dtype() -> ExtDTypeRef {
-        Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            None,
-        ))
+        ExtDType::<TestExt>::try_new(
+            EmptyOptions,
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap()
+        .erased()
     }
 
     #[test]
@@ -101,7 +118,7 @@ mod tests {
 
         let ext_result = optimized.as_::<ExtensionVTable>();
         assert_eq!(ext_result.len(), 3);
-        assert_eq!(ext_result.ext_dtype().as_ref(), ext_dtype.as_ref());
+        assert_eq!(ext_result.ext_dtype(), &ext_dtype);
 
         // Check the storage values
         let storage_result: &[i64] = &ext_result.storage().to_primitive().to_buffer::<i64>();
@@ -110,11 +127,12 @@ mod tests {
 
     #[test]
     fn test_filter_pushdown_nullable() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-            None,
-        ));
+        let ext_dtype = ExtDType::<TestExt>::try_new(
+            EmptyOptions,
+            DType::Primitive(PType::I64, Nullability::Nullable),
+        )
+        .unwrap()
+        .erased();
         let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
         let ext_array = ExtensionArray::new(ext_dtype, storage).into_array();
@@ -135,22 +153,36 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_no_pushdown_different_ext_types() {
-        let ext_dtype1 = Arc::new(ExtDType::new(
-            ExtID::new("type1".into()),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            None,
-        ));
-        let ext_dtype2 = Arc::new(ExtDType::new(
-            ExtID::new("type2".into()),
-            Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-            None,
-        ));
+        #[derive(Clone, Debug, Default)]
+        struct TestExt2;
+        impl VTable for TestExt2 {
+            type Options = EmptyOptions;
+
+            fn id(&self) -> ExtID {
+                ExtID::new_ref("test_ext_2")
+            }
+
+            fn validate(
+                &self,
+                _options: &Self::Options,
+                _storage_dtype: &DType,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
+        let ext_dtype1 = ExtDType::<TestExt>::try_new(
+            EmptyOptions,
+            DType::Primitive(PType::I64, Nullability::NonNullable),
+        )
+        .unwrap()
+        .erased();
 
         let storage = buffer![10i64, 20, 30].into_array();
         let ext_array = ExtensionArray::new(ext_dtype1, storage).into_array();
 
         // Create constant with different extension type
-        let const_scalar = Scalar::extension(ext_dtype2, Scalar::from(25i64));
+        let const_scalar = Scalar::extension::<TestExt2>(EmptyOptions, Scalar::from(25i64));
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
         let scalar_fn_array = Binary

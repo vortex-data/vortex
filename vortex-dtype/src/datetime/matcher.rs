@@ -34,6 +34,7 @@ impl Matcher for AnyTemporal {
 }
 
 /// Options for temporal extension data types.
+#[derive(Debug, PartialEq, Eq)]
 pub enum TemporalOptions<'a> {
     /// Options for Timestamp dtypes
     Timestamp(&'a <Timestamp as VTable>::Options),
@@ -46,6 +47,15 @@ pub enum TemporalOptions<'a> {
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex-scalar.
 //  Currently this is used largely to implement scalar display hacks.
 impl TemporalOptions<'_> {
+    /// Get the time unit of the temporal dtype.
+    pub fn time_unit(&self) -> crate::datetime::TimeUnit {
+        match self {
+            TemporalOptions::Time(unit) => **unit,
+            TemporalOptions::Date(unit) => **unit,
+            TemporalOptions::Timestamp(opts) => opts.unit,
+        }
+    }
+
     /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {

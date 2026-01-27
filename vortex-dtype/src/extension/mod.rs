@@ -71,7 +71,7 @@ impl<V: VTable> ExtDType<V> {
     }
 
     /// Erase the concrete type information, returning a type-erased extension dtype.
-    pub fn erase(self) -> ExtDTypeRef {
+    pub fn erased(self) -> ExtDTypeRef {
         ExtDTypeRef(self.0)
     }
 }
@@ -299,7 +299,7 @@ impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
         let storage_dtype = self.storage_dtype.with_nullability(nullability);
         ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.options.clone(), storage_dtype)
-            .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erase()
+            .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erased()
     }
 }
 

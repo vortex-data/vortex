@@ -7,15 +7,16 @@ mod test;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::datetime::DATE_ID;
-use vortex_dtype::datetime::TIME_ID;
-use vortex_dtype::datetime::TIMESTAMP_ID;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::AnyTemporal;
+use vortex_dtype::datetime::Date;
+use vortex_dtype::datetime::TemporalOptions;
+use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexError;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -43,28 +44,6 @@ use crate::arrays::ExtensionVTable;
 pub struct TemporalArray {
     /// The underlying Vortex extension array holding all the numeric values.
     ext: ExtensionArray,
-
-    /// In-memory representation of the ExtMetadata that is held by the underlying extension array.
-    ///
-    /// We hold this directly to avoid needing to deserialize the metadata to access things like
-    /// timezone and TimeUnit of the underlying array.
-    temporal_metadata: TemporalMetadata,
-}
-
-macro_rules! assert_width {
-    ($width:ty, $array:expr) => {{
-        let DType::Primitive(ptype, _) = $array.dtype() else {
-            panic!("array must have primitive type");
-        };
-
-        assert_eq!(
-            <$width as vortex_dtype::NativePType>::PTYPE,
-            *ptype,
-            "invalid ptype {} for array, expected {}",
-            <$width as vortex_dtype::NativePType>::PTYPE,
-            *ptype
-        );
-    }};
 }
 
 impl TemporalArray {
@@ -82,27 +61,11 @@ impl TemporalArray {
     ///
     /// If any other time unit is provided, it panics.
     pub fn new_date(array: ArrayRef, time_unit: TimeUnit) -> Self {
-        match time_unit {
-            TimeUnit::Days => {
-                assert_width!(i32, array);
-            }
-            TimeUnit::Milliseconds => {
-                assert_width!(i64, array);
-            }
-            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                vortex_panic!("invalid TimeUnit {time_unit} for vortex.date")
-            }
-        };
-
-        let ext_dtype = ExtDType::new(
-            DATE_ID.clone(),
-            Arc::new(array.dtype().clone()),
-            Some(TemporalMetadata::Date(time_unit).into()),
-        );
-
         Self {
-            ext: ExtensionArray::new(Arc::new(ext_dtype), array),
-            temporal_metadata: TemporalMetadata::Date(time_unit),
+            ext: ExtensionArray::new(
+                Date::new(time_unit, array.dtype().nullability()).erased(),
+                array,
+            ),
         }
     }
 
@@ -126,23 +89,11 @@ impl TemporalArray {
     ///
     /// If the time unit is nanoseconds, and the array is not of primitive I64 type, it panics.
     pub fn new_time(array: ArrayRef, time_unit: TimeUnit) -> Self {
-        match time_unit {
-            TimeUnit::Seconds | TimeUnit::Milliseconds => assert_width!(i32, array),
-            TimeUnit::Microseconds | TimeUnit::Nanoseconds => assert_width!(i64, array),
-            TimeUnit::Days => vortex_panic!("invalid unit D for vortex.time data"),
-        }
-
-        let temporal_metadata = TemporalMetadata::Time(time_unit);
         Self {
             ext: ExtensionArray::new(
-                Arc::new(ExtDType::new(
-                    TIME_ID.clone(),
-                    Arc::new(array.dtype().clone()),
-                    Some(temporal_metadata.clone().into()),
-                )),
+                Time::new(time_unit, array.dtype().nullability()).erased(),
                 array,
             ),
-            temporal_metadata,
         }
     }
 
@@ -154,21 +105,17 @@ impl TemporalArray {
     /// If `array` does not hold Primitive i64 data, the function will panic.
     ///
     /// If the time_unit is days, the function will panic.
-    pub fn new_timestamp(array: ArrayRef, time_unit: TimeUnit, time_zone: Option<String>) -> Self {
-        assert_width!(i64, array);
-
-        let temporal_metadata = TemporalMetadata::Timestamp(time_unit, time_zone);
-
+    pub fn new_timestamp(
+        array: ArrayRef,
+        time_unit: TimeUnit,
+        time_zone: Option<Arc<str>>,
+    ) -> Self {
         Self {
             ext: ExtensionArray::new(
-                Arc::new(ExtDType::new(
-                    TIMESTAMP_ID.clone(),
-                    Arc::new(array.dtype().clone()),
-                    Some(temporal_metadata.clone().into()),
-                )),
+                Timestamp::new_with_tz(time_unit, time_zone.clone(), array.dtype().nullability())
+                    .erased(),
                 array,
             ),
-            temporal_metadata,
         }
     }
 }
@@ -186,8 +133,8 @@ impl TemporalArray {
     ///
     /// The metadata is used to provide semantic meaning to the temporal values Array, for example
     /// to understand the granularity of the samples and if they have an associated timezone.
-    pub fn temporal_metadata(&self) -> &TemporalMetadata {
-        &self.temporal_metadata
+    pub fn temporal_metadata(&self) -> TemporalOptions<'_> {
+        self.ext.dtype().as_extension().options::<AnyTemporal>()
     }
 
     /// Retrieve the extension DType associated with the underlying array.
@@ -234,11 +181,13 @@ impl TryFrom<ArrayRef> for TemporalArray {
         let ext = value
             .as_opt::<ExtensionVTable>()
             .ok_or_else(|| vortex_err!("array must be an ExtensionArray"))?;
-        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype())?;
-        Ok(Self {
-            ext: ext.clone(),
-            temporal_metadata,
-        })
+        if !ext.ext_dtype().is::<AnyTemporal>() {
+            vortex_bail!(
+                "array extension dtype {} is not a temporal type",
+                ext.ext_dtype()
+            );
+        }
+        Ok(Self { ext: ext.clone() })
     }
 }
 
@@ -259,10 +208,12 @@ impl TryFrom<ExtensionArray> for TemporalArray {
     type Error = VortexError;
 
     fn try_from(ext: ExtensionArray) -> Result<Self, Self::Error> {
-        let temporal_metadata = TemporalMetadata::try_from(ext.ext_dtype().as_ref())?;
-        Ok(Self {
-            ext,
-            temporal_metadata,
-        })
+        if !ext.ext_dtype().is::<AnyTemporal>() {
+            vortex_bail!(
+                "array extension dtype {} is not a temporal type",
+                ext.ext_dtype()
+            );
+        }
+        Ok(Self { ext })
     }
 }

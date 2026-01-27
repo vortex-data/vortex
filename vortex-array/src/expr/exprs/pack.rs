@@ -14,6 +14,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::arrays::StructArray;
@@ -65,8 +66,12 @@ impl VTable for Pack {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let opts = pb::PackOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let opts = pb::PackOpts::decode(_metadata)?;
         let names: FieldNames = opts
             .paths
             .iter()

@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::ExtID;
+use vortex_dtype::extension::ExtDTypeRef;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
@@ -120,7 +118,7 @@ impl ExtensionArray {
 
     #[allow(dead_code)]
     #[inline]
-    pub fn id(&self) -> &ExtID {
+    pub fn id(&self) -> ExtID {
         self.ext_dtype().id()
     }
 }

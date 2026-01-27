@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
+use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::arrays::StructArray;
@@ -60,8 +61,12 @@ impl VTable for Select {
         Ok(Some(select_opts.encode_to_vec()))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let prost_metadata = SelectOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let prost_metadata = SelectOpts::decode(_metadata)?;
 
         let select_opts = prost_metadata
             .opts

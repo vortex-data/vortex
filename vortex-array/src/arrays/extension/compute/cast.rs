@@ -44,17 +44,13 @@ register_kernel!(CastKernelAdapter(ExtensionVTable).lift());
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
-    use vortex_dtype::ExtDType;
     use vortex_dtype::Nullability;
-    use vortex_dtype::PType;
-    use vortex_dtype::datetime::TIMESTAMP_ID;
-    use vortex_dtype::datetime::TemporalMetadata;
     use vortex_dtype::datetime::TimeUnit;
+    use vortex_dtype::datetime::Timestamp;
 
     use super::*;
     use crate::IntoArray;
@@ -64,11 +60,7 @@ mod tests {
 
     #[test]
     fn cast_same_ext_dtype() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
-        ));
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
@@ -81,11 +73,7 @@ mod tests {
 
     #[test]
     fn cast_same_ext_dtype_differet_nullability() {
-        let ext_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
-        ));
+        let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         let storage = Buffer::<i64>::empty().into_array();
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
@@ -101,17 +89,10 @@ mod tests {
 
     #[test]
     fn cast_different_ext_dtype() {
-        let original_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(PType::I64.into()),
-            Some(TemporalMetadata::Timestamp(TimeUnit::Milliseconds, None).into()),
-        ));
-        let target_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(PType::I64.into()),
-            // Note NS here instead of MS
-            Some(TemporalMetadata::Timestamp(TimeUnit::Nanoseconds, None).into()),
-        ));
+        let original_dtype =
+            Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
+        // Note NS here instead of MS
+        let target_dtype = Timestamp::new(TimeUnit::Nanoseconds, Nullability::NonNullable).erased();
 
         let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
@@ -129,15 +110,8 @@ mod tests {
     }
 
     fn create_timestamp_array(time_unit: TimeUnit, nullable: bool) -> ExtensionArray {
-        let ext_dtype = Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(if nullable {
-                DType::Primitive(PType::I64, Nullability::Nullable)
-            } else {
-                DType::Primitive(PType::I64, Nullability::NonNullable)
-            }),
-            Some(TemporalMetadata::Timestamp(time_unit, Some("UTC".to_string())).into()),
-        ));
+        let ext_dtype =
+            Timestamp::new_with_tz(time_unit, Some("UTC".into()), nullable.into()).erased();
 
         let storage = if nullable {
             PrimitiveArray::from_option_iter([

@@ -48,7 +48,7 @@ mod tests {
     #[test]
     fn cast_to_from_extension_types() {
         let apples = Apples::new();
-        let ext_dtype = DType::Extension(apples.clone().erase());
+        let ext_dtype = DType::Extension(apples.clone().erased());
         let ext_scalar = Scalar::new(ext_dtype.clone(), ScalarValue(InnerScalarValue::Bool(true)));
         let storage_scalar = Scalar::new(
             DType::clone(apples.storage_dtype()),
@@ -98,7 +98,7 @@ mod tests {
         let apples_u8 =
             ExtDType::<Apples>::try_new(0, DType::Primitive(PType::U8, Nullability::NonNullable))
                 .unwrap();
-        let expected_dtype = &DType::Extension(apples_u8.erase());
+        let expected_dtype = &DType::Extension(apples_u8.erased());
         let result = storage_scalar.cast(expected_dtype);
         assert!(
             result
@@ -337,7 +337,7 @@ mod tests {
         let u64_bits = f16_value.to_bits() as u64;
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erase()),
+            DType::Extension(ext_dtype.erased()),
             ScalarValue(InnerScalarValue::Primitive(PValue::U64(u64_bits))),
         );
 
@@ -399,7 +399,7 @@ mod tests {
         ];
 
         let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erase()),
+            DType::Extension(ext_dtype.erased()),
             ScalarValue(InnerScalarValue::List(field_values.into())),
         );
 

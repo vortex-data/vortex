@@ -24,7 +24,7 @@ mod field_names;
 mod native_dtype;
 mod nullability;
 mod ptype;
-pub(crate) mod serde;
+pub mod serde;
 pub mod session;
 mod struct_;
 
@@ -33,6 +33,7 @@ pub use decimal::*;
 pub use dtype::DType;
 pub use dtype::NativeDType;
 pub use extension::ExtDType;
+pub use extension::ExtDTypeRef;
 pub use extension::ExtID;
 pub use f16::*;
 pub use field::*;

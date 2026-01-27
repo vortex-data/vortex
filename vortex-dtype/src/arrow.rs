@@ -173,14 +173,18 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
                 DType::Binary(nullability)
             }
-            DataType::Date32 => DType::Extension(Date::new(TimeUnit::Days, nullability).erase()),
+            DataType::Date32 => DType::Extension(Date::new(TimeUnit::Days, nullability).erased()),
             DataType::Date64 => {
-                DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erase())
+                DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erased())
             }
-            DataType::Time32(unit) => DType::Extension(Time::new(unit.into(), nullability).erase()),
-            DataType::Time64(unit) => DType::Extension(Time::new(unit.into(), nullability).erase()),
+            DataType::Time32(unit) => {
+                DType::Extension(Time::new(unit.into(), nullability).erased())
+            }
+            DataType::Time64(unit) => {
+                DType::Extension(Time::new(unit.into(), nullability).erased())
+            }
             DataType::Timestamp(unit, tz) => DType::Extension(
-                Timestamp::new_with_tz(unit.into(), tz.clone(), nullability).erase(),
+                Timestamp::new_with_tz(unit.into(), tz.clone(), nullability).erased(),
             ),
             DataType::List(e)
             | DataType::LargeList(e)
