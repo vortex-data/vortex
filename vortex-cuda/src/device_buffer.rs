@@ -112,6 +112,9 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     /// Synchronous copy of CUDA device to host memory.
     ///
     /// The copy is not started before other operations on the streams are completed.
+    /// This is synonymous to doing a synchronize on the stream before the copy.
+    ///
+    /// The asynchronous `copy_to_host` function should be preferred whenever possible.
     ///
     /// # Arguments
     ///
