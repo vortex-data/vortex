@@ -114,21 +114,21 @@ fn test_duplicate_field_names() {
     .unwrap();
 
     // field_by_name should return the first field with the matching name
-    let first_value_field = struct_array.field_by_name("value").unwrap();
+    let first_value_field = struct_array.unmasked_field_by_name("value").unwrap();
     assert_arrays_eq!(
         first_value_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // This is field1, not field3
     );
 
     // Verify field_by_name_opt also returns the first match
-    let opt_field = struct_array.field_by_name_opt("value").unwrap();
+    let opt_field = struct_array.unmasked_field_by_name_opt("value").unwrap();
     assert_arrays_eq!(
         opt_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // First "value" field
     );
 
     // Verify the third field (second "value") can be accessed by index
-    let third_field = &struct_array.fields()[2];
+    let third_field = &struct_array.unmasked_fields()[2];
     assert_arrays_eq!(third_field, PrimitiveArray::from_iter([100i32, 200, 300]));
 }
 

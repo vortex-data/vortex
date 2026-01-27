@@ -4,15 +4,12 @@
 use std::fmt::Formatter;
 
 use prost::Message;
-use vortex_compute::arrow::IntoArrow;
-use vortex_compute::arrow::IntoVector;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::VectorOps;
+use vortex_scalar::StringLike;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
@@ -20,11 +17,19 @@ use crate::compute::like as like_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::and;
+use crate::expr::gt;
+use crate::expr::gt_eq;
+use crate::expr::lit;
+use crate::expr::lt;
+use crate::expr::or;
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -103,40 +108,17 @@ impl VTable for Like {
         ))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child = expr.child(0).evaluate(scope)?;
-        let pattern = expr.child(1).evaluate(scope)?;
-        like_compute(&child, &pattern, *options)
-    }
-
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [child, pattern]: [Datum; _] = args
-            .datums
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [child, pattern]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        let child = child.into_arrow()?;
-        let pattern = pattern.into_arrow()?;
-
-        let array = match (options.negated, options.case_insensitive) {
-            (false, false) => arrow_string::like::like(child.as_ref(), pattern.as_ref()),
-            (false, true) => arrow_string::like::ilike(child.as_ref(), pattern.as_ref()),
-            (true, false) => arrow_string::like::nlike(child.as_ref(), pattern.as_ref()),
-            (true, true) => arrow_string::like::nilike(child.as_ref(), pattern.as_ref()),
-        }?;
-
-        let vector = array.into_vector()?;
-        if vector.len() == 1 && args.row_count != 1 {
-            // Arrow returns a scalar datum result
-            return Ok(Datum::Scalar(vector.scalar_at(0).into()));
-        }
-
-        Ok(Datum::Vector(array.into_vector()?.into()))
+        like_compute(&child, &pattern, *options)?.execute(args.ctx)
     }
 
     fn validity(
@@ -152,6 +134,67 @@ impl VTable for Like {
 
     fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
         false
+    }
+
+    fn stat_falsification(
+        &self,
+        like_opts: &LikeOptions,
+        expr: &Expression,
+        catalog: &dyn StatsCatalog,
+    ) -> Option<Expression> {
+        // Attempt to do min/max pruning for LIKE 'exact' or LIKE 'prefix%'
+
+        // Don't attempt to handle ilike or negated like
+        if like_opts.negated || like_opts.case_insensitive {
+            return None;
+        }
+
+        // Extract the pattern out
+        let pat = expr.child(1).as_::<Literal>();
+
+        // LIKE NULL is nonsensical, don't try to handle it
+        let pat_str = pat.as_utf8().value()?;
+
+        let src = expr.child(0).clone();
+        let src_min = src.stat_min(catalog)?;
+        let src_max = src.stat_max(catalog)?;
+
+        match LikeVariant::from_str(&pat_str)? {
+            LikeVariant::Exact(text) => {
+                // col LIKE 'exact' ==>  col.min > 'exact' || col.max < 'exact'
+                Some(or(gt(src_min, lit(text)), lt(src_max, lit(text))))
+            }
+            LikeVariant::Prefix(prefix) => {
+                // col LIKE 'prefix%' ==> col.max < 'prefix' || col.min >= 'prefiy'
+                let succ = prefix.to_string().increment().ok()?;
+
+                Some(or(gt_eq(src_min, lit(succ)), lt(src_max, lit(prefix))))
+            }
+        }
+    }
+}
+
+/// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s
+#[derive(Debug, PartialEq)]
+enum LikeVariant<'a> {
+    Exact(&'a str),
+    Prefix(&'a str),
+}
+
+impl<'a> LikeVariant<'a> {
+    /// Parse a LIKE pattern string into its relevant variant
+    fn from_str(string: &str) -> Option<LikeVariant<'_>> {
+        let Some(wildcard_pos) = string.find(['%', '_']) else {
+            return Some(LikeVariant::Exact(string));
+        };
+
+        // Can't handle wildcard in the front.
+        if wildcard_pos == 0 {
+            return None;
+        }
+
+        let prefix = &string[..wildcard_pos];
+        Some(LikeVariant::Prefix(prefix))
     }
 }
 
@@ -202,12 +245,17 @@ mod tests {
 
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::expr::col;
     use crate::expr::exprs::get_item::get_item;
+    use crate::expr::exprs::like::LikeVariant;
     use crate::expr::exprs::like::like;
     use crate::expr::exprs::like::not_ilike;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::root::root;
+    use crate::expr::ilike;
+    use crate::expr::not_like;
+    use crate::expr::pruning::pruning_expr::TrackingStatsCatalog;
 
     #[test]
     fn invert_booleans() {
@@ -242,5 +290,67 @@ mod tests {
 
         let expr2 = not_ilike(root(), lit("test*"));
         assert_eq!(expr2.to_string(), "$ not ilike \"test*\"");
+    }
+
+    #[test]
+    fn test_like_variant() {
+        // Supported patterns
+        assert_eq!(
+            LikeVariant::from_str("simple"),
+            Some(LikeVariant::Exact("simple"))
+        );
+        assert_eq!(
+            LikeVariant::from_str("prefix%"),
+            Some(LikeVariant::Prefix("prefix"))
+        );
+        assert_eq!(
+            LikeVariant::from_str("first%rest_stuff"),
+            Some(LikeVariant::Prefix("first"))
+        );
+
+        // Unsupported patterns
+        assert_eq!(LikeVariant::from_str("%suffix"), None);
+        assert_eq!(LikeVariant::from_str("_pattern"), None);
+    }
+
+    #[test]
+    fn test_like_pushdown() {
+        // Test that LIKE prefix and exactness filters can be pushed down into stats filtering
+        // at scan time.
+        let catalog = TrackingStatsCatalog::default();
+
+        let pruning_expr = like(col("a"), lit("prefix%"))
+            .stat_falsification(&catalog)
+            .expect("LIKE stat falsification");
+
+        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "prefiy") or ($.a_max < "prefix"))"#);
+
+        // Multiple wildcards
+        let pruning_expr = like(col("a"), lit("pref%ix%"))
+            .stat_falsification(&catalog)
+            .expect("LIKE stat falsification");
+        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "preg") or ($.a_max < "pref"))"#);
+
+        let pruning_expr = like(col("a"), lit("pref_ix_"))
+            .stat_falsification(&catalog)
+            .expect("LIKE stat falsification");
+        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min >= "preg") or ($.a_max < "pref"))"#);
+
+        // Exact match
+        let pruning_expr = like(col("a"), lit("exactly"))
+            .stat_falsification(&catalog)
+            .expect("LIKE stat falsification");
+        insta::assert_snapshot!(pruning_expr, @r#"(($.a_min > "exactly") or ($.a_max < "exactly"))"#);
+
+        // Suffix search skips pushdown
+        let pruning_expr = like(col("a"), lit("%suffix")).stat_falsification(&catalog);
+        assert_eq!(pruning_expr, None);
+
+        // NOT LIKE, ILIKE not supported currently
+        assert_eq!(
+            None,
+            not_like(col("a"), lit("a")).stat_falsification(&catalog)
+        );
+        assert_eq!(None, ilike(col("a"), lit("a")).stat_falsification(&catalog));
     }
 }

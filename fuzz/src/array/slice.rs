@@ -26,7 +26,7 @@ pub fn slice_canonical_array(
     stop: usize,
 ) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let bool_buff = array.validity_mask().to_bit_buffer();
+        let bool_buff = array.validity_mask()?.to_bit_buffer();
         Validity::from(bool_buff.slice(start..stop))
     } else {
         Validity::NonNullable
@@ -61,7 +61,7 @@ pub fn slice_canonical_array(
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let sliced_children = struct_array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|c| slice_canonical_array(c, start, stop))
                 .collect::<VortexResult<Vec<_>>>()?;

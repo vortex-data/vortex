@@ -8,12 +8,12 @@ use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::build_views::BinaryView;
+use vortex::array::arrays::build_views::Inlined;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::vector::binaryview::BinaryView;
-use vortex::vector::binaryview::Inlined;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;

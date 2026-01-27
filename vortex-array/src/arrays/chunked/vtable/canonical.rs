@@ -38,7 +38,7 @@ pub(super) fn _canonicalize(
         DType::Struct(struct_dtype, _) => {
             let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref()),
+                Validity::copy_from_array(array.as_ref())?,
                 struct_dtype,
                 ctx,
             )?;
@@ -46,7 +46,7 @@ pub(super) fn _canonicalize(
         }
         DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
             array.chunks(),
-            Validity::copy_from_array(array.as_ref()),
+            Validity::copy_from_array(array.as_ref())?,
             elem_dtype,
             ctx,
         )?),
@@ -76,7 +76,7 @@ fn pack_struct_chunks(
         for c in chunks {
             let struct_array = c.clone().execute::<StructArray>(ctx)?;
             let field = struct_array
-                .fields()
+                .unmasked_fields()
                 .get(field_idx)
                 .vortex_expect("Invalid field index")
                 .to_array();
@@ -224,8 +224,8 @@ mod tests {
         .unwrap()
         .into_array();
         let canonical_struct = chunked.to_struct();
-        let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-        let original_varbin = struct_array.fields()[0].to_varbinview();
+        let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
+        let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
         let canon_values = canonical_varbin
@@ -256,7 +256,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_listview();
 
-        assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
-        assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));
+        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
+        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
     }
 }

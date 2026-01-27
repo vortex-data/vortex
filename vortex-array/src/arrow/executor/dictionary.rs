@@ -15,6 +15,7 @@ use vortex_error::vortex_bail;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::DictArray;
+use crate::arrays::DictArrayParts;
 use crate::arrays::DictVTable;
 use crate::arrow::ArrowArrayExecutor;
 
@@ -47,7 +48,7 @@ fn dict_to_dict(
     values_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
-    let (codes, values) = array.into_parts();
+    let DictArrayParts { codes, values, .. } = array.into_parts();
     let codes = codes.execute_arrow(Some(codes_type), ctx)?;
     let values = values.execute_arrow(Some(values_type), ctx)?;
 

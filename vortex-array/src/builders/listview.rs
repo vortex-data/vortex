@@ -300,7 +300,9 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
         // to manually append each scalar.
         if !listview.is_zero_copy_to_list() {
             for i in 0..listview.len() {
-                let list = listview.scalar_at(i);
+                let list = listview
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at failed in extend_from_array_unchecked");
 
                 self.append_scalar(&list)
                     .vortex_expect("was unable to extend the `ListViewBuilder`")
@@ -316,7 +318,11 @@ impl<O: IntegerPType, S: IntegerPType> ArrayBuilder for ListViewBuilder<O, S> {
             .vortex_expect("ListViewArray::rebuild(MakeExact) failed in extend_from_array");
         debug_assert!(listview.is_zero_copy_to_list());
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         // Bulk append the new elements (which should have no gaps or overlaps).
         let old_elements_len = self.elements_builder.len();
@@ -480,19 +486,19 @@ mod tests {
 
         // Check first list: [1, 2, 3].
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         // Check empty list.
-        assert_eq!(listview.list_elements_at(1).len(), 0);
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Check null list.
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Check last list: [4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(3),
+            listview.list_elements_at(3).unwrap(),
             PrimitiveArray::from_iter([4i32, 5])
         );
     }
@@ -526,13 +532,13 @@ mod tests {
 
         // Verify first list: [1, 2].
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([1i32, 2])
         );
 
         // Verify second list: [3, 4, 5].
         assert_arrays_eq!(
-            listview.list_elements_at(1),
+            listview.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([3i32, 4, 5])
         );
 
@@ -555,7 +561,7 @@ mod tests {
         // Verify the values: [0], [10], [20], [30], [40].
         for i in 0..5i32 {
             assert_arrays_eq!(
-                listview2.list_elements_at(i as usize),
+                listview2.list_elements_at(i as usize).unwrap(),
                 PrimitiveArray::from_iter([i * 10])
             );
         }
@@ -585,16 +591,16 @@ mod tests {
         assert_eq!(listview.len(), 5);
 
         // First two are empty lists (from append_zeros).
-        assert_eq!(listview.list_elements_at(0).len(), 0);
-        assert_eq!(listview.list_elements_at(1).len(), 0);
+        assert_eq!(listview.list_elements_at(0).unwrap().len(), 0);
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 0);
 
         // Next two are nulls.
-        assert!(!listview.validity().is_valid(2));
-        assert!(!listview.validity().is_valid(3));
+        assert!(!listview.validity().is_valid(2).unwrap());
+        assert!(!listview.validity().is_valid(3).unwrap());
 
         // Last is the regular list: [10, 20].
         assert_arrays_eq!(
-            listview.list_elements_at(4),
+            listview.list_elements_at(4).unwrap(),
             PrimitiveArray::from_iter([10i32, 20])
         );
     }
@@ -634,22 +640,22 @@ mod tests {
         // Check the extended data.
         // First list: [0] (initial data).
         assert_arrays_eq!(
-            listview.list_elements_at(0),
+            listview.list_elements_at(0).unwrap(),
             PrimitiveArray::from_iter([0i32])
         );
 
         // Second list: [1, 2, 3] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(1),
+            listview.list_elements_at(1).unwrap(),
             PrimitiveArray::from_iter([1i32, 2, 3])
         );
 
         // Third list: null (from source).
-        assert!(!listview.validity().is_valid(2));
+        assert!(!listview.validity().is_valid(2).unwrap());
 
         // Fourth list: [4, 5] (from source).
         assert_arrays_eq!(
-            listview.list_elements_at(3),
+            listview.list_elements_at(3).unwrap(),
             PrimitiveArray::from_iter([4i32, 5])
         );
     }

@@ -13,18 +13,15 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorOps;
 
-use crate::ArrayRef;
-use crate::ToCanonical;
+use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -104,41 +101,23 @@ impl VTable for GetItem {
         Ok(field_dtype)
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         field_name: &FieldName,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let input = expr.children()[0].evaluate(scope)?.to_struct();
-        let field = input.field_by_name(field_name).cloned()?;
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let input = args
+            .inputs
+            .pop()
+            .vortex_expect("missing input for GetItem expression")
+            .execute::<StructArray>(args.ctx)?;
+        let field = input.unmasked_field_by_name(field_name).cloned()?;
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask().not()),
-        }
-    }
-
-    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let struct_dtype = args.dtypes[0]
-            .as_struct_fields_opt()
-            .ok_or_else(|| vortex_err!("Expected struct dtype for child of GetItem expression"))?;
-        let field_idx = struct_dtype
-            .find(field_name)
-            .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", field_name))?;
-
-        match args.datums.pop().vortex_expect("missing input") {
-            Datum::Scalar(s) => {
-                let mut field = s.as_struct().field(field_idx);
-                field.mask_validity(s.is_valid());
-                Ok(Datum::Scalar(field))
-            }
-            Datum::Vector(v) => {
-                let mut field = v.as_struct().fields()[field_idx].clone();
-                field.mask_validity(v.validity());
-                Ok(Datum::Vector(field))
-            }
-        }
+            Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
+        }?
+        .execute(args.ctx)
     }
 
     fn reduce(
@@ -317,7 +296,7 @@ mod tests {
         let get_item = get_item("a", root());
         let item = get_item.evaluate(&st).unwrap();
         assert_eq!(
-            item.scalar_at(0),
+            item.scalar_at(0).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
     }
@@ -383,5 +362,37 @@ mod tests {
         let result = get_result.optimize_recursive(&dtype).unwrap();
         let expected = checked_add(lit(1), lit(10));
         assert_eq!(&result, &expected);
+    }
+
+    #[test]
+    fn get_item_filter_list_field() {
+        use vortex_mask::Mask;
+
+        use crate::arrays::BoolArray;
+        use crate::arrays::FilterArray;
+        use crate::arrays::ListArray;
+
+        let list = ListArray::try_new(
+            buffer![0f32, 1., 2., 3., 4., 5., 6., 7., 8., 9., 10., 11.].into_array(),
+            buffer![2u64, 4, 6, 8, 10, 12].into_array(),
+            Validity::Array(BoolArray::from_iter([true, true, false, true, true]).into_array()),
+        )
+        .unwrap();
+
+        let filtered = FilterArray::try_new(
+            list.into_array(),
+            Mask::from_iter([true, true, false, false, false]),
+        )
+        .unwrap();
+
+        let st = StructArray::try_new(
+            FieldNames::from(["data"]),
+            vec![filtered.into_array()],
+            2,
+            Validity::AllValid,
+        )
+        .unwrap();
+
+        get_item("data", root()).evaluate(&st.to_array()).unwrap();
     }
 }

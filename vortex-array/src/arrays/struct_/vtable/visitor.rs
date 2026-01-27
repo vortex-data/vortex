@@ -15,7 +15,7 @@ impl VisitorVTable<StructVTable> for StructVTable {
 
     fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
-        for (name, field) in array.names().iter().zip_eq(array.fields().iter()) {
+        for (name, field) in array.names().iter().zip_eq(array.unmasked_fields().iter()) {
             visitor.visit_child(name.as_ref(), field);
         }
     }

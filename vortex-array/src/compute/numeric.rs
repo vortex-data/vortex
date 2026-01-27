@@ -277,7 +277,7 @@ fn arrow_numeric(
         NumericOperator::RDiv => arrow_arith::numeric::div(&right, &left)?,
     };
 
-    Ok(from_arrow_array_with_len(array.as_ref(), len, nullable))
+    from_arrow_array_with_len(array.as_ref(), len, nullable)
 }
 
 #[cfg(test)]
@@ -320,7 +320,7 @@ mod test {
             .to_primitive();
 
         let actual = (0..result.len())
-            .map(|index| result.scalar_at(index))
+            .map(|index| result.scalar_at(index).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(
             actual,

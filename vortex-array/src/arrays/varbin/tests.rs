@@ -41,7 +41,7 @@ pub fn test_scalar_at(binary_array: ArrayRef) {
 
 #[rstest]
 pub fn slice_array(binary_array: ArrayRef) {
-    let binary_arr = binary_array.slice(1..2);
+    let binary_arr = binary_array.slice(1..2).unwrap();
     assert_arrays_eq!(
         binary_arr,
         VarBinViewArray::from_iter_str(["hello world this is a long string"])

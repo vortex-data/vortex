@@ -96,6 +96,10 @@ pub fn register_table_functions(conn: &Connection) -> VortexResult<()> {
 pub unsafe extern "C" fn vortex_init_rust(db: cpp::duckdb_database) {
     let database = unsafe { Database::borrow(db) };
 
+    database
+        .register_vortex_scan_replacement()
+        .vortex_expect("failed to register vortex scan replacement");
+
     let conn = database
         .connect()
         .inspect_err(|e| println!("err {e}"))

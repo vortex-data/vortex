@@ -68,6 +68,7 @@ macro_rules! arc_dyn_wrapper {
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a std::sync::Arc<$T> {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
                         .0
@@ -129,6 +130,7 @@ macro_rules! arc_wrapper {
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref(ptr: *const $ffi_ident) -> &'static $T {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
                         .0
@@ -193,6 +195,7 @@ macro_rules! box_dyn_wrapper {
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
                         .0
@@ -202,6 +205,7 @@ macro_rules! box_dyn_wrapper {
                 /// Extract a borrowed mutable reference from a mut pointer.
                 pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     unsafe { ptr.as_mut() }
                         .vortex_expect("null pointer")
                         .0
@@ -253,6 +257,7 @@ macro_rules! box_wrapper {
                 /// Extract a borrowed reference from a const pointer.
                 pub(crate) fn as_ref<'a>(ptr: *const $ffi_ident) -> &'a $T {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     &unsafe { ptr.as_ref() }
                         .vortex_expect("null pointer")
                         .0
@@ -261,6 +266,7 @@ macro_rules! box_wrapper {
                 /// Extract a borrowed mutable reference from a mut pointer.
                 pub(crate) fn as_mut<'a>(ptr: *mut $ffi_ident) -> &'a mut $T {
                     use vortex::error::VortexExpect;
+                    // TODO(joe): propagate this error up instead of expecting
                     &mut unsafe { ptr.as_mut() }
                         .vortex_expect("null pointer")
                         .0

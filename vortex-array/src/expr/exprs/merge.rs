@@ -15,16 +15,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_vector::Datum;
 
-use crate::Array;
-use crate::ArrayRef;
 use crate::IntoArray as _;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
@@ -135,36 +132,34 @@ impl VTable for Merge {
         ))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children().iter() {
-            // TODO(marko): When nullable, we need to merge struct validity into field validity.
-            let array = child.evaluate(scope)?;
+        for input in args.inputs {
+            let array = input.execute::<StructArray>(args.ctx)?;
             if array.dtype().is_nullable() {
                 vortex_bail!("merge expects non-nullable input");
             }
-            if !array.dtype().is_struct() {
-                vortex_bail!("merge expects struct input");
-            }
-            let array = array.to_struct();
 
-            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
+            for (field_name, field_array) in array
+                .names()
+                .iter()
+                .zip_eq(array.unmasked_fields().iter().cloned())
+            {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     duplicate_names.insert(field_name.clone());
-                    arrays[idx] = array;
+                    arrays[idx] = field_array;
                 } else {
                     field_names.push(field_name.clone());
-                    arrays.push(array);
+                    arrays.push(field_array);
                 }
             }
         }
@@ -178,15 +173,10 @@ impl VTable for Merge {
 
         // TODO(DK): When children are allowed to be nullable, this needs to change.
         let validity = Validity::NonNullable;
-        let len = scope.len();
-        Ok(
-            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
-                .into_array(),
-        )
-    }
-
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+        let len = args.row_count;
+        StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+            .into_array()
+            .execute(args.ctx)
     }
 
     fn reduce(
@@ -339,9 +329,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().unmasked_field_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }
@@ -527,7 +517,7 @@ mod tests {
 
         assert_eq!(
             actual_array
-                .field_by_name("a")
+                .unmasked_field_by_name("a")
                 .unwrap()
                 .to_struct()
                 .names()

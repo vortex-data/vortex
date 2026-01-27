@@ -12,7 +12,6 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
@@ -89,7 +88,7 @@ impl VTable for ArrowVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())?
             .execute::<Canonical>(ctx)
     }
 }
@@ -150,8 +149,8 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
 }
 
 impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn scalar_at(_array: &ArrowArray, _index: usize) -> Scalar {
-        vortex_panic!("Not supported")
+    fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
+        vortex_bail!("ArrowArray does not support scalar_at")
     }
 }
 
@@ -173,12 +172,12 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
         })
     }
 
-    fn validity_mask(array: &ArrowArray) -> Mask {
-        array
+    fn validity_mask(array: &ArrowArray) -> VortexResult<Mask> {
+        Ok(array
             .inner
             .logical_nulls()
             .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone().into()))
-            .unwrap_or_else(|| Mask::new_true(array.inner.len()))
+            .unwrap_or_else(|| Mask::new_true(array.inner.len())))
     }
 }
 

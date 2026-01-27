@@ -184,6 +184,7 @@ fn fill_varbinview_array(
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
+                                    .vortex_expect("scalar_at")
                                     .as_utf8()
                                     .value()
                                     .vortex_expect("cannot have null valid value")
@@ -217,6 +218,7 @@ fn fill_varbinview_array(
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
+                                    .vortex_expect("scalar_at")
                                     .as_binary()
                                     .value()
                                     .vortex_expect("cannot have null valid value")

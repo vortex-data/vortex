@@ -68,7 +68,7 @@ impl Connection {
         name: &CStr,
         extension: &CStr,
     ) -> VortexResult<()> {
-        let vtab =
+        let vtab: &mut cpp::duckdb_vx_copy_func_vtab_t =
             unsafe { cpp::get_vtab_one().as_mut() }.vortex_expect("copy vtab cannot be null");
 
         vtab.name = name.as_ptr();

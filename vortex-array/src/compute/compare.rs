@@ -392,7 +392,7 @@ fn arrow_compare(
             Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
         }
     };
-    Ok(from_arrow_array_with_len(&array, left.len(), nullable))
+    from_arrow_array_with_len(&array, left.len(), nullable)
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -671,9 +671,9 @@ mod tests {
 
         // Compare two lists together
         let result = compare(list.as_ref(), list.as_ref(), Operator::Eq).unwrap();
-        assert!(result.scalar_at(0).is_valid());
-        assert!(result.scalar_at(1).is_valid());
-        assert!(result.scalar_at(2).is_valid());
+        assert!(result.scalar_at(0).unwrap().is_valid());
+        assert!(result.scalar_at(1).unwrap().is_valid());
+        assert!(result.scalar_at(2).unwrap().is_valid());
     }
 
     #[test]

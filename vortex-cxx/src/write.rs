@@ -37,8 +37,8 @@ fn arrow_stream_to_vortex_stream(reader: ArrowArrayStreamReader) -> Result<impl 
         DType::from_arrow(reader.schema()),
         reader.map(|result| {
             result
-                .map(|record_batch| ArrayRef::from_arrow(record_batch, false))
                 .map_err(VortexError::from)
+                .and_then(|record_batch| ArrayRef::from_arrow(record_batch, false))
         }),
     );
 

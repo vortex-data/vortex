@@ -6,6 +6,7 @@ use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
@@ -15,7 +16,7 @@ use crate::timestamp;
 use crate::timestamp::TimestampParts;
 
 impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
-    fn scalar_at(array: &DateTimePartsArray, index: usize) -> Scalar {
+    fn scalar_at(array: &DateTimePartsArray, index: usize) -> VortexResult<Scalar> {
         let DType::Extension(ext) = array.dtype().clone() else {
             vortex_panic!(
                 "DateTimePartsArray must have extension dtype, found {}",
@@ -27,25 +28,25 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
         };
 
-        if !array.is_valid(index) {
-            return Scalar::null(DType::Extension(ext));
+        if !array.is_valid(index)? {
+            return Ok(Scalar::null(DType::Extension(ext)));
         }
 
         let days: i64 = array
             .days()
-            .scalar_at(index)
+            .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("days fits in i64");
         let seconds: i64 = array
             .seconds()
-            .scalar_at(index)
+            .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("seconds fits in i64");
         let subseconds: i64 = array
             .subseconds()
-            .scalar_at(index)
+            .scalar_at(index)?
             .as_primitive()
             .as_::<i64>()
             .vortex_expect("subseconds fits in i64");
@@ -59,6 +60,6 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             temporal_metadata.time_unit(),
         );
 
-        Scalar::extension(ext, Scalar::from(ts))
+        Ok(Scalar::extension(ext, Scalar::from(ts)))
     }
 }

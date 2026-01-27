@@ -5,9 +5,6 @@
 
 //! Vortex metrics
 
-mod macros;
-mod session;
-
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::Debug;
@@ -15,7 +12,6 @@ use std::fmt::Formatter;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-pub use session::*;
 use witchcraft_metrics::MetricRegistry;
 use witchcraft_metrics::Metrics;
 use witchcraft_metrics::MetricsIter;

@@ -4,7 +4,6 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
-use std::sync::Arc;
 
 use itertools::Itertools as _;
 use prost::Message;
@@ -13,22 +12,15 @@ use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
-use vortex_vector::struct_::StructVector;
 
-use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -125,30 +117,6 @@ impl VTable for Pack {
         ))
     }
 
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let len = scope.len();
-        let value_arrays = expr
-            .children()
-            .iter()
-            .zip_eq(options.names.iter())
-            .map(|(child_expr, name)| {
-                child_expr
-                    .evaluate(scope)
-                    .map_err(|e| e.with_context(format!("Can't evaluate '{name}'")))
-            })
-            .process_results(|it| it.collect::<Vec<_>>())?;
-        let validity = match options.nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
-        Ok(StructArray::try_new(options.names.clone(), value_arrays, len, validity)?.into_array())
-    }
-
     fn validity(
         &self,
         _options: &Self::Options,
@@ -157,32 +125,17 @@ impl VTable for Pack {
         Ok(Some(lit(true)))
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        // If any datum is a vector, we must convert them all to vectors.
-        if args.datums.iter().any(|d| matches!(d, Datum::Vector(_))) {
-            let fields: Box<[_]> = args
-                .datums
-                .into_iter()
-                .map(|v| v.unwrap_into_vector(args.row_count))
-                .collect();
-            return Ok(Datum::Vector(
-                StructVector::try_new(Arc::new(fields), Mask::new_true(args.row_count))?.into(),
-            ));
-        }
-
-        // Otherwise, we can produce a scalar datum by constructing a length-1 struct vector.
-        let fields: Box<[_]> = args
-            .datums
-            .into_iter()
-            .map(|d| {
-                d.into_scalar()
-                    .vortex_expect("all scalars")
-                    .repeat(1)
-                    .freeze()
-            })
-            .collect();
-        let vector = StructVector::new(Arc::new(fields), Mask::new_true(1));
-        Ok(Datum::Scalar(vector.scalar_at(0).into()))
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let len = args.row_count;
+        let value_arrays = args.inputs;
+        let validity: Validity = options.nullability.into();
+        StructArray::try_new(options.names.clone(), value_arrays, len, validity)?
+            .into_array()
+            .execute(args.ctx)
     }
 
     // This applies a nullability
@@ -256,9 +209,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().unmasked_field_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }

@@ -109,23 +109,28 @@ impl PrimitiveTyped<'_> {
     }
 
     /// Return the primitive value at the given index.
-    pub fn value(&self, idx: usize) -> Option<PValue> {
-        self.0.is_valid(idx).then(|| self.value_unchecked(idx))
+    pub fn value(&self, idx: usize) -> VortexResult<Option<PValue>> {
+        self.0
+            .is_valid(idx)?
+            .then(|| self.value_unchecked(idx))
+            .transpose()
     }
 
     /// Return the primitive value at the given index, ignoring nullability.
-    pub fn value_unchecked(&self, idx: usize) -> PValue {
-        self.0
-            .scalar_at(idx)
+    pub fn value_unchecked(&self, idx: usize) -> VortexResult<PValue> {
+        Ok(self
+            .0
+            .scalar_at(idx)?
             .as_primitive()
             .pvalue()
-            .unwrap_or_else(|| PValue::zero(self.ptype()))
+            .unwrap_or_else(|| PValue::zero(self.ptype())))
     }
 }
 
 impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
-    fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> Option<Ordering> {
-        self.value(idx).partial_cmp(elem)
+    fn index_cmp(&self, idx: usize, elem: &Option<PValue>) -> VortexResult<Option<Ordering>> {
+        let value = self.value(idx)?;
+        Ok(value.partial_cmp(elem))
     }
 
     fn index_len(&self) -> usize {
@@ -135,9 +140,10 @@ impl IndexOrd<Option<PValue>> for PrimitiveTyped<'_> {
 
 // TODO(ngates): add generics to the `value` function and implement this over T.
 impl IndexOrd<PValue> for PrimitiveTyped<'_> {
-    fn index_cmp(&self, idx: usize, elem: &PValue) -> Option<Ordering> {
-        assert!(self.0.all_valid());
-        self.value_unchecked(idx).partial_cmp(elem)
+    fn index_cmp(&self, idx: usize, elem: &PValue) -> VortexResult<Option<Ordering>> {
+        assert!(self.0.all_valid()?);
+        let value = self.value_unchecked(idx)?;
+        Ok(value.partial_cmp(elem))
     }
 
     fn index_len(&self) -> usize {

@@ -140,7 +140,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len()));
+                    assert!(validity.all_invalid(array.len())?);
                     struct_dtype
                         .fields()
                         .map(|dt| {
@@ -347,7 +347,7 @@ mod tests {
         let const_null = ConstantArray::new(Scalar::null(DType::Null), 42);
         let actual = const_null.to_null();
         assert_eq!(actual.len(), 42);
-        assert_eq!(actual.scalar_at(33), Scalar::null(DType::Null));
+        assert_eq!(actual.scalar_at(33).unwrap(), Scalar::null(DType::Null));
     }
 
     #[test]
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(canonical.len(), 4);
 
         for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i), "four".into());
+            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
         }
     }
 
@@ -400,7 +400,7 @@ mod tests {
         let canonical_const = const_array.to_primitive();
 
         // Verify the scalar value is preserved through canonicalization
-        assert_eq!(canonical_const.scalar_at(0), f16_scalar);
+        assert_eq!(canonical_const.scalar_at(0).unwrap(), f16_scalar);
     }
 
     #[test]
@@ -482,9 +482,11 @@ mod tests {
 
         let struct_array = array.to_struct();
         assert_eq!(struct_array.len(), 3);
-        assert_eq!(struct_array.valid_count(), 0);
+        assert_eq!(struct_array.valid_count().unwrap(), 0);
 
-        let field = struct_array.field_by_name("non_null_field").unwrap();
+        let field = struct_array
+            .unmasked_field_by_name("non_null_field")
+            .unwrap();
 
         assert_eq!(
             field.dtype(),
@@ -514,7 +516,7 @@ mod tests {
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
-            let list = canonical.fixed_size_list_elements_at(i);
+            let list = canonical.fixed_size_list_elements_at(i).unwrap();
             let list_primitive = list.to_primitive();
             assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
@@ -606,10 +608,10 @@ mod tests {
 
         // Check elements are repeated correctly.
         let elements = canonical.elements().to_varbinview();
-        assert_eq!(elements.scalar_at(0), "hello".into());
-        assert_eq!(elements.scalar_at(1), "world".into());
-        assert_eq!(elements.scalar_at(2), "hello".into());
-        assert_eq!(elements.scalar_at(3), "world".into());
+        assert_eq!(elements.scalar_at(0).unwrap(), "hello".into());
+        assert_eq!(elements.scalar_at(1).unwrap(), "world".into());
+        assert_eq!(elements.scalar_at(2).unwrap(), "hello".into());
+        assert_eq!(elements.scalar_at(3).unwrap(), "world".into());
     }
 
     #[test]
@@ -653,23 +655,23 @@ mod tests {
 
         // Check elements including nulls.
         let elements = canonical.elements().to_primitive();
-        assert_eq!(elements.scalar_at(0), Scalar::from(100i32));
+        assert_eq!(elements.scalar_at(0).unwrap(), Scalar::from(100i32));
         assert_eq!(
-            elements.scalar_at(1),
+            elements.scalar_at(1).unwrap(),
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable))
         );
-        assert_eq!(elements.scalar_at(2), Scalar::from(200i32));
+        assert_eq!(elements.scalar_at(2).unwrap(), Scalar::from(200i32));
 
         // Check element validity.
         let element_validity = elements.validity();
-        assert!(element_validity.is_valid(0));
-        assert!(!element_validity.is_valid(1));
-        assert!(element_validity.is_valid(2));
+        assert!(element_validity.is_valid(0).unwrap());
+        assert!(!element_validity.is_valid(1).unwrap());
+        assert!(element_validity.is_valid(2).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3));
-        assert!(!element_validity.is_valid(4));
-        assert!(element_validity.is_valid(5));
+        assert!(element_validity.is_valid(3).unwrap());
+        assert!(!element_validity.is_valid(4).unwrap());
+        assert!(element_validity.is_valid(5).unwrap());
     }
 
     #[test]
@@ -699,11 +701,11 @@ mod tests {
         // Check pattern repeats correctly.
         for i in 0..1000 {
             let base = i * 5;
-            assert_eq!(elements.scalar_at(base), Scalar::from(1u8));
-            assert_eq!(elements.scalar_at(base + 1), Scalar::from(2u8));
-            assert_eq!(elements.scalar_at(base + 2), Scalar::from(3u8));
-            assert_eq!(elements.scalar_at(base + 3), Scalar::from(4u8));
-            assert_eq!(elements.scalar_at(base + 4), Scalar::from(5u8));
+            assert_eq!(elements.scalar_at(base).unwrap(), Scalar::from(1u8));
+            assert_eq!(elements.scalar_at(base + 1).unwrap(), Scalar::from(2u8));
+            assert_eq!(elements.scalar_at(base + 2).unwrap(), Scalar::from(3u8));
+            assert_eq!(elements.scalar_at(base + 3).unwrap(), Scalar::from(4u8));
+            assert_eq!(elements.scalar_at(base + 4).unwrap(), Scalar::from(5u8));
         }
     }
 }

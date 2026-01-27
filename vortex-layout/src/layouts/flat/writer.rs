@@ -347,13 +347,13 @@ mod tests {
                 .unwrap();
 
             assert_eq!(
-                result.validity_mask().bit_buffer(),
+                result.validity_mask().unwrap().bit_buffer(),
                 AllOr::Some(&validity_boolean_buffer)
             );
             assert_eq!(
                 result
                     .to_struct()
-                    .field_by_name("a")
+                    .unmasked_field_by_name("a")
                     .unwrap()
                     .to_primitive()
                     .as_slice::<u64>(),
@@ -362,7 +362,7 @@ mod tests {
             assert_eq!(
                 result
                     .to_struct()
-                    .field_by_name("b")
+                    .unmasked_field_by_name("b")
                     .unwrap()
                     .to_primitive()
                     .as_slice::<u64>(),

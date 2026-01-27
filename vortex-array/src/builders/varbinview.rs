@@ -150,7 +150,7 @@ impl VarBinViewBuilder {
 
     /// Pushes buffers and pre-adjusted views into the builder.
     ///
-    /// The provided `buffer` slices contain sections of data from a `VarBinViewArray`, and the
+    /// The provided `buffers` contain sections of data from a `VarBinViewArray`, and the
     /// `views` are `BinaryView`s that have already been adjusted to reference the correct buffer
     /// indices and offsets for this builder. All views must point to valid sections within the
     /// provided buffers, and the validity length must match the view length.
@@ -166,14 +166,14 @@ impl VarBinViewBuilder {
     /// exist in this builder.
     pub fn push_buffer_and_adjusted_views(
         &mut self,
-        buffer: &[ByteBuffer],
+        buffers: &[ByteBuffer],
         views: &Buffer<BinaryView>,
         validity_mask: Mask,
     ) {
         self.flush_in_progress();
 
-        let expected_completed_len = self.completed.len() as usize + buffer.len();
-        self.completed.extend_from_slice_unchecked(buffer);
+        let expected_completed_len = self.completed.len() as usize + buffers.len();
+        self.completed.extend_from_slice_unchecked(buffers);
         assert_eq!(
             self.completed.len() as usize,
             expected_completed_len,
@@ -278,7 +278,11 @@ impl ArrayBuilder for VarBinViewBuilder {
         let array = array.to_varbinview();
         self.flush_in_progress();
 
-        self.push_only_validity_mask(array.validity_mask());
+        self.push_only_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         let view_adjustment =
             self.completed
@@ -294,7 +298,10 @@ impl ArrayBuilder for VarBinViewBuilder {
                     .iter()
                     .map(|view| adjustment.adjust_view(view)),
             ),
-            ViewAdjustment::Rewriting(adjustment) => match array.validity_mask() {
+            ViewAdjustment::Rewriting(adjustment) => match array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked")
+            {
                 Mask::AllTrue(_) => {
                     for (idx, &view) in array.views().iter().enumerate() {
                         let new_view = self.push_view(view, &adjustment, &array, idx);
@@ -587,7 +594,9 @@ impl BuffersWithOffsets {
             };
         }
 
-        let buffer_utilizations = array.buffer_utilizations();
+        let buffer_utilizations = array
+            .buffer_utilizations()
+            .vortex_expect("buffer_utilizations in BuffersWithOffsets::from_array");
         let mut has_rewrite = false;
         let mut has_nonzero_offset = false;
         for utilization in buffer_utilizations.iter() {
@@ -890,10 +899,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 1);
 
         array
-            .slice(1..2)
+            .slice(1..2)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 1);
 
@@ -908,10 +917,10 @@ mod tests {
         assert_eq!(builder.completed_block_count(), 2);
 
         array
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         array2
-            .slice(0..1)
+            .slice(0..1)?
             .append_to_builder(&mut builder, &mut ctx)?;
         assert_eq!(builder.completed_block_count(), 2);
         Ok(())
@@ -1010,7 +1019,7 @@ mod tests {
         assert_eq!(array.len(), 1);
 
         // Verify the value was stored correctly
-        let retrieved = array.scalar_at(0).as_binary().value().unwrap();
+        let retrieved = array.scalar_at(0).unwrap().as_binary().value().unwrap();
         assert_eq!(retrieved.len(), 8192);
         assert_eq!(retrieved.as_slice(), &large_value);
     }

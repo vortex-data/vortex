@@ -21,7 +21,7 @@ impl FilterKernel for StructVTable {
         let validity = array.validity().filter(mask)?;
 
         let fields: Vec<ArrayRef> = array
-            .fields()
+            .unmasked_fields()
             .iter()
             .map(|field| filter(field, mask))
             .try_collect()?;

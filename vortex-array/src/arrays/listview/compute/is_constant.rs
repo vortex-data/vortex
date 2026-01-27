@@ -36,11 +36,11 @@ impl IsConstantKernel for ListViewVTable {
             array.len() > 1,
             "precondition for `is_constant` is incorrect"
         );
-        let first_scalar = array.scalar_at(0);
+        let first_scalar = array.scalar_at(0)?;
 
         // Compare all other scalars to the first.
         for i in 1..array.len() {
-            if array.scalar_at(i) != first_scalar {
+            if array.scalar_at(i)? != first_scalar {
                 return Ok(Some(false));
             }
         }

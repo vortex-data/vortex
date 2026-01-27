@@ -129,6 +129,14 @@ impl Database {
     pub fn connect(&self) -> VortexResult<Connection> {
         Connection::connect(self)
     }
+
+    pub fn register_vortex_scan_replacement(&self) -> VortexResult<()> {
+        duckdb_try!(
+            unsafe { cpp::duckdb_vx_register_scan_replacement(self.ptr) },
+            "Failed to register vortex scan replacement"
+        );
+        Ok(())
+    }
 }
 
 #[cfg(test)]

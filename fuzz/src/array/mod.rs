@@ -232,7 +232,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     }
 
                     let scalar = if u.arbitrary()? {
-                        current_array.scalar_at(u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
+                            .vortex_expect("scalar_at")
                     } else {
                         random_scalar(u, current_array.dtype())?
                     };
@@ -271,7 +273,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                 }
                 ActionType::Compare => {
                     let scalar = if u.arbitrary()? {
-                        current_array.scalar_at(u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
+                            .vortex_expect("scalar_at")
                     } else {
                         // We can compare arrays with different nullability
                         let null: Nullability = u.arbitrary()?;
@@ -330,7 +334,9 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                         return Err(EmptyChoose);
                     }
                     let fill_value = if u.arbitrary()? && !current_array.is_empty() {
-                        current_array.scalar_at(u.choose_index(current_array.len())?)
+                        current_array
+                            .scalar_at(u.choose_index(current_array.len())?)
+                            .vortex_expect("scalar_at")
                     } else {
                         random_scalar(
                             u,
@@ -562,7 +568,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Slice(range) => {
-                current_array = current_array.slice(range);
+                current_array = current_array
+                    .slice(range)
+                    .vortex_expect("slice operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Take(indices) => {
@@ -636,7 +644,7 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
             Action::ScalarAt(indices) => {
                 let expected_scalars = expected.scalar_vec();
                 for (j, &idx) in indices.iter().enumerate() {
-                    let scalar = current_array.scalar_at(idx);
+                    let scalar = current_array.scalar_at(idx).vortex_expect("scalar_at");
                     assert_scalar_eq(&expected_scalars[j], &scalar, i)?;
                 }
             }
@@ -658,7 +666,9 @@ fn assert_search_sorted(
     use crate::error::Backtrace;
     use crate::error::VortexFuzzError;
 
-    let search_result = array.search_sorted(&s, side);
+    let search_result = array
+        .search_sorted(&s, side)
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
     if search_result != expected {
         Err(VortexFuzzError::SearchSortedError(
             s,
@@ -704,8 +714,8 @@ pub fn assert_array_eq(
         ));
     }
     for idx in 0..lhs.len() {
-        let l = lhs.scalar_at(idx);
-        let r = rhs.scalar_at(idx);
+        let l = lhs.scalar_at(idx).vortex_expect("scalar_at");
+        let r = rhs.scalar_at(idx).vortex_expect("scalar_at");
 
         if l != r {
             return Err(VortexFuzzError::ArrayNotEqual(

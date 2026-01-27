@@ -216,13 +216,13 @@ impl RunEndArray {
 
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end: usize = ends.scalar_at(0).as_ref().try_into()?;
+            let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
         }
 
-        let last_run_end: usize = ends.scalar_at(ends.len() - 1).as_ref().try_into()?;
+        let last_run_end: usize = ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
@@ -244,15 +244,19 @@ impl RunEndArray {
     /// # use vortex_array::arrays::BoolArray;
     /// # use vortex_array::IntoArray;
     /// # use vortex_buffer::buffer;
+    /// # use vortex_error::VortexResult;
     /// # use vortex_runend::RunEndArray;
+    /// # fn main() -> VortexResult<()> {
     /// let ends = buffer![2u8, 3u8].into_array();
     /// let values = BoolArray::from_iter([false, true]).into_array();
     /// let run_end = RunEndArray::new(ends, values);
     ///
     /// // Array encodes
-    /// assert_eq!(run_end.scalar_at(0), false.into());
-    /// assert_eq!(run_end.scalar_at(1), false.into());
-    /// assert_eq!(run_end.scalar_at(2), true.into());
+    /// assert_eq!(run_end.scalar_at(0)?, false.into());
+    /// assert_eq!(run_end.scalar_at(1)?, false.into());
+    /// assert_eq!(run_end.scalar_at(2)?, true.into());
+    /// # Ok(())
+    /// # }
     /// ```
     pub fn new(ends: ArrayRef, values: ArrayRef) -> Self {
         Self::try_new(ends, values).vortex_expect("RunEndArray new")
@@ -292,7 +296,7 @@ impl RunEndArray {
         let length: usize = if ends.is_empty() {
             0
         } else {
-            ends.scalar_at(ends.len() - 1).as_ref().try_into()?
+            ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?
         };
 
         Self::try_new_offset_length(ends, values, 0, length)
@@ -342,14 +346,15 @@ impl RunEndArray {
     }
 
     /// Convert the given logical index to an index into the `values` array
-    pub fn find_physical_index(&self, index: usize) -> usize {
-        self.ends()
+    pub fn find_physical_index(&self, index: usize) -> VortexResult<usize> {
+        Ok(self
+            .ends()
             .as_primitive_typed()
             .search_sorted(
                 &PValue::from(index + self.offset()),
                 SearchSortedSide::Right,
-            )
-            .to_ends_index(self.ends().len())
+            )?
+            .to_ends_index(self.ends().len()))
     }
 
     /// Run the array through run-end encoding.
@@ -451,8 +456,8 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
         })
     }
 
-    fn validity_mask(array: &RunEndArray) -> Mask {
-        match array.values().validity_mask() {
+    fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
+        Ok(match array.values().validity_mask()? {
             Mask::AllTrue(_) => Mask::AllTrue(array.len()),
             Mask::AllFalse(_) => Mask::AllFalse(array.len()),
             Mask::Values(values) => {
@@ -469,7 +474,7 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
                 };
                 Mask::from_buffer(ree_validity.to_bool().bit_buffer().clone())
             }
-        }
+        })
     }
 }
 
@@ -486,7 +491,7 @@ pub(super) fn run_end_canonicalize(
                 bools,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute(ctx)?;
@@ -495,7 +500,7 @@ pub(super) fn run_end_canonicalize(
                 pvalues,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         _ => vortex_panic!("Only Primitive and Bool values are supported"),
     })

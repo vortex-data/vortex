@@ -100,11 +100,11 @@ async fn test_file_roundtrip() {
     while let Some(next) = stream.next().await {
         let next = next.expect("next");
         let next = next.to_struct();
-        let a = next.field_by_name("a").unwrap().to_struct();
-        let b = next.field_by_name("b").unwrap();
+        let a = next.unmasked_field_by_name("a").unwrap().to_struct();
+        let b = next.unmasked_field_by_name("b").unwrap();
 
-        let raw = a.field_by_name("raw").unwrap();
-        let compressed = a.field_by_name("compressed").unwrap();
+        let raw = a.unmasked_field_by_name("raw").unwrap();
+        let compressed = a.unmasked_field_by_name("compressed").unwrap();
 
         assert!(raw.is_canonical());
         assert!(!compressed.is_canonical());

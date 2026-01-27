@@ -10,7 +10,7 @@ use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
     fn visit_buffers(array: &PrimitiveArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&array.buffer_handle().to_host());
+        visitor.visit_buffer(&array.buffer_handle().to_host_sync());
     }
 
     fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {

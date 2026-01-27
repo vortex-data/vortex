@@ -72,14 +72,21 @@ fn test_take_all(array: &dyn Array) {
     ) {
         (Canonical::Primitive(orig_prim), Canonical::Primitive(result_prim)) => {
             assert_eq!(
-                orig_prim.buffer_handle().to_host(),
-                result_prim.buffer_handle().to_host()
+                orig_prim.buffer_handle().to_host_sync(),
+                result_prim.buffer_handle().to_host_sync()
             );
         }
         _ => {
             // For non-primitive types, check scalar values
             for i in 0..len {
-                assert_eq!(array.scalar_at(i), result.scalar_at(i));
+                assert_eq!(
+                    array
+                        .scalar_at(i)
+                        .vortex_expect("scalar_at should succeed in conformance test"),
+                    result
+                        .scalar_at(i)
+                        .vortex_expect("scalar_at should succeed in conformance test")
+                );
             }
         }
     }
@@ -110,8 +117,12 @@ fn test_take_selective(array: &dyn Array) {
     // Verify the taken elements
     for (result_idx, &original_idx) in indices.iter().enumerate() {
         assert_eq!(
-            array.scalar_at(original_idx as usize),
-            result.scalar_at(result_idx)
+            array
+                .scalar_at(original_idx as usize)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(result_idx)
+                .vortex_expect("scalar_at should succeed in conformance test")
         );
     }
 }
@@ -123,8 +134,22 @@ fn test_take_first_and_last(array: &dyn Array) {
         take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 2);
-    assert_eq!(array.scalar_at(0), result.scalar_at(0));
-    assert_eq!(array.scalar_at(len - 1), result.scalar_at(1));
+    assert_eq!(
+        array
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test"),
+        result
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test")
+    );
+    assert_eq!(
+        array
+            .scalar_at(len - 1)
+            .vortex_expect("scalar_at should succeed in conformance test"),
+        result
+            .scalar_at(1)
+            .vortex_expect("scalar_at should succeed in conformance test")
+    );
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -154,12 +179,21 @@ fn test_take_with_nullable_indices(array: &dyn Array) {
     for (i, idx_opt) in indices_vec.iter().enumerate() {
         match idx_opt {
             Some(idx) => {
-                let expected = array.scalar_at(*idx as usize);
-                let actual = result.scalar_at(i);
+                let expected = array
+                    .scalar_at(*idx as usize)
+                    .vortex_expect("scalar_at should succeed in conformance test");
+                let actual = result
+                    .scalar_at(i)
+                    .vortex_expect("scalar_at should succeed in conformance test");
                 assert_eq!(expected, actual);
             }
             None => {
-                assert!(result.scalar_at(i).is_null());
+                assert!(
+                    result
+                        .scalar_at(i)
+                        .vortex_expect("scalar_at should succeed in conformance test")
+                        .is_null()
+                );
             }
         }
     }
@@ -176,9 +210,16 @@ fn test_take_repeated_indices(array: &dyn Array) {
         take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 3);
-    let first_elem = array.scalar_at(0);
+    let first_elem = array
+        .scalar_at(0)
+        .vortex_expect("scalar_at should succeed in conformance test");
     for i in 0..3 {
-        assert_eq!(result.scalar_at(i), first_elem);
+        assert_eq!(
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            first_elem
+        );
     }
 }
 
@@ -202,7 +243,14 @@ fn test_take_reverse(array: &dyn Array) {
 
     // Verify elements are in reverse order
     for i in 0..len {
-        assert_eq!(array.scalar_at(len - 1 - i), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(len - 1 - i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -215,7 +263,14 @@ fn test_take_single_middle(array: &dyn Array) {
         take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 1);
-    assert_eq!(array.scalar_at(middle_idx), result.scalar_at(0));
+    assert_eq!(
+        array
+            .scalar_at(middle_idx)
+            .vortex_expect("scalar_at should succeed in conformance test"),
+        result
+            .scalar_at(0)
+            .vortex_expect("scalar_at should succeed in conformance test")
+    );
 }
 
 #[allow(clippy::cast_possible_truncation)]
@@ -238,7 +293,14 @@ fn test_take_random_unsorted(array: &dyn Array) {
 
     // Verify elements match
     for (i, &idx) in indices.iter().enumerate() {
-        assert_eq!(array.scalar_at(idx as usize), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(idx as usize)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -256,7 +318,14 @@ fn test_take_contiguous_range(array: &dyn Array) {
 
     // Verify elements
     for i in 0..(end - start) {
-        assert_eq!(array.scalar_at(start + i), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(start + i)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -284,7 +353,14 @@ fn test_take_mixed_repeated(array: &dyn Array) {
 
     // Verify elements
     for (i, &idx) in indices.iter().enumerate() {
-        assert_eq!(array.scalar_at(idx as usize), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(idx as usize)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }
 
@@ -308,6 +384,13 @@ fn test_take_large_indices(array: &dyn Array) {
     // Spot check a few elements
     for i in (0..num_indices).step_by(1000) {
         let expected_idx = indices[i] as usize;
-        assert_eq!(array.scalar_at(expected_idx), result.scalar_at(i));
+        assert_eq!(
+            array
+                .scalar_at(expected_idx)
+                .vortex_expect("scalar_at should succeed in conformance test"),
+            result
+                .scalar_at(i)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        );
     }
 }

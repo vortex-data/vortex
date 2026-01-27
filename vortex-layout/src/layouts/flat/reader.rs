@@ -144,7 +144,7 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone());
+                array = array.slice(row_range.clone())?;
             }
 
             let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
@@ -200,7 +200,7 @@ impl LayoutReader for FlatReader {
 
             // Slice the array based on the row mask.
             if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone());
+                array = array.slice(row_range.clone())?;
             }
 
             // First apply the filter to the array.

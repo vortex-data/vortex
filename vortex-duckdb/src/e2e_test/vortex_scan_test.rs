@@ -47,13 +47,14 @@ use crate::duckdb::Database;
 
 fn database_connection() -> Connection {
     let db = Database::open_in_memory().unwrap();
+    db.register_vortex_scan_replacement().unwrap();
     let connection = db.connect().unwrap();
     crate::register_table_functions(&connection).unwrap();
     connection
 }
 
 fn create_temp_file() -> NamedTempFile {
-    NamedTempFile::new().unwrap()
+    NamedTempFile::with_suffix(".vortex").unwrap()
 }
 
 async fn write_single_column_vortex_file(field_name: &str, array: impl IntoArray) -> NamedTempFile {
@@ -192,11 +193,8 @@ fn test_vortex_scan_strings() {
         write_single_column_vortex_file("strings", strings).await
     });
 
-    let result: String = scan_vortex_file_single_row(
-        file,
-        "SELECT string_agg(strings, ',') FROM vortex_scan(?)",
-        0,
-    );
+    let result: String =
+        scan_vortex_file_single_row(file, "SELECT string_agg(strings, ',') FROM ?", 0);
 
     assert_eq!(result, "Hello,Hi,Hey");
 }
@@ -209,7 +207,7 @@ fn test_vortex_scan_strings_contains() {
     });
     let result: String = scan_vortex_file_single_row(
         file,
-        "SELECT string_agg(strings, ',') FROM vortex_scan(?) WHERE strings LIKE '%He%'",
+        "SELECT string_agg(strings, ',') FROM ? WHERE strings LIKE '%He%'",
         0,
     );
 
@@ -222,8 +220,7 @@ fn test_vortex_scan_integers() {
         let numbers = buffer![1i32, 42, 100, -5, 0];
         write_single_column_vortex_file("number", numbers).await
     });
-    let sum: i64 =
-        scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM vortex_scan(?)", 0);
+    let sum: i64 = scan_vortex_file_single_row::<i64, _>(file, "SELECT SUM(number) FROM ?", 0);
     assert_eq!(sum, 138);
 }
 
@@ -235,7 +232,7 @@ fn test_vortex_scan_integers_in_list() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number in (1, 42, -5)",
+        "SELECT SUM(number) FROM ? WHERE number in (1, 42, -5)",
         0,
     );
     assert_eq!(sum, 38);
@@ -249,7 +246,7 @@ fn test_vortex_scan_integers_between() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number > 0 and number < 100",
+        "SELECT SUM(number) FROM ? WHERE number > 0 and number < 100",
         0,
     );
     assert_eq!(sum, 43);
@@ -263,7 +260,7 @@ fn test_issue_5927_not_in_does_not_panic() {
     });
     let sum: i64 = scan_vortex_file_single_row::<i64, _>(
         file,
-        "SELECT SUM(number) FROM vortex_scan(?) WHERE number NOT IN (42, 100)",
+        "SELECT SUM(number) FROM ? WHERE number NOT IN (42, 100)",
         0,
     );
     assert_eq!(sum, -4);
@@ -275,11 +272,8 @@ fn test_vortex_scan_floats() {
         let values = buffer![1.5f64, -2.5, 0.0, 42.42];
         write_single_column_vortex_file("value", values).await
     });
-    let count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM vortex_scan(?) WHERE value > 0",
-        0,
-    );
+    let count: i64 =
+        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE value > 0", 0);
     assert_eq!(count, 2);
 }
 
@@ -289,11 +283,8 @@ fn test_vortex_scan_constant() {
         let constant = ConstantArray::new(Scalar::from(42i32), 100);
         write_single_column_vortex_file("constant", constant).await
     });
-    let value: i32 = scan_vortex_file_single_row::<i32, _>(
-        file,
-        "SELECT constant FROM vortex_scan(?) LIMIT 1",
-        0,
-    );
+    let value: i32 =
+        scan_vortex_file_single_row::<i32, _>(file, "SELECT constant FROM ? LIMIT 1", 0);
     assert_eq!(value, 42);
 }
 
@@ -304,11 +295,8 @@ fn test_vortex_scan_booleans() {
         let flags_array = BoolArray::from_bit_buffer(flags.into(), Validity::NonNullable);
         write_single_column_vortex_file("flag", flags_array).await
     });
-    let true_count: i64 = scan_vortex_file_single_row::<i64, _>(
-        file,
-        "SELECT COUNT(*) FROM vortex_scan(?) WHERE flag = true",
-        0,
-    );
+    let true_count: i64 =
+        scan_vortex_file_single_row::<i64, _>(file, "SELECT COUNT(*) FROM ? WHERE flag = true", 0);
     assert_eq!(true_count, 3);
 }
 
@@ -325,12 +313,9 @@ fn test_vortex_multi_column() {
         write_vortex_file([("f1", f1), ("f2", f2), ("f3", f3)].into_iter()).await
     });
 
-    let result: Vec<i32> = scan_vortex_file::<i32, _>(
-        file,
-        "SELECT f2 FROM vortex_scan(?) WHERE f1 = true and f2 >= 2",
-        0,
-    )
-    .unwrap();
+    let result: Vec<i32> =
+        scan_vortex_file::<i32, _>(file, "SELECT f2 FROM ? WHERE f1 = true and f2 >= 2", 0)
+            .unwrap();
 
     assert_eq!(result, vec![2, 3]);
 }
@@ -353,9 +338,7 @@ fn test_vortex_scan_multiple_files() {
     // Scan both Vortex files.
     let conn = database_connection();
     let result = conn
-        .query(&format!(
-            "SELECT SUM(numbers) FROM vortex_scan('{glob_pattern}')",
-        ))
+        .query(&format!("SELECT SUM(numbers) FROM '{glob_pattern}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -376,9 +359,7 @@ fn test_write_file() {
     .unwrap();
 
     let result = conn
-        .query(&format!(
-            "SELECT SUM(number) FROM vortex_scan('{file_path}')",
-        ))
+        .query(&format!("SELECT SUM(number) FROM '{file_path}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -399,7 +380,7 @@ fn test_write_timestamps() {
         .unwrap();
 
     let result = conn
-        .query(&format!("SELECT TSTZ FROM vortex_scan('{file_path}')",))
+        .query(&format!("SELECT TSTZ FROM '{file_path}'",))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -449,9 +430,7 @@ fn test_vortex_scan_fixed_size_list_utf8() {
 
     // Query the structure.
     let result = conn
-        .query(&format!(
-            "SELECT string_lists FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT string_lists FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -509,9 +488,7 @@ fn test_vortex_scan_nested_fixed_size_list_utf8() {
 
     // Query the nested structure.
     let result = conn
-        .query(&format!(
-            "SELECT nested_string_lists FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT nested_string_lists FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -555,7 +532,7 @@ fn test_vortex_scan_list_of_ints() {
 
     // Query the list structure to verify row count.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -564,7 +541,7 @@ fn test_vortex_scan_list_of_ints() {
 
     // Try to access the data - this tests for segfaults.
     let result = conn
-        .query(&format!("SELECT int_list FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT int_list FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -617,7 +594,7 @@ fn test_vortex_scan_list_of_utf8() {
 
     // Query the list structure to verify row count.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -626,9 +603,7 @@ fn test_vortex_scan_list_of_utf8() {
 
     // Try to access the data - this tests for segfaults.
     let result = conn
-        .query(&format!(
-            "SELECT string_list FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT string_list FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -713,7 +688,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
 
     // Query the ultra-deep nested structure.
     let result = conn
-        .query(&format!("SELECT COUNT(*) FROM vortex_scan('{file_path}')"))
+        .query(&format!("SELECT COUNT(*) FROM '{file_path}'"))
         .unwrap();
     let chunk = result.into_iter().next().unwrap();
     let vec = chunk.get_vector(0);
@@ -722,9 +697,7 @@ fn test_vortex_scan_ultra_deep_nesting() {
 
     // Try to access the data - this is the critical test for segfaults.
     let result = conn
-        .query(&format!(
-            "SELECT ultra_deep FROM vortex_scan('{file_path}')"
-        ))
+        .query(&format!("SELECT ultra_deep FROM '{file_path}'"))
         .unwrap();
 
     let mut row_count = 0;
@@ -830,7 +803,7 @@ fn test_vortex_encodings_roundtrip() {
     // Test reading back each column type
     let result = conn
         .query(&format!(
-            "SELECT * FROM vortex_scan('{}')",
+            "SELECT * FROM '{}'",
             file.path().to_string_lossy()
         ))
         .unwrap();

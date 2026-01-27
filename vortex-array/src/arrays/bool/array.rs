@@ -31,6 +31,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::BoolArray;
 /// use vortex_array::IntoArray;
 ///
@@ -38,12 +39,14 @@ use crate::validity::Validity;
 /// let array: BoolArray = [true, false, true, false].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1..3);
+/// let sliced = array.slice(1..3)?;
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // Access individual values
-/// let value = array.scalar_at(0);
+/// let value = array.scalar_at(0).unwrap();
 /// assert_eq!(value, true.into());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct BoolArray {
@@ -188,12 +191,14 @@ impl BoolArray {
 
     pub fn to_mask(&self) -> Mask {
         self.maybe_to_mask()
+            .vortex_expect("failed to check validity")
             .vortex_expect("cannot convert nullable boolean array to mask")
     }
 
-    pub fn maybe_to_mask(&self) -> Option<Mask> {
-        self.all_valid()
-            .then(|| Mask::from_buffer(self.bit_buffer().clone()))
+    pub fn maybe_to_mask(&self) -> VortexResult<Option<Mask>> {
+        Ok(self
+            .all_valid()?
+            .then(|| Mask::from_buffer(self.bit_buffer().clone())))
     }
 
     pub fn to_mask_fill_null_false(&self) -> Mask {
@@ -206,7 +211,10 @@ impl BoolArray {
             }
         }
         // Extract a boolean buffer, treating null values to false
-        let buffer = match self.validity_mask() {
+        let buffer = match self
+            .validity_mask()
+            .unwrap_or_else(|_| Mask::new_true(self.len()))
+        {
             Mask::AllTrue(_) => self.bit_buffer().clone(),
             Mask::AllFalse(_) => return Mask::new_false(self.len()),
             Mask::Values(validity) => validity.bit_buffer() & self.bit_buffer(),
@@ -270,7 +278,7 @@ mod tests {
     #[test]
     fn bool_array() {
         let arr = BoolArray::from_iter([true, false, true]);
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
     }
 
@@ -280,9 +288,9 @@ mod tests {
 
         assert!(matches!(arr.validity(), Validity::AllValid));
 
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
-        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(!scalar);
     }
 
@@ -290,26 +298,26 @@ mod tests {
     fn test_bool_from_iter() {
         let arr = BoolArray::from_iter([Some(true), Some(true), None, Some(false), None]);
 
-        let scalar = bool::try_from(&arr.scalar_at(0)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(0).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = bool::try_from(&arr.scalar_at(1)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(1).unwrap()).unwrap();
         assert!(scalar);
 
-        let scalar = arr.scalar_at(2);
+        let scalar = arr.scalar_at(2).unwrap();
         assert!(scalar.is_null());
 
-        let scalar = bool::try_from(&arr.scalar_at(3)).unwrap();
+        let scalar = bool::try_from(&arr.scalar_at(3).unwrap()).unwrap();
         assert!(!scalar);
 
-        let scalar = arr.scalar_at(4);
+        let scalar = arr.scalar_at(4).unwrap();
         assert!(scalar.is_null());
     }
 
     #[test]
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
-        let sliced = arr.slice(4..12);
+        let sliced = arr.slice(4..12).unwrap();
         assert_eq!(sliced.len(), 8);
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), 8);
@@ -320,7 +328,7 @@ mod tests {
             (1..12).for_each(|i| builder.set(i));
             BoolArray::from(builder.freeze())
         };
-        let sliced = arr.slice(4..12);
+        let sliced = arr.slice(4..12).unwrap();
         let sliced_len = sliced.len();
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.as_slice(), &[254, 15]);
@@ -332,15 +340,17 @@ mod tests {
             buffer![4u32].into_array(), // This creates a non-nullable array
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
-        );
-        let arr = arr.patch(&patches);
+        )
+        .unwrap();
+        let arr = arr.patch(&patches).unwrap();
         let arr_len = arr.len();
         let values = arr.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), arr_len);
         assert_eq!(values.as_slice(), &[238, 15]);
 
         // the slice should be unchanged
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
+        let sliced = sliced.to_bool();
+        let values = sliced.into_bit_buffer().into_mut();
         assert_eq!(values.len(), sliced_len);
         assert_eq!(values.as_slice(), &[254, 15]); // unchanged
     }
@@ -348,7 +358,7 @@ mod tests {
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BitBuffer::new_set(16));
-        let sliced = arr.slice(4..12);
+        let sliced = arr.slice(4..12).unwrap();
         let sliced_len = sliced.len();
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.len(), sliced_len);
@@ -366,8 +376,9 @@ mod tests {
             PrimitiveArray::new(buffer![0u32], Validity::NonNullable).into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
-        );
-        let arr = arr.patch(&patches);
+        )
+        .unwrap();
+        let arr = arr.patch(&patches).unwrap();
         assert_eq!(arr.bit_buffer().inner().as_ptr(), buf_ptr);
 
         let values = arr.into_bit_buffer();
@@ -377,7 +388,7 @@ mod tests {
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
-        let sliced = arr.slice(4..15);
+        let sliced = arr.slice(4..15).unwrap();
         let values = sliced.to_bool().into_bit_buffer().into_mut();
         assert_eq!(values.as_slice(), &[255, 255]);
     }

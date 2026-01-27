@@ -65,16 +65,16 @@ pub struct FileSegmentSource {
 }
 
 impl FileSegmentSource {
-    pub fn open(
+    pub fn open<R: VortexReadAt + Clone>(
         segments: Arc<[SegmentSpec]>,
-        source: Arc<dyn VortexReadAt>,
+        reader: R,
         handle: Handle,
         metrics: VortexMetrics,
     ) -> Self {
         let (send, recv) = mpsc::unbounded();
 
-        let coalesce_config = source.coalesce_config();
-        let concurrency = source.concurrency();
+        let coalesce_config = reader.coalesce_config();
+        let concurrency = reader.concurrency();
 
         let drive_fut = async move {
             let stream =
@@ -82,7 +82,7 @@ impl FileSegmentSource {
 
             stream
                 .map(move |req| {
-                    let source = source.clone();
+                    let source = reader.clone();
                     async move {
                         let result = source
                             .read_at(req.offset(), req.len(), req.alignment())

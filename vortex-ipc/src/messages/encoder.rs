@@ -9,7 +9,8 @@ use vortex_array::ArrayContext;
 use vortex_array::serde::SerializeOptions;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
 use vortex_flatbuffers::WriteFlatBufferExt;
 use vortex_flatbuffers::message as fb;
@@ -38,7 +39,7 @@ impl MessageEncoder {
     /// Encode an IPC message for writing to a byte stream.
     ///
     /// The returned buffers should be written contiguously to the stream.
-    pub fn encode(&mut self, message: EncoderMessage) -> Vec<Bytes> {
+    pub fn encode(&mut self, message: EncoderMessage) -> VortexResult<Vec<Bytes>> {
         let mut buffers = vec![];
 
         // We'll push one buffer as a placeholder for the flatbuffer message length, and one
@@ -58,10 +59,7 @@ impl MessageEncoder {
                 // sending deltas later.
                 let ctx = ArrayContext::empty();
 
-                let array_buffers = array
-                    .serialize(&ctx, &SerializeOptions::default())
-                    // TODO(ngates): we should propagate this somehow
-                    .vortex_expect("Array serialization failed");
+                let array_buffers = array.serialize(&ctx, &SerializeOptions::default())?;
                 let body_len = array_buffers.iter().map(|b| b.len() as u64).sum::<u64>();
 
                 let array_encodings = ctx
@@ -75,7 +73,7 @@ impl MessageEncoder {
                     &mut fbb,
                     &fb::ArrayMessageArgs {
                         row_count: u32::try_from(array.len())
-                            .vortex_expect("Array length must fit into u32"),
+                            .map_err(|_| vortex_err!("Array length must fit into u32"))?,
                         encodings: Some(array_encodings),
                     },
                 )
@@ -102,7 +100,7 @@ impl MessageEncoder {
                 let header =
                     fb::DTypeMessage::create(&mut fbb, &fb::DTypeMessageArgs {}).as_union_value();
 
-                let buffer = dtype.write_flatbuffer_bytes().into_inner().into_inner();
+                let buffer = dtype.write_flatbuffer_bytes()?.into_inner().into_inner();
                 let body_len = buffer.len() as u64;
                 buffers.push(buffer);
 
@@ -126,11 +124,11 @@ impl MessageEncoder {
         let (fbv, pos) = fbb.collapse();
         let fb_buffer = FlatBuffer::copy_from(&fbv[pos..]);
         let fb_buffer_len = u32::try_from(fb_buffer.len())
-            .vortex_expect("IPC flatbuffer headers must fit into u32 bytes");
+            .map_err(|_| vortex_err!("Array flatbuffer length must fit into u32"))?;
 
         buffers[0] = Bytes::from(fb_buffer_len.to_le_bytes().to_vec());
         buffers[1] = fb_buffer.into_inner().into_inner();
 
-        buffers
+        Ok(buffers)
     }
 }

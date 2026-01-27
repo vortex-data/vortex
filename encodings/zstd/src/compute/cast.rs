@@ -28,25 +28,27 @@ impl CastKernel for ZstdVTable {
             // completeness of the match arms we also handle it here.
             (Nullability::Nullable, Nullability::Nullable)
             | (Nullability::NonNullable, Nullability::NonNullable) => Ok(Some(array.to_array())),
-            (Nullability::NonNullable, Nullability::Nullable) => Ok(Some(
+            (Nullability::NonNullable, Nullability::Nullable) => {
                 // nonnull => null, trivial cast by altering the validity
-                ZstdArray::new(
-                    array.dictionary.clone(),
-                    array.frames.clone(),
-                    dtype.clone(),
-                    array.metadata.clone(),
-                    array.unsliced_n_rows(),
-                    array.unsliced_validity.clone(),
-                )
-                .slice(array.slice_start()..array.slice_stop()),
-            )),
+                Ok(Some(
+                    ZstdArray::new(
+                        array.dictionary.clone(),
+                        array.frames.clone(),
+                        dtype.clone(),
+                        array.metadata.clone(),
+                        array.unsliced_n_rows(),
+                        array.unsliced_validity.clone(),
+                    )
+                    .slice(array.slice_start()..array.slice_stop())?,
+                ))
+            }
             (Nullability::Nullable, Nullability::NonNullable) => {
                 // null => non-null works if there are no nulls in the sliced range
                 let sliced_len = array.slice_stop() - array.slice_start();
                 let has_nulls = !array
                     .unsliced_validity
-                    .slice(array.slice_start()..array.slice_stop())
-                    .all_valid(sliced_len);
+                    .slice(array.slice_start()..array.slice_stop())?
+                    .all_valid(sliced_len)?;
 
                 // We don't attempt to handle casting when there are nulls.
                 if has_nulls {
@@ -63,7 +65,7 @@ impl CastKernel for ZstdVTable {
                         array.unsliced_n_rows(),
                         array.unsliced_validity.clone(),
                     )
-                    .slice(array.slice_start()..array.slice_stop()),
+                    .slice(array.slice_start()..array.slice_stop())?,
                 ))
             }
         }
@@ -136,7 +138,7 @@ mod tests {
             Validity::from_iter([true, true, true, true, true, true]),
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
-        let sliced = zstd.slice(1..5);
+        let sliced = zstd.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
             &DType::Primitive(PType::U32, Nullability::NonNullable),
@@ -162,7 +164,7 @@ mod tests {
             Some(60),
         ]);
         let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
-        let sliced = zstd.slice(1..5);
+        let sliced = zstd.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
             &DType::Primitive(PType::U32, Nullability::NonNullable),

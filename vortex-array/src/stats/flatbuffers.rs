@@ -8,6 +8,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexError;
+use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
@@ -26,7 +27,7 @@ impl WriteFlatBuffer for StatsSetRef<'_> {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         self.with_typed_stats_set(|stats_set| stats_set.values.write_flatbuffer(fbb))
     }
 }
@@ -38,7 +39,7 @@ impl WriteFlatBuffer for StatsSet {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let (min_precision, min) = self
             .get(Stat::Min)
             .map(|min| {
@@ -98,7 +99,7 @@ impl WriteFlatBuffer for StatsSet {
                 .and_then(Precision::as_exact),
         };
 
-        fba::ArrayStats::create(fbb, stat_args)
+        Ok(fba::ArrayStats::create(fbb, stat_args))
     }
 }
 

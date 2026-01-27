@@ -47,22 +47,25 @@ use crate::buffer::BufferHandle;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::PrimitiveArray;
 /// use vortex_array::compute::sum;
-/// ///
+///
 /// // Create from iterator using FromIterator impl
 /// let array: PrimitiveArray = [1i32, 2, 3, 4, 5].into_iter().collect();
 ///
 /// // Slice the array
-/// let sliced = array.slice(1..3);
+/// let sliced = array.slice(1..3)?;
 ///
 /// // Access individual values
-/// let value = sliced.scalar_at(0);
+/// let value = sliced.scalar_at(0).unwrap();
 /// assert_eq!(value, 2i32.into());
 ///
 /// // Convert into a type-erased array that can be passed to compute functions.
 /// let summed = sum(sliced.as_ref()).unwrap().as_primitive().typed_value::<i64>().unwrap();
 /// assert_eq!(summed, 5i64);
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct PrimitiveArray {
@@ -70,6 +73,13 @@ pub struct PrimitiveArray {
     pub(super) buffer: BufferHandle,
     pub(super) validity: Validity,
     pub(super) stats_set: ArrayStats,
+}
+
+pub struct PrimitiveArrayParts {
+    pub ptype: PType,
+    pub nullability: Nullability,
+    pub buffer: BufferHandle,
+    pub validity: Validity,
 }
 
 // TODO(connor): There are a lot of places where we could be using `new_unchecked` in the codebase.
@@ -170,8 +180,15 @@ impl PrimitiveArray {
 
 impl PrimitiveArray {
     /// Consume the primitive array and returns its component parts.
-    pub fn into_parts(self) -> (DType, BufferHandle, Validity, ArrayStats) {
-        (self.dtype, self.buffer, self.validity, self.stats_set)
+    pub fn into_parts(self) -> PrimitiveArrayParts {
+        let ptype = self.ptype();
+        let nullability = self.dtype.nullability();
+        PrimitiveArrayParts {
+            ptype,
+            nullability,
+            buffer: self.buffer,
+            validity: self.validity,
+        }
     }
 }
 

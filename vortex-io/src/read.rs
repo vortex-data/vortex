@@ -180,15 +180,15 @@ impl VortexReadAt for ByteBuffer {
 
 /// A wrapper that instruments a [`VortexReadAt`] with metrics.
 #[derive(Clone)]
-pub struct InstrumentedReadAt<T: VortexReadAt> {
-    read: Arc<T>,
+pub struct InstrumentedReadAt<T: VortexReadAt + Clone> {
+    read: T,
     sizes: Arc<Histogram>,
     total_size: Arc<Counter>,
     durations: Arc<Timer>,
 }
 
-impl<T: VortexReadAt> InstrumentedReadAt<T> {
-    pub fn new(read: Arc<T>, metrics: &VortexMetrics) -> Self {
+impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
+    pub fn new(read: T, metrics: &VortexMetrics) -> Self {
         Self {
             read,
             sizes: metrics.histogram("vortex.io.read.size"),
@@ -198,7 +198,7 @@ impl<T: VortexReadAt> InstrumentedReadAt<T> {
     }
 }
 
-impl<T: VortexReadAt> Drop for InstrumentedReadAt<T> {
+impl<T: VortexReadAt + Clone> Drop for InstrumentedReadAt<T> {
     #[allow(clippy::cognitive_complexity)]
     fn drop(&mut self) {
         let sizes = self.sizes.snapshot();
@@ -225,7 +225,7 @@ impl<T: VortexReadAt> Drop for InstrumentedReadAt<T> {
     }
 }
 
-impl<T: VortexReadAt> VortexReadAt for InstrumentedReadAt<T> {
+impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.read.uri()
     }

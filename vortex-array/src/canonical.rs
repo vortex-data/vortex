@@ -117,6 +117,20 @@ impl Canonical {
         }
     }
 
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Canonical::Null(c) => c.dtype(),
+            Canonical::Bool(c) => c.dtype(),
+            Canonical::Primitive(c) => c.dtype(),
+            Canonical::Decimal(c) => c.dtype(),
+            Canonical::VarBinView(c) => c.dtype(),
+            Canonical::List(c) => c.dtype(),
+            Canonical::FixedSizeList(c) => c.dtype(),
+            Canonical::Struct(c) => c.dtype(),
+            Canonical::Extension(c) => c.dtype(),
+        }
+    }
+
     pub fn is_empty(&self) -> bool {
         match self {
             Canonical::Null(c) => c.is_empty(),
@@ -561,7 +575,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true);
+        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
 
         assert_eq!(
             &arrow_struct,
@@ -585,7 +599,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = ArrayRef::from_arrow(&arrow_list, true);
+        let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 

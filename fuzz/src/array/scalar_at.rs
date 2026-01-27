@@ -18,7 +18,7 @@ use vortex_scalar::Scalar;
 /// This implementation manually extracts the scalar value from each canonical type
 /// without using the scalar_at method, to serve as an independent baseline for testing.
 pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexResult<Scalar> {
-    if canonical.as_ref().is_invalid(index) {
+    if canonical.as_ref().is_invalid(index)? {
         return Ok(Scalar::null(canonical.as_ref().dtype().clone()));
     }
     Ok(match canonical {
@@ -42,7 +42,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),
         Canonical::List(array) => {
-            let list = array.list_elements_at(index);
+            let list = array.list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     scalar_at_canonical_array(
@@ -60,7 +60,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             )
         }
         Canonical::FixedSizeList(array) => {
-            let list = array.fixed_size_list_elements_at(index);
+            let list = array.fixed_size_list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     scalar_at_canonical_array(
@@ -75,7 +75,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::Struct(array) => {
             let field_scalars: Vec<Scalar> = array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|field| {
                     scalar_at_canonical_array(

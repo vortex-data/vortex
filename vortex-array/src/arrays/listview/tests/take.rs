@@ -87,7 +87,7 @@ fn test_take_with_gaps() {
 
     // Verify the lists still read correctly despite gaps.
     assert_arrays_eq!(
-        result_list.list_elements_at(0),
+        result_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9])
     );
 }
@@ -174,13 +174,23 @@ fn test_take_extreme_offsets() {
     assert_eq!(result_list.elements().len(), 10000);
 
     // Verify we can still read the correct values.
-    let list0 = result_list.list_elements_at(0);
+    let list0 = result_list.list_elements_at(0).unwrap();
     assert_eq!(
-        list0.scalar_at(0).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(0)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         4999
     );
     assert_eq!(
-        list0.scalar_at(1).as_primitive().as_::<i32>().unwrap(),
+        list0
+            .scalar_at(1)
+            .unwrap()
+            .as_primitive()
+            .as_::<i32>()
+            .unwrap(),
         5000
     );
 }

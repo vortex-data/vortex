@@ -43,7 +43,7 @@ fn test_slice_comprehensive() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Test basic slice [1..3] - middle portion.
-    let sliced = listview.slice(1..3);
+    let sliced = listview.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(sliced_list.offset_at(0), 3, "Wrong offset for list[1]");
@@ -52,21 +52,21 @@ fn test_slice_comprehensive() {
     assert_eq!(sliced_list.size_at(1), 3, "Wrong size for list[2]");
 
     // Test full array slice [0..4].
-    let full = listview.slice(0..4);
+    let full = listview.slice(0..4).unwrap();
     let full_list = full.as_::<ListViewVTable>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
         // Compare the sliced elements
         assert_eq!(
-            full_list.scalar_at(i),
-            listview.scalar_at(i),
+            full_list.scalar_at(i).unwrap(),
+            listview.scalar_at(i).unwrap(),
             "Mismatch at index {}",
             i
         );
     }
 
     // Test single element slice [2..3].
-    let single = listview.slice(2..3);
+    let single = listview.slice(2..3).unwrap();
     let single_list = single.as_::<ListViewVTable>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(single_list.offset_at(0), 5, "Wrong offset for single slice");
@@ -84,7 +84,7 @@ fn test_slice_out_of_order() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
-    let sliced = listview.slice(1..4);
+    let sliced = listview.slice(1..4).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(
@@ -113,15 +113,15 @@ fn test_slice_out_of_order() {
 
     // Verify the actual list contents are correct.
     assert_arrays_eq!(
-        sliced_list.list_elements_at(0),
+        sliced_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([10i32, 20, 30])
     );
     assert_arrays_eq!(
-        sliced_list.list_elements_at(1),
+        sliced_list.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter([40i32, 50, 60])
     );
     assert_arrays_eq!(
-        sliced_list.list_elements_at(2),
+        sliced_list.list_elements_at(2).unwrap(),
         PrimitiveArray::from_iter([90i32])
     );
 }
@@ -143,12 +143,12 @@ fn test_slice_with_nulls() {
     .into_array();
 
     // Slice [1..3] should preserve nulls.
-    let sliced = listview.slice(1..3);
+    let sliced = listview.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(sliced_list.len(), 2);
-    assert!(sliced_list.is_invalid(0)); // Original index 1 was null.
-    assert!(sliced_list.is_valid(1)); // Original index 2 was valid.
+    assert!(sliced_list.is_invalid(0).unwrap()); // Original index 1 was null.
+    assert!(sliced_list.is_valid(1).unwrap()); // Original index 2 was valid.
 
     // Verify offsets and sizes are preserved.
     assert_eq!(sliced_list.offset_at(0), 2);
@@ -179,13 +179,13 @@ fn test_slice_edge_cases(
 
     match expected_len {
         Some(len) => {
-            let sliced = listview.slice(start..stop);
+            let sliced = listview.slice(start..stop).unwrap();
             assert_eq!(sliced.len(), len);
         }
         None => {
             // slice will panic or return empty for invalid ranges
             if start < stop && stop <= listview.len() {
-                let sliced = listview.slice(start..stop);
+                let sliced = listview.slice(start..stop).unwrap();
                 assert_eq!(sliced.len(), 0);
             }
         }
@@ -272,8 +272,8 @@ fn test_cast_with_nulls() {
     assert_eq!(result.dtype(), &target_dtype);
 
     let result_list = result.to_listview();
-    assert!(result_list.is_valid(0));
-    assert!(result_list.is_invalid(1));
+    assert!(result_list.is_valid(0).unwrap());
+    assert!(result_list.is_invalid(1).unwrap());
 }
 
 #[rstest]
@@ -516,10 +516,10 @@ fn test_mask_preserves_structure() {
     let result_list = result.to_listview();
 
     // Check validity: true in mask means null.
-    assert!(!result_list.is_valid(0)); // Masked.
-    assert!(result_list.is_valid(1)); // Not masked.
-    assert!(!result_list.is_valid(2)); // Masked.
-    assert!(!result_list.is_valid(3)); // Masked.
+    assert!(!result_list.is_valid(0).unwrap()); // Masked.
+    assert!(result_list.is_valid(1).unwrap()); // Not masked.
+    assert!(!result_list.is_valid(2).unwrap()); // Masked.
+    assert!(!result_list.is_valid(3).unwrap()); // Masked.
 
     // Offsets and sizes are preserved.
     assert_eq!(result_list.offset_at(0), 0);
@@ -553,9 +553,9 @@ fn test_mask_with_existing_nulls() {
     let result_list = result.to_listview();
 
     // Check combined validity:
-    assert!(result_list.is_valid(0)); // Was valid, mask is false -> valid.
-    assert!(!result_list.is_valid(1)); // Was invalid, mask is true -> invalid.
-    assert!(!result_list.is_valid(2)); // Was valid, mask is true -> invalid.
+    assert!(result_list.is_valid(0).unwrap()); // Was valid, mask is false -> valid.
+    assert!(!result_list.is_valid(1).unwrap()); // Was invalid, mask is true -> invalid.
+    assert!(!result_list.is_valid(2).unwrap()); // Was valid, mask is true -> invalid.
 }
 
 #[test]
@@ -573,9 +573,9 @@ fn test_mask_with_gaps() {
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
-    assert!(!result_list.is_valid(0)); // Masked
-    assert!(result_list.is_valid(1)); // Not masked
-    assert!(result_list.is_valid(2)); // Not masked
+    assert!(!result_list.is_valid(0).unwrap()); // Masked
+    assert!(result_list.is_valid(1).unwrap()); // Not masked
+    assert!(result_list.is_valid(2).unwrap()); // Not masked
 
     // Offsets and sizes still preserved
     assert_eq!(result_list.offset_at(1), 4);
@@ -605,9 +605,9 @@ fn test_mask_constant_arrays() {
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
-    assert!(result_list.is_valid(0));
-    assert!(!result_list.is_valid(1)); // Masked
-    assert!(result_list.is_valid(2));
+    assert!(result_list.is_valid(0).unwrap());
+    assert!(!result_list.is_valid(1).unwrap()); // Masked
+    assert!(result_list.is_valid(2).unwrap());
 
     // All offsets and sizes remain constant
     assert_eq!(result_list.offset_at(0), 1);

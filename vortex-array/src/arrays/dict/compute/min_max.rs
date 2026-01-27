@@ -16,7 +16,7 @@ use crate::register_kernel;
 
 impl MinMaxKernel for DictVTable {
     fn min_max(&self, array: &DictArray) -> VortexResult<Option<MinMaxResult>> {
-        let codes_validity = array.codes().validity_mask();
+        let codes_validity = array.codes().validity_mask()?;
         if codes_validity.all_false() {
             return Ok(None);
         }
@@ -109,8 +109,8 @@ mod tests {
     fn test_sliced_dict() {
         let reference = PrimitiveArray::from_iter([1, 5, 10, 50, 100]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        let sliced = dict.slice(1..3);
-        assert_min_max(&sliced, Some((5, 10)));
+        let sliced = dict.slice(1..3).unwrap();
+        assert_min_max(sliced.as_ref(), Some((5, 10)));
     }
 
     #[rstest]

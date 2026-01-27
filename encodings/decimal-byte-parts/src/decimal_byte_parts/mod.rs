@@ -133,7 +133,7 @@ impl VTable for DecimalBytePartsVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: slicing encoded MSP does not change the encoded values
         Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range), *array.decimal_dtype())
+            DecimalBytePartsArray::new_unchecked(array.msp.slice(range)?, *array.decimal_dtype())
                 .into_array()
         }))
     }
@@ -154,9 +154,15 @@ pub struct DecimalBytePartsArray {
     // NOTE: the lower_parts is currently unused, we reserve this field so that it is properly
     //  read/written during serde, but provide no constructor to initialize this to anything
     //  other than the empty Vec.
+    // Must update `DecimalBytePartsArrayParts` too.
     _lower_parts: Vec<ArrayRef>,
     dtype: DType,
     stats_set: ArrayStats,
+}
+
+pub struct DecimalBytePartsArrayParts {
+    pub msp: ArrayRef,
+    pub dtype: DType,
 }
 
 impl DecimalBytePartsArray {
@@ -181,6 +187,14 @@ impl DecimalBytePartsArray {
             _lower_parts: Vec::new(),
             dtype: DType::Decimal(decimal_dtype, nullable),
             stats_set: Default::default(),
+        }
+    }
+
+    /// If `_lower_parts` is supported check all calls use this correctly.
+    pub fn into_parts(self) -> DecimalBytePartsArrayParts {
+        DecimalBytePartsArrayParts {
+            msp: self.msp,
+            dtype: self.dtype,
         }
     }
 
@@ -257,15 +271,18 @@ fn to_canonical_decimal(
 }
 
 impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> Scalar {
+    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
         // TODO(joe): support parts len != 1
-        let scalar = array.msp.scalar_at(index);
+        let scalar = array.msp.scalar_at(index)?;
 
         // Note. values in msp, can only be signed integers upto size i64.
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
         let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
-        Scalar::new(array.dtype.clone(), DecimalValue::I64(value).into())
+        Ok(Scalar::new(
+            array.dtype.clone(),
+            DecimalValue::I64(value).into(),
+        ))
     }
 }
 
@@ -314,14 +331,14 @@ mod tests {
         .unwrap()
         .to_array();
 
-        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0));
+        assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(
             Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
-            array.scalar_at(1)
+            array.scalar_at(1).unwrap()
         );
         assert_eq!(
             Scalar::new(dtype, DecimalValue::I64(400).into()),
-            array.scalar_at(2)
+            array.scalar_at(2).unwrap()
         );
     }
 }

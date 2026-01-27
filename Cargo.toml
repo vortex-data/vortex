@@ -1,38 +1,57 @@
 [workspace]
 members = [
-    "vortex-bench",
-    "fuzz",
-    "vortex",
+    # Core crates in dependency order
+    "vortex-error",
+    "vortex-buffer",
+    "vortex-mask",
+    "vortex-utils",
+    "vortex-session",
+    "vortex-flatbuffers",
+    "vortex-metrics",
+    "vortex-io",
+    "vortex-proto",
+    "vortex-dtype",
+    "vortex-vector",
+    "vortex-scalar",
+    "vortex-compute",
     "vortex-array",
     "vortex-btrblocks",
-    "vortex-buffer",
-    "vortex-compute",
-    "vortex-cxx",
-    "vortex-datafusion",
-    "vortex-dtype",
-    "vortex-duckdb",
-    "vortex-error",
-    "vortex-ffi",
-    "vortex-file",
-    "vortex-flatbuffers",
-    "vortex-cuda",
-    "vortex-io",
-    "vortex-ipc",
-    "vortex-jni",
     "vortex-layout",
-    "vortex-mask",
-    "vortex-metrics",
-    "vortex-proto",
-    "vortex-python",
     "vortex-scan",
-    "vortex-scalar",
-    "vortex-session",
+    "vortex-file",
+    "vortex-ipc",
+    "vortex",
+    "vortex-bench",
+    "vortex-datafusion",
+    "vortex-duckdb",
+    "vortex-cuda",
+    "vortex-cuda/nvcomp",
+    "vortex-cxx",
+    "vortex-ffi",
+    "fuzz",
+    "vortex-jni",
+    "vortex-python",
     "vortex-tui",
-    "vortex-utils",
-    "vortex-vector",
-    "benchmarks/*",
-    "encodings/*",
     "xtask",
+    # Encodings
+    "encodings/fastlanes",
+    "encodings/decimal-byte-parts",
+    "encodings/runend",
+    "encodings/sequence",
+    "encodings/alp",
+    "encodings/datetime-parts",
+    "encodings/fsst",
+    "encodings/pco",
+    "encodings/sparse",
+    "encodings/zigzag",
+    "encodings/zstd",
+    "encodings/bytebool",
+    # Benchmarks
+    "benchmarks/lance-bench",
+    "benchmarks/compress-bench",
+    "benchmarks/datafusion-bench",
+    "benchmarks/duckdb-bench",
+    "benchmarks/random-access-bench",
 ]
 exclude = ["java/testfiles", "wasm-test"]
 resolver = "2"
@@ -131,6 +150,7 @@ jiff = "0.2.0"
 kanal = "0.1.1"
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
+libloading = "0.8"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
 memmap2 = "0.9.5"
@@ -207,6 +227,7 @@ walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 xshell = "0.2.6"
+xz2 = "0.1.7"
 zigzag = "0.1.0"
 zip = "6.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [
@@ -251,6 +272,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
+vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 
 [workspace.dependencies.getrandom_v03]

@@ -208,13 +208,13 @@ impl VTable for ChunkedVTable {
             }
         }
 
-        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start);
-        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end);
+        let (offset_chunk, offset_in_first_chunk) = array.find_chunk_idx(range.start)?;
+        let (length_chunk, length_in_last_chunk) = array.find_chunk_idx(range.end)?;
 
         if length_chunk == offset_chunk {
             let chunk = array.chunk(offset_chunk);
             return Ok(Some(
-                chunk.slice(offset_in_first_chunk..length_in_last_chunk),
+                chunk.slice(offset_in_first_chunk..length_in_last_chunk)?,
             ));
         }
 
@@ -222,13 +222,13 @@ impl VTable for ChunkedVTable {
             .map(|i| array.chunk(i).clone())
             .collect_vec();
         if let Some(c) = chunks.first_mut() {
-            *c = c.slice(offset_in_first_chunk..c.len());
+            *c = c.slice(offset_in_first_chunk..c.len())?;
         }
 
         if length_in_last_chunk == 0 {
             chunks.pop();
         } else if let Some(c) = chunks.last_mut() {
-            *c = c.slice(0..length_in_last_chunk);
+            *c = c.slice(0..length_in_last_chunk)?;
         }
 
         // SAFETY: chunks are slices of the original valid chunks, preserving their dtype.

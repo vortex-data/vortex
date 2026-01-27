@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::PrimitiveArray;
+pub use array::PrimitiveArrayParts;
 pub use array::chunk_range;
 pub use array::patch_chunk;
 

@@ -146,7 +146,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1..4)
+        dict.slice(1..4).unwrap()
     }
 
     #[test]

@@ -188,12 +188,14 @@ impl RLEArray {
     pub(crate) fn values_idx_offset(&self, chunk_idx: usize) -> usize {
         self.values_idx_offsets
             .scalar_at(chunk_idx)
+            .expect("index must be in bounds")
             .as_primitive()
             .as_::<usize>()
             .expect("index must be of type usize")
             - self
                 .values_idx_offsets
                 .scalar_at(0)
+                .expect("index must be in bounds")
                 .as_primitive()
                 .as_::<usize>()
                 .expect("index must be of type usize")
@@ -279,9 +281,9 @@ mod tests {
 
         assert_eq!(rle_array.len(), 3);
         assert_eq!(rle_array.values().len(), 2);
-        assert!(rle_array.is_valid(0));
-        assert!(!rle_array.is_valid(1));
-        assert!(rle_array.is_valid(2));
+        assert!(rle_array.is_valid(0).unwrap());
+        assert!(!rle_array.is_valid(1).unwrap());
+        assert!(rle_array.is_valid(2).unwrap());
     }
 
     #[test]
@@ -313,12 +315,12 @@ mod tests {
         )
         .unwrap();
 
-        let valid_slice = rle_array.slice(0..3).to_primitive();
+        let valid_slice = rle_array.slice(0..3).unwrap().to_primitive();
         // TODO(joe): replace with compute null count
-        assert!(valid_slice.all_valid());
+        assert!(valid_slice.all_valid().unwrap());
 
-        let mixed_slice = rle_array.slice(1..5);
-        assert!(!mixed_slice.all_valid());
+        let mixed_slice = rle_array.slice(1..5).unwrap();
+        assert!(!mixed_slice.all_valid().unwrap());
     }
 
     #[test]
@@ -353,13 +355,14 @@ mod tests {
         // TODO(joe): replace with compute null count
         let invalid_slice = rle_array
             .slice(2..5)
+            .unwrap()
             .to_canonical()
             .unwrap()
             .into_primitive();
-        assert!(invalid_slice.all_invalid());
+        assert!(invalid_slice.all_invalid().unwrap());
 
-        let mixed_slice = rle_array.slice(1..4);
-        assert!(!mixed_slice.all_invalid());
+        let mixed_slice = rle_array.slice(1..4).unwrap();
+        assert!(!mixed_slice.all_invalid().unwrap());
     }
 
     #[test]
@@ -391,8 +394,8 @@ mod tests {
         )
         .unwrap();
 
-        let sliced_array = rle_array.slice(1..4);
-        let validity_mask = sliced_array.validity_mask();
+        let sliced_array = rle_array.slice(1..4).unwrap();
+        let validity_mask = sliced_array.validity_mask().unwrap();
 
         let expected_mask = Validity::from_iter([false, true, false]).to_mask(3);
         assert_eq!(validity_mask.len(), expected_mask.len());
@@ -474,7 +477,7 @@ mod tests {
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        let sliced = rle_array.slice(100..200);
+        let sliced = rle_array.slice(100..200).unwrap();
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty();

@@ -96,7 +96,7 @@ pub(crate) fn fused_decompress<
     // Create [`UnpackedChunks`] with FoR strategy.
     let mut unpacked = UnpackedChunks::new_with_strategy(
         strategy,
-        bp.packed().clone(),
+        bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
@@ -109,7 +109,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask());
+        uninit_range.append_mask(bp.validity_mask()?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
