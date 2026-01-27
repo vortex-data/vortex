@@ -160,14 +160,13 @@ impl VortexSessionDefault for VortexSession {
             .with::<RuntimeSession>();
 
         #[cfg(all(feature = "cuda", target_os = "linux"))]
-        let mut session = if vortex_cuda::cuda_available() {
+        // Even if the CUDA feature is enabled we need to check at
+        // runtime whether CUDA is available in the current environment.
+        if vortex_cuda::cuda_available() {
             use vortex_cuda::CudaSessionExt;
-            let session = session.with::<vortex_cuda::CudaSession>();
+            session = session.with::<vortex_cuda::CudaSession>();
             vortex_cuda::initialize_cuda(&session.cuda_session());
-            session
-        } else {
-            session
-        };
+        }
 
         #[cfg(feature = "files")]
         file::register_default_encodings(&mut session);
