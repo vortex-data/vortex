@@ -13,6 +13,7 @@ use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -75,10 +76,20 @@ impl FileSegmentSource {
 
         let coalesce_config = reader.coalesce_config();
         let concurrency = reader.concurrency();
+        let max_alignment = segments
+            .iter()
+            .map(|segment| segment.alignment)
+            .max()
+            .unwrap_or_else(Alignment::none);
 
         let drive_fut = async move {
-            let stream =
-                IoRequestStream::new(StreamExt::boxed(recv), coalesce_config, metrics).boxed();
+            let stream = IoRequestStream::new(
+                StreamExt::boxed(recv),
+                coalesce_config,
+                max_alignment,
+                metrics,
+            )
+            .boxed();
 
             stream
                 .map(move |req| {

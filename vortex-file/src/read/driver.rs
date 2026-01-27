@@ -10,6 +10,7 @@ use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
+use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
 use vortex_metrics::Counter;
@@ -47,6 +48,7 @@ impl<S> IoRequestStream<S> {
     pub(crate) fn new(
         events: S,
         coalesce_window: Option<CoalesceConfig>,
+        coalesced_buffer_alignment: Alignment,
         metrics: VortexMetrics,
     ) -> Self
     where
@@ -56,7 +58,7 @@ impl<S> IoRequestStream<S> {
             events,
             inner_done: false,
             coalesce_window,
-            state: State::new(metrics),
+            state: State::new(metrics, coalesced_buffer_alignment),
         }
     }
 }
@@ -117,6 +119,7 @@ struct State {
 
     // Metrics for tracking I/O request patterns
     metrics: StateMetrics,
+    coalesced_buffer_alignment: Alignment,
 }
 
 struct StateMetrics {
@@ -136,12 +139,13 @@ impl StateMetrics {
 }
 
 impl State {
-    fn new(metrics: VortexMetrics) -> Self {
+    fn new(metrics: VortexMetrics, coalesced_buffer_alignment: Alignment) -> Self {
         Self {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
             requests_by_offset: BTreeSet::new(),
             metrics: StateMetrics::new(metrics),
+            coalesced_buffer_alignment,
         }
     }
 
@@ -207,7 +211,7 @@ impl State {
     }
 
     /// Coalesce nearby requests into a single range while aligning the range start down to the
-    /// maximum alignment of all included requests.
+    /// global maximum segment alignment.
     ///
     /// Example (file offsets):
     /// [x, x, x, x, x, x, A, A, A, A, A, x, B]
@@ -222,7 +226,7 @@ impl State {
         let mut requests = vec![first_req];
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
-        let mut max_alignment = requests[0].alignment;
+        let align = *self.coalesced_buffer_alignment as u64;
 
         let mut keys_to_remove = Vec::new();
         let mut found_new_requests = true;
@@ -265,8 +269,6 @@ impl State {
                     // Calculate what the new range would be if we include this request
                     let new_start = current_start.min(req_offset);
                     let new_end = current_end.max(req_end);
-                    let new_alignment = max_alignment.max(req.alignment);
-                    let align = *new_alignment as u64;
                     let aligned_start = new_start - (new_start % align);
                     let new_total_size = new_end - aligned_start;
 
@@ -277,8 +279,6 @@ impl State {
 
                     current_start = new_start;
                     current_end = new_end;
-                    max_alignment = new_alignment;
-
                     let req = self
                         .polled_requests
                         .remove(&req_id)
@@ -303,7 +303,6 @@ impl State {
         // Sort requests by offset for correct slicing in resolve
         requests.sort_unstable_by_key(|r| r.offset);
 
-        let align = *max_alignment as u64;
         let aligned_start = current_start - (current_start % align);
 
         tracing::debug!(
@@ -316,7 +315,7 @@ impl State {
 
         Some(CoalescedRequest {
             range: aligned_start..current_end,
-            alignment: max_alignment,
+            alignment: self.coalesced_buffer_alignment,
             requests,
         })
     }
@@ -355,9 +354,22 @@ mod tests {
         events: Vec<ReadEvent>,
         coalesce_window: Option<CoalesceConfig>,
     ) -> Vec<IoRequest> {
+        collect_outputs_with_alignment(events, coalesce_window, Alignment::none()).await
+    }
+
+    async fn collect_outputs_with_alignment(
+        events: Vec<ReadEvent>,
+        coalesce_window: Option<CoalesceConfig>,
+        coalesced_buffer_alignment: Alignment,
+    ) -> Vec<IoRequest> {
         let event_stream = stream::iter(events);
         let metrics = VortexMetrics::default();
-        let io_stream = IoRequestStream::new(event_stream, coalesce_window, metrics);
+        let io_stream = IoRequestStream::new(
+            event_stream,
+            coalesce_window,
+            coalesced_buffer_alignment,
+            metrics,
+        );
         io_stream.collect().await
     }
 
@@ -485,12 +497,13 @@ mod tests {
             ReadEvent::Polled(2),
         ];
 
-        let outputs = collect_outputs(
+        let outputs = collect_outputs_with_alignment(
             events,
             Some(CoalesceConfig {
                 distance: 1,
                 max_size: 1024,
             }),
+            Alignment::new(4),
         )
         .await;
 
@@ -675,6 +688,7 @@ mod tests {
                 distance: 5,
                 max_size: 1024,
             }),
+            Alignment::none(),
             metrics.clone(),
         );
 
@@ -728,7 +742,8 @@ mod tests {
         let event_stream = stream::iter(events);
         let metrics = VortexMetrics::default();
         // No coalescing window - should be individual requests
-        let io_stream = IoRequestStream::new(event_stream, None, metrics.clone());
+        let io_stream =
+            IoRequestStream::new(event_stream, None, Alignment::none(), metrics.clone());
 
         let outputs: Vec<IoRequest> = io_stream.collect().await;
         assert_eq!(outputs.len(), 2);
