@@ -14,7 +14,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ArbitraryDictArray;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::vortex_err;
 
+use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
@@ -93,24 +95,22 @@ fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_dtype::D
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
 pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
-    use vortex::VortexSessionDefault;
-    use vortex::session::VortexSession;
     use vortex_cuda::CanonicalCudaExt;
     use vortex_cuda::CudaSession;
     use vortex_cuda::executor::CudaArrayExt;
     use vortex_error::VortexExpect;
 
-    // Runtime check - skip if CUDA is not available
     if !vortex_cuda::cuda_available() {
-        return Ok(false);
+        return Err(VortexFuzzError::VortexError(
+            vortex_err!("no cuda device to run the fuzzer on"),
+            Backtrace::capture(),
+        ));
     }
 
     let FuzzCompressGpu { array } = fuzz;
 
-    // Store original properties for error reporting
     let original_len = array.len();
 
-    // 1. CPU decompression (reference)
     let cpu_canonical = match array.to_canonical() {
         Ok(c) => c,
         Err(e) => {
@@ -118,13 +118,9 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         }
     };
 
-    // 2. Create CUDA execution context
-    let session = VortexSession::default();
-
     let mut cuda_ctx =
-        CudaSession::create_execution_ctx(&session).vortex_expect("cannot create session");
+        CudaSession::create_execution_ctx(&SESSION).vortex_expect("cannot create session");
 
-    // 3. GPU decompression
     let gpu_canonical = match array.clone().execute_cuda(&mut cuda_ctx).await {
         Ok(c) => c,
         Err(e) => {
@@ -132,19 +128,16 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         }
     };
 
-    // 4. Copy GPU result back to host using CanonicalCudaExt
-    let gpu_host_canonical = match gpu_canonical.to_host().await {
+    let gpu_host_canonical = match gpu_canonical.into_host().await {
         Ok(c) => c,
         Err(e) => {
             return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));
         }
     };
 
-    // 5. Compare canonicals
     let cpu_array = cpu_canonical.into_array();
     let gpu_array = gpu_host_canonical.into_array();
 
-    // Verify dtype is preserved
     if cpu_array.dtype() != gpu_array.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
             cpu_array,
@@ -154,7 +147,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         ));
     }
 
-    // Verify length is preserved
     if original_len != gpu_array.len() {
         return Err(VortexFuzzError::LengthMismatch(
             original_len,
@@ -166,7 +158,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         ));
     }
 
-    // Compare element by element
     for i in 0..original_len {
         let cpu_scalar = cpu_array
             .scalar_at(i)
