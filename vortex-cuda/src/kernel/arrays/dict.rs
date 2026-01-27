@@ -441,8 +441,8 @@ mod tests {
                 .into_primitive()
         });
 
-        let cuda_result = cuda_primitive_to_host(cuda_result)?;
         cuda_ctx.synchronize_stream()?;
+        let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
