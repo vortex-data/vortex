@@ -6,12 +6,11 @@ use std::sync::Arc;
 use rstest::rstest;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::ExtID;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::StructFields;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
@@ -160,11 +159,11 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     Nullability::NonNullable
 ), 3)]
 #[case::extension(
-    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable)),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()),
     1
 )]
 #[case::extension_multiple(
-    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable)),
+    DType::Extension(Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()),
     3
 )]
 #[should_panic(expected = "non-nullable")]
@@ -377,7 +376,7 @@ fn test_to_canonical_extension() {
         };
         for i in 0..5 {
             let storage_value = Scalar::from(i as i64);
-            let ext_scalar = Scalar::extension(ext_dtype.clone(), storage_value);
+            let ext_scalar = Scalar::extension_ref(ext_dtype.clone(), storage_value);
             builder.append_scalar(&ext_scalar).unwrap();
         }
     });
@@ -497,7 +496,7 @@ fn test_to_canonical_f32() {
     Nullability::Nullable
 ))]
 #[case::extension_non_nullable(DType::Extension(
-Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
+    Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased()
 ))]
 fn test_append_scalar_comprehensive(#[case] dtype: DType) {
     let num_elements = 3;
@@ -629,7 +628,7 @@ fn create_test_scalars_for_dtype(dtype: &DType, count: usize) -> Vec<Scalar> {
                     DType::Primitive(PType::I64, n) => Scalar::primitive(i as i64, *n),
                     _ => Scalar::default_value(ext_dtype.storage_dtype().clone()),
                 };
-                Scalar::extension(ext_dtype.clone(), storage_scalar)
+                Scalar::extension_ref(ext_dtype.clone(), storage_scalar)
             }
         };
         scalars.push(scalar);
