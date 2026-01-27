@@ -95,8 +95,6 @@ fn arbitrary_gpu_primitive_dtype(u: &mut Unstructured) -> Result<vortex_dtype::D
 /// - `Err(_)` - a bug was found
 #[allow(clippy::result_large_err)]
 pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
-    
-    
     use vortex_cuda::CanonicalCudaExt;
     use vortex_cuda::CudaSession;
     use vortex_cuda::executor::CudaArrayExt;
