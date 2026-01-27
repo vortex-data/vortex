@@ -29,6 +29,8 @@ mod tests {
     use crate::array::Array;
     use crate::arrays::ChunkedArray;
     use crate::arrays::ChunkedVTable;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
 
     fn chunked_array() -> ChunkedArray {
@@ -110,8 +112,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]));
     }
 
     #[test]
@@ -126,10 +127,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
     }
 
     #[test]
@@ -144,9 +142,6 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
     }
 }

@@ -15,6 +15,7 @@ use vortex_dtype::half::f16;
 use vortex_error::VortexExpect;
 use vortex_scalar::Scalar;
 
+use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 
@@ -91,21 +92,9 @@ fn test_append_zeros_matches_default_value(#[case] dtype: DType) {
     }
     let array_manual = builder_manual.finish();
 
-    // Both arrays should have the same length.
-    assert_eq!(array_zeros.len(), array_manual.len());
+    // Both arrays should have the same length and content.
     assert_eq!(array_zeros.len(), num_elements);
-
-    // Compare each element.
-    for i in 0..num_elements {
-        let scalar_zeros = array_zeros.scalar_at(i).unwrap();
-        let scalar_manual = array_manual.scalar_at(i).unwrap();
-
-        assert_eq!(
-            scalar_zeros, scalar_manual,
-            "Element at index {} should be equal",
-            i
-        );
-    }
+    assert_arrays_eq!(array_zeros, array_manual);
 }
 
 /// Test that calling `append_nulls` on non-nullable builders panics.
@@ -253,20 +242,8 @@ where
     let array_direct = canonical_direct.into_array();
     let array_indirect = canonical_indirect.into_array();
 
-    // Verify they have the same length.
-    assert_eq!(array_direct.len(), array_indirect.len());
-
-    // Compare each element.
-    for i in 0..array_direct.len() {
-        let scalar_direct = array_direct.scalar_at(i).unwrap();
-        let scalar_indirect = array_indirect.scalar_at(i).unwrap();
-
-        assert_eq!(
-            scalar_direct, scalar_indirect,
-            "Element at index {} should be equal for dtype {:?}",
-            i, dtype
-        );
-    }
+    // Verify they have the same content.
+    assert_arrays_eq!(array_direct, array_indirect);
 }
 
 #[test]
@@ -760,16 +737,8 @@ fn test_append_scalar_repeated_same_instance() {
     }
 
     let array = builder.finish();
-    assert_eq!(array.len(), 5);
 
     // All values should be 42.
-    for i in 0..5 {
-        let actual = array.scalar_at(i).unwrap();
-        assert_eq!(
-            actual.as_primitive().typed_value::<i32>(),
-            Some(42),
-            "Value at index {} should be 42",
-            i
-        );
-    }
+    let expected = crate::arrays::PrimitiveArray::from_iter([42i32; 5]);
+    assert_arrays_eq!(array, expected);
 }

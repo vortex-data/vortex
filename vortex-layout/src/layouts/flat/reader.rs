@@ -236,6 +236,7 @@ mod test {
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
 
     use crate::LayoutStrategy;
@@ -246,7 +247,7 @@ mod test {
     use crate::test::SESSION;
 
     #[test]
-    fn flat_identity() {
+    fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
@@ -260,8 +261,7 @@ mod test {
                     eof,
                     handle,
                 )
-                .await
-                .unwrap();
+                .await?;
 
             assert_eq!(
                 format!("{}", layout),
@@ -269,22 +269,17 @@ mod test {
             );
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
-                .unwrap()
+                .new_reader("".into(), segments, &SESSION)?
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
-                    MaskFuture::new_true(layout.row_count().try_into().unwrap()),
-                )
-                .unwrap()
-                .await
-                .unwrap()
-                .to_primitive();
+                    MaskFuture::new_true(layout.row_count().try_into()?),
+                )?
+                .await?;
 
-            assert_eq!(
-                array.to_primitive().as_slice::<i32>(),
-                result.as_slice::<i32>()
-            );
+            assert_arrays_eq!(result, array);
+
+            Ok(())
         })
     }
 
