@@ -166,7 +166,10 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            let mut open_opts = session.open_options().with_file_size(file.object_meta.size);
+            let mut open_opts = session
+                .open_options()
+                .with_file_size(file.object_meta.size)
+                .with_metrics(metrics.clone());
 
             if let Some(file_metadata_cache) = file_metadata_cache
                 && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
