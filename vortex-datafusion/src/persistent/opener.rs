@@ -14,6 +14,7 @@ use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -49,6 +50,7 @@ use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::schema::calculate_physical_schema;
+use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -84,6 +86,7 @@ pub(crate) struct VortexOpener {
     pub has_output_ordering: bool,
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
 }
 
 impl FileOpener for VortexOpener {
@@ -104,6 +107,7 @@ impl FileOpener for VortexOpener {
 
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
+        let file_metadata_cache = self.file_metadata_cache.clone();
 
         let unified_file_schema = self.table_schema.file_schema().clone();
         let batch_size = self.batch_size;
@@ -162,9 +166,18 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            let vxf = session
-                .open_options()
-                .with_file_size(file.object_meta.size)
+            let mut open_opts = session.open_options().with_file_size(file.object_meta.size);
+
+            if let Some(file_metadata_cache) = file_metadata_cache
+                && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
+                && let Some(vortex_metadata) = file_metadata
+                    .as_any()
+                    .downcast_ref::<CachedVortexMetadata>()
+            {
+                open_opts = open_opts.with_footer(vortex_metadata.footer().clone());
+            }
+
+            let vxf = open_opts
                 .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
@@ -513,6 +526,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         }
     }
 
@@ -603,6 +617,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -685,6 +700,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         // The opener should successfully open the file and reorder columns
@@ -836,6 +852,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -891,6 +908,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         }
     }
 
@@ -1088,6 +1106,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

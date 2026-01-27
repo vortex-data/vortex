@@ -12,6 +12,7 @@ use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -62,6 +63,7 @@ pub struct VortexSource {
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     vx_metrics: VortexMetrics,
+    file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
 }
 
 impl VortexSource {
@@ -82,6 +84,7 @@ impl VortexSource {
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             vortex_reader_factory: None,
             vx_metrics: VortexMetrics::default(),
+            file_metadata_cache: None,
         }
     }
 
@@ -108,6 +111,15 @@ impl VortexSource {
     /// The metrics instance attached to this source.
     pub fn vx_metrics(&self) -> &VortexMetrics {
         &self.vx_metrics
+    }
+
+    /// Override the file metadata cache
+    pub fn with_file_metadata_cache(
+        mut self,
+        file_metadata_cache: Arc<dyn FileMetadataCache>,
+    ) -> Self {
+        self.file_metadata_cache = Some(file_metadata_cache);
+        self
     }
 }
 
@@ -150,6 +162,7 @@ impl FileSource for VortexSource {
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: self.file_metadata_cache.clone(),
         };
 
         Ok(Arc::new(opener))

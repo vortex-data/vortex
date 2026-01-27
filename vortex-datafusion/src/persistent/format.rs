@@ -28,6 +28,7 @@ use datafusion_datasource::file_compression_type::FileCompressionType;
 use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_format::FileFormatFactory;
 use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
@@ -464,15 +465,24 @@ impl FileFormat for VortexFormat {
 
     async fn create_physical_plan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        // We make sure the scan's source is the right type, but we don't have anything else to do here.
-        if !file_scan_config.file_source().as_any().is::<VortexSource>() {
-            return Err(internal_datafusion_err!("Expected VortexSource"));
-        }
+        let mut source = file_scan_config
+            .file_source()
+            .as_any()
+            .downcast_ref::<VortexSource>()
+            .cloned()
+            .ok_or_else(|| internal_datafusion_err!("Expected VortexSource"))?;
 
-        Ok(DataSourceExec::from_data_source(file_scan_config))
+        source = source
+            .with_file_metadata_cache(state.runtime_env().cache_manager.get_file_metadata_cache());
+
+        let conf = FileScanConfigBuilder::from(file_scan_config)
+            .with_source(Arc::new(source))
+            .build();
+
+        Ok(DataSourceExec::from_data_source(conf))
     }
 
     async fn create_writer_physical_plan(
