@@ -24,6 +24,7 @@ mod arrays;
 mod encodings;
 
 pub use arrays::DictExecutor;
+pub use arrays::FilterExecutor;
 pub use encodings::*;
 
 use crate::CudaKernelEvents;

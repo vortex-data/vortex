@@ -16,6 +16,11 @@ pub struct FilterArray {
     pub(super) stats: ArrayStats,
 }
 
+pub struct FilterArrayParts {
+    pub child: ArrayRef,
+    pub mask: Mask,
+}
+
 impl FilterArray {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
         Self::try_new(array, mask).vortex_expect("new FilterArray")
@@ -44,5 +49,13 @@ impl FilterArray {
     /// The mask used to filter the child array.
     pub fn filter_mask(&self) -> &Mask {
         &self.mask
+    }
+
+    /// Consume the `FilterArray` into its components.
+    pub fn into_parts(self) -> FilterArrayParts {
+        FilterArrayParts {
+            child: self.child,
+            mask: self.mask,
+        }
     }
 }

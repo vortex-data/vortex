@@ -20,6 +20,7 @@ pub use executor::CudaKernelEvents;
 use kernel::ALPExecutor;
 use kernel::DecimalBytePartsExecutor;
 use kernel::DictExecutor;
+use kernel::FilterExecutor;
 use kernel::FoRExecutor;
 use kernel::ZigZagExecutor;
 use kernel::ZstdExecutor;
@@ -30,6 +31,7 @@ pub use session::CudaSession;
 pub use session::CudaSessionExt;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::FilterVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
 use vortex_fastlanes::FoRVTable;
 pub use vortex_nvcomp as nvcomp;
@@ -53,4 +55,5 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
     session.register_kernel(DecimalBytePartsVTable::ID, &DecimalBytePartsExecutor);
     session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
+    session.register_kernel(FilterVTable::ID, &FilterExecutor)
 }
