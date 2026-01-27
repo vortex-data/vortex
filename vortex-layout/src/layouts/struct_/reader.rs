@@ -608,7 +608,8 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_arrays_eq!(result.to_bool(), BoolArray::from_iter([true, false, false]));
+        let expected = BoolArray::from_iter([true, false, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]
@@ -629,7 +630,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.len(), 2);
-        assert_arrays_eq!(result.to_bool(), BoolArray::from_iter([true, false]));
+
+        let expected = BoolArray::from_iter([true, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]

@@ -216,6 +216,7 @@ mod test {
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::session::ArraySession;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
@@ -239,11 +240,8 @@ mod test {
             .unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().await.unwrap().to_primitive();
-        assert_eq!(
-            array.to_primitive().as_slice::<i32>(),
-            result.as_slice::<i32>()
-        );
+        let result = reader.read_all().await.unwrap();
+        assert_arrays_eq!(result, array);
     }
 
     /// Wrapper that limits reads to small chunks to simulate network behavior

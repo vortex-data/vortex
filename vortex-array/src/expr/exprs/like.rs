@@ -243,17 +243,17 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
-    use crate::ToCanonical;
     use crate::arrays::BoolArray;
+    use crate::assert_arrays_eq;
     use crate::expr::col;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::like::LikeVariant;
     use crate::expr::exprs::like::like;
-    use crate::expr::exprs::like::not_ilike;
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::not::not;
     use crate::expr::exprs::root::root;
     use crate::expr::ilike;
+    use crate::expr::not_ilike;
     use crate::expr::not_like;
     use crate::expr::pruning::pruning_expr::TrackingStatsCatalog;
 
@@ -261,16 +261,9 @@ mod tests {
     fn invert_booleans() {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
-        assert_eq!(
-            bools
-                .to_array()
-                .apply(&not_expr)
-                .unwrap()
-                .to_bool()
-                .to_bit_buffer()
-                .iter()
-                .collect::<Vec<_>>(),
-            vec![true, false, true, true, false, false]
+        assert_arrays_eq!(
+            bools.to_array().apply(&not_expr).unwrap(),
+            BoolArray::from_iter([true, false, true, true, false, false])
         );
     }
 

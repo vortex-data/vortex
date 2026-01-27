@@ -300,7 +300,6 @@ mod tests {
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
@@ -348,10 +347,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                BitBuffer::from_iter([false, false, true, false, false]),
-                result.to_bit_buffer()
-            );
+            let expected = BoolArray::from_iter([false, false, true, false, false]);
+            assert_arrays_eq!(result, expected);
         })
     }
 
@@ -389,10 +386,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                BitBuffer::from_iter([false, false, false, false, true]),
-                result.to_bit_buffer()
-            );
+            let expected = BoolArray::from_iter([false, false, false, false, true]);
+            assert_arrays_eq!(result, expected);
         })
     }
 
@@ -434,10 +429,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_arrays_eq!(
-                result,
-                BoolArray::from_iter([true, false, true, false, true])
-            );
+            let expected = BoolArray::from_iter([true, false, true, false, true]);
+            assert_arrays_eq!(result, expected);
         })
     }
 }

@@ -10,7 +10,6 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
-use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -1101,14 +1100,7 @@ async fn test_repeated_projection() {
         .unwrap()
         .to_struct();
 
-    assert_eq!(
-        (0..actual.len())
-            .map(|index| actual.scalar_at(index).unwrap())
-            .collect_vec(),
-        (0..expected.len())
-            .map(|index| expected.scalar_at(index).unwrap())
-            .collect_vec()
-    );
+    assert_arrays_eq!(actual, expected);
 }
 
 async fn chunked_file() -> VortexResult<VortexFile> {
