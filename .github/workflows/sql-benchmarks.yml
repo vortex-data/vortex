@@ -9,7 +9,7 @@ on:
       machine_type:
         required: false
         type: string
-        default: c6id.8xlarge
+        default: c6id.metal
       benchmark_matrix:
         required: false
         type: string
@@ -45,6 +45,13 @@ on:
               "name": "TPC-H SF=10 on NVME",
               "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
               "scale_factor": "10.0"
+            },
+            {
+              "id": "tpch-nvme-100",
+              "subcommand": "tpch",
+              "name": "TPC-H SF=100 on NVME",
+              "targets": "datafusion:arrow,datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact,duckdb:duckdb",
+              "scale_factor": "--scale-factor 100.0"
             },
             {
               "id": "tpch-s3-10",
