@@ -48,7 +48,6 @@ mod test {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
-    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -77,7 +76,7 @@ mod test {
         predicate.extend_from_slice(&[false; 17]);
         let mask = Mask::from_iter(predicate);
 
-        let filtered_array = filter(&array, &mask).unwrap();
+        let filtered_array = array.filter(mask).unwrap();
 
         // Construct expected SparseArray: index 2 was kept, which had value 33.
         // The new index is 0 (since it's the only element).
@@ -104,7 +103,7 @@ mod test {
         .unwrap()
         .into_array();
 
-        let filtered_array = filter(&array, &mask).unwrap();
+        let filtered_array = array.filter(mask).unwrap();
 
         // Original indices 0, 3, 6 with values 33, 44, 55.
         // Mask keeps indices 1, 3, 5, 6 -> new indices 0, 1, 2, 3.

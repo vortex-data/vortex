@@ -14,7 +14,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ChunkedArray;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::compute::filter;
 use vortex_array::expr::lit;
 use vortex_array::expr::root;
 use vortex_buffer::ByteBufferMut;
@@ -51,7 +50,8 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
             .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
-        let filtered = filter(&array_data, &mask)
+        let filtered = array_data
+            .filter(mask)
             .vortex_expect("filter operation should succeed in fuzz test");
         filtered
             .apply(&projection_expr.clone().unwrap_or_else(root))

@@ -29,7 +29,6 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::filter::FilterArray;
 use crate::compute::FilterKernel;
-use crate::compute::filter;
 use crate::validity::Validity;
 
 /// TODO: replace usage of compute fn.
@@ -158,6 +157,9 @@ fn filter_struct(array: &StructArray, mask: &Mask) -> StructArray {
 }
 
 fn filter_extension(array: &ExtensionArray, mask: &Mask) -> ExtensionArray {
-    let filtered_storage = filter(array.storage(), mask).vortex_expect("filter extension storage");
+    let filtered_storage = array
+        .storage()
+        .filter(mask.clone())
+        .vortex_expect("filter extension storage");
     ExtensionArray::new(array.ext_dtype().clone(), filtered_storage)
 }

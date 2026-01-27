@@ -11,7 +11,6 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::{self};
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -41,7 +40,7 @@ impl FilterKernel for FixedSizeListVTable {
                 let elements_mask = compute_fsl_elements_mask(selection_mask, list_size as usize);
 
                 // Allow the child array to filter itself.
-                let new_elements = compute::filter(elements, &elements_mask)?;
+                let new_elements = elements.filter(elements_mask)?;
                 debug_assert_eq!(new_elements.len(), new_len * list_size as usize);
 
                 new_elements

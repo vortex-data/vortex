@@ -10,14 +10,13 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::{self};
 use crate::register_kernel;
 
 impl FilterKernel for ExtensionVTable {
     fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(ExtensionArray::new(
             array.ext_dtype().clone(),
-            compute::filter(array.storage(), mask)?,
+            array.storage().filter(mask.clone())?,
         )
         .into_array())
     }

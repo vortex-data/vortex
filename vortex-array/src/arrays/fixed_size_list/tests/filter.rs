@@ -18,7 +18,6 @@ use crate::compute::conformance::filter::LARGE_SIZE;
 use crate::compute::conformance::filter::MEDIUM_SIZE;
 use crate::compute::conformance::filter::SMALL_SIZE;
 use crate::compute::conformance::filter::test_filter_conformance;
-use crate::compute::filter;
 use crate::validity::Validity;
 
 // Consolidated parameterized test for degenerate (list_size=0) cases.
@@ -64,7 +63,7 @@ fn test_filter_degenerate_list_size_zero(
     let fsl = FixedSizeListArray::new(elements.into_array(), 0, validity, num_lists);
 
     let mask = Mask::from(BitBuffer::from(mask_values));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered = fsl.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), expected_len, "Degenerate FSL filter failed");
 
@@ -87,7 +86,7 @@ fn test_filter_with_nulls() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
     let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered = fsl.filter(mask).unwrap();
 
     assert_eq!(filtered.len(), 2, "Expected lists after filtering out null");
 
@@ -114,7 +113,7 @@ fn test_filter_all_null_array() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, validity, 3);
 
     let mask = Mask::from(BitBuffer::from(vec![true, false, true]));
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered = fsl.filter(mask).unwrap();
 
     // Verify the result is an array of nulls.
     assert_eq!(filtered.len(), 2, "All-null FSL should produce 2 elements");
@@ -153,7 +152,7 @@ fn test_filter_nested_fixed_size_lists() {
 
     // Filter to keep only the second outer list.
     let mask = Mask::from(BitBuffer::from(vec![false, true]));
-    let filtered = filter(outer_fsl.as_ref(), &mask).unwrap();
+    let filtered = outer_fsl.filter(mask).unwrap();
 
     // Construct expected: second outer list [[7,8], [9,10], [11,12]].
     let expected_inner_elements = buffer![7i32, 8, 9, 10, 11, 12].into_array();
@@ -256,7 +255,7 @@ fn test_filter_all_null_various_list_sizes() {
     let elements0 = PrimitiveArray::empty::<i32>(Nullability::NonNullable);
     let fsl0 = FixedSizeListArray::new(elements0.into_array(), 0, Validity::AllInvalid, 3);
     let mask0 = Mask::from(BitBuffer::from(vec![true, false, true]));
-    let filtered0 = filter(fsl0.as_ref(), &mask0).unwrap();
+    let filtered0 = fsl0.filter(mask0).unwrap();
     assert_eq!(filtered0.len(), 2);
     // Check that all elements are null (might be ConstantArray or FixedSizeListArray).
     assert_nth_scalar_is_null!(filtered0, 0);
@@ -266,7 +265,7 @@ fn test_filter_all_null_various_list_sizes() {
     let elements1 = buffer![1i32, 2, 3].into_array();
     let fsl1 = FixedSizeListArray::new(elements1.into_array(), 1, Validity::AllInvalid, 3);
     let mask1 = Mask::from(BitBuffer::from(vec![false, true, true]));
-    let filtered1 = filter(fsl1.as_ref(), &mask1).unwrap();
+    let filtered1 = fsl1.filter(mask1).unwrap();
     assert_eq!(filtered1.len(), 2);
     // Check that all elements are null.
     assert_nth_scalar_is_null!(filtered1, 0);
@@ -276,7 +275,7 @@ fn test_filter_all_null_various_list_sizes() {
     let elements10 = buffer![0..50i32].into_array();
     let fsl10 = FixedSizeListArray::new(elements10, 10, Validity::AllInvalid, 5);
     let mask10 = Mask::AllTrue(5);
-    let filtered10 = filter(fsl10.as_ref(), &mask10).unwrap();
+    let filtered10 = fsl10.filter(mask10).unwrap();
     assert_eq!(filtered10.len(), 5);
     // Check that all elements are null.
     assert_nth_scalar_is_null!(filtered10, 0);
@@ -308,7 +307,7 @@ fn test_mask_expansion_threshold_boundary() {
     sparse_mask[75] = true;
     let mask = Mask::from(BitBuffer::from(sparse_mask));
 
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered = fsl.filter(mask.clone()).unwrap();
 
     // Construct expected FSL with indices 5, 25, 75 from original.
     let expected_elements: Vec<i32> = [5, 25, 75]
@@ -340,7 +339,7 @@ fn test_mask_expansion_threshold_boundary() {
         num_lists,
     );
 
-    let filtered7 = filter(fsl7.as_ref(), &mask).unwrap();
+    let filtered7 = fsl7.filter(mask).unwrap();
 
     // Construct expected FSL with indices 5, 25, 75 from original (list_size=7).
     let expected_elements7: Vec<i32> = [5, 25, 75]
@@ -379,7 +378,7 @@ fn test_filter_large_list_size() {
 
     // Apply a filter keeping lists 1, 3, 4.
     let mask = Mask::from_iter([false, true, false, true, true]);
-    let filtered = filter(fsl.as_ref(), &mask).unwrap();
+    let filtered = fsl.filter(mask).unwrap();
 
     // Construct expected FSL with indices 1, 3, 4 from original.
     let expected_elements: Vec<i64> = [1, 3, 4]
@@ -400,7 +399,7 @@ fn test_filter_large_list_size() {
 
     // Test edge case: filter out all but one large list.
     let mask_single = Mask::from_iter([false, false, true, false, false]);
-    let filtered_single = filter(fsl.as_ref(), &mask_single).unwrap();
+    let filtered_single = fsl.filter(mask_single).unwrap();
 
     // Construct expected FSL with index 2 from original.
     let expected_single_elements: Vec<i64> = {

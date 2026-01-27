@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): REMOVE THIS FILE!
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -136,7 +138,7 @@ impl ComputeFnVTable for Filter {
 
         if !array.is_canonical() {
             let canonical = array.to_canonical()?.into_array();
-            return filter(&canonical, mask).map(Into::into);
+            return canonical.filter(mask.clone()).map(Into::into);
         };
 
         vortex_bail!(
@@ -252,26 +254,4 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
     ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::arrays::PrimitiveArray;
-    use crate::canonical::ToCanonical;
-    use crate::compute::filter::filter;
-
-    #[test]
-    fn test_filter() {
-        let items =
-            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
-                .into_array();
-        let mask = Mask::from_iter([true, false, true, false, true]);
-
-        let filtered = filter(&items, &mask).unwrap();
-        assert_eq!(
-            filtered.to_primitive().as_slice::<i32>(),
-            &[0i32, 1i32, 2i32]
-        );
-    }
 }
