@@ -333,9 +333,9 @@ impl DType {
         }
     }
 
-    /// Returns the number of bytes occupied by a single scalar of this fixed-width non-struct type.
+    /// Returns the number of bytes occupied by a single scalar of this fixed-width type.
     ///
-    /// For non-fixed-width or struct types, return None.
+    /// For non-fixed-width types, return None.
     ///
     /// [`Bool`] is defined as 1 even though a Vortex array may pack Booleans to one bit per element.
     pub fn element_size(&self) -> Option<usize> {
