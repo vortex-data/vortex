@@ -19,7 +19,7 @@ use crate::arrays::primitive::PrimitiveArray;
 use crate::arrays::primitive::compute::take::TakeImpl;
 use crate::validity::Validity;
 
-#[allow(unused)]
+#[expect(unused)]
 pub(super) struct TakeKernelAVX2;
 
 impl TakeImpl for TakeKernelAVX2 {
@@ -49,6 +49,7 @@ impl TakeImpl for TakeKernelAVX2 {
 /// The caller must ensure that if the validity has a length, it is the same length as the indices,
 /// and that the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
+#[expect(unused)]
 unsafe fn take_primitive_avx2<V, I>(
     values: &[V],
     indices: &[I],

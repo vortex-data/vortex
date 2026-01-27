@@ -14,7 +14,9 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::ArbitraryDictArray;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::vortex_err;
 
+use crate::SESSION;
 use crate::error::Backtrace;
 use crate::error::VortexFuzzError;
 use crate::error::VortexFuzzResult;
@@ -100,9 +102,11 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     use vortex_cuda::executor::CudaArrayExt;
     use vortex_error::VortexExpect;
 
-    // Runtime check - skip if CUDA is not available
     if !vortex_cuda::cuda_available() {
-        return Ok(false);
+        return Err(VortexFuzzError::VortexError(
+            vortex_err!("no cuda device to run the fuzzer on"),
+            Backtrace::capture(),
+        ));
     }
 
     let FuzzCompressGpu { array } = fuzz;
@@ -118,11 +122,8 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         }
     };
 
-    // 2. Create CUDA execution context
-    let session = VortexSession::default();
-
     let mut cuda_ctx =
-        CudaSession::create_execution_ctx(&session).vortex_expect("cannot create session");
+        CudaSession::create_execution_ctx(&SESSION).vortex_expect("cannot create session");
 
     // 3. GPU decompression
     let gpu_canonical = match array.clone().execute_cuda(&mut cuda_ctx).await {

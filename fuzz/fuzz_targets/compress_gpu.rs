@@ -4,11 +4,15 @@
 #![no_main]
 #![allow(clippy::unwrap_used, clippy::result_large_err)]
 
+use std::sync::LazyLock;
+
 use libfuzzer_sys::Corpus;
 use libfuzzer_sys::fuzz_target;
+use vortex_array::session::ArraySession;
 use vortex_error::vortex_panic;
 use vortex_fuzz::FuzzCompressGpu;
 use vortex_fuzz::run_compress_gpu;
+use vortex_session::VortexSession;
 
 fuzz_target!(|fuzz: FuzzCompressGpu| -> Corpus {
     // Use tokio runtime to run async GPU fuzzer
