@@ -689,14 +689,14 @@ mod tests {
         }));
 
         let expr = lt(get_item("l", root()), get_item("r", root()));
-        let result = expr.evaluate(
-            &StructArray::from_fields(&[
-                ("l", buffer![0.0f32].into_array()),
-                ("r", buffer![0.0f64].into_array()),
-            ])
-            .unwrap()
-            .into_array(),
-        );
+        let array = StructArray::from_fields(&[
+            ("l", buffer![0.0f32].into_array()),
+            ("r", buffer![0.0f64].into_array()),
+        ])
+        .unwrap()
+        .into_array();
+        // Force evaluation by calling scalar_at
+        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
         assert!(result.as_ref().is_err_and(|err| {
             err.to_string()
                 .contains("Cannot compare different floating-point types")
@@ -716,14 +716,14 @@ mod tests {
         }));
 
         let expr = lt(get_item("l", root()), get_item("r", root()));
-        let result = expr.evaluate(
-            &StructArray::from_fields(&[
-                ("l", buffer![0u8].into_array()),
-                ("r", buffer![0u16].into_array()),
-            ])
-            .unwrap()
-            .into_array(),
-        );
+        let array = StructArray::from_fields(&[
+            ("l", buffer![0u8].into_array()),
+            ("r", buffer![0u16].into_array()),
+        ])
+        .unwrap()
+        .into_array();
+        // Force evaluation by calling scalar_at
+        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
         assert!(result.as_ref().is_err_and(|err| {
             err.to_string()
                 .contains("Cannot compare different fixed-width types")

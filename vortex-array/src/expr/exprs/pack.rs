@@ -227,7 +227,7 @@ mod tests {
         );
 
         let test_array = test_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.to_struct().struct_fields().nfields(), 0);
     }
@@ -242,7 +242,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
+        let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
@@ -287,7 +287,7 @@ mod tests {
             ],
         );
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
+        let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
@@ -327,7 +327,7 @@ mod tests {
             [col("a"), col("b"), col("a")],
         );
 
-        let actual_array = expr.evaluate(&test_array()).unwrap().to_struct();
+        let actual_array = test_array().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::AllValid);

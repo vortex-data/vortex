@@ -209,7 +209,7 @@ mod tests {
             get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = expr.evaluate(&test_array).unwrap();
+        let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             result.dtype(),

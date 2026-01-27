@@ -378,7 +378,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
@@ -460,7 +460,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.evaluate(&test_array).unwrap();
+        test_array.apply(&expr).unwrap();
     }
 
     #[test]
@@ -470,7 +470,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -513,7 +513,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -554,7 +554,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }
