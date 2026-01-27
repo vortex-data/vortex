@@ -159,7 +159,7 @@ impl VortexSessionDefault for VortexSession {
             .with::<ExprSession>()
             .with::<RuntimeSession>();
 
-        #[cfg(feature = "cuda")]
+        #[cfg(all(feature = "cuda", target_os = "linux"))]
         let mut session = if vortex_cuda::cuda_available() {
             use vortex_cuda::CudaSessionExt;
             let session = session.with::<vortex_cuda::CudaSession>();
