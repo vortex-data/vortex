@@ -61,6 +61,7 @@ tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
 vortex-utils = { workspace = true, features = ["_test-harness"] }
+vortex-layout = { path = ".", features = ["zstd"] }
 
 [features]
 _test-harness = []
