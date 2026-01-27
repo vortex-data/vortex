@@ -243,6 +243,8 @@ impl FileFormat for VortexFormat {
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
+        let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+
         let mut file_schemas = stream::iter(objects.iter().cloned())
             .map(|o| {
                 let reader = Arc::new(ObjectStoreSource::new(
@@ -250,8 +252,19 @@ impl FileFormat for VortexFormat {
                     o.location.clone(),
                     self.session.handle(),
                 ));
-                let cache = self.file_cache.clone();
+
                 SpawnedTask::spawn(async move {
+                self.session
+                    .open_options()
+                    .with_initial_read_size(self.footer_initial_read_size_bytes)
+                    .with_file_size(object.size)
+                    .with_segment_cache(Arc::new(VortexFileSegmentCache {
+                        file_key,
+                        segment_cache: self.segment_cache.clone(),
+                    }))
+                    .open_read(reader)?
+
+
                     let vxf = cache.try_get(&o, reader).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))

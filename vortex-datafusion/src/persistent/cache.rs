@@ -7,9 +7,11 @@ use async_trait::async_trait;
 use chrono::DateTime;
 use chrono::Utc;
 use datafusion_common::ScalarValue;
+use datafusion_execution::cache::cache_manager::FileMetadata;
 use moka::future::Cache;
 use object_store::ObjectMeta;
 use object_store::path::Path;
+use vortex::array::stats::StatsSet;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
 use vortex::error::VortexError;
@@ -26,6 +28,25 @@ use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::DefaultHashBuilder;
+
+pub struct CachedVortexMetadata {
+    pub dtype: DType,
+    pub file_stats: Arc<StatsSet>,
+}
+
+impl FileMetadata for CachedVortexMetadata {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn memory_size(&self) -> usize {
+        todo!()
+    }
+
+    fn extra_info(&self) -> std::collections::HashMap<String, String> {
+        Default::default()
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct VortexFileCache {
