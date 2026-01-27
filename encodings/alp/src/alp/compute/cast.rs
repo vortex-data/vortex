@@ -28,7 +28,6 @@ impl CastKernel for ALPVTable {
                     .with_nullability(dtype.nullability()),
             )?;
 
-            // Also cast the patches values to the new nullability if needed
             let new_patches = array
                 .patches()
                 .map(|p| {
