@@ -182,13 +182,15 @@ mod tests {
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
         let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::Eq).unwrap();
-        for idx in 0..lhs.len() {
-            assert!(equals_null.scalar_at(idx).unwrap().is_null());
-        }
+        assert_arrays_eq!(
+            &equals_null,
+            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+        );
 
         let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::NotEq).unwrap();
-        for idx in 0..lhs.len() {
-            assert!(noteq_null.scalar_at(idx).unwrap().is_null());
-        }
+        assert_arrays_eq!(
+            &noteq_null,
+            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+        );
     }
 }

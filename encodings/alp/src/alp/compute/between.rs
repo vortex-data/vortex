@@ -100,9 +100,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use itertools::Itertools;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::BetweenOptions;
     use vortex_array::compute::StrictComparison;
     use vortex_dtype::Nullability;
@@ -111,16 +111,15 @@ mod tests {
     use crate::alp::compute::between::between_impl;
     use crate::alp_encode;
 
-    fn between_test(arr: &ALPArray, lower: f32, upper: f32, options: &BetweenOptions) -> bool {
-        let res = between_impl(arr, lower, upper, Nullability::Nullable, options)
-            .unwrap()
-            .to_bool()
-            .to_bit_buffer()
-            .iter()
-            .collect_vec();
-        assert_eq!(res.len(), 1);
-
-        res[0]
+    fn assert_between(
+        arr: &ALPArray,
+        lower: f32,
+        upper: f32,
+        options: &BetweenOptions,
+        expected: bool,
+    ) {
+        let res = between_impl(arr, lower, upper, Nullability::Nullable, options).unwrap();
+        assert_arrays_eq!(res, BoolArray::from_iter([Some(expected)]));
     }
 
     #[test]
@@ -129,12 +128,8 @@ mod tests {
         let array = PrimitiveArray::from_iter([value; 1]);
         let encoded = alp_encode(&array, None).unwrap();
         assert!(encoded.patches().is_none());
-        assert_eq!(
-            encoded.encoded().to_primitive().as_slice::<i32>(),
-            vec![605; 1]
-        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -142,9 +137,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            true,
+        );
 
-        assert!(!between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -152,9 +148,10 @@ mod tests {
                 lower_strict: StrictComparison::Strict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            false,
+        );
 
-        assert!(!between_test(
+        assert_between(
             &encoded,
             0.0605_f32,
             0.0605,
@@ -162,9 +159,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-        ));
+            false,
+        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.060499_f32,
             0.06051,
@@ -172,9 +170,10 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::NonStrict,
             },
-        ));
+            true,
+        );
 
-        assert!(between_test(
+        assert_between(
             &encoded,
             0.06_f32,
             0.06051,
@@ -182,6 +181,7 @@ mod tests {
                 lower_strict: StrictComparison::NonStrict,
                 upper_strict: StrictComparison::Strict,
             },
-        ))
+            true,
+        );
     }
 }

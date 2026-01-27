@@ -377,7 +377,6 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
@@ -592,10 +591,7 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, true, true],
-            result.to_bit_buffer().iter().collect_vec()
-        );
+        assert_eq!(result, Mask::from_iter([true, true, true]));
     }
 
     #[rstest]
@@ -630,8 +626,6 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-
-        assert_eq!(result.len(), 2);
 
         let expected = BoolArray::from_iter([true, false]);
         assert_arrays_eq!(result, expected);

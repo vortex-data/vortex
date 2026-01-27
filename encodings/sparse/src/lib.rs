@@ -503,6 +503,7 @@ mod test {
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -662,28 +663,21 @@ mod test {
 
     #[test]
     fn encode_with_nulls() {
-        let sparse = SparseArray::encode(
-            &PrimitiveArray::new(
-                buffer![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
-                Validity::from_iter(vec![
-                    true, true, false, true, false, true, false, true, true, false, true, false,
-                ]),
-            )
-            .into_array(),
-            None,
-        )
-        .vortex_expect("SparseArray::encode should succeed for test data");
-        let canonical = sparse.to_primitive();
+        let original = PrimitiveArray::new(
+            buffer![0i32, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4],
+            Validity::from_iter(vec![
+                true, true, false, true, false, true, false, true, true, false, true, false,
+            ]),
+        );
+        let sparse = SparseArray::encode(&original.clone().into_array(), None)
+            .vortex_expect("SparseArray::encode should succeed for test data");
         assert_eq!(
             sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ])
         );
-        assert_eq!(
-            canonical.as_slice::<i32>(),
-            vec![0, 1, 2, 3, 3, 3, 3, 3, 3, 3, 4, 4]
-        );
+        assert_arrays_eq!(sparse.to_primitive(), original);
     }
 
     #[test]
