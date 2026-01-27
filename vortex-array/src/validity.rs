@@ -520,21 +520,57 @@ mod tests {
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
     )]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
     )]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
     )]
     #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllInvalid, Validity::AllInvalid)]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
     )]
+
     fn patch_validity(
         #[case] validity: Validity,
         #[case] len: usize,
@@ -571,15 +607,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    #[case(
+        Validity::AllValid,
+        PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(),
+        Validity::from_iter(vec![true, false])
     )]
     #[case(Validity::AllValid, buffer![0, 1].into_array(), Validity::AllValid)]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    #[case(
+        Validity::AllValid,
+        PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(),
+        Validity::AllInvalid
     )]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    #[case(
+        Validity::NonNullable,
+        PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(),
+        Validity::from_iter(vec![true, false])
     )]
     #[case(Validity::NonNullable, buffer![0, 1].into_array(), Validity::NonNullable)]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    #[case(
+        Validity::NonNullable,
+        PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(),
+        Validity::AllInvalid
     )]
     fn validity_take(
         #[case] validity: Validity,
