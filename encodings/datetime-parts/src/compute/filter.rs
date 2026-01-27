@@ -52,7 +52,7 @@ mod test {
         let temporal = TemporalArray::new_timestamp(
             timestamps,
             TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         );
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();
@@ -71,7 +71,7 @@ mod test {
         let temporal = TemporalArray::new_timestamp(
             timestamps,
             TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         );
 
         let array = DateTimePartsArray::try_from(temporal).unwrap();

@@ -15,35 +15,17 @@ mod take;
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
-    use vortex_dtype::ExtID;
     use vortex_dtype::Nullability;
     use vortex_dtype::datetime::Date;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
     use vortex_dtype::extension::VTable;
-    use vortex_error::VortexResult;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::expr::EmptyOptions;
-
-    #[derive(Clone, Debug, Default)]
-    struct TestExt;
-    impl VTable for TestExt {
-        type Options = EmptyOptions;
-
-        fn id(&self) -> ExtID {
-            ExtID::new_ref("test_ext")
-        }
-
-        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
-            Ok(())
-        }
-    }
 
     #[test]
     fn test_filter_extension_array() {

@@ -66,7 +66,7 @@ mod tests {
             )
             .into_array(),
             TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         ))
         .unwrap()
         .into_array()
@@ -126,7 +126,7 @@ mod tests {
             345_600_000, // 4 days in ms
         ].into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
@@ -137,12 +137,12 @@ mod tests {
             None,
         ]).into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000_000_000i64].into_array(), // 1 day in ns
         TimeUnit::Nanoseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     fn test_cast_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         use vortex_array::compute::conformance::cast::test_cast_conformance;

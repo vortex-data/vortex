@@ -213,7 +213,7 @@ impl FooterDeserializer {
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
         let fbd_dtype = root::<fbd::DType>(&sliced_buffer)?;
 
-        DType::try_from_view(fbd_dtype, sliced_buffer.clone())
+        DType::from_flatbuffer(fbd_dtype, sliced_buffer.clone(), &self.session)
     }
 
     /// Parse the [`FileStatistics`] from the initial read buffer.
