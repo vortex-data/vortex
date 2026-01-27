@@ -213,7 +213,7 @@ impl State {
         let mut requests = vec![first_req];
         let mut current_start = requests[0].offset;
         let mut current_end = requests[0].offset + requests[0].length as u64;
-        let alignment = requests[0].alignment;
+        let mut max_alignment = requests[0].alignment;
 
         let mut keys_to_remove = Vec::new();
         let mut found_new_requests = true;
@@ -256,12 +256,16 @@ impl State {
                     // Calculate what the new range would be if we include this request
                     let new_start = current_start.min(req_offset);
                     let new_end = current_end.max(req_end);
-                    let new_total_size = new_end - new_start;
+                    let new_alignment = max_alignment.max(req.alignment);
+                    let align = *new_alignment as u64;
+                    let aligned_start = new_start - (new_start % align);
+                    let new_total_size = new_end - aligned_start;
 
                     // Check if the coalesced request would exceed max_size
                     if new_total_size <= window.max_size {
                         current_start = new_start;
                         current_end = new_end;
+                        max_alignment = new_alignment;
 
                         let req = self
                             .polled_requests
@@ -290,17 +294,20 @@ impl State {
         // Sort requests by offset for correct slicing in resolve
         requests.sort_unstable_by_key(|r| r.offset);
 
+        let align = *max_alignment as u64;
+        let aligned_start = current_start - (current_start % align);
+
         tracing::debug!(
             "Coalesced {} requests into range {}..{} (len={})",
             requests.len(),
-            current_start,
+            aligned_start,
             current_end,
-            current_end - current_start,
+            current_end - aligned_start,
         );
 
         Some(CoalescedRequest {
-            range: current_start..current_end,
-            alignment,
+            range: aligned_start..current_end,
+            alignment: max_alignment,
             requests,
         })
     }
