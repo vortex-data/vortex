@@ -144,7 +144,7 @@ mod tests {
             .execute(for_array.to_array(), &mut cuda_ctx)
             .await
             .vortex_expect("GPU decompression failed")
-            .to_host()
+            .into_host()
             .await?
             .into_array();
 

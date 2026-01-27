@@ -111,10 +111,8 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
 
     let FuzzCompressGpu { array } = fuzz;
 
-    // Store original properties for error reporting
     let original_len = array.len();
 
-    // 1. CPU decompression (reference)
     let cpu_canonical = match array.to_canonical() {
         Ok(c) => c,
         Err(e) => {
@@ -125,7 +123,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
     let mut cuda_ctx =
         CudaSession::create_execution_ctx(&SESSION).vortex_expect("cannot create session");
 
-    // 3. GPU decompression
     let gpu_canonical = match array.clone().execute_cuda(&mut cuda_ctx).await {
         Ok(c) => c,
         Err(e) => {
@@ -133,19 +130,16 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         }
     };
 
-    // 4. Copy GPU result back to host using CanonicalCudaExt
-    let gpu_host_canonical = match gpu_canonical.to_host().await {
+    let gpu_host_canonical = match gpu_canonical.into_host().await {
         Ok(c) => c,
         Err(e) => {
             return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));
         }
     };
 
-    // 5. Compare canonicals
     let cpu_array = cpu_canonical.into_array();
     let gpu_array = gpu_host_canonical.into_array();
 
-    // Verify dtype is preserved
     if cpu_array.dtype() != gpu_array.dtype() {
         return Err(VortexFuzzError::DTypeMismatch(
             cpu_array,
@@ -155,7 +149,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         ));
     }
 
-    // Verify length is preserved
     if original_len != gpu_array.len() {
         return Err(VortexFuzzError::LengthMismatch(
             original_len,
@@ -167,7 +160,6 @@ pub async fn run_compress_gpu(fuzz: FuzzCompressGpu) -> VortexFuzzResult<bool> {
         ));
     }
 
-    // Compare element by element
     for i in 0..original_len {
         let cpu_scalar = cpu_array
             .scalar_at(i)
