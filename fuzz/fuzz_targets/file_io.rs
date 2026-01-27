@@ -47,18 +47,14 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
     }
 
     let expected_array = {
-        let bool_mask = filter_expr
-            .clone()
-            .unwrap_or_else(|| lit(true))
-            .evaluate(&array_data)
+        let bool_mask = array_data
+            .apply(&filter_expr.clone().unwrap_or_else(|| lit(true)))
             .vortex_expect("filter expression evaluation should succeed in fuzz test");
         let mask = bool_mask.to_bool().to_mask_fill_null_false();
         let filtered = filter(&array_data, &mask)
             .vortex_expect("filter operation should succeed in fuzz test");
-        projection_expr
-            .clone()
-            .unwrap_or_else(root)
-            .evaluate(&filtered)
+        filtered
+            .apply(&projection_expr.clone().unwrap_or_else(root))
             .vortex_expect("projection expression evaluation should succeed in fuzz test")
     };
 
