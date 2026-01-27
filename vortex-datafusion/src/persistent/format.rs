@@ -91,10 +91,6 @@ config_namespace! {
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
     pub struct VortexOptions {
-        /// The size of the in-memory [`vortex::file::Footer`] cache.
-        pub footer_cache_size_mb: usize, default = 64
-        /// The size of the in-memory segment cache.
-        pub segment_cache_size_mb: usize, default = 0
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
@@ -552,7 +548,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION '{}' \
-                OPTIONS( segment_cache_size_mb '5', footer_initial_read_size_bytes '12345' );",
+                OPTIONS( footer_initial_read_size_bytes '12345' );",
                 dir.path().to_str().unwrap()
             ))
             .await
