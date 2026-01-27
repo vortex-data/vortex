@@ -9,6 +9,7 @@ use vortex_buffer::get_bit_unchecked;
 use vortex_buffer::set_bit_unchecked;
 use vortex_buffer::unset_bit_unchecked;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
 
@@ -16,19 +17,62 @@ impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
 
     fn filter(self, selection_mask: &Mask) -> BitBuffer {
+        match selection_mask {
+            Mask::AllTrue(_) => self.clone(),
+            Mask::AllFalse(_) => BitBuffer::empty(),
+            Mask::Values(v) => self.filter(v.as_ref()),
+        }
+    }
+}
+
+impl Filter<MaskValues> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, mask_values: &MaskValues) -> BitBuffer {
         assert_eq!(
-            selection_mask.len(),
+            mask_values.len(),
             self.len(),
             "Selection mask length must equal the mask length"
         );
 
-        match selection_mask {
-            Mask::AllTrue(_) => self.clone(),
-            Mask::AllFalse(_) => BitBuffer::empty(),
-            Mask::Values(v) => {
-                filter_indices(self.inner().as_ref(), self.offset(), v.indices()).freeze()
+        self.filter(mask_values.indices())
+    }
+}
+
+impl Filter<[usize]> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, indices: &[usize]) -> BitBuffer {
+        let bools = self.inner().as_ref();
+        let bit_offset = self.offset();
+
+        // FIXME(ngates): this is slower than it could be!
+        BitBufferMut::collect_bool(indices.len(), |idx| {
+            let idx = *unsafe { indices.get_unchecked(idx) };
+            get_bit(bools, bit_offset + idx) // Panics if out of bounds.
+        })
+        .freeze()
+    }
+}
+
+impl Filter<[(usize, usize)]> for &BitBuffer {
+    type Output = BitBuffer;
+
+    fn filter(self, slices: &[(usize, usize)]) -> BitBuffer {
+        let bools = self.inner().as_ref();
+        let bit_offset = self.offset();
+        let output_len: usize = slices.iter().map(|(start, end)| end - start).sum();
+
+        let mut out = BitBufferMut::with_capacity(output_len);
+
+        // FIXME(ngates): this is slower than it could be!
+        for &(start, end) in slices {
+            for idx in start..end {
+                out.append(get_bit(bools, bit_offset + idx)); // Panics if out of bounds.
             }
         }
+
+        out.freeze()
     }
 }
 
@@ -36,28 +80,60 @@ impl Filter<Mask> for &mut BitBufferMut {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the mask length"
-        );
-
         match selection_mask {
             Mask::AllTrue(_) => {}
             Mask::AllFalse(_) => self.clear(),
-            Mask::Values(v) => {
-                *self = filter_indices(self.inner().as_slice(), self.offset(), v.indices())
-            }
+            Mask::Values(v) => self.filter(v.as_ref()),
         }
     }
 }
 
-fn filter_indices(bools: &[u8], bit_offset: usize, indices: &[usize]) -> BitBufferMut {
-    // FIXME(ngates): this is slower than it could be!
-    BitBufferMut::collect_bool(indices.len(), |idx| {
-        let idx = *unsafe { indices.get_unchecked(idx) };
-        get_bit(bools, bit_offset + idx)
-    })
+impl Filter<MaskValues> for &mut BitBufferMut {
+    type Output = ();
+
+    fn filter(self, mask_values: &MaskValues) {
+        assert_eq!(
+            mask_values.len(),
+            self.len(),
+            "Selection mask length must equal the mask length"
+        );
+
+        // BitBufferMut filtering always uses indices for simplicity.
+        self.filter(mask_values.indices())
+    }
+}
+
+impl Filter<[usize]> for &mut BitBufferMut {
+    type Output = ();
+
+    fn filter(self, indices: &[usize]) {
+        let bools = self.inner().as_slice();
+        let bit_offset = self.offset();
+
+        // FIXME(ngates): this is slower than it could be!
+        *self = BitBufferMut::collect_bool(indices.len(), |idx| {
+            let idx = *unsafe { indices.get_unchecked(idx) };
+            get_bit(bools, bit_offset + idx) // Panics if out of bounds.
+        });
+    }
+}
+
+impl Filter<[(usize, usize)]> for &mut BitBufferMut {
+    type Output = ();
+
+    fn filter(self, slices: &[(usize, usize)]) {
+        let bools = self.inner().as_slice();
+        let bit_offset = self.offset();
+        let output_len: usize = slices.iter().map(|(start, end)| end - start).sum();
+
+        let mut out = BitBufferMut::with_capacity(output_len);
+        for &(start, end) in slices {
+            for idx in start..end {
+                out.append(get_bit(bools, bit_offset + idx)); // Panics if out of bounds.
+            }
+        }
+        *self = out;
+    }
 }
 
 impl<const NB: usize> Filter<BitView<'_, NB>> for &BitBuffer {
@@ -121,7 +197,7 @@ mod test {
     #[test]
     fn filter_bool_by_index_test() {
         let buf = bitbuffer![1 1 0];
-        let filtered = filter_indices(buf.inner().as_ref(), 0, &[0, 2]).freeze();
+        let filtered = (&buf).filter([0usize, 2].as_slice());
         assert_eq!(2, filtered.len());
         assert_eq!(filtered, bitbuffer![1 0])
     }

@@ -17,6 +17,7 @@ use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
 use vortex_mask::MaskIter;
+use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
 
@@ -24,39 +25,50 @@ impl<T: Copy> Filter<Mask> for &[T] {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the buffer length"
-        );
-
         match selection_mask {
             Mask::AllTrue(_) => Buffer::<T>::copy_from(self),
             Mask::AllFalse(_) => Buffer::empty(),
-            Mask::Values(v) => match v.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-                MaskIter::Indices(indices) => filter_indices(self, indices),
-                MaskIter::Slices(slices) => {
-                    filter_slices(self, selection_mask.true_count(), slices).freeze()
-                }
-            },
+            Mask::Values(v) => self.filter(v.as_ref()),
         }
     }
 }
 
-pub(super) fn filter_indices<T: Copy>(values: &[T], indices: &[usize]) -> Buffer<T> {
-    Buffer::<T>::from_trusted_len_iter(indices.iter().map(|&idx| values[idx]))
+impl<T: Copy> Filter<MaskValues> for &[T] {
+    type Output = Buffer<T>;
+
+    fn filter(self, mask_values: &MaskValues) -> Buffer<T> {
+        assert_eq!(
+            mask_values.len(),
+            self.len(),
+            "Selection mask length must equal the buffer length"
+        );
+
+        match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+            MaskIter::Indices(indices) => self.filter(indices),
+            MaskIter::Slices(slices) => self.filter(slices),
+        }
+    }
 }
 
-pub(super) fn filter_slices<T>(
-    values: &[T],
-    output_len: usize,
-    slices: &[(usize, usize)],
-) -> BufferMut<T> {
-    let mut out = BufferMut::<T>::with_capacity(output_len);
-    for (start, end) in slices {
-        out.extend_from_slice(&values[*start..*end]);
+impl<T: Copy> Filter<[usize]> for &[T] {
+    type Output = Buffer<T>;
+
+    fn filter(self, indices: &[usize]) -> Buffer<T> {
+        Buffer::<T>::from_trusted_len_iter(indices.iter().map(|&idx| self[idx]))
     }
-    out
+}
+
+impl<T: Copy> Filter<[(usize, usize)]> for &[T] {
+    type Output = Buffer<T>;
+
+    fn filter(self, slices: &[(usize, usize)]) -> Buffer<T> {
+        let output_len: usize = slices.iter().map(|(start, end)| end - start).sum();
+        let mut out = BufferMut::<T>::with_capacity(output_len);
+        for (start, end) in slices {
+            out.extend_from_slice(&self[*start..*end]);
+        }
+        out.freeze()
+    }
 }
 
 impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &[T] {
