@@ -10,6 +10,7 @@ use std::sync::Arc;
 use DType::*;
 use itertools::Itertools;
 use static_assertions::const_assert_eq;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::ExtDType;
@@ -345,13 +346,21 @@ impl DType {
             Decimal(decimal, _) => {
                 Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
             }
+            Utf8(_) | Binary(_) | List(..) => None,
             FixedSizeList(elem_dtype, list_size, _) => {
                 elem_dtype.element_size().map(|s| s * *list_size as usize)
             }
+            Struct(fields, ..) => {
+                let mut sum = 0_usize;
+                for f in fields.fields() {
+                    let element_size = f.element_size()?;
+                    sum = sum
+                        .checked_add(element_size)
+                        .vortex_expect("sum of field sizes is bigger than usize");
+                }
+                Some(sum);
+            }
             Extension(ext) => ext.storage_dtype().element_size(),
-            // We could sum the elment_size of the fields of the struct, but it is not clear this is
-            // a useful number to know.
-            Struct(..) | Utf8(_) | Binary(_) | List(..) => None,
         }
     }
 
