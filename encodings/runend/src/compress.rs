@@ -340,7 +340,6 @@ mod test {
             ])),
         );
         let (ends, values) = runend_encode(&arr);
-        let values = values.to_primitive();
 
         let expected_ends = PrimitiveArray::from_iter(vec![2u8, 4, 5, 8, 10]);
         assert_arrays_eq!(ends, expected_ends);
@@ -356,7 +355,6 @@ mod test {
             Validity::from(BitBuffer::new_unset(5)),
         );
         let (ends, values) = runend_encode(&arr);
-        let values = values.to_primitive();
 
         let expected_ends = PrimitiveArray::from_iter(vec![5u64]);
         assert_arrays_eq!(ends, expected_ends);

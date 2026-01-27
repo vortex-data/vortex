@@ -300,11 +300,11 @@ mod tests {
         let expected_offsets = PrimitiveArray::from_iter(vec![0u64, 1, 1]);
         assert_arrays_eq!(chunk_offsets, expected_offsets);
 
-        let patch_indices = patches.indices().to_primitive();
+        let patch_indices = patches.indices();
         let expected_indices = PrimitiveArray::from_iter(vec![0u64, 2048]);
         assert_arrays_eq!(patch_indices, expected_indices);
 
-        let patch_values = patches.values().to_primitive();
+        let patch_values = patches.values();
         let expected_values = PrimitiveArray::from_iter(vec![PI, E]);
         assert_arrays_eq!(patch_values, expected_values);
     }
