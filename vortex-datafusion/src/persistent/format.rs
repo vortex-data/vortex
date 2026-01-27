@@ -246,7 +246,7 @@ impl FileFormat for VortexFormat {
 
                 SpawnedTask::spawn(async move {
                     // Check if we have cached metadata for this file
-                    if let Some(cached) = cache.get_with_extra(&object, &object)
+                    if let Some(cached) = cache.get(&object)
                         && let Some(cached_vortex) =
                             cached.as_any().downcast_ref::<CachedVortexMetadata>()
                     {
@@ -305,20 +305,18 @@ impl FileFormat for VortexFormat {
 
         SpawnedTask::spawn(async move {
             // Try to get cached metadata first
-            let cached_metadata = file_metadata_cache
-                .get_with_extra(&object, &object)
-                .and_then(|cached| {
-                    cached
-                        .as_any()
-                        .downcast_ref::<CachedVortexMetadata>()
-                        .map(|m| {
-                            (
-                                m.footer().dtype().clone(),
-                                m.footer().statistics().cloned(),
-                                m.footer().row_count(),
-                            )
-                        })
-                });
+            let cached_metadata = file_metadata_cache.get(&object).and_then(|cached| {
+                cached
+                    .as_any()
+                    .downcast_ref::<CachedVortexMetadata>()
+                    .map(|m| {
+                        (
+                            m.footer().dtype().clone(),
+                            m.footer().statistics().cloned(),
+                            m.footer().row_count(),
+                        )
+                    })
+            });
 
             let (dtype, file_stats, row_count) = match cached_metadata {
                 Some(metadata) => metadata,
