@@ -358,7 +358,7 @@ impl DType {
                         .checked_add(element_size)
                         .vortex_expect("sum of field sizes is bigger than usize");
                 }
-                Some(sum);
+                Some(sum)
             }
             Extension(ext) => ext.storage_dtype().element_size(),
         }
