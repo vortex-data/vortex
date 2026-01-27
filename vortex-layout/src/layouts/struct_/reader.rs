@@ -377,6 +377,7 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
+    use itertools::Itertools;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
@@ -385,6 +386,7 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
@@ -590,9 +592,9 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_arrays_eq!(
-            result.into_array(),
-            BoolArray::from_iter([true, true, true])
+        assert_eq!(
+            vec![true, true, true],
+            result.to_bit_buffer().iter().collect_vec()
         );
     }
 
@@ -658,24 +660,16 @@ mod tests {
 
         assert_eq!(result.len(), 2);
 
-        assert_eq!(
-            result
-                .to_struct()
-                .unmasked_field_by_name("a")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [7, 2].as_slice()
+        let expected_a = PrimitiveArray::from_iter([7i32, 2]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("a").unwrap(),
+            expected_a
         );
 
-        assert_eq!(
-            result
-                .to_struct()
-                .unmasked_field_by_name("b")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [4, 5].as_slice()
+        let expected_b = PrimitiveArray::from_iter([4i32, 5]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("b").unwrap(),
+            expected_b
         );
     }
 
