@@ -34,14 +34,16 @@ pub struct RepartitionWriterOptions {
     pub block_len_multiple: usize,
     /// Optional target uncompressed size in bytes for a block.
     ///
-    /// When set, for fixed-width types (where [`DType::element_size`] is `Some`), the effective
-    /// `block_len_multiple` is reduced so that each block does not exceed this byte target.
-    /// This prevents oversized segments for types with large per-element sizes (e.g.,
-    /// `FixedSizeList(f64, 1000)` which is ~8000 bytes per element).
+    /// The repartition writer attempts to produce partitions with this uncompressed size. This is
+    /// only a best effort attempt: the partitions may be arbitrarily larger or smaller. Reasons for
+    /// this include:
     ///
-    /// When `None`, `block_len_multiple` is used as-is regardless of element size.
+    /// 1. The size of one element may not perfectly divide the target size, resulting in blocks
+    ///    that are either too large or too small.
     ///
-    /// [`DType::element_size`]: vortex_dtype::DType::element_size
+    /// 2. Variable length types are expensive to pack due to the need to read each element length.
+    ///
+    /// 3. View types are expensive to pack due to each view sharing an aribtrary slice of data.
     pub block_size_target: Option<u64>,
     pub canonicalize: bool,
 }
