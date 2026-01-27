@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn effective_block_len_large_elements() {
         // FixedSizeList(f64, 1000) = 8000 bytes/element.
-        // 1 MiB / 8000 = 131, so effective block len = min(8192, 131) = 131.
+        // div_ceil(1 MiB, 8000) = 132, so effective block len = min(8192, 132) = 132.
         let dtype = DType::FixedSizeList(
             Arc::new(DType::Primitive(PType::F64, NonNullable)),
             1000,
@@ -310,7 +310,7 @@ mod tests {
             block_size_target: Some(ONE_MEG),
             canonicalize: false,
         };
-        assert_eq!(options.effective_block_len(&dtype), 131);
+        assert_eq!(options.effective_block_len(&dtype), 132);
     }
 
     #[test]
@@ -348,8 +348,8 @@ mod tests {
     fn repartition_large_element_type_produces_small_blocks() -> VortexResult<()> {
         // Create a FixedSizeList(f64, 1000) array with 1000 lists.
         // Each list is 8000 bytes, so 1000 lists = 8 MiB total.
-        // With block_size_target = 1 MiB, effective block_len = 131.
-        // We expect the repartition to produce blocks of 131 rows each.
+        // With block_size_target = 1 MiB, effective block_len = 133.
+        // We expect the repartition to produce blocks of 132 rows each.
         let list_size: u32 = 1000;
         let num_lists: usize = 1000;
         let total_elements = list_size as usize * num_lists;
@@ -382,9 +382,9 @@ mod tests {
             block_on(|handle| strategy.write_stream(ctx, segments.clone(), stream, eof, handle))?;
 
         // The layout should be a ChunkedLayout with multiple children.
-        // With 1000 rows and effective block_len = 131:
-        //   - 7 full blocks of 131 rows = 917 rows
-        //   - 1 remainder block of 83 rows
+        // With 1000 rows and effective block_len = 132:
+        //   - 7 full blocks of 132 rows = 924 rows
+        //   - 1 remainder block of 76 rows
         //   - Total: 8 blocks, 1000 rows
         assert_eq!(layout.row_count(), num_lists as u64);
 
@@ -396,7 +396,7 @@ mod tests {
             let child = layout.child(i)?;
             assert_eq!(
                 child.row_count(),
-                131,
+                132,
                 "chunk {i} has {} rows, expected 131",
                 child.row_count()
             );
@@ -404,7 +404,7 @@ mod tests {
 
         // Last child gets the remainder.
         let last = layout.child(nchildren - 1)?;
-        assert_eq!(last.row_count(), 1000 - 131 * (nchildren as u64 - 1));
+        assert_eq!(last.row_count(), 1000 - 132 * (nchildren as u64 - 1));
 
         Ok(())
     }
