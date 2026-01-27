@@ -44,14 +44,15 @@ register_kernel!(CompareKernelAdapter(MaskedVTable).lift());
 #[cfg(test)]
 mod tests {
     use vortex_dtype::Nullability;
-    use vortex_mask::Mask;
     use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::MaskedArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::compute::Operator;
     use crate::compute::compare;
     use crate::validity::Validity;
@@ -71,10 +72,8 @@ mod tests {
         )
         .unwrap();
         let res = res.to_bool();
-        assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, true, false]
-        );
+        let expected = BoolArray::from_iter([Some(false), Some(true), Some(false)]);
+        assert_arrays_eq!(res, expected);
     }
 
     #[test]
@@ -92,10 +91,8 @@ mod tests {
         )
         .unwrap();
         let res = res.to_bool();
-        assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, false, true]
-        );
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(true)]);
+        assert_arrays_eq!(res, expected);
     }
 
     #[test]
@@ -114,15 +111,8 @@ mod tests {
         )
         .unwrap();
         let res = res.to_bool();
-        assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
-            vec![false, true, false]
-        );
-        assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([false, true, false])
-        );
+        let expected = BoolArray::from_iter([None, Some(true), None]);
+        assert_arrays_eq!(res, expected);
     }
 
     #[test]
@@ -139,15 +129,7 @@ mod tests {
 
         let res = compare(masked.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
         let res = res.to_bool();
-        assert_eq!(
-            res.bit_buffer().iter().collect::<Vec<_>>(),
-            vec![true, false, true]
-        );
-        assert_eq!(res.dtype().nullability(), Nullability::Nullable);
-        // Validity is union of both: lhs=[T,T,F], rhs=[T,F,T] => result=[T,F,F]
-        assert_eq!(
-            res.validity_mask().unwrap(),
-            Mask::from_iter([true, false, false])
-        );
+        let expected = BoolArray::from_iter([Some(true), None, None]);
+        assert_arrays_eq!(res, expected);
     }
 }

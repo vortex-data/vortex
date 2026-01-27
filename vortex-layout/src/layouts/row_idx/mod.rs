@@ -289,17 +289,17 @@ fn row_idx_array_future(
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
@@ -347,10 +347,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, true, false, false]),
-                result.bit_buffer()
-            );
+            let expected = BoolArray::from_iter([false, false, true, false, false]);
+            assert_arrays_eq!(result, expected);
         })
     }
 
@@ -388,10 +386,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, false, false, true]),
-                result.bit_buffer()
-            );
+            let expected = BoolArray::from_iter([false, false, false, false, true]);
+            assert_arrays_eq!(result, expected);
         })
     }
 
@@ -433,10 +429,8 @@ mod tests {
             .unwrap()
             .to_bool();
 
-            assert_eq!(
-                vec![true, false, true, false, true],
-                result.bit_buffer().iter().collect_vec()
-            );
+            let expected = BoolArray::from_iter([true, false, true, false, true]);
+            assert_arrays_eq!(result, expected);
         })
     }
 }

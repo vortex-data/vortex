@@ -376,6 +376,7 @@ mod tests {
     use std::ffi::CString;
 
     use vortex::array::ToCanonical;
+    use vortex::array::arrays::BoolArray;
     use vortex::array::arrays::PrimitiveVTable;
     use vortex::error::VortexExpect;
     use vortex::mask::Mask;
@@ -578,9 +579,8 @@ mod tests {
         // Test conversion
         let result = flat_vector_to_vortex(&mut vector, len).unwrap();
         let vortex_array = result.to_bool();
-
-        assert_eq!(vortex_array.len(), len);
-        assert_eq!(vortex_array.bit_buffer().iter().collect::<Vec<_>>(), values);
+        let expected = BoolArray::from_iter(values);
+        assert_arrays_eq!(vortex_array, expected);
     }
 
     #[test]

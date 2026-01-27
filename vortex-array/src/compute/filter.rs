@@ -260,9 +260,11 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
 
 #[cfg(test)]
 mod test {
-    use super::*;
+    use vortex_mask::Mask;
+
+    use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::filter::filter;
 
     #[test]
@@ -273,9 +275,7 @@ mod test {
         let mask = Mask::from_iter([true, false, true, false, true]);
 
         let filtered = filter(&items, &mask).unwrap();
-        assert_eq!(
-            filtered.to_primitive().as_slice::<i32>(),
-            &[0i32, 1i32, 2i32]
-        );
+        let expected = PrimitiveArray::from_option_iter([Some(0i32), Some(1i32), Some(2i32)]);
+        assert_arrays_eq!(filtered, expected);
     }
 }

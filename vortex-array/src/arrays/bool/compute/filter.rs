@@ -86,6 +86,7 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::filter;
@@ -96,12 +97,8 @@ mod test {
         let mask = Mask::from_iter([true, false, true]);
 
         let filtered = filter(arr.as_ref(), &mask).unwrap().to_bool();
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(
-            vec![true, false],
-            filtered.bit_buffer().iter().collect_vec()
-        )
+        let expected = BoolArray::from_iter([true, false]);
+        assert_arrays_eq!(filtered, expected);
     }
 
     #[test]

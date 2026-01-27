@@ -6,12 +6,10 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
@@ -45,13 +43,9 @@ fn test_project() {
         [FieldName::from("zs"), FieldName::from("xs")],
     );
 
-    assert_eq!(struct_b.len(), 5);
-
     let bools = &struct_b.fields[0];
-    assert_eq!(
-        bools.to_bool().bit_buffer().iter().collect::<Vec<_>>(),
-        vec![true, true, true, false, false]
-    );
+    let expected_bools = BoolArray::from_iter([true, true, true, false, false]);
+    assert_arrays_eq!(bools, expected_bools);
 
     let prims = &struct_b.fields[1];
     assert_arrays_eq!(prims, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
@@ -71,19 +65,10 @@ fn test_remove_column() {
     .unwrap();
 
     let removed = struct_a.remove_column("xs").unwrap();
-    assert_eq!(
-        removed.dtype(),
-        &DType::Primitive(PType::I64, Nullability::NonNullable)
-    );
     assert_arrays_eq!(removed, PrimitiveArray::from_iter([0i64, 1, 2, 3, 4]));
 
     assert_eq!(struct_a.names(), &["ys"]);
     assert_eq!(struct_a.fields.len(), 1);
-    assert_eq!(struct_a.len(), 5);
-    assert_eq!(
-        struct_a.fields[0].dtype(),
-        &DType::Primitive(PType::U64, Nullability::NonNullable)
-    );
     assert_arrays_eq!(
         struct_a.fields[0],
         PrimitiveArray::from_iter([4u64, 5, 6, 7, 8])
