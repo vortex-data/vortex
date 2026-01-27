@@ -22,6 +22,8 @@ use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
+use vortex_cuda_macros::cuda_available;
+use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_session::VortexSession;
@@ -371,8 +373,8 @@ pub fn benchmark_dict_cuda(c: &mut Criterion) {
 
 criterion::criterion_group!(benches, benchmark_dict_cuda);
 
-#[cfg(cuda_available)]
+#[cuda_available]
 criterion::criterion_main!(benches);
 
-#[cfg(not(cuda_available))]
+#[cuda_not_available]
 fn main() {}

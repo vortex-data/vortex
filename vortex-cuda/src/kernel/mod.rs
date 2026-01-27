@@ -15,6 +15,7 @@ use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
+use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -204,8 +205,7 @@ impl KernelLoader {
     }
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     #![allow(clippy::expect_used)]
 

@@ -16,7 +16,6 @@ use std::env;
 use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
-use std::process::Command;
 
 use xz2::read::XzDecoder;
 
@@ -33,8 +32,6 @@ typedef int cudaError_t;
 "#;
 
 fn main() {
-    // Declare the cfg so rustc doesn't warn about unexpected cfg.
-    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
     println!("cargo:rerun-if-env-changed=CUDA_PATH");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
@@ -113,15 +110,4 @@ fn main() {
         .expect("Failed to generate nvcomp bindings");
 
     bindings.write_to_file(out_dir.join("sys.rs")).unwrap();
-
-    // Set cuda_available cfg if CUDA is detected on the system.
-    // This gates tests and benchmarks that require CUDA at runtime.
-    if cuda_available() {
-        println!("cargo:rustc-cfg=cuda_available");
-    }
-}
-
-/// Check if CUDA is available based on nvcc.
-fn cuda_available() -> bool {
-    Command::new("nvcc").arg("--version").output().is_ok()
 }

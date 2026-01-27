@@ -25,6 +25,7 @@ members = [
     "vortex-datafusion",
     "vortex-duckdb",
     "vortex-cuda",
+    "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
     "vortex-cxx",
     "vortex-ffi",
@@ -273,6 +274,7 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
+vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 
 [workspace.dependencies.getrandom_v03]

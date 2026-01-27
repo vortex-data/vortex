@@ -17,6 +17,8 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::ZstdKernelPrep;
 use vortex_cuda::nvcomp::zstd as nvcomp_zstd;
 use vortex_cuda::zstd_kernel_prepare;
+use vortex_cuda_macros::cuda_available;
+use vortex_cuda_macros::cuda_not_available;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -151,8 +153,8 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
 
 criterion::criterion_group!(benches, benchmark_zstd_cuda_decompress);
 
-#[cfg(cuda_available)]
+#[cuda_available]
 criterion::criterion_main!(benches);
 
-#[cfg(not(cuda_available))]
+#[cuda_not_available]
 fn main() {}

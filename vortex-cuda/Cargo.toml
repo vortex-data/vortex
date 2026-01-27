@@ -29,6 +29,7 @@ tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-cuda-macros = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }

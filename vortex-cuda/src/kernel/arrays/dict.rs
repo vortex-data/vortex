@@ -16,6 +16,7 @@ use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
@@ -255,8 +256,7 @@ async fn execute_dict_decimal_typed<
     )))
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::DecimalArray;

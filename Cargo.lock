@@ -10097,6 +10097,7 @@ dependencies = [
  "vortex-bytebool",
  "vortex-compute",
  "vortex-cuda",
+ "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10346,6 +10347,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-cuda",
+ "vortex-cuda-macros",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
  "vortex-error",
@@ -10357,6 +10359,15 @@ dependencies = [
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
+]
+
+[[package]]
+name = "vortex-cuda-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
 ]
 
 [[package]]
@@ -10805,6 +10816,7 @@ dependencies = [
  "libloading 0.8.9",
  "reqwest",
  "tar",
+ "vortex-cuda-macros",
  "xz2",
 ]
 

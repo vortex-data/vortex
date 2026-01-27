@@ -10,9 +10,6 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    // Declare the cfg so rustc doesn't warn about unexpected cfg.
-    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
-
     if !is_cuda_available() {
         return;
     }
@@ -39,9 +36,6 @@ fn main() {
             }
         }
     }
-
-    // Signal that CUDA kernels are available for conditional compilation.
-    println!("cargo:rustc-cfg=cuda_available");
 }
 
 fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {

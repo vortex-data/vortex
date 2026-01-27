@@ -12,6 +12,7 @@ use cudarc::driver::{
 use cudarc::nvrtc::Ptx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::{
     NativePType, UnsignedPType, match_each_native_ptype, match_each_unsigned_integer_ptype,
 };
@@ -76,7 +77,10 @@ impl<V: DeviceRepr + NativePType, I, O> GPUTask for RLETask<V, I, O> {
     }
 }
 
-#[expect(clippy::cognitive_complexity, reason = "complexity from nested match_each_* macros")]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "complexity from nested match_each_* macros"
+)]
 pub fn new_task(
     rle: &RLEArray,
     ctx: Arc<CudaContext>,
@@ -206,8 +210,8 @@ pub fn cuda_rle_decompress(
         .and_then(|c| c.into_primitive().into_host_array())
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-#[cfg(test)]
+#[cfg(feature = "cuda")]
+#[cuda_tests]
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
@@ -234,7 +238,8 @@ mod tests {
     #[case::f64((-2000..2000).map(|i| i as f64).collect::<Buffer<f64>>())]
     fn test_cuda_rle_decompress<T: NativePType>(#[case] values: Buffer<T>) {
         let primitive_array = PrimitiveArray::new(values, Validity::NonNullable);
-        let array = RLEArray::encode(&primitive_array).vortex_expect("operation should succeed in test");
+        let array =
+            RLEArray::encode(&primitive_array).vortex_expect("operation should succeed in test");
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_rle_decompress(&array, ctx).unwrap();
