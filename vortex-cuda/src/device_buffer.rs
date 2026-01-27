@@ -111,6 +111,11 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
 
     /// Synchronous copy of CUDA device to host memory.
     ///
+    /// The copy is not started before other operations on the streams are completed.
+    /// This is synonymous to doing a synchronize on the stream before the copy.
+    ///
+    /// The asynchronous `copy_to_host` function should be preferred whenever possible.
+    ///
     /// # Arguments
     ///
     /// * `alignment` - The memory alignment to use for the host buffer.
@@ -119,29 +124,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     ///
     /// Returns an error if the CUDA memory copy operation fails.
     fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-        let mut host_buffer = BufferMut::<T>::with_capacity_aligned(self.len, alignment);
-
-        // Add offset to device pointer to account for any previous slicing operations.
-        let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
-
-        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
-        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
-        unsafe {
-            sys::cuMemcpyDtoH_v2(
-                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
-                src_ptr,
-                self.len * size_of::<T>(),
-            )
-            .result()
-            .map_err(|e| vortex_err!("Failed to copy from device to host: {}", e))?;
-        }
-
-        // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
-        unsafe {
-            host_buffer.set_len(self.len);
-        }
-
-        Ok(host_buffer.freeze().into_byte_buffer())
+        futures::executor::block_on(self.copy_to_host(alignment)?)
     }
 
     /// Copies a device buffer to host memory asynchronously.

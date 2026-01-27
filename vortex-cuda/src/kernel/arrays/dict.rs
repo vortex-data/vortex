@@ -306,7 +306,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
+
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -341,7 +341,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
+
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -373,7 +373,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -405,7 +404,7 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
+
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -441,7 +440,6 @@ mod tests {
                 .into_primitive()
         });
 
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -479,7 +477,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -524,7 +521,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -570,7 +566,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -604,7 +599,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_primitive();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
         // Compare CUDA result with baseline
@@ -644,7 +638,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -673,7 +666,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -702,7 +694,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -734,7 +725,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -771,7 +761,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
@@ -808,7 +797,6 @@ mod tests {
             .await
             .vortex_expect("GPU decompression failed")
             .into_decimal();
-        cuda_ctx.synchronize_stream()?;
         let cuda_result = cuda_decimal_to_host(cuda_result)?;
 
         assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
