@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -156,17 +155,12 @@ impl VortexOpenOptions {
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
-    ///
-    /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
-    async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let metrics = self.metrics.clone().unwrap_or_default();
-
-        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &metrics));
-
+    pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
+        let metrics = VortexMetrics::default();
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
-            self.read_footer(read.clone()).await?
+            self.read_footer(&reader).await?
         };
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -180,7 +174,7 @@ impl VortexOpenOptions {
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
-            read,
+            reader,
             self.session.handle(),
             metrics.clone(),
         )));
@@ -198,7 +192,7 @@ impl VortexOpenOptions {
         })
     }
 
-    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -214,7 +208,6 @@ impl VortexOpenOptions {
 
         let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = read
-            .clone()
             .read_at(initial_offset, initial_read_size, Alignment::none())
             .await?;
 
@@ -225,7 +218,7 @@ impl VortexOpenOptions {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = read.clone().read_at(offset, len, Alignment::none()).await?;
+                    let more_data = read.read_at(offset, len, Alignment::none()).await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
@@ -304,6 +297,7 @@ mod tests {
     use super::*;
     use crate::WriteOptionsSessionExt;
 
+    #[derive(Clone)]
     // Define CountingRead struct
     struct CountingRead<R> {
         inner: R,
@@ -311,7 +305,7 @@ mod tests {
         first_read_len: Arc<AtomicUsize>,
     }
 
-    impl<R: VortexReadAt> VortexReadAt for CountingRead<R> {
+    impl<R: VortexReadAt + Clone> VortexReadAt for CountingRead<R> {
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             self.inner.size()
         }

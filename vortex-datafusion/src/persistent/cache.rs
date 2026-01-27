@@ -96,10 +96,10 @@ impl VortexFileCache {
         self.footer_initial_read_size_bytes
     }
 
-    pub async fn try_get(
+    pub async fn try_get<R: VortexReadAt + Clone>(
         &self,
         object: &ObjectMeta,
-        reader: Arc<dyn VortexReadAt>,
+        reader: R,
     ) -> VortexResult<VortexFile> {
         let file_key = FileKey::from(object);
         self.file_cache
@@ -113,7 +113,7 @@ impl VortexFileCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
                     }))
-                    .open(reader),
+                    .open_read(reader),
             )
             .await
             .map_err(|e: Arc<VortexError>| {
