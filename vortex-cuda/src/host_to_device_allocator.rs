@@ -14,8 +14,8 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_io::BufferAllocator;
-use vortex_io::ReadRegion;
-use vortex_io::ReadTarget;
+use vortex_io::WriteDestination;
+use vortex_io::WriteRegion;
 use vortex_session::VortexSession;
 
 use crate::device_buffer::CudaDeviceBuffer;
@@ -39,7 +39,11 @@ impl HostToDeviceAllocator {
 }
 
 impl BufferAllocator for HostToDeviceAllocator {
-    fn allocate(&self, len: usize, alignment: Alignment) -> VortexResult<Box<dyn ReadTarget>> {
+    fn allocate(
+        &self,
+        len: usize,
+        alignment: Alignment,
+    ) -> VortexResult<Box<dyn WriteDestination>> {
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
         unsafe { buffer.set_len(len) };
         Ok(Box::new(NaiveDeviceWriteTarget {
@@ -56,13 +60,13 @@ struct NaiveDeviceWriteTarget {
     alignment: Alignment,
 }
 
-impl ReadTarget for NaiveDeviceWriteTarget {
+impl WriteDestination for NaiveDeviceWriteTarget {
     fn len(&self) -> usize {
         self.buffer.len()
     }
 
-    fn region(&mut self) -> ReadRegion<'_> {
-        ReadRegion::HostSlice(self.buffer.as_mut())
+    fn region(&mut self) -> WriteRegion<'_> {
+        WriteRegion::HostSlice(self.buffer.as_mut())
     }
 
     fn into_handle(self: Box<Self>) -> BoxFuture<'static, VortexResult<BufferHandle>> {

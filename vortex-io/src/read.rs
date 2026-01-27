@@ -18,7 +18,7 @@ use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
 
 use crate::BufferAllocator;
-use crate::ReadRegion;
+use crate::WriteRegion;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -319,10 +319,10 @@ impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
                 .ok_or_else(|| vortex_err!("expected host buffer"))?;
             let mut target = allocator.allocate(length, alignment)?;
             match target.region() {
-                ReadRegion::HostSlice(slice) => {
+                WriteRegion::HostSlice(slice) => {
                     slice.copy_from_slice(host.as_slice());
                 }
-                ReadRegion::Registered(_) | ReadRegion::Device(_) => {
+                WriteRegion::Registered(_) | WriteRegion::Device(_) => {
                     return Err(vortex_err!(
                         "AllocatingReadAt does not support non-host read regions"
                     ));

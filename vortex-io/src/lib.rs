@@ -17,7 +17,7 @@ pub use limit::*;
 pub use object_store::*;
 pub use read::*;
 pub use write::*;
-pub use read_target::*;
+pub use write_destination::*;
 
 mod allocator;
 pub mod file;
@@ -27,7 +27,7 @@ mod limit;
 #[cfg(feature = "object_store")]
 mod object_store;
 mod read;
-mod read_target;
+mod write_destination;
 pub mod runtime;
 pub mod session;
 #[cfg(feature = "tokio")]

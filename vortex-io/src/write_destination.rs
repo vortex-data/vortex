@@ -9,8 +9,8 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
-/// A destination memory region for reads.
-pub enum ReadRegion<'a> {
+/// A destination memory region for writes.
+pub enum WriteRegion<'a> {
     /// A standard host slice that can be written by the CPU.
     HostSlice(&'a mut [u8]),
     /// A registered host memory region suitable for RDMA writes.
@@ -36,7 +36,7 @@ pub struct DeviceRegion<'a> {
 }
 
 /// A destination for I/O reads that can be finalized into a [`BufferHandle`].
-pub trait ReadTarget: Send + 'static {
+pub trait WriteDestination: Send + 'static {
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 
@@ -46,19 +46,19 @@ pub trait ReadTarget: Send + 'static {
     }
 
     /// Returns the writable region for this target.
-    fn region(&mut self) -> ReadRegion<'_>;
+    fn region(&mut self) -> WriteRegion<'_>;
 
     /// Finalize the target into a buffer handle.
     fn into_handle(self: Box<Self>) -> BoxFuture<'static, VortexResult<BufferHandle>>;
 }
 
-impl ReadTarget for ByteBufferMut {
+impl WriteDestination for ByteBufferMut {
     fn len(&self) -> usize {
         ByteBufferMut::len(self)
     }
 
-    fn region(&mut self) -> ReadRegion<'_> {
-        ReadRegion::HostSlice(self.as_mut())
+    fn region(&mut self) -> WriteRegion<'_> {
+        WriteRegion::HostSlice(self.as_mut())
     }
 
     fn into_handle(self: Box<Self>) -> BoxFuture<'static, VortexResult<BufferHandle>> {
