@@ -356,12 +356,8 @@ mod tests {
 
         // Check all values correct.
         let canonical = const_array.to_varbinview();
-
-        assert_eq!(canonical.len(), 4);
-
-        for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
-        }
+        let expected = crate::arrays::VarBinArray::from(vec!["four", "four", "four", "four"]);
+        assert_arrays_eq!(canonical, expected);
     }
 
     #[test]
@@ -608,10 +604,8 @@ mod tests {
 
         // Check elements are repeated correctly.
         let elements = canonical.elements().to_varbinview();
-        assert_eq!(elements.scalar_at(0).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(1).unwrap(), "world".into());
-        assert_eq!(elements.scalar_at(2).unwrap(), "hello".into());
-        assert_eq!(elements.scalar_at(3).unwrap(), "world".into());
+        let expected = crate::arrays::VarBinArray::from(vec!["hello", "world", "hello", "world"]);
+        assert_arrays_eq!(elements, expected);
     }
 
     #[test]

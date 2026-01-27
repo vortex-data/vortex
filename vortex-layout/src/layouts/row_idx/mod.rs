@@ -292,7 +292,6 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
@@ -344,11 +343,12 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            let expected = BoolArray::from_iter([false, false, true, false, false]);
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, true, false, false])
+            );
         })
     }
 
@@ -383,11 +383,12 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            let expected = BoolArray::from_iter([false, false, false, false, true]);
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, false, false, true])
+            );
         })
     }
 
@@ -426,11 +427,12 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            let expected = BoolArray::from_iter([true, false, true, false, true]);
-            assert_arrays_eq!(result, expected);
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([true, false, true, false, true])
+            );
         })
     }
 }
