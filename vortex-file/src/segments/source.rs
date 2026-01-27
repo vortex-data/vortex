@@ -74,13 +74,19 @@ impl FileSegmentSource {
     ) -> Self {
         let (send, recv) = mpsc::unbounded();
 
-        let coalesce_config = reader.coalesce_config();
-        let concurrency = reader.concurrency();
         let max_alignment = segments
             .iter()
             .map(|segment| segment.alignment)
             .max()
             .unwrap_or_else(Alignment::none);
+        let coalesce_config = reader.coalesce_config().map(|mut config| {
+            // Aligning the coalesced start down can add up to (alignment - 1) bytes.
+            // Increase max_size to keep the effective payload window consistent.
+            let extra = (*max_alignment as u64).saturating_sub(1);
+            config.max_size = config.max_size.saturating_add(extra);
+            config
+        });
+        let concurrency = reader.concurrency();
 
         let drive_fut = async move {
             let stream = IoRequestStream::new(
