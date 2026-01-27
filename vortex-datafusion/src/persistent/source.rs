@@ -28,7 +28,7 @@ use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::metrics::MetricsSessionExt;
+use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
@@ -63,6 +63,7 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
+    vx_metrics: VortexMetrics,
 }
 
 impl VortexSource {
@@ -87,6 +88,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             vortex_reader_factory: None,
+            vx_metrics: VortexMetrics::default(),
         }
     }
 
@@ -109,6 +111,11 @@ impl VortexSource {
         self.vortex_reader_factory = Some(vortex_reader_factory);
         self
     }
+
+    /// The metrics instance attached to this source.
+    pub fn vx_metrics(&self) -> &VortexMetrics {
+        &self.vx_metrics
+    }
 }
 
 impl FileSource for VortexSource {
@@ -119,8 +126,7 @@ impl FileSource for VortexSource {
         partition: usize,
     ) -> DFResult<Arc<dyn FileOpener>> {
         let partition_metrics = self
-            .session
-            .metrics()
+            .vx_metrics()
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
 
         let batch_size = self

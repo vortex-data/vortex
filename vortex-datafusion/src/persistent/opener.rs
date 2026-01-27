@@ -34,6 +34,7 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
+use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
@@ -90,6 +91,9 @@ pub(crate) struct VortexOpener {
 impl FileOpener for VortexOpener {
     fn open(&self, file: PartitionedFile) -> DFResult<FileOpenFuture> {
         let session = self.session.clone();
+        let metrics = self
+            .metrics
+            .child_with_tags([("file_path", file.path().to_string())]);
 
         let mut projection = self.projection.clone();
         let mut filter = self.filter.clone();
@@ -98,6 +102,8 @@ impl FileOpener for VortexOpener {
             .vortex_reader_factory
             .create_reader(file.path().as_ref(), &session)?;
 
+        let reader = InstrumentedReadAt::new(reader, &metrics);
+
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
 
@@ -105,7 +111,6 @@ impl FileOpener for VortexOpener {
         let unified_file_schema = self.table_schema.file_schema().clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
-        let metrics = self.metrics.clone();
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
 
