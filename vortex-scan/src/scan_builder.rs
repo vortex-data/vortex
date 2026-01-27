@@ -66,7 +66,7 @@ pub struct ScanBuilder<A> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    metrics: VortexMetrics,
+    metrics: Option<VortexMetrics>,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
@@ -176,7 +176,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
     }
 
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+        self.metrics = Some(metrics);
         self
     }
 

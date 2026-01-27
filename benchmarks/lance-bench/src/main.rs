@@ -154,6 +154,7 @@ pub async fn execute_query(
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let df = ctx.sql(query).await?;
 
+    // Its important to execute and return the same physical plan here, as it holds references to metrics which we care about.
     let physical_plan = df.clone().create_physical_plan().await?;
     let result = df.collect().await?;
 

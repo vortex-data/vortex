@@ -55,9 +55,9 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
                     .downcast_ref::<VortexSource>()
             {
                 let mut set = MetricsSet::new();
-                for metric in scan
-                    .vx_metrics()
-                    .snapshot()
+                let snapshot = scan.vx_metrics().snapshot();
+
+                for metric in snapshot
                     .iter()
                     .flat_map(|(id, metric)| metric_to_datafusion(id, metric))
                 {

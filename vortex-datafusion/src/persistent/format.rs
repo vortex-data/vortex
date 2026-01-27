@@ -252,7 +252,7 @@ impl FileFormat for VortexFormat {
                 ));
                 let cache = self.file_cache.clone();
                 SpawnedTask::spawn(async move {
-                    let vxf = cache.try_get(&o, reader).await?;
+                    let vxf = cache.try_get(&o, reader, None).await?;
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
                     VortexResult::Ok((o.location, inferred_schema))
                 })
@@ -289,7 +289,7 @@ impl FileFormat for VortexFormat {
                 object.location.clone(),
                 handle,
             ));
-            let vxf = cache.try_get(&object, reader).await.map_err(|e| {
+            let vxf = cache.try_get(&object, reader, None).await.map_err(|e| {
                 DataFusionError::Execution(format!(
                     "Failed to open Vortex file {}: {e}",
                     object.location

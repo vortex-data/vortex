@@ -166,7 +166,7 @@ impl FileOpener for VortexOpener {
             }
 
             let vxf = file_cache
-                .try_get(&file.object_meta, reader)
+                .try_get(&file.object_meta, reader, Some(metrics.clone()))
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
 
@@ -226,23 +226,23 @@ impl FileOpener for VortexOpener {
                         reader
                     } else {
                         tracing::trace!("creating layout reader for {}", occupied_entry.key());
-                        let reader = vxf.layout_reader().map_err(|e| {
+                        let layout_reader = vxf.layout_reader().map_err(|e| {
                             DataFusionError::Execution(format!(
                                 "Failed to create layout reader: {e}"
                             ))
                         })?;
-                        occupied_entry.insert(Arc::downgrade(&reader));
-                        reader
+                        occupied_entry.insert(Arc::downgrade(&layout_reader));
+                        layout_reader
                     }
                 }
                 Entry::Vacant(vacant_entry) => {
                     tracing::trace!("creating layout reader for {}", vacant_entry.key());
-                    let reader = vxf.layout_reader().map_err(|e| {
+                    let layout_reader = vxf.layout_reader().map_err(|e| {
                         DataFusionError::Execution(format!("Failed to create layout reader: {e}"))
                     })?;
-                    vacant_entry.insert(Arc::downgrade(&reader));
+                    vacant_entry.insert(Arc::downgrade(&layout_reader));
 
-                    reader
+                    layout_reader
                 }
             };
 

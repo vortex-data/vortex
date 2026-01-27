@@ -24,6 +24,7 @@ use vortex::file::VortexFile;
 use vortex::io::VortexReadAt;
 use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
+use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::DefaultHashBuilder;
 
@@ -100,21 +101,27 @@ impl VortexFileCache {
         &self,
         object: &ObjectMeta,
         reader: R,
+        metrics: Option<VortexMetrics>,
     ) -> VortexResult<VortexFile> {
         let file_key = FileKey::from(object);
+
         self.file_cache
-            .try_get_with(
-                file_key.clone(),
-                self.session
+            .try_get_with(file_key.clone(), async {
+                let mut opts = self
+                    .session
                     .open_options()
                     .with_initial_read_size(self.footer_initial_read_size_bytes)
                     .with_file_size(object.size)
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {
                         file_key,
                         segment_cache: self.segment_cache.clone(),
-                    }))
-                    .open_read(reader),
-            )
+                    }));
+                if let Some(metrics) = metrics {
+                    opts = opts.with_metrics(metrics);
+                }
+
+                opts.open_read(reader).await
+            })
             .await
             .map_err(|e: Arc<VortexError>| {
                 Arc::try_unwrap(e).unwrap_or_else(|e| vortex_err!("{}", e.to_string()))
