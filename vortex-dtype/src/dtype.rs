@@ -18,6 +18,7 @@ use crate::FieldName;
 use crate::PType;
 use crate::StructFields;
 use crate::decimal::DecimalDType;
+use crate::decimal::DecimalType;
 use crate::nullability::Nullability;
 
 /// The logical types of elements in Vortex arrays.
@@ -331,6 +332,29 @@ impl DType {
         }
     }
 
+    /// Returns the number of bytes occupied by a single scalar of this fixed-width non-struct type.
+    ///
+    /// For non-fixed-width or struct types, return None.
+    ///
+    /// [`Bool`] is defined as 1 even though a Vortex array may pack Booleans to one bit per element.
+    pub fn element_size(&self) -> Option<usize> {
+        match self {
+            Null => Some(0),
+            Bool(_) => Some(1),
+            Primitive(ptype, _) => Some(ptype.byte_width()),
+            Decimal(decimal, _) => {
+                Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
+            }
+            FixedSizeList(elem_dtype, list_size, _) => {
+                elem_dtype.element_size().map(|s| s * *list_size as usize)
+            }
+            Extension(ext) => ext.storage_dtype().element_size(),
+            // We could sum the elment_size of the fields of the struct, but it is not clear this is
+            // a useful number to know.
+            Struct(..) | Utf8(_) | Binary(_) | List(..) => None,
+        }
+    }
+
     /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].
     pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         if let Decimal(decimal, _) = self {
@@ -505,5 +529,103 @@ impl Display for DType {
                 ext.storage_dtype().nullability(),
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::DType;
+    use crate::Nullability::NonNullable;
+    use crate::PType;
+    use crate::decimal::DecimalDType;
+    use crate::extension::ExtDType;
+    use crate::extension::ExtID;
+
+    #[test]
+    fn element_size_null() {
+        assert_eq!(DType::Null.element_size(), Some(0));
+    }
+
+    #[test]
+    fn element_size_bool() {
+        assert_eq!(DType::Bool(NonNullable).element_size(), Some(1));
+    }
+
+    #[test]
+    fn element_size_primitives() {
+        assert_eq!(
+            DType::Primitive(PType::U8, NonNullable).element_size(),
+            Some(1)
+        );
+        assert_eq!(
+            DType::Primitive(PType::I32, NonNullable).element_size(),
+            Some(4)
+        );
+        assert_eq!(
+            DType::Primitive(PType::F64, NonNullable).element_size(),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn element_size_decimal() {
+        let decimal = DecimalDType::new(10, 2);
+        // precision 10 -> DecimalType::I64 -> 8 bytes
+        assert_eq!(DType::Decimal(decimal, NonNullable).element_size(), Some(8));
+    }
+
+    #[test]
+    fn element_size_fixed_size_list() {
+        let elem = Arc::new(DType::Primitive(PType::F64, NonNullable));
+        assert_eq!(
+            DType::FixedSizeList(elem.clone(), 1000, NonNullable).element_size(),
+            Some(8000)
+        );
+
+        assert_eq!(
+            DType::FixedSizeList(
+                Arc::new(DType::FixedSizeList(elem, 20, NonNullable)),
+                1000,
+                NonNullable
+            )
+            .element_size(),
+            Some(160_000)
+        );
+    }
+
+    #[test]
+    fn element_size_nested_fixed_size_list() {
+        let inner = Arc::new(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            10,
+            NonNullable,
+        ));
+        assert_eq!(
+            DType::FixedSizeList(inner, 100, NonNullable).element_size(),
+            Some(8000)
+        );
+    }
+
+    #[test]
+    fn element_size_extension() {
+        let storage = Arc::new(DType::Primitive(PType::I32, NonNullable));
+        let ext = ExtDType::new(ExtID::new("test.ext".into()), storage, None);
+        assert_eq!(DType::Extension(Arc::new(ext)).element_size(), Some(4));
+    }
+
+    #[test]
+    fn element_size_variable_width() {
+        assert_eq!(DType::Utf8(NonNullable).element_size(), None);
+        assert_eq!(DType::Binary(NonNullable).element_size(), None);
+        assert_eq!(
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, NonNullable)),
+                NonNullable
+            )
+            .element_size(),
+            None
+        );
     }
 }
