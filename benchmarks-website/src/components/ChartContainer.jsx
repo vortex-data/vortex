@@ -385,7 +385,7 @@ export default function ChartContainer({
             const commit = processedData.commits[items[0].dataIndex];
             if (!commit) return items[0].label;
             const author = commit.author || 'Unknown';
-            return `${formatDate(commit.timestamp)}\n${commit.id?.slice(0, 7) || ''} by ${author}`;
+            return `${formatDate(commit.timestamp)} — ${author}\n(${commit.id?.slice(0, 7) || ''}) ${commit.message || ''}`;
           },
           label: (item) => {
             const value = item.parsed.y;

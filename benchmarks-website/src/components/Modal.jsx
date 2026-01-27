@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Line } from 'react-chartjs-2';
 import {
   SkipBack,
@@ -18,6 +18,8 @@ export default function Modal({ chartData, onClose }) {
   const [viewRange, setViewRange] = useState(null);
   const [currentData, setCurrentData] = useState(null);
   const [totalCommits, setTotalCommits] = useState(chartData?.totalCommits || 0);
+  const chartRef = useRef(null);
+  const isResettingZoom = useRef(false);
 
   // Initialize with the data passed from parent
   useEffect(() => {
@@ -245,6 +247,32 @@ export default function Modal({ chartData, onClose }) {
     fetchRange(newRange);
   }, [range.total, fetchRange]);
 
+  // Handle drag selection zoom
+  const handleDragZoom = useCallback((startDataIdx, endDataIdx) => {
+    if (!currentData?.commits) return;
+
+    const numCommits = currentData.commits.length;
+    if (numCommits < 2) return;
+
+    const rangeStart = range.startIdx;
+    const rangeEnd = range.endIdx;
+    const total = range.total;
+
+    const minIdx = Math.min(startDataIdx, endDataIdx);
+    const maxIdx = Math.max(startDataIdx, endDataIdx);
+    const globalStartIdx = rangeStart + Math.round(minIdx / (numCommits - 1) * (rangeEnd - rangeStart));
+    const globalEndIdx = rangeStart + Math.round(maxIdx / (numCommits - 1) * (rangeEnd - rangeStart));
+
+    if (globalEndIdx - globalStartIdx < 5) return;
+
+    const newRange = {
+      startIdx: Math.max(0, globalStartIdx),
+      endIdx: Math.min(total - 1, globalEndIdx),
+    };
+    setViewRange(newRange);
+    fetchRange(newRange);
+  }, [currentData, range, fetchRange]);
+
   // Chart options
   const options = useMemo(() => ({
     responsive: true,
@@ -279,13 +307,38 @@ export default function Modal({ chartData, onClose }) {
             const commit = currentData.commits[items[0].dataIndex];
             if (!commit) return items[0].label;
             const author = commit.author || 'Unknown';
-            return `${formatDate(commit.timestamp)}\n${commit.id?.slice(0, 7) || ''} by ${author}`;
+            return `${formatDate(commit.timestamp)} — ${author}\n(${commit.id?.slice(0, 7) || ''}) ${commit.message || ''}`;
           },
           label: (item) => {
             const value = item.parsed.y;
             if (value == null) return null;
             const formattedValue = value < 1 ? value.toFixed(4) : value.toFixed(2);
             return `${item.dataset.label}: ${formattedValue} ${chartData?.unit || ''}`;
+          },
+        },
+      },
+      zoom: {
+        zoom: {
+          drag: {
+            enabled: true,
+            backgroundColor: 'rgba(99, 102, 241, 0.2)',
+            borderColor: 'rgba(99, 102, 241, 0.8)',
+            borderWidth: 1,
+          },
+          mode: 'x',
+          onZoomComplete: ({ chart }) => {
+            if (isResettingZoom.current) {
+              isResettingZoom.current = false;
+              return;
+            }
+            const { min, max } = chart.scales.x;
+            const startIdx = Math.floor(min);
+            const endIdx = Math.ceil(max);
+            if (startIdx >= 0 && endIdx > startIdx) {
+              handleDragZoom(startIdx, endIdx);
+            }
+            isResettingZoom.current = true;
+            chart.resetZoom();
           },
         },
       },
@@ -325,7 +378,7 @@ export default function Modal({ chartData, onClose }) {
         },
       },
     },
-  }), [currentData, chartData]);
+  }), [currentData, chartData, handleDragZoom]);
 
   if (!chartData) return null;
 
@@ -401,6 +454,7 @@ export default function Modal({ chartData, onClose }) {
         <div className={`modal-chart-container ${loading ? 'loading' : ''}`}>
           {currentData && (
             <Line
+              ref={chartRef}
               data={{
                 labels: currentData.labels,
                 datasets: currentData.datasets,
