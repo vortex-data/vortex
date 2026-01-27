@@ -206,6 +206,15 @@ impl State {
         None
     }
 
+    /// Coalesce nearby requests into a single range while aligning the range start down to the
+    /// maximum alignment of all included requests.
+    ///
+    /// Example (file offsets):
+    /// [x, x, x, x, x, x, A, A, A, A, A, x, B]
+    /// A aligned to 2, B aligned to 4
+    /// Coalesced range starts at 4, so the buffer is:
+    /// [x, x, A, A, A, A, A, x, B]
+    /// A stays 2-aligned, B stays 4-aligned
     fn next_coalesced(&mut self, window: &CoalesceConfig) -> Option<CoalescedRequest> {
         // Find the next valid request in priority order
         let first_req = self.next_uncoalesced()?;
@@ -261,24 +270,24 @@ impl State {
                     let aligned_start = new_start - (new_start % align);
                     let new_total_size = new_end - aligned_start;
 
-                    // Check if the coalesced request would exceed max_size
-                    if new_total_size <= window.max_size {
-                        current_start = new_start;
-                        current_end = new_end;
-                        max_alignment = new_alignment;
-
-                        let req = self
-                            .polled_requests
-                            .remove(&req_id)
-                            .or_else(|| self.requests.remove(&req_id))
-                            .vortex_expect("Missing request in requests_by_offset");
-
-                        requests.push(req);
-                        keys_to_remove.push((req_offset, req_id));
-                        found_new_requests = true;
+                    if new_total_size > window.max_size {
+                        // Skip it but keep it available for future coalescing operations.
+                        continue;
                     }
-                    // If adding this request would exceed max_size, we skip it but don't remove it
-                    // so it can be considered for future coalescing operations
+
+                    current_start = new_start;
+                    current_end = new_end;
+                    max_alignment = new_alignment;
+
+                    let req = self
+                        .polled_requests
+                        .remove(&req_id)
+                        .or_else(|| self.requests.remove(&req_id))
+                        .vortex_expect("Missing request in requests_by_offset");
+
+                    requests.push(req);
+                    keys_to_remove.push((req_offset, req_id));
+                    found_new_requests = true;
                 }
             }
         }
@@ -446,6 +455,56 @@ mod tests {
         match outputs[0].inner() {
             IoRequestInner::Coalesced(c) => assert_eq!(c.requests.len(), 2),
             _ => panic!("Expected coalesced"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_coalesce_alignment_adjustment() {
+        let (tx1, _rx1) = oneshot::channel();
+        let (tx2, _rx2) = oneshot::channel();
+
+        let req1 = ReadRequest {
+            id: 1,
+            offset: 6,
+            length: 5,
+            alignment: Alignment::new(2),
+            callback: tx1,
+        };
+        let req2 = ReadRequest {
+            id: 2,
+            offset: 12,
+            length: 1,
+            alignment: Alignment::new(4),
+            callback: tx2,
+        };
+
+        let events = vec![
+            ReadEvent::Request(req1),
+            ReadEvent::Request(req2),
+            ReadEvent::Polled(1),
+            ReadEvent::Polled(2),
+        ];
+
+        let outputs = collect_outputs(
+            events,
+            Some(CoalesceConfig {
+                distance: 1,
+                max_size: 1024,
+            }),
+        )
+        .await;
+
+        assert_eq!(outputs.len(), 1);
+        match outputs[0].inner() {
+            IoRequestInner::Coalesced(coalesced) => {
+                assert_eq!(coalesced.range.start, 4);
+                assert_eq!(coalesced.alignment, Alignment::new(4));
+                for req in &coalesced.requests {
+                    let rel = req.offset - coalesced.range.start;
+                    assert_eq!(rel % *req.alignment as u64, 0);
+                }
+            }
+            _ => panic!("Expected coalesced request"),
         }
     }
 
