@@ -10335,12 +10335,10 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bytes",
  "codspeed-criterion-compat-walltime",
  "cudarc",
  "futures",
  "kanal",
- "parking_lot",
  "rstest",
  "tokio",
  "tracing",
