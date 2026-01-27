@@ -4,11 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import zlib from 'zlib';
 import readline from 'readline';
+import { Readable } from 'stream';
 import { LTTB } from 'downsample';
-
-// Import shared data processing functions
-import { BENCHMARK_GROUPS, QUERY_NAME_MAP } from './config.js';
-import { shared } from './data-shared.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,1016 +14,532 @@ const __dirname = path.dirname(__filename);
 const PORT = process.env.PORT || 3000;
 const DATA_URL = process.env.DATA_URL || 'https://vortex-benchmark-results-database.s3.amazonaws.com/data.json.gz';
 const COMMITS_URL = process.env.COMMITS_URL || 'https://vortex-benchmark-results-database.s3.amazonaws.com/commits.json';
-const REFRESH_INTERVAL = process.env.REFRESH_INTERVAL || 5 * 60 * 1000; // 5 minutes
-const MAX_POINTS_PER_CHART = 200; // Target max points per chart
-const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === 'true'; // Use local sample data for development
+const REFRESH_INTERVAL = process.env.REFRESH_INTERVAL || 5 * 60 * 1000;
+const MAX_POINTS = 200;
+const USE_LOCAL_DATA = process.env.USE_LOCAL_DATA === 'true';
 
-// Common renamed datasets for query benchmarks (TPC-H, TPC-DS, Clickbench)
-const QUERY_RENAME_MAP = {
-  'DataFusion:vortex-file-compressed': 'datafusion:vortex',
+// Benchmark groups
+const GROUPS = [
+  'Random Access', 'Compression', 'Compression Size', 'Clickbench',
+  'TPC-H (NVMe) (SF=1)', 'TPC-H (S3) (SF=1)', 'TPC-H (NVMe) (SF=10)', 'TPC-H (S3) (SF=10)',
+  'TPC-H (NVMe) (SF=100)', 'TPC-H (S3) (SF=100)', 'TPC-H (NVMe) (SF=1000)', 'TPC-H (S3) (SF=1000)',
+  'TPC-DS (NVMe) (SF=1)', 'TPC-DS (NVMe) (SF=10)', 'Statistical and Population Genetics',
+];
+
+// Series renaming (normalized to lowercase keys)
+const RENAME = {
   'datafusion:vortex-file-compressed': 'datafusion:vortex',
-  'DataFusion:parquet': 'datafusion:parquet',
   'datafusion:parquet': 'datafusion:parquet',
-  'DataFusion:arrow': 'datafusion:in-memory-arrow',
   'datafusion:arrow': 'datafusion:in-memory-arrow',
-  'DataFusion:lance': 'datafusion:lance',
   'datafusion:lance': 'datafusion:lance',
-  'DataFusion:vortex-compact': 'datafusion:vortex-compact',
   'datafusion:vortex-compact': 'datafusion:vortex-compact',
-  'DuckDB:vortex-file-compressed': 'duckdb:vortex',
   'duckdb:vortex-file-compressed': 'duckdb:vortex',
-  'DuckDB:parquet': 'duckdb:parquet',
   'duckdb:parquet': 'duckdb:parquet',
-  'DuckDB:duckdb': 'duckdb:duckdb',
   'duckdb:duckdb': 'duckdb:duckdb',
-  'DuckDB:vortex-compact': 'duckdb:vortex-compact',
   'duckdb:vortex-compact': 'duckdb:vortex-compact',
+  'vortex-tokio-local-disk': 'vortex-nvme',
+  'lance-tokio-local-disk': 'lance-nvme',
+  'parquet-tokio-local-disk': 'parquet-nvme',
+  'lance': 'lance',
 };
 
-// Series renaming configuration (matching index.html settings)
-const SERIES_RENAME_MAP = {
-  'Random Access': {
-    'vortex-tokio-local-disk': 'vortex-nvme',
-    'lance-tokio-local-disk': 'lance-nvme',
-    'parquet-tokio-local-disk': 'parquet-nvme',
-  },
-  'Compression': {
-    'lance': 'lance',
-    'Lance': 'lance',
-    'LANCE': 'lance',
-  },
-  'Compression Size': {
-    'lance': 'lance',
-    'Lance': 'lance',
-    'LANCE': 'lance',
-  },
-  'Clickbench': QUERY_RENAME_MAP,
-  'TPC-H (NVMe) (SF=1)': QUERY_RENAME_MAP,
-  'TPC-H (S3) (SF=1)': QUERY_RENAME_MAP,
-  'TPC-H (NVMe) (SF=10)': QUERY_RENAME_MAP,
-  'TPC-H (S3) (SF=10)': QUERY_RENAME_MAP,
-  'TPC-H (NVMe) (SF=100)': QUERY_RENAME_MAP,
-  'TPC-H (S3) (SF=100)': QUERY_RENAME_MAP,
-  'TPC-H (NVMe) (SF=1000)': QUERY_RENAME_MAP,
-  'TPC-H (S3) (SF=1000)': QUERY_RENAME_MAP,
-  'TPC-DS (NVMe) (SF=1)': QUERY_RENAME_MAP,
-  'TPC-DS (NVMe) (SF=10)': QUERY_RENAME_MAP,
-  'Statistical and Population Genetics': {
-    'DuckDB:vortex-file-compressed': 'duckdb:vortex',
-    'duckdb:vortex-file-compressed': 'duckdb:vortex',
-    'DuckDB:parquet': 'duckdb:parquet',
-    'duckdb:parquet': 'duckdb:parquet',
-    'DuckDB:duckdb': 'duckdb:duckdb',
-    'duckdb:duckdb': 'duckdb:duckdb',
-    'DuckDB:vortex-compact': 'duckdb:vortex-compact',
-    'duckdb:vortex-compact': 'duckdb:vortex-compact',
-  },
+const MIME = {
+  '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.png': 'image/png', '.jpg': 'image/jpeg',
+  '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.woff': 'font/woff',
+  '.woff2': 'font/woff2', '.webmanifest': 'application/manifest+json'
 };
 
-// Apply series renaming based on group
-function applySeriesRename(seriesName, groupId) {
-  const renameMap = SERIES_RENAME_MAP[groupId];
-  if (!renameMap) return seriesName;
+let store = { commits: [], groups: {}, metadata: null, downsampled: {}, lastUpdated: null };
 
-  // Try exact match first
-  if (renameMap[seriesName]) return renameMap[seriesName];
+// Utilities
+const rename = s => RENAME[s.toLowerCase()] || s;
+const geoMean = arr => arr.length ? Math.pow(arr.reduce((a, v) => a * v, 1), 1 / arr.length) : null;
 
-  // Try case-insensitive match
-  const lowerName = seriesName.toLowerCase();
-  for (const [key, value] of Object.entries(renameMap)) {
-    if (key.toLowerCase() === lowerName) return value;
+// Categorize benchmarks based on name patterns and metadata
+function getGroup(benchmark) {
+  const name = benchmark.name;
+  const lower = name.toLowerCase();
+  const storage = benchmark.storage?.toUpperCase() === 'S3' ? 'S3' : 'NVMe';
+
+  // Random Access: "random-access/..." or "random access/..."
+  if (lower.startsWith('random-access/') || lower.startsWith('random access/')) {
+    return 'Random Access';
   }
 
-  return seriesName;
+  // Compression Size: size measurements
+  if (lower.startsWith('vortex size/') || lower.startsWith('vortex-file-compressed size/') ||
+      lower.startsWith('parquet size/') || lower.startsWith('lance size/') ||
+      lower.includes(':raw size/') || lower.includes(':parquet-zstd size/') ||
+      lower.includes(':lance size/')) {
+    return 'Compression Size';
+  }
+
+  // Compression: compress/decompress time and ratio measurements
+  if (lower.startsWith('compress time/') || lower.startsWith('decompress time/') ||
+      lower.startsWith('parquet_rs-zstd compress') || lower.startsWith('parquet_rs-zstd decompress') ||
+      lower.startsWith('lance compress') || lower.startsWith('lance decompress') ||
+      lower.startsWith('vortex:lance ratio') || lower.startsWith('vortex:parquet-zstd ratio') ||
+      lower.startsWith('vortex:raw ratio')) {
+    return 'Compression';
+  }
+
+  // Clickbench: "clickbench_q..." or "clickbench/..."
+  if (lower.startsWith('clickbench_q') || lower.startsWith('clickbench/')) {
+    return 'Clickbench';
+  }
+
+  // Statistical and Population Genetics: "statpopgen_q..." or "statpopgen/..."
+  if (lower.startsWith('statpopgen_q') || lower.startsWith('statpopgen/')) {
+    return 'Statistical and Population Genetics';
+  }
+
+  // TPC-H: use dataset.tpch.scale_factor and storage fields
+  if (lower.startsWith('tpch_q') || lower.startsWith('tpch/')) {
+    const rawSf = benchmark.dataset?.tpch?.scale_factor;
+    const sf = rawSf ? Math.round(parseFloat(rawSf)) : 1;
+    return `TPC-H (${storage}) (SF=${sf})`;
+  }
+
+  // TPC-DS: use dataset.tpcds.scale_factor and storage fields
+  if (lower.startsWith('tpcds_q') || lower.startsWith('tpcds/')) {
+    const rawSf = benchmark.dataset?.tpcds?.scale_factor;
+    const sf = rawSf ? Math.round(parseFloat(rawSf)) : 1;
+    return `TPC-DS (${storage}) (SF=${sf})`;
+  }
+
+  // Fineweb queries - skip for now
+  if (lower.startsWith('fineweb_q')) {
+    return null;
+  }
+
+  return null;
 }
 
-// In-memory data store
-let dataStore = {
-  commits: [],          // Sorted array of commits
-  commitsMap: {},       // commit_id -> commit object
-  groups: {},           // groupId -> Map<chartName, chartData>
-  metadata: null,       // Precomputed metadata
-  downsampledData: {},  // groupId -> chartName -> { '1x': data, '2x': data, '4x': data, '8x': data }
-  lastUpdated: null
-};
+// Format query name for display
+function formatQuery(q) {
+  let s = q.toUpperCase().replace(/[_-]/g, ' ');
 
-// MIME types for static files
-const MIME_TYPES = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.gif': 'image/gif',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-  '.woff': 'font/woff',
-  '.woff2': 'font/woff2',
-  '.webmanifest': 'application/manifest+json'
-};
-
-// === LTTB Downsampling (using downsample library) ===
-
-// Multi-series LTTB: pick indices based on averaged series, then apply to all
-function multiSeriesLttbIndices(seriesMap, targetPoints) {
-  const seriesNames = Array.from(seriesMap.keys());
-  if (seriesNames.length === 0) return [];
-
-  const firstSeries = seriesMap.get(seriesNames[0]);
-  if (!firstSeries) return [];
-
-  const dataLength = firstSeries.length;
-  if (dataLength <= targetPoints) {
-    return Array.from({ length: dataLength }, (_, i) => i);
+  // Handle clickbench_q00 -> CLICKBENCH Q0
+  const clickbenchMatch = s.match(/^CLICKBENCH\s*Q(\d+)/i);
+  if (clickbenchMatch) {
+    return `CLICKBENCH Q${parseInt(clickbenchMatch[1], 10)}`;
   }
 
-  // Calculate average values across all series at each index
-  // Format data as [x, y] pairs for LTTB library
-  const avgData = [];
-  for (let i = 0; i < dataLength; i++) {
-    let sum = 0, count = 0;
-    for (const series of seriesMap.values()) {
-      const point = series[i];
-      // Handle both { value: x } objects and raw values
-      if (point !== null && point !== undefined) {
-        const val = typeof point === 'object' && point.value !== undefined ? point.value : point;
-        if (val !== null && val !== undefined && !isNaN(val)) {
-          sum += val;
-          count++;
-        }
-      }
+  // Handle tpch_q01 -> TPC-H Q1
+  const tpchMatch = s.match(/^TPCH\s*Q(\d+)/i);
+  if (tpchMatch) {
+    return `TPC-H Q${parseInt(tpchMatch[1], 10)}`;
+  }
+
+  // Handle tpcds_q01 -> TPC-DS Q1
+  const tpcdsMatch = s.match(/^TPCDS\s*Q(\d+)/i);
+  if (tpcdsMatch) {
+    return `TPC-DS Q${parseInt(tpcdsMatch[1], 10)}`;
+  }
+
+  // Handle statpopgen_q00 -> STATPOPGEN Q0
+  const statpopgenMatch = s.match(/^STATPOPGEN\s*Q(\d+)/i);
+  if (statpopgenMatch) {
+    return `STATPOPGEN Q${parseInt(statpopgenMatch[1], 10)}`;
+  }
+
+  return s;
+}
+
+// LTTB downsampling
+function lttbIndices(seriesMap, target) {
+  const keys = [...seriesMap.keys()];
+  if (!keys.length) return [];
+  const len = seriesMap.get(keys[0])?.length || 0;
+  if (len <= target) return [...Array(len).keys()];
+
+  const avg = Array(len);
+  for (let i = 0; i < len; i++) {
+    let sum = 0, n = 0;
+    for (const arr of seriesMap.values()) {
+      const v = arr[i]?.value ?? arr[i];
+      if (v != null && !isNaN(v)) { sum += v; n++; }
     }
-    // LTTB library expects [x, y] format
-    avgData.push([i, count > 0 ? sum / count : 0]);
+    avg[i] = [i, n ? sum / n : 0];
   }
 
-  // Run LTTB using the library
-  const sampled = LTTB(avgData, targetPoints);
-
-  // Extract indices from sampled points (x values are original indices)
-  const indices = sampled.map(point => Math.round(point[0]));
-
-  // Ensure first and last indices are always included
-  const firstIndex = 0;
-  const lastIndex = dataLength - 1;
-
-  if (!indices.includes(firstIndex)) {
-    indices.unshift(firstIndex);
-  }
-  if (!indices.includes(lastIndex)) {
-    indices.push(lastIndex);
-  }
-
-  // Sort to maintain order (in case we added first/last out of order)
-  indices.sort((a, b) => a - b);
-
-  return indices;
+  const idx = LTTB(avg, target).map(p => Math.round(p[0]));
+  if (!idx.includes(0)) idx.unshift(0);
+  if (!idx.includes(len - 1)) idx.push(len - 1);
+  return idx.sort((a, b) => a - b);
 }
 
-function downsampleChartData(chartData, factor) {
-  const targetPoints = Math.ceil(chartData.commits.length / factor);
-  if (targetPoints >= chartData.commits.length) {
-    return chartData; // No downsampling needed
-  }
+function downsample(data, factor) {
+  const target = Math.ceil(data.commits.length / factor);
+  if (target >= data.commits.length) return data;
 
-  const indices = multiSeriesLttbIndices(chartData.series, targetPoints);
+  const idx = lttbIndices(data.series, target);
+  const series = new Map();
+  for (const [k, v] of data.series) series.set(k, idx.map(i => v[i]));
 
-  const downsampledCommits = indices.map(i => chartData.commits[i]);
-  const downsampledSeries = new Map();
-
-  for (const [seriesName, seriesData] of chartData.series.entries()) {
-    downsampledSeries.set(seriesName, indices.map(i => seriesData[i]));
-  }
-
-  return {
-    ...chartData,
-    commits: downsampledCommits,
-    series: downsampledSeries,
-    originalLength: chartData.commits.length
-  };
+  return { ...data, commits: idx.map(i => data.commits[i]), series, originalLength: data.commits.length };
 }
 
-// === Data Fetching and Processing ===
+// Data fetching
+async function fetchJsonl(url, gzipped = false) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Fetch failed: ${url} ${res.status}`);
 
-async function fetchData(url) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to fetch ${url}: ${response.status}`);
-  return response;
+  const buffer = Buffer.from(await res.arrayBuffer());
+  const stream = gzipped
+    ? Readable.from(buffer).pipe(zlib.createGunzip())
+    : Readable.from(buffer);
+
+  return new Promise((resolve, reject) => {
+    const results = [];
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    rl.on('line', l => { if (l.trim()) try { results.push(JSON.parse(l)); } catch {} });
+    rl.on('close', () => resolve(results));
+    rl.on('error', reject);
+  });
 }
 
-async function fetchAndParseGzippedJsonl(url) {
-  const response = await fetchData(url);
-  const buffer = await response.arrayBuffer();
-  const decompressed = zlib.gunzipSync(Buffer.from(buffer));
-  const text = decompressed.toString('utf-8');
-
-  return text.split('\n')
-    .filter(line => line.trim().length > 0)
-    .map(line => JSON.parse(line));
+async function loadLocal() {
+  const read = fp => new Promise((ok, fail) => {
+    const r = [], rl = readline.createInterface({ input: fs.createReadStream(fp), crlfDelay: Infinity });
+    rl.on('line', l => { if (l.trim()) try { r.push(JSON.parse(l)); } catch {} });
+    rl.on('close', () => ok(r));
+    rl.on('error', fail);
+  });
+  return Promise.all([read(path.join(__dirname, 'sample/data.json')), read(path.join(__dirname, 'sample/commits.json'))]);
 }
 
-async function fetchCommits(url) {
-  const response = await fetchData(url);
-  const text = await response.text();
-  return text.split('\n')
-    .filter(line => line.trim().length > 0)
-    .map(line => JSON.parse(line));
-}
-
-async function loadLocalData() {
-  const dataPath = path.join(__dirname, 'sample', 'data.json');
-  const commitsPath = path.join(__dirname, 'sample', 'commits.json');
-
-  console.log('Loading local data from sample directory...');
-
-  // Use streaming to read large JSONL files
-  const readJsonlStream = (filePath) => {
-    return new Promise((resolve, reject) => {
-      const results = [];
-      const rl = readline.createInterface({
-        input: fs.createReadStream(filePath, { encoding: 'utf-8' }),
-        crlfDelay: Infinity
-      });
-
-      rl.on('line', (line) => {
-        if (line.trim().length > 0) {
-          try {
-            results.push(JSON.parse(line));
-          } catch (e) {
-            // Skip invalid JSON lines
-          }
-        }
-      });
-
-      rl.on('close', () => resolve(results));
-      rl.on('error', reject);
-    });
-  };
-
-  const [benchmarkData, commitsArray] = await Promise.all([
-    readJsonlStream(dataPath),
-    readJsonlStream(commitsPath)
-  ]);
-
-  return [benchmarkData, commitsArray];
-}
-
-async function refreshData() {
+// Main data processing
+async function refresh() {
   console.log('Refreshing data...');
-  const startTime = Date.now();
+  const t0 = Date.now();
 
   try {
-    let benchmarkData, commitsArray;
+    const [benchmarks, commitsArr] = USE_LOCAL_DATA
+      ? await loadLocal()
+      : await Promise.all([fetchJsonl(DATA_URL, true), fetchJsonl(COMMITS_URL)]);
 
-    if (USE_LOCAL_DATA) {
-      [benchmarkData, commitsArray] = await loadLocalData();
-    } else {
-      [benchmarkData, commitsArray] = await Promise.all([
-        fetchAndParseGzippedJsonl(DATA_URL),
-        fetchCommits(COMMITS_URL)
-      ]);
-    }
+    console.log(`Fetched ${benchmarks.length} benchmarks, ${commitsArr.length} commits`);
 
-    console.log(`Fetched ${benchmarkData.length} benchmark entries and ${commitsArray.length} commits`);
+    // Build commit index (O(1) lookup)
+    const commitMap = new Map(commitsArr.map(c => [c.id, c]));
+    const commits = commitsArr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+    const commitIdx = new Map(commits.map((c, i) => [c.id, i]));
 
-    // Build commits map
-    const commitsMap = {};
-    commitsArray.forEach(commit => {
-      commitsMap[commit.id] = commit;
-    });
+    const groups = Object.fromEntries(GROUPS.map(g => [g, new Map()]));
+    let missing = 0;
+    const uncategorized = new Set();
 
-    // Parse and sort commits using shared function
-    const commits = shared.parseCommits(commitsMap);
+    for (const b of benchmarks) {
+      const commit = b.commit || commitMap.get(b.commit_id);
+      if (!commit) { missing++; continue; }
 
-    // Initialize groups using shared function
-    const groups = shared.initializeGroups();
-    const missingCommits = new Set();
-    const uncategorizableNames = new Set();
-
-    // Process benchmarks - filter out those with missing commits instead of creating placeholders
-    for (const benchmark of benchmarkData) {
-      // Check if commit exists, skip if missing
-      if (!benchmark.commit) {
-        benchmark.commit = commitsMap[benchmark.commit_id];
-        if (!benchmark.commit) {
-          missingCommits.add(benchmark.commit_id);
-          continue; // Skip benchmarks with missing commits
-        }
-      }
-
-      // Use shared determineGroupId function
-      const groupId = shared.determineGroupId(benchmark);
-      if (!groupId) {
-        uncategorizableNames.add(benchmark.name);
+      const group = getGroup(b);
+      if (!group) {
+        uncategorized.add(b.name.split('/')[0]);
         continue;
       }
+      if (!groups[group]) continue;
 
-      const group = groups[groupId];
-      if (!group) continue;
+      const [query, series] = b.name.split('/');
+      const seriesName = rename(series || 'default');
+      const chartName = formatQuery(query);
+      if (chartName.includes('PARQUET-UNC')) continue;
 
-      // Process benchmark data using shared functions
-      let [query, seriesName] = benchmark.name.split("/");
-      const normalized = shared.normalizeSeriesName(query, seriesName, groupId);
-      query = normalized.name;
-      seriesName = normalized.seriesName;
+      // Skip throughput metrics (keep only time/size)
+      if (b.name.includes(' throughput')) continue;
 
-      // Apply series renaming
-      seriesName = applySeriesRename(seriesName, groupId);
-
-      const prettyQ = shared.formatQueryName(query);
-      if (prettyQ.includes("PARQUET-UNC")) continue;
-
-      // Set units
-      let unit = benchmark.unit;
-      if (!unit && benchmark.name.startsWith("vortex size/")) {
-        unit = "bytes";
-      } else if (!unit && (benchmark.name.startsWith("vortex:raw size/") ||
-                          benchmark.name.startsWith("vortex:parquet-zstd size/") ||
-                          benchmark.name.startsWith("vortex:lance size/"))) {
-        unit = "ratio";
+      let unit = b.unit;
+      if (!unit) {
+        if (b.name.toLowerCase().includes(' size/')) unit = 'bytes';
+        else if (b.name.toLowerCase().includes(' ratio ')) unit = 'ratio';
+        else unit = 'ns';
       }
 
-      const sortPosition = (query.slice(0, 4) === "tpch" || query.slice(0, 5) === "tpcds")
-        ? parseInt(prettyQ.split(" ")[1]?.substring(1) || "0", 10)
-        : 0;
+      const sortPos = (query.match(/q(\d+)$/i))?.[1] ? parseInt(RegExp.$1, 10) : 0;
+      const idx = commitIdx.get(commit.id);
+      if (idx === undefined) continue;
 
-      // Add to group
-      let arr = group.get(prettyQ);
-      if (!arr) {
-        group.set(prettyQ, {
-          sort_position: sortPosition,
-          commits: commits,
-          unit: shared.getUnit(unit),
-          series: new Map()
-        });
-        arr = group.get(prettyQ);
+      let chart = groups[group].get(chartName);
+      if (!chart) {
+        let displayUnit = unit;
+        if (unit === 'ns') displayUnit = 'ms/iter';
+        else if (unit === 'bytes') displayUnit = 'MiB';
+        chart = { sort_position: sortPos, commits, unit: displayUnit, series: new Map() };
+        groups[group].set(chartName, chart);
       }
 
-      let series = arr.series.get(seriesName);
-      if (!series) {
-        arr.series.set(seriesName, new Array(commits.length).fill(null));
-        series = arr.series.get(seriesName);
+      if (!chart.series.has(seriesName)) {
+        chart.series.set(seriesName, Array(commits.length).fill(null));
       }
 
-      series[benchmark.commit.sortedIndex] = {
-        value: shared.convertValue(benchmark.value, unit)
-      };
+      // Convert values: ns -> ms, bytes -> MiB
+      let val = b.value;
+      if (unit === 'ns' && typeof val === 'number') {
+        val = val / 1e6; // ns to ms
+      } else if (unit === 'bytes' && typeof val === 'number') {
+        val = val / (1024 * 1024); // bytes to MiB
+      }
+
+      chart.series.get(seriesName)[idx] = { value: val };
     }
 
-    // Find the first commit index that has any benchmark data
-    let firstDataIndex = commits.length;
-    for (const groupCharts of Object.values(groups)) {
-      for (const chartData of groupCharts.values()) {
-        for (const seriesData of chartData.series.values()) {
-          for (let i = 0; i < seriesData.length; i++) {
-            if (seriesData[i] !== null) {
-              firstDataIndex = Math.min(firstDataIndex, i);
-              break;
-            }
-          }
+    // Log uncategorized benchmarks for debugging
+    if (uncategorized.size > 0) {
+      console.log(`Uncategorized benchmark prefixes (${uncategorized.size}):`, [...uncategorized].slice(0, 20).join(', '));
+    }
+
+    // Trim leading empty commits
+    let firstIdx = commits.length;
+    for (const gc of Object.values(groups)) {
+      for (const cd of gc.values()) {
+        for (const sd of cd.series.values()) {
+          const i = sd.findIndex(d => d !== null);
+          if (i !== -1 && i < firstIdx) firstIdx = i;
         }
       }
     }
 
-    // Filter out commits with no data
-    if (firstDataIndex > 0 && firstDataIndex < commits.length) {
-      console.log(`Filtering out ${firstDataIndex} commits with no benchmark data`);
-
-      // Create filtered commits array
-      const filteredCommits = commits.slice(firstDataIndex);
-
-      // Update sortedIndex for remaining commits
-      filteredCommits.forEach((commit, newIndex) => {
-        commit.sortedIndex = newIndex;
-      });
-
-      // Update all chart data to use filtered commits and trimmed series
-      for (const groupCharts of Object.values(groups)) {
-        for (const chartData of groupCharts.values()) {
-          chartData.commits = filteredCommits;
-
-          // Trim series data
-          for (const [seriesName, seriesData] of chartData.series.entries()) {
-            chartData.series.set(seriesName, seriesData.slice(firstDataIndex));
-          }
+    if (firstIdx > 0 && firstIdx < commits.length) {
+      console.log(`Trimming ${firstIdx} empty commits`);
+      commits.splice(0, firstIdx);
+      for (const gc of Object.values(groups)) {
+        for (const cd of gc.values()) {
+          cd.commits = commits;
+          for (const [k, v] of cd.series) cd.series.set(k, v.slice(firstIdx));
         }
       }
-
-      // Replace commits reference for metadata
-      commits.splice(0, commits.length, ...filteredCommits);
     }
 
-    // Sort groups using shared function
-    shared.sortGroups(groups);
+    // Sort charts within groups
+    for (const gc of Object.values(groups)) {
+      const sorted = [...gc.entries()].sort((a, b) => a[1].sort_position - b[1].sort_position || a[0].localeCompare(b[0]));
+      gc.clear();
+      for (const [k, v] of sorted) gc.set(k, v);
+    }
 
     // Precompute downsampled versions
-    const downsampledData = {};
-    for (const [groupName, groupCharts] of Object.entries(groups)) {
-      downsampledData[groupName] = {};
-      for (const [chartName, chartData] of groupCharts.entries()) {
-        downsampledData[groupName][chartName] = {
-          '1x': chartData,
-          '2x': downsampleChartData(chartData, 2),
-          '4x': downsampleChartData(chartData, 4),
-          '8x': downsampleChartData(chartData, 8)
-        };
+    const downsampled = {};
+    for (const [gn, gc] of Object.entries(groups)) {
+      downsampled[gn] = {};
+      for (const [cn, cd] of gc) {
+        downsampled[gn][cn] = { '1x': cd, '2x': downsample(cd, 2), '4x': downsample(cd, 4), '8x': downsample(cd, 8) };
       }
     }
 
-    // Build metadata
-    const metadata = buildMetadata(groups, commits);
+    // Count charts per group for logging
+    const groupCounts = Object.entries(groups).map(([n, g]) => `${n}: ${g.size}`).filter(s => !s.endsWith(': 0'));
+    console.log('Charts per group:', groupCounts.join(', '));
 
-    // Update data store
-    dataStore = {
-      commits,
-      commitsMap,
-      groups,
-      metadata,
-      downsampledData,
-      lastUpdated: new Date().toISOString()
-    };
-
-    console.log(`Data refresh complete in ${Date.now() - startTime}ms`);
-    console.log(`Groups: ${Object.keys(groups).length}, Missing commits: ${missingCommits.size}`);
-
-    if (uncategorizableNames.size > 0) {
-      console.log(`Uncategorizable names: ${uncategorizableNames.size}`);
-    }
-
-  } catch (error) {
-    console.error('Error refreshing data:', error);
+    store = { commits, groups, metadata: buildMeta(groups, commits), downsampled, lastUpdated: new Date().toISOString() };
+    console.log(`Refresh done in ${Date.now() - t0}ms (${missing} missing commits)`);
+  } catch (e) {
+    console.error('Refresh error:', e);
   }
 }
 
-// === Summary Calculation (mirrors scoring.js logic) ===
+// Summary calculations
+function latestIdx(chart) {
+  for (let i = chart.commits.length - 1; i >= 0; i--) {
+    for (const s of chart.series.values()) if (s[i]?.value != null) return i;
+  }
+  return -1;
+}
 
-function calculateGroupSummary(groupName, groupCharts) {
-  if (groupName === "Random Access") {
-    return calculateRandomAccessSummary(groupCharts);
-  } else if (groupName === "Compression") {
-    return calculateCompressionSummary(groupCharts);
-  } else if (groupName === "Compression Size") {
-    return calculateCompressionSizeSummary(groupCharts);
-  } else if (groupName === "Clickbench" || groupName.startsWith("TPC-H") ||
-             groupName.startsWith("TPC-DS") || groupName === "Statistical and Population Genetics") {
-    return calculateQueryBenchmarkSummary(groupCharts);
+function calcSummary(name, charts) {
+  if (name === 'Random Access') {
+    for (const q of charts.values()) {
+      const i = latestIdx(q);
+      if (i === -1) continue;
+      const vals = new Map();
+      for (const [n, d] of q.series) if (d[i]?.value != null) vals.set(n, d[i].value);
+      if (!vals.size) continue;
+      const min = Math.min(...vals.values());
+      return { type: 'randomAccess', title: 'Random Access Performance',
+        rankings: [...vals].map(([n, t]) => ({ name: n, time: t, ratio: t / min })).sort((a, b) => a.time - b.time),
+        explanation: 'Random access time | Ratio to fastest (lower is better)' };
+    }
+    return null;
+  }
+
+  if (name === 'Compression') {
+    const cc = charts.get('VORTEX:PARQUET ZSTD RATIO COMPRESS TIME');
+    const dc = charts.get('VORTEX:PARQUET ZSTD RATIO DECOMPRESS TIME');
+    if (!cc && !dc) return null;
+    const i = latestIdx(cc || dc);
+    if (i === -1) return null;
+    const collect = c => c ? [...c.series].filter(([n]) => !n.toLowerCase().includes('wide table'))
+      .map(([, d]) => d[i]?.value).filter(v => v > 0).map(v => 1 / v) : [];
+    return { type: 'compression', title: 'Compression Throughput vs Parquet',
+      compressRatio: geoMean(collect(cc)), decompressRatio: geoMean(collect(dc)),
+      datasetCount: collect(cc).length, explanation: 'Inverse geomean of Vortex/Parquet ratios (higher is better)' };
+  }
+
+  if (name === 'Compression Size') {
+    const c = charts.get('VORTEX:PARQUET ZSTD SIZE');
+    if (!c) return null;
+    const i = latestIdx(c);
+    if (i === -1) return null;
+    const ratios = [...c.series].filter(([n]) => !n.toLowerCase().includes('wide table'))
+      .map(([, d]) => d[i]?.value).filter(v => v > 0);
+    return ratios.length ? { type: 'compressionSize', title: 'Compression Size Summary',
+      minRatio: Math.min(...ratios), meanRatio: geoMean(ratios), maxRatio: Math.max(...ratios),
+      datasetCount: ratios.length, explanation: 'Geomean of Vortex/Parquet size ratios (lower is better)' } : null;
+  }
+
+  if (name === 'Clickbench' || name.startsWith('TPC-') || name === 'Statistical and Population Genetics') {
+    const all = new Map();
+    for (const q of charts.values()) for (const n of q.series.keys()) if (!all.has(n)) all.set(n, new Map());
+    for (const [qn, qd] of charts) {
+      for (const [sn, sd] of qd.series) {
+        for (let i = sd.length - 1; i >= 0; i--) {
+          if (sd[i]?.value != null) { all.get(sn).set(qn, sd[i].value); break; }
+        }
+      }
+    }
+    if (!all.size) return null;
+
+    const scores = new Map();
+    for (const [sn, qr] of all) {
+      let total = 0, max = 0;
+      for (const v of qr.values()) { total += v; max = Math.max(max, v); }
+      const penalty = Math.max(300000, max) * 2;
+      const ratios = [];
+      for (const qn of charts.keys()) {
+        let base = Infinity;
+        for (const m of all.values()) if (m.has(qn)) base = Math.min(base, m.get(qn));
+        if (base < Infinity) ratios.push((10 + (qr.get(qn) ?? penalty)) / (10 + base));
+      }
+      if (ratios.length) scores.set(sn, { score: geoMean(ratios), totalRuntime: total });
+    }
+
+    return scores.size ? { type: 'queryBenchmark', title: 'Performance Summary',
+      rankings: [...scores].map(([n, d]) => ({ name: n, ...d })).sort((a, b) => a.score - b.score),
+      explanation: 'Geomean of query time ratio to fastest (lower is better)' } : null;
   }
   return null;
 }
 
-function calculateRandomAccessSummary(groupCharts) {
-  const latestResults = new Map();
-
-  for (const [queryName, queryData] of groupCharts.entries()) {
-    if (!queryData.series || queryData.series.size === 0) continue;
-
-    // Find the most recent commit with data
-    let latestCommitWithData = -1;
-    for (let i = queryData.commits.length - 1; i >= 0; i--) {
-      let hasData = false;
-      for (const seriesData of queryData.series.values()) {
-        const result = seriesData[i];
-        if (result && result.value !== null && result.value !== undefined) {
-          hasData = true;
-          break;
-        }
+function buildMeta(groups, commits) {
+  const meta = {};
+  for (const [gn, gc] of Object.entries(groups)) {
+    const charts = [...gc].map(([cn, cd]) => {
+      const latest = {};
+      for (const [sn, sd] of cd.series) {
+        for (let i = sd.length - 1; i >= 0; i--) if (sd[i]?.value != null) { latest[sn] = sd[i].value; break; }
       }
-      if (hasData) {
-        latestCommitWithData = i;
-        break;
-      }
-    }
-
-    if (latestCommitWithData === -1) continue;
-
-    for (const [seriesName, seriesData] of queryData.series.entries()) {
-      if (latestCommitWithData < seriesData.length) {
-        const result = seriesData[latestCommitWithData];
-        if (result && result.value !== null && result.value !== undefined) {
-          latestResults.set(seriesName, result.value);
-        }
-      }
-    }
-    break;
-  }
-
-  if (latestResults.size === 0) return null;
-
-  let fastestTime = Infinity;
-  for (const time of latestResults.values()) {
-    fastestTime = Math.min(fastestTime, time);
-  }
-
-  const rankings = [];
-  for (const [seriesName, time] of latestResults.entries()) {
-    rankings.push({
-      name: seriesName,
-      time: time,
-      ratio: time / fastestTime
+      return { name: cn, unit: cd.unit, series: [...cd.series.keys()], sortPosition: cd.sort_position,
+        totalPoints: cd.commits.length, latestValues: latest };
     });
+    meta[gn] = { charts, totalCharts: charts.length, hasData: charts.length > 0, summary: calcSummary(gn, gc) };
   }
-
-  rankings.sort((a, b) => a.time - b.time);
-
-  return {
-    type: 'randomAccess',
-    title: 'Random Access Performance',
-    rankings: rankings,
-    explanation: 'Random access time | Ratio to fastest (lower is better)'
-  };
+  return { groups: meta, totalCommits: commits.length,
+    commits: commits.map(c => ({ id: c.id, message: c.message?.split('\n')[0] || '', timestamp: c.timestamp, author: c.author?.name || 'Unknown' })),
+    lastUpdated: new Date().toISOString() };
 }
 
-function calculateCompressionSummary(groupCharts) {
-  const compressRatioChart = groupCharts.get("VORTEX:PARQUET-ZSTD RATIO COMPRESS TIME");
-  const decompressRatioChart = groupCharts.get("VORTEX:PARQUET-ZSTD RATIO DECOMPRESS TIME");
-
-  if (!compressRatioChart && !decompressRatioChart) return null;
-
-  const compressRatios = [];
-  const decompressRatios = [];
-
-  // Find latest commit with data
-  let latestCommit = -1;
-  const chartToCheck = compressRatioChart || decompressRatioChart;
-  if (chartToCheck?.series) {
-    for (let i = chartToCheck.commits.length - 1; i >= 0; i--) {
-      for (const seriesData of chartToCheck.series.values()) {
-        if (seriesData[i]?.value !== null && seriesData[i]?.value !== undefined) {
-          latestCommit = i;
-          break;
-        }
-      }
-      if (latestCommit !== -1) break;
-    }
-  }
-
-  if (latestCommit === -1) return null;
-
-  // Collect ratios (excluding wide table cols)
-  if (compressRatioChart?.series) {
-    for (const [seriesName, seriesData] of compressRatioChart.series.entries()) {
-      if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
-      const result = seriesData[latestCommit];
-      if (result?.value > 0) {
-        compressRatios.push(1 / result.value);
-      }
-    }
-  }
-
-  if (decompressRatioChart?.series) {
-    for (const [seriesName, seriesData] of decompressRatioChart.series.entries()) {
-      if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
-      const result = seriesData[latestCommit];
-      if (result?.value > 0) {
-        decompressRatios.push(1 / result.value);
-      }
-    }
-  }
-
-  const geometricMean = (values) => {
-    if (values.length === 0) return null;
-    const product = values.reduce((acc, val) => acc * val, 1);
-    return Math.pow(product, 1 / values.length);
-  };
-
-  return {
-    type: 'compression',
-    title: 'Compression Throughput vs Parquet',
-    compressRatio: geometricMean(compressRatios),
-    decompressRatio: geometricMean(decompressRatios),
-    datasetCount: compressRatios.length,
-    explanation: `Inverse geometric mean of Vortex/Parquet ratios across ${compressRatios.length} datasets (higher is better)`
-  };
-}
-
-function calculateCompressionSizeSummary(groupCharts) {
-  const sizeRatioChart = groupCharts.get("VORTEX:PARQUET-ZSTD SIZE");
-  if (!sizeRatioChart?.series) return null;
-
-  let latestCommit = -1;
-  for (let i = sizeRatioChart.commits.length - 1; i >= 0; i--) {
-    for (const seriesData of sizeRatioChart.series.values()) {
-      if (seriesData[i]?.value !== null && seriesData[i]?.value !== undefined) {
-        latestCommit = i;
-        break;
-      }
-    }
-    if (latestCommit !== -1) break;
-  }
-
-  if (latestCommit === -1) return null;
-
-  const sizeRatios = [];
-  for (const [seriesName, seriesData] of sizeRatioChart.series.entries()) {
-    if (seriesName.toLowerCase().startsWith("wide table cols")) continue;
-    const result = seriesData[latestCommit];
-    if (result?.value > 0) {
-      sizeRatios.push(result.value);
-    }
-  }
-
-  if (sizeRatios.length === 0) return null;
-
-  const geometricMean = (values) => {
-    const product = values.reduce((acc, val) => acc * val, 1);
-    return Math.pow(product, 1 / values.length);
-  };
-
-  return {
-    type: 'compressionSize',
-    title: 'Compression Size Summary',
-    minRatio: Math.min(...sizeRatios),
-    meanRatio: geometricMean(sizeRatios),
-    maxRatio: Math.max(...sizeRatios),
-    datasetCount: sizeRatios.length,
-    explanation: `Geometric mean of Vortex/Parquet size ratios across ${sizeRatios.length} datasets (lower is better)`
-  };
-}
-
-function calculateQueryBenchmarkSummary(groupCharts) {
-  // Get latest data per series across all queries
-  const seriesLatestData = new Map();
-  const allSeriesNames = new Set();
-
-  for (const queryData of groupCharts.values()) {
-    if (!queryData.series) continue;
-    for (const seriesName of queryData.series.keys()) {
-      allSeriesNames.add(seriesName);
-    }
-  }
-
-  for (const seriesName of allSeriesNames) {
-    seriesLatestData.set(seriesName, new Map());
-  }
-
-  for (const [queryName, queryData] of groupCharts.entries()) {
-    if (!queryData.series) continue;
-
-    for (const [seriesName, seriesData] of queryData.series.entries()) {
-      for (let i = seriesData.length - 1; i >= 0; i--) {
-        const result = seriesData[i];
-        if (result?.value !== null && result?.value !== undefined) {
-          seriesLatestData.get(seriesName).set(queryName, result.value);
-          break;
-        }
-      }
-    }
-  }
-
-  if (seriesLatestData.size === 0) return null;
-
-  // Calculate geometric mean scores
-  const seriesScores = new Map();
-
-  for (const [seriesName, queryResults] of seriesLatestData.entries()) {
-    const ratios = [];
-    let totalRuntime = 0;
-    let maxRuntime = 0;
-
-    for (const runtime of queryResults.values()) {
-      maxRuntime = Math.max(maxRuntime, runtime);
-      totalRuntime += runtime;
-    }
-
-    const penalty = Math.max(300000, maxRuntime) * 2;
-
-    for (const [queryName] of groupCharts.entries()) {
-      let baseline = Infinity;
-      for (const latestData of seriesLatestData.values()) {
-        if (latestData.has(queryName)) {
-          baseline = Math.min(baseline, latestData.get(queryName));
-        }
-      }
-
-      if (baseline === Infinity) continue;
-
-      const seriesRuntime = queryResults.has(queryName)
-        ? queryResults.get(queryName)
-        : penalty;
-
-      const ratio = (10 + seriesRuntime) / (10 + baseline);
-      ratios.push(ratio);
-    }
-
-    if (ratios.length > 0) {
-      const product = ratios.reduce((acc, ratio) => acc * ratio, 1);
-      const geometricMean = Math.pow(product, 1 / ratios.length);
-      seriesScores.set(seriesName, {
-        score: geometricMean,
-        totalRuntime: totalRuntime,
-        queryCount: queryResults.size
-      });
-    }
-  }
-
-  if (seriesScores.size === 0) return null;
-
-  const rankings = Array.from(seriesScores.entries())
-    .map(([name, data]) => ({ name, score: data.score, totalRuntime: data.totalRuntime }))
-    .sort((a, b) => a.score - b.score);
-
-  return {
-    type: 'queryBenchmark',
-    title: 'Performance Summary',
-    rankings: rankings,
-    explanation: 'Score: geometric mean of query time ratio to fastest with 10ms constant shift | Total: sum of all query times (lower is better)'
-  };
-}
-
-function buildMetadata(groups, commits) {
-  const groupMetadata = {};
-
-  for (const [groupName, groupCharts] of Object.entries(groups)) {
-    const charts = [];
-    for (const [chartName, chartData] of groupCharts.entries()) {
-      const seriesNames = Array.from(chartData.series.keys());
-
-      // Calculate latest values for summary
-      const latestValues = {};
-      for (const [seriesName, seriesData] of chartData.series.entries()) {
-        for (let i = seriesData.length - 1; i >= 0; i--) {
-          if (seriesData[i] !== null && seriesData[i].value !== null) {
-            latestValues[seriesName] = seriesData[i].value;
-            break;
-          }
-        }
-      }
-
-      charts.push({
-        name: chartName,
-        unit: chartData.unit,
-        seriesNames,
-        sortPosition: chartData.sort_position,
-        totalPoints: chartData.commits.length,
-        latestValues
-      });
-    }
-
-    // Calculate summary for this group
-    const summary = calculateGroupSummary(groupName, groupCharts);
-
-    groupMetadata[groupName] = {
-      charts,
-      totalCharts: charts.length,
-      hasData: charts.length > 0,
-      summary: summary
-    };
-  }
-
-  return {
-    groups: groupMetadata,
-    totalCommits: commits.length,
-    commits: commits.map(c => ({
-      id: c.id,
-      message: c.message.split('\n')[0],
-      timestamp: c.timestamp,
-      author: c.author.name
-    })),
-    lastUpdated: new Date().toISOString()
-  };
-}
-
-// === API Handlers ===
-
-function handleMetadataRequest(res) {
-  if (!dataStore.metadata) {
-    sendJson(res, 503, { error: 'Data not yet loaded' });
-    return;
-  }
-  sendJson(res, 200, dataStore.metadata);
-}
-
-function handleDataRequest(res, groupName, chartName, startTimestamp, endTimestamp) {
-  if (!dataStore.downsampledData) {
-    sendJson(res, 503, { error: 'Data not yet loaded' });
-    return;
-  }
-
-  const groupData = dataStore.downsampledData[groupName];
-  if (!groupData) {
-    sendJson(res, 404, { error: `Group '${groupName}' not found` });
-    return;
-  }
-
-  const chartVersions = groupData[chartName];
-  if (!chartVersions) {
-    sendJson(res, 404, { error: `Chart '${chartName}' not found in group '${groupName}'` });
-    return;
-  }
-
-  // Get full data
-  const fullData = chartVersions['1x'];
-
-  // Determine range using timestamps (in ms)
-  let startIndex = 0;
-  let endIndex = fullData.commits.length - 1;
-
-  // Helper to get timestamp in ms from commit (handles both ISO string and ms number)
-  const getTimestampMs = (commit) => {
-    if (!commit?.timestamp) return 0;
-    if (typeof commit.timestamp === 'number') return commit.timestamp;
-    return new Date(commit.timestamp).getTime();
-  };
-
-  if (startTimestamp) {
-    const ts = parseInt(startTimestamp, 10);
-    // Find first commit with timestamp >= startTimestamp
-    const idx = fullData.commits.findIndex(c => getTimestampMs(c) >= ts);
-    if (idx !== -1) startIndex = idx;
-  }
-
-  if (endTimestamp) {
-    const ts = parseInt(endTimestamp, 10);
-    // Find last commit with timestamp <= endTimestamp
-    for (let i = fullData.commits.length - 1; i >= 0; i--) {
-      if (getTimestampMs(fullData.commits[i]) <= ts) {
-        endIndex = i;
-        break;
-      }
-    }
-  }
-
-  const rangeLength = endIndex - startIndex + 1;
-
-  // Select appropriate downsampling level based on range
-  let selectedVersion;
-  if (rangeLength <= MAX_POINTS_PER_CHART) {
-    selectedVersion = '1x';
-  } else if (rangeLength <= MAX_POINTS_PER_CHART * 2) {
-    selectedVersion = '2x';
-  } else if (rangeLength <= MAX_POINTS_PER_CHART * 4) {
-    selectedVersion = '4x';
-  } else {
-    selectedVersion = '8x';
-  }
-
-  const chartData = chartVersions[selectedVersion];
-
-  // For downsampled data, we need to find the appropriate range in the downsampled arrays
-  // Since indices are preserved relatively, we can map the range
-  let resultCommits, resultSeries;
-
-  // Helper to extract value from data point
-  const extractValue = (d) => {
-    if (d === null || d === undefined) return null;
-    if (typeof d === 'object' && d.value !== undefined) return d.value;
-    if (typeof d === 'number') return d;
-    return null;
-  };
-
-  if (selectedVersion === '1x') {
-    resultCommits = fullData.commits.slice(startIndex, endIndex + 1);
-    resultSeries = {};
-    for (const [seriesName, seriesData] of fullData.series.entries()) {
-      // Extract just the value from each data point
-      resultSeries[seriesName] = seriesData.slice(startIndex, endIndex + 1)
-        .map(extractValue);
-    }
-  } else {
-    // For downsampled data, filter to range based on originalLength mapping
-    const scale = parseInt(selectedVersion);
-    const dsStartIndex = Math.floor(startIndex / scale);
-    const dsEndIndex = Math.min(Math.ceil(endIndex / scale), chartData.commits.length - 1);
-
-    resultCommits = chartData.commits.slice(dsStartIndex, dsEndIndex + 1);
-    resultSeries = {};
-    for (const [seriesName, seriesData] of chartData.series.entries()) {
-      // Extract just the value from each data point
-      resultSeries[seriesName] = seriesData.slice(dsStartIndex, dsEndIndex + 1)
-        .map(extractValue);
-    }
-  }
-
-  sendJson(res, 200, {
-    group: groupName,
-    chart: chartName,
-    unit: chartData.unit,
-    downsampleLevel: selectedVersion,
-    originalLength: fullData.commits.length,
-    requestedRange: { startIndex, endIndex, length: rangeLength },
-    commits: resultCommits.map(c => ({
-      id: c.id,
-      message: c.message?.split('\n')[0] || '',
-      timestamp: c.timestamp,
-      author: c.author?.name || 'Unknown',
-      url: c.url
-    })),
-    series: resultSeries
-  });
-}
-
-// === HTTP Server ===
-
-function sendJson(res, statusCode, data) {
-  res.writeHead(statusCode, {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
-  });
+// HTTP handlers
+const json = (res, code, data) => {
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
   res.end(JSON.stringify(data));
-}
+};
 
-function sendFile(res, filePath) {
-  const ext = path.extname(filePath).toLowerCase();
-  const mimeType = MIME_TYPES[ext] || 'application/octet-stream';
-
-  fs.readFile(filePath, (err, data) => {
-    if (err) {
-      if (err.code === 'ENOENT') {
-        res.writeHead(404);
-        res.end('Not Found');
-      } else {
-        res.writeHead(500);
-        res.end('Internal Server Error');
-      }
-      return;
-    }
-
-    // Disable caching for JS files during development
-    const headers = { 'Content-Type': mimeType };
-    if (ext === '.js') {
-      headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0';
-      headers['Pragma'] = 'no-cache';
-      headers['Expires'] = '0';
-    }
-    res.writeHead(200, headers);
+function serveFile(res, fp) {
+  fs.readFile(fp, (err, data) => {
+    if (err) { res.writeHead(err.code === 'ENOENT' ? 404 : 500); return res.end(err.code === 'ENOENT' ? 'Not Found' : 'Error'); }
+    const ext = path.extname(fp).toLowerCase();
+    const hdrs = { 'Content-Type': MIME[ext] || 'application/octet-stream' };
+    if (ext === '.js') { hdrs['Cache-Control'] = 'no-cache'; hdrs['Pragma'] = 'no-cache'; }
+    res.writeHead(200, hdrs);
     res.end(data);
   });
 }
 
-function parseUrl(url) {
-  const [pathname, queryString] = url.split('?');
-  const params = new URLSearchParams(queryString || '');
-  return { pathname, params };
+function handleData(res, group, chart, start, end, last, startIdx, endIdx) {
+  if (!store.downsampled) return json(res, 503, { error: 'Loading' });
+  const gd = store.downsampled[group];
+  if (!gd) return json(res, 404, { error: 'Group not found' });
+  const cv = gd[chart];
+  if (!cv) return json(res, 404, { error: 'Chart not found' });
+
+  const full = cv['1x'];
+  const ts = c => typeof c?.timestamp === 'number' ? c.timestamp : new Date(c?.timestamp).getTime();
+
+  let si = 0, ei = full.commits.length - 1;
+
+  // Support "last=N" parameter to get the last N commits
+  if (last && !start && !end && startIdx === null && endIdx === null) {
+    const n = parseInt(last, 10);
+    if (n > 0 && n < full.commits.length) {
+      si = full.commits.length - n;
+    }
+  } else if (startIdx !== null || endIdx !== null) {
+    // Support index-based range (startIdx, endIdx)
+    if (startIdx !== null) si = Math.max(0, parseInt(startIdx, 10));
+    if (endIdx !== null) ei = Math.min(full.commits.length - 1, parseInt(endIdx, 10));
+  } else {
+    // Timestamp-based range
+    if (start) { const t = +start, i = full.commits.findIndex(c => ts(c) >= t); if (i !== -1) si = i; }
+    if (end) { const t = +end; for (let i = ei; i >= 0; i--) if (ts(full.commits[i]) <= t) { ei = i; break; } }
+  }
+
+  const len = ei - si + 1;
+  const ver = len <= MAX_POINTS ? '1x' : len <= MAX_POINTS * 2 ? '2x' : len <= MAX_POINTS * 4 ? '4x' : '8x';
+  const cd = cv[ver];
+  const val = d => d?.value ?? (typeof d === 'number' ? d : null);
+
+  let commits, series;
+  if (ver === '1x') {
+    commits = full.commits.slice(si, ei + 1);
+    series = Object.fromEntries([...full.series].map(([n, d]) => [n, d.slice(si, ei + 1).map(val)]));
+  } else {
+    const s = +ver[0], dsi = Math.floor(si / s), dei = Math.min(Math.ceil(ei / s), cd.commits.length - 1);
+    commits = cd.commits.slice(dsi, dei + 1);
+    series = Object.fromEntries([...cd.series].map(([n, d]) => [n, d.slice(dsi, dei + 1).map(val)]));
+  }
+
+  json(res, 200, { group, chart, unit: cd.unit, downsampleLevel: ver, originalLength: full.commits.length,
+      requestedRange: { startIndex: si, endIndex: ei, length: len },
+      commits: commits.map(c => ({ id: c.id, message: c.message?.split('\n')[0] || '', timestamp: c.timestamp, author: c.author?.name || 'Unknown', url: c.url })),
+      series });
 }
 
 const server = http.createServer((req, res) => {
-  const { pathname, params } = parseUrl(req.url);
+  const [path_, qs] = req.url.split('?');
+  const params = new URLSearchParams(qs || '');
 
-  // CORS preflight
   if (req.method === 'OPTIONS') {
-    res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end();
-    return;
+    res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET', 'Access-Control-Allow-Headers': 'Content-Type' });
+    return res.end();
   }
 
-  // API routes
-  if (pathname === '/api/metadata') {
-    handleMetadataRequest(res);
-    return;
+  if (path_ === '/api/metadata') return store.metadata ? json(res, 200, store.metadata) : json(res, 503, { error: 'Loading' });
+
+  if (path_.startsWith('/api/data/')) {
+    const p = path_.slice(10).split('/');
+    return handleData(
+      res,
+      decodeURIComponent(p[0] || ''),
+      decodeURIComponent(p.slice(1).join('/') || ''),
+      params.get('start'),
+      params.get('end'),
+      params.get('last'),
+      params.has('startIdx') ? params.get('startIdx') : null,
+      params.has('endIdx') ? params.get('endIdx') : null
+    );
   }
 
-  if (pathname.startsWith('/api/data/')) {
-    const parts = pathname.replace('/api/data/', '').split('/');
-    const groupName = decodeURIComponent(parts[0] || '');
-    const chartName = decodeURIComponent(parts.slice(1).join('/') || '');
-    const startTimestamp = params.get('start');
-    const endTimestamp = params.get('end');
-
-    handleDataRequest(res, groupName, chartName, startTimestamp, endTimestamp);
-    return;
-  }
-
-  // Static files
-  let filePath = pathname === '/' ? '/index.html' : pathname;
-  filePath = path.join(__dirname, filePath);
-
-  // Security: prevent directory traversal
-  if (!filePath.startsWith(__dirname)) {
-    res.writeHead(403);
-    res.end('Forbidden');
-    return;
-  }
-
-  // Don't serve sample directory
-  if (filePath.includes('/sample/')) {
-    res.writeHead(404);
-    res.end('Not Found');
-    return;
-  }
-
-  sendFile(res, filePath);
+  const fp = path.join(__dirname, path_ === '/' ? 'index.html' : path_);
+  if (!fp.startsWith(__dirname) || fp.includes('/sample/')) { res.writeHead(403); return res.end('Forbidden'); }
+  serveFile(res, fp);
 });
 
-// === Startup ===
-
 async function start() {
-  console.log('Starting Vortex Benchmarks Server...');
-
-  // Initial data load
-  await refreshData();
-
-  // Schedule periodic refresh
-  setInterval(refreshData, REFRESH_INTERVAL);
-
-  // Start HTTP server
-  server.listen(PORT, () => {
-    console.log(`Server running at http://localhost:${PORT}`);
-  });
+  console.log('Starting server...');
+  await refresh();
+  setInterval(refresh, REFRESH_INTERVAL);
+  server.listen(PORT, () => console.log(`Server at http://localhost:${PORT}`));
 }
 
 start().catch(console.error);
