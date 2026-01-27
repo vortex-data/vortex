@@ -23,7 +23,7 @@ _test-harness = []
 [dependencies]
 async-trait = { workspace = true }
 cudarc = { workspace = true }
-futures = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }
