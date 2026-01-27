@@ -14,9 +14,9 @@ use futures::StreamExt;
 use futures::channel::mpsc;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_io::BufferAllocator;
 use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
@@ -72,6 +72,16 @@ impl FileSegmentSource {
         handle: Handle,
         metrics: VortexMetrics,
     ) -> Self {
+        Self::open_with_allocator(segments, Arc::new(reader), handle, metrics, None)
+    }
+
+    pub fn open_with_allocator(
+        segments: Arc<[SegmentSpec]>,
+        source: Arc<dyn VortexReadAt>,
+        handle: Handle,
+        metrics: VortexMetrics,
+        allocator: Option<Arc<dyn BufferAllocator>>,
+    ) -> Self {
         let (send, recv) = mpsc::unbounded();
 
         let max_alignment = segments
@@ -87,6 +97,7 @@ impl FileSegmentSource {
             config
         });
         let concurrency = reader.concurrency();
+        let allocator = allocator.clone();
 
         let drive_fut = async move {
             let stream = IoRequestStream::new(
@@ -99,11 +110,20 @@ impl FileSegmentSource {
 
             stream
                 .map(move |req| {
-                    let source = reader.clone();
+                    let source = source.clone();
+                    let allocator = allocator.clone();
                     async move {
-                        let result = source
-                            .read_at(req.offset(), req.len(), req.alignment())
-                            .await;
+                        let result = if let Some(allocator) = allocator {
+                            match allocator.allocate(req.len(), req.alignment()) {
+                                Ok(target) => source.read_at_into(req.offset(), target).await,
+                                Err(e) => Err(e),
+                            }
+                        } else {
+                            source
+                                .read_at(req.offset(), req.len(), req.alignment())
+                                .await
+                                .map(BufferHandle::new_host)
+                        };
                         req.resolve(result);
                     }
                 })
@@ -162,7 +182,6 @@ impl SegmentSource for FileSegmentSource {
             maybe_fut
                 .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
                 .await
-                .map(BufferHandle::new_host)
         }
         .boxed()
     }
@@ -174,13 +193,13 @@ impl SegmentSource for FileSegmentSource {
 /// If dropped, the read request will be canceled where possible.
 struct ReadFuture {
     id: usize,
-    recv: oneshot::Receiver<VortexResult<ByteBuffer>>,
+    recv: oneshot::Receiver<VortexResult<BufferHandle>>,
     polled: bool,
     events: mpsc::UnboundedSender<ReadEvent>,
 }
 
 impl Future for ReadFuture {
-    type Output = VortexResult<ByteBuffer>;
+    type Output = VortexResult<BufferHandle>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         if !self.polled {

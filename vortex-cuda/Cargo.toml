@@ -22,9 +22,11 @@ _test-harness = []
 
 [dependencies]
 async-trait = { workspace = true }
+bytes = { workspace = true }
 cudarc = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
+parking_lot = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
@@ -35,6 +37,7 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
+vortex-io = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+use std::io;
 #[cfg(all(not(unix), not(windows)))]
 use std::io::Read;
 #[cfg(all(not(unix), not(windows)))]
@@ -15,6 +16,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -22,12 +24,13 @@ use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
+use crate::WriteTarget;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<()> {
+pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
         file.read_exact_at(buffer, offset)
@@ -119,6 +122,26 @@ impl VortexReadAt for FileReadAdapter {
                     Ok(buffer.freeze())
                 })
                 .await
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let file = self.file.clone();
+        let handle = self.handle.clone();
+        async move {
+            let target = handle
+                .spawn_blocking(move || {
+                    read_exact_at(&file, target.as_mut_slice(), offset)?;
+                    Ok::<_, io::Error>(target)
+                })
+                .await
+                .map_err(io::Error::other)?;
+            target.into_handle().await
         }
         .boxed()
     }

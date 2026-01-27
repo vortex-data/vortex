@@ -11,12 +11,14 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
+use crate::WriteTarget;
 use crate::file::std_file::FileReadAdapter;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
@@ -254,6 +256,27 @@ impl VortexReadAt for CountingReadAt {
                 .as_mut_slice()
                 .copy_from_slice(&data.as_slice()[start..start + length]);
             Ok(buffer.freeze())
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.read_count.fetch_add(1, Ordering::SeqCst);
+        let data = self.data.clone();
+        async move {
+            let start = offset as usize;
+            let length = target.len();
+            if start + length > data.len() {
+                return Err(vortex_error::vortex_err!("Read out of bounds"));
+            }
+            target
+                .as_mut_slice()
+                .copy_from_slice(&data.as_slice()[start..start + length]);
+            target.into_handle().await
         }
         .boxed()
     }

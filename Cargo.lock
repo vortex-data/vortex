@@ -10335,10 +10335,12 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "bytes",
  "codspeed-criterion-compat-walltime",
  "cudarc",
  "futures",
  "kanal",
+ "parking_lot",
  "rstest",
  "tokio",
  "tracing",
@@ -10350,6 +10352,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-io",
  "vortex-mask",
  "vortex-nvcomp",
  "vortex-scalar",
@@ -10688,6 +10691,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
