@@ -101,7 +101,6 @@ impl BoolArray {
 
         let (offset, len, buffer) = bits.into_inner();
 
-        //
         Ok(Self {
             dtype: DType::Bool(validity.nullability()),
             bits: BufferHandle::new_host(buffer),
