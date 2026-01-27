@@ -24,7 +24,6 @@ use vortex::file::VortexFile;
 use vortex::io::VortexReadAt;
 use vortex::layout::segments::SegmentCache;
 use vortex::layout::segments::SegmentId;
-use vortex::metrics::MetricsSessionExt;
 use vortex::session::VortexSession;
 use vortex::utils::aliases::DefaultHashBuilder;
 
@@ -108,11 +107,6 @@ impl VortexFileCache {
                 file_key.clone(),
                 self.session
                     .open_options()
-                    .with_metrics(
-                        self.session
-                            .metrics()
-                            .child_with_tags([("filename", object.location.to_string())]),
-                    )
                     .with_initial_read_size(self.footer_initial_read_size_bytes)
                     .with_file_size(object.size)
                     .with_segment_cache(Arc::new(VortexFileSegmentCache {

@@ -22,7 +22,6 @@ use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_metrics::MetricsSessionExt;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -54,12 +53,10 @@ pub struct VortexOpenOptions {
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
-    metrics: VortexMetrics,
+    metrics: Option<VortexMetrics>,
 }
 
-pub trait OpenOptionsSessionExt:
-    ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt
-{
+pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt {
     /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
@@ -70,14 +67,11 @@ pub trait OpenOptionsSessionExt:
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
-            metrics: self.metrics(),
+            metrics: None,
         }
     }
 }
-impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt>
-    OpenOptionsSessionExt for S
-{
-}
+impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt> OpenOptionsSessionExt for S {}
 
 impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
@@ -128,7 +122,7 @@ impl VortexOpenOptions {
 
     /// Configure a custom [`VortexMetrics`].
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+        self.metrics = Some(metrics);
         self
     }
 
@@ -165,7 +159,9 @@ impl VortexOpenOptions {
     ///
     /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
     async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
+        let metrics = self.metrics.clone().unwrap_or_default();
+
+        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &metrics));
 
         let footer = if let Some(footer) = self.footer {
             footer
@@ -178,7 +174,7 @@ impl VortexOpenOptions {
                 initial: self.initial_read_segments,
                 fallback: self.segment_cache,
             },
-            self.metrics.clone(),
+            metrics.clone(),
         ));
 
         // Create a segment source backed by the VortexRead implementation.
@@ -186,7 +182,7 @@ impl VortexOpenOptions {
             footer.segment_map().clone(),
             read,
             self.session.handle(),
-            self.metrics.clone(),
+            metrics.clone(),
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -198,7 +194,6 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             footer,
             segment_source,
-            metrics: self.metrics,
             session: self.session.clone(),
         })
     }
