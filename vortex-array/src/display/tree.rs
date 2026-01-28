@@ -159,7 +159,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             array.metadata_fmt(i.fmt)?;
             writeln!(i.fmt)?;
 
-            for buffer in array.buffer_handles() {
+            for (name, buffer) in array.named_buffers() {
                 let buffer_percent = if nbytes == 0 {
                     0.0
                 } else {
@@ -170,7 +170,7 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 } else if buffer.is_on_host() {
                     "host"
                 } else {
-                    "unknown"
+                    "location-unknown"
                 };
                 let align = if buffer.is_on_host() {
                     buffer.as_host().alignment().to_string()
@@ -179,7 +179,8 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 };
                 writeln!(
                     i,
-                    "buffer {loc} (align={}): {} ({:.2}%)",
+                    "buffer (name={}) {loc} (align={}): {} ({:.2}%)",
+                    name,
                     align,
                     format_size(buffer.len(), DECIMAL),
                     buffer_percent

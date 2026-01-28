@@ -4,6 +4,7 @@
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
+use crate::buffer::BufferHandle;
 use crate::vtable::VTable;
 
 pub trait VisitorVTable<V: VTable> {
@@ -15,7 +16,7 @@ pub trait VisitorVTable<V: VTable> {
         struct NBuffers(usize);
 
         impl ArrayBufferVisitor for NBuffers {
-            fn visit_buffer_handle(&mut self, _name: &str, _handle: &crate::buffer::BufferHandle) {
+            fn visit_buffer_handle(&mut self, _name: &str, _handle: &BufferHandle) {
                 self.0 += 1;
             }
         }
@@ -30,7 +31,7 @@ pub trait VisitorVTable<V: VTable> {
         struct BufferNames(Vec<String>);
 
         impl ArrayBufferVisitor for BufferNames {
-            fn visit_buffer_handle(&mut self, name: &str, _handle: &crate::buffer::BufferHandle) {
+            fn visit_buffer_handle(&mut self, name: &str, _handle: &BufferHandle) {
                 self.0.push(name.to_string());
             }
         }
