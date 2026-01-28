@@ -60,6 +60,7 @@ fn make_bitmask(len: usize, selectivity: f64) -> (Vec<u8>, usize) {
 }
 
 /// Runs the CUB filter kernel and returns elapsed GPU time.
+#[expect(clippy::too_many_arguments)]
 async fn run_filter_timed<T: CubFilterable + cudarc::driver::DeviceRepr>(
     d_input: CudaView<'_, T>,
     d_bitmask: CudaView<'_, u8>,
@@ -144,6 +145,7 @@ where
                                 .vortex_expect("failed to create execution context");
 
                         let num_items = input_data.len() as i64;
+                        #[expect(clippy::expect_used)]
                         let temp_bytes =
                             T::get_temp_size(num_items).expect("failed to get temp size");
 
