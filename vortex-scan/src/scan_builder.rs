@@ -38,7 +38,7 @@ use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReader;
 use vortex_layout::LayoutReaderRef;
 use vortex_layout::layouts::row_idx::RowIdxLayoutReader;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::RepeatedScan;
@@ -66,7 +66,7 @@ pub struct ScanBuilder<A> {
     concurrency: usize,
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-    metrics: VortexMetrics,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
@@ -91,7 +91,7 @@ impl ScanBuilder<ArrayRef> {
             // without too much impact on work-stealing.
             concurrency: 4,
             map_fn: Arc::new(Ok),
-            metrics: Default::default(),
+            metrics_registry: None,
             file_stats: None,
             limit: None,
             row_offset: 0,
@@ -175,8 +175,8 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics);
         self
     }
 
@@ -211,7 +211,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
             selection: self.selection,
             split_by: self.split_by,
             concurrency: self.concurrency,
-            metrics: self.metrics,
+            metrics_registry: self.metrics_registry,
             file_stats: self.file_stats,
             limit: self.limit,
             row_offset: self.row_offset,

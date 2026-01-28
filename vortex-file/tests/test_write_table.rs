@@ -25,12 +25,10 @@ use vortex_layout::layouts::compressed::CompressingStrategy;
 use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::session::LayoutSession;
-use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     let mut session = VortexSession::empty()
-        .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()

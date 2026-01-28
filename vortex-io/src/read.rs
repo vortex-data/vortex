@@ -13,8 +13,10 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
+use vortex_metrics::Label;
+use vortex_metrics::MetricBuilder;
+use vortex_metrics::MetricsRegistry;
 use vortex_metrics::Timer;
-use vortex_metrics::VortexMetrics;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -136,12 +138,6 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
     }
-
-    // fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
-    //     // Delegate to the inner implementation's drive
-    //     let inner: Arc<R> = Arc::clone(&self);
-    //     inner.drive(requests)
-    // }
 }
 
 impl VortexReadAt for ByteBuffer {
@@ -185,46 +181,90 @@ impl VortexReadAt for ByteBuffer {
 #[derive(Clone)]
 pub struct InstrumentedReadAt<T: VortexReadAt + Clone> {
     read: T,
-    sizes: Arc<Histogram>,
-    total_size: Arc<Counter>,
-    durations: Arc<Timer>,
+    // We use `Arc` to take care of all the complexity that's potentially associated with reference counting
+    // and dropping
+    metrics: Arc<InnerMetrics>,
+}
+
+struct InnerMetrics {
+    sizes: Histogram,
+    total_size: Counter,
+    durations: Timer,
 }
 
 impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
-    pub fn new(read: T, metrics: &VortexMetrics) -> Self {
+    pub fn new(read: T, metrics_registry: &dyn MetricsRegistry) -> Self {
+        Self::new_with_labels(read, metrics_registry, Vec::<Label>::default())
+    }
+
+    pub fn new_with_labels<I, L>(read: T, metrics_registry: &dyn MetricsRegistry, labels: I) -> Self
+    where
+        I: IntoIterator<Item = L>,
+        L: Into<Label>,
+    {
+        let labels = labels.into_iter().map(|l| l.into()).collect::<Vec<Label>>();
+        let sizes = MetricBuilder::new(metrics_registry)
+            .add_labels(labels.clone())
+            .histogram("vortex.io.read.size");
+        let total_size = MetricBuilder::new(metrics_registry)
+            .add_labels(labels.clone())
+            .counter("vortex.io.read.total_size");
+        let durations = MetricBuilder::new(metrics_registry)
+            .add_labels(labels)
+            .timer("vortex.io.read.duration");
+
         Self {
             read,
-            sizes: metrics.histogram("vortex.io.read.size"),
-            total_size: metrics.counter("vortex.io.read.total_size"),
-            durations: metrics.timer("vortex.io.read.duration"),
+            metrics: Arc::new(InnerMetrics {
+                sizes,
+                total_size,
+                durations,
+            }),
         }
     }
 }
 
-impl<T: VortexReadAt + Clone> Drop for InstrumentedReadAt<T> {
+// We implement drop for `InnerMetrics` so this will be logged only when we eventually drop the final instance of `InstrumentedRead`
+impl Drop for InnerMetrics {
     #[allow(clippy::cognitive_complexity)]
     fn drop(&mut self) {
-        let sizes = self.sizes.snapshot();
         tracing::debug!("Reads: {}", self.sizes.count());
-        tracing::debug!(
-            "Read size: p50={} p95={} p99={} p999={}",
-            sizes.value(0.5),
-            sizes.value(0.95),
-            sizes.value(0.99),
-            sizes.value(0.999),
-        );
+        if !self.sizes.is_empty() {
+            tracing::debug!(
+                "Read size: p50={} p95={} p99={} p999={}",
+                self.sizes.quantile(0.5).vortex_expect("must not be empty"),
+                self.sizes.quantile(0.95).vortex_expect("must not be empty"),
+                self.sizes.quantile(0.99).vortex_expect("must not be empty"),
+                self.sizes
+                    .quantile(0.999)
+                    .vortex_expect("must not be empty"),
+            );
+        }
 
-        let total_size = self.total_size.count();
+        let total_size = self.total_size.value();
         tracing::debug!("Total read size: {total_size}");
 
-        let durations = self.durations.snapshot();
-        tracing::debug!(
-            "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
-            durations.value(0.5) / 1_000_000.0,
-            durations.value(0.95) / 1_000_000.0,
-            durations.value(0.99) / 1_000_000.0,
-            durations.value(0.999) / 1_000_000.0
-        );
+        if !self.durations.is_empty() {
+            tracing::debug!(
+                "Read duration: p50={}ms p95={}ms p99={}ms p999={}ms",
+                self.durations
+                    .quantile(0.5)
+                    .vortex_expect("must not be empty")
+                    .as_millis(),
+                self.durations
+                    .quantile(0.95)
+                    .vortex_expect("must not be empty")
+                    .as_millis(),
+                self.durations
+                    .quantile(0.99)
+                    .vortex_expect("must not be empty")
+                    .as_millis(),
+                self.durations
+                    .quantile(0.999)
+                    .vortex_expect("must not be empty")
+                    .as_millis(),
+            );
+        }
     }
 }
 
@@ -251,15 +291,16 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let durations = self.durations.clone();
-        let sizes = self.sizes.clone();
-        let total_size = self.total_size.clone();
+        let durations = self.metrics.durations.clone();
+        let sizes = self.metrics.sizes.clone();
+        let total_size = self.metrics.total_size.clone();
+
         let read_fut = self.read.read_at(offset, length, alignment);
         async move {
             let _timer = durations.time();
             let buf = read_fut.await;
-            sizes.update(length as i64);
-            total_size.add(length as i64);
+            sizes.update(length as f64);
+            total_size.add(length as u64);
             buf
         }
         .boxed()

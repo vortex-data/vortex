@@ -320,9 +320,9 @@ fn print_metrics(plans: &[(usize, Format, Arc<dyn ExecutionPlan>)]) {
 
         eprintln!("metrics for query={query_idx}, {format}:");
         for (scan_idx, metrics_set) in metric_sets.iter().enumerate() {
-            eprintln!("  scan[{scan_idx}]:");
-            for metric in metrics_set.clone().aggregate().sorted_for_display().iter() {
-                eprintln!("    {metric}");
+            eprintln!("\tscan[{scan_idx}]:");
+            for metric in metrics_set.aggregate().sorted_for_display().iter() {
+                eprintln!("\t\t{metric}");
             }
         }
     }

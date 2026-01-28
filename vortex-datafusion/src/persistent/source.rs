@@ -29,11 +29,11 @@ use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::metrics::VortexMetrics;
+use vortex::metrics::DefaultMetricsRegistry;
+use vortex::metrics::MetricsRegistry;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
 use crate::DefaultVortexReaderFactory;
 use crate::VortexReaderFactory;
@@ -62,7 +62,7 @@ pub struct VortexSource {
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
-    vx_metrics: VortexMetrics,
+    vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
 }
 
@@ -83,7 +83,7 @@ impl VortexSource {
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             vortex_reader_factory: None,
-            vx_metrics: VortexMetrics::default(),
+            vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
         }
     }
@@ -108,9 +108,9 @@ impl VortexSource {
         self
     }
 
-    /// The metrics instance attached to this source.
-    pub fn vx_metrics(&self) -> &VortexMetrics {
-        &self.vx_metrics
+    /// Returns the [`MetricsRegistry`] attached to this source.
+    pub fn metrics_registry(&self) -> &Arc<dyn MetricsRegistry> {
+        &self.vx_metrics_registry
     }
 
     /// Override the file metadata cache
@@ -130,10 +130,6 @@ impl FileSource for VortexSource {
         base_config: &FileScanConfig,
         partition: usize,
     ) -> DFResult<Arc<dyn FileOpener>> {
-        let partition_metrics = self
-            .vx_metrics()
-            .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
-
         let batch_size = self
             .batch_size
             .vortex_expect("batch_size must be supplied to VortexSource");
@@ -149,6 +145,7 @@ impl FileSource for VortexSource {
             .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
 
         let opener = VortexOpener {
+            partition,
             session: self.session.clone(),
             vortex_reader_factory,
             projection: self.projection.clone(),
@@ -158,7 +155,7 @@ impl FileSource for VortexSource {
             table_schema: self.table_schema.clone(),
             batch_size,
             limit: base_config.limit.map(|l| l as u64),
-            metrics: partition_metrics,
+            metrics_registry: self.vx_metrics_registry.clone(),
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),

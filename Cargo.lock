@@ -3977,16 +3977,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exponential-decay-histogram"
-version = "0.1.14"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7962d7e9baab6ea05af175491fa6a8441f3bf461558037622142573d98dd6d6"
-dependencies = [
- "ordered-float 5.1.0",
- "rand 0.9.2",
-]
-
-[[package]]
 name = "ext-trait"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8626,16 +8616,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde-value"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a1a3341211875ef120e117ea7fd5228530ae7e7036a779fdc9117be6b3282c"
-dependencies = [
- "ordered-float 2.10.1",
- "serde",
-]
-
-[[package]]
 name = "serde_core"
 version = "1.0.228"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10904,8 +10884,8 @@ version = "0.1.0"
 dependencies = [
  "getrandom 0.3.4",
  "parking_lot",
+ "sketches-ddsketch",
  "vortex-session",
- "witchcraft-metrics",
 ]
 
 [[package]]
@@ -11865,19 +11845,6 @@ name = "wit-bindgen"
 version = "0.51.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7249219f66ced02969388cf2bb044a09756a083d0fab1e566056b04d9fbcaa5"
-
-[[package]]
-name = "witchcraft-metrics"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "867a74dec702d742179279ab0b5bcab72ca5858c0c3ccf870bdb5c99f54d675b"
-dependencies = [
- "exponential-decay-histogram",
- "once_cell",
- "parking_lot",
- "serde",
- "serde-value",
-]
 
 [[package]]
 name = "writeable"
