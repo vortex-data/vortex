@@ -12,8 +12,8 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::AllocatingReadAt;
 use vortex_io::BufferAllocator;
+use vortex_io::CopyingReadAt;
 use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
@@ -171,7 +171,7 @@ impl VortexOpenOptions {
         let metrics = self.metrics.clone().unwrap_or_default();
         let reader = InstrumentedReadAt::new(reader, &metrics);
         let reader: Arc<dyn VortexReadAt> = if let Some(allocator) = &self.allocator {
-            Arc::new(AllocatingReadAt::new(reader, allocator.clone()))
+            Arc::new(CopyingReadAt::new(reader, allocator.clone()))
         } else {
             Arc::new(reader)
         };
@@ -190,14 +190,12 @@ impl VortexOpenOptions {
         ));
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(
-            FileSegmentSource::open(
-                footer.segment_map().clone(),
-                reader,
-                self.session.handle(),
-                metrics.clone(),
-            ),
-        ));
+        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+            footer.segment_map().clone(),
+            reader,
+            self.session.handle(),
+            metrics.clone(),
+        )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
         let segment_source = Arc::new(SegmentCacheSourceAdapter::new(
@@ -310,8 +308,8 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use futures::future::BoxFuture;
-    use vortex_array::buffer::BufferHandle;
     use vortex_array::IntoArray;
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::expr::session::ExprSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;

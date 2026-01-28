@@ -18,7 +18,6 @@ use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
-use vortex_buffer::Alignment;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;

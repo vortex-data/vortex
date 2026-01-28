@@ -196,12 +196,12 @@ pub struct InstrumentedReadAt<T: VortexReadAt + Clone> {
 
 /// A wrapper that uses an allocator to produce the returned buffer handle.
 #[derive(Clone)]
-pub struct AllocatingReadAt<T: VortexReadAt + Clone> {
+pub struct CopyingReadAt<T: VortexReadAt + Clone> {
     read: T,
     allocator: Arc<dyn BufferAllocator>,
 }
 
-impl<T: VortexReadAt + Clone> AllocatingReadAt<T> {
+impl<T: VortexReadAt + Clone> CopyingReadAt<T> {
     pub fn new(read: T, allocator: Arc<dyn BufferAllocator>) -> Self {
         Self { read, allocator }
     }
@@ -283,7 +283,7 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
     }
 }
 
-impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
+impl<T: VortexReadAt + Clone> VortexReadAt for CopyingReadAt<T> {
     fn uri(&self) -> Option<&Arc<str>> {
         self.read.uri()
     }
@@ -310,6 +310,12 @@ impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
         let allocator = self.allocator.clone();
         async move {
             let handle = read.read_at(offset, length, alignment).await?;
+            let mut target = allocator.allocate(length, alignment)?;
+            match target.region() {
+                WriteRegion::HostSlice(slice) => slice.copy_from_slice(handle.try_into_host()),
+                WriteRegion::Registered(_) => todo!("register write region"),
+                WriteRegion::Device(_) => {}
+            }
             if handle.is_on_device() {
                 return Ok(handle);
             }
@@ -317,7 +323,6 @@ impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
             let host = handle
                 .as_host_opt()
                 .ok_or_else(|| vortex_err!("expected host buffer"))?;
-            let mut target = allocator.allocate(length, alignment)?;
             match target.region() {
                 WriteRegion::HostSlice(slice) => {
                     slice.copy_from_slice(host.as_slice());

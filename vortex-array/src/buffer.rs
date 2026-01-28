@@ -358,7 +358,7 @@ impl BufferHandle {
     pub fn try_into_host(self) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
         match self.0 {
             Inner::Host(b) => Ok(Box::pin(async move { Ok(b) })),
-            Inner::Device(device) => device.copy_to_host(ALIGNMENT_TO_HOST_COPY),
+            Inner::Device(device) => device.copy_to_host(device.alignment()),
         }
     }
 
