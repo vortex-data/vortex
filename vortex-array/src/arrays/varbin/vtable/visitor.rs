@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
-
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::arrays::VarBinArray;
@@ -13,9 +11,7 @@ use crate::vtable::VisitorVTable;
 impl VisitorVTable<VarBinVTable> for VarBinVTable {
     fn visit_buffers(array: &VarBinArray, visitor: &mut dyn ArrayBufferVisitor) {
         // TODO(ngates): sliced bytes?
-        visitor
-            .visit_buffer_handle("bytes", array.bytes_handle())
-            .vortex_expect("Failed to visit buffer");
+        visitor.visit_buffer_handle("bytes", array.bytes_handle());
     }
 
     fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {

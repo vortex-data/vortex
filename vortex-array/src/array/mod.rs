@@ -779,8 +779,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer(&mut self, buffer: &ByteBuffer) {
-                self.buffers.push(buffer.clone());
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
+                self.buffers.push(handle.to_host_sync());
             }
         }
 
@@ -797,16 +797,9 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayBufferVisitor for BufferHandleCollector {
-            fn visit_buffer_handle(
-                &mut self,
-                _name: &str,
-                handle: &BufferHandle,
-            ) -> VortexResult<()> {
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
                 self.handles.push(handle.clone());
-                Ok(())
             }
-
-            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {}
         }
 
         let mut collector = BufferHandleCollector {
@@ -826,16 +819,9 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayBufferVisitor for NamedBufferCollector {
-            fn visit_buffer_handle(
-                &mut self,
-                name: &str,
-                handle: &BufferHandle,
-            ) -> VortexResult<()> {
+            fn visit_buffer_handle(&mut self, name: &str, handle: &BufferHandle) {
                 self.buffers.push((name.to_string(), handle.clone()));
-                Ok(())
             }
-
-            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {}
         }
 
         let mut collector = NamedBufferCollector {

@@ -135,11 +135,7 @@ pub trait ArrayVisitorExt: Array {
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
 pub trait ArrayBufferVisitor {
-    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) -> VortexResult<()> {
-        self.visit_buffer(&handle.clone().try_to_host_sync()?);
-        Ok(())
-    }
-    fn visit_buffer(&mut self, _buffer: &ByteBuffer);
+    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
 }
 
 pub trait ArrayChildVisitor {

@@ -489,9 +489,7 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
             .value()
             .to_protobytes::<ByteBufferMut>()
             .freeze();
-        visitor
-            .visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer))
-            .vortex_expect("Failed to visit buffer");
+        visitor.visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer));
     }
 
     fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
