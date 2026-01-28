@@ -10338,6 +10338,7 @@ dependencies = [
  "async-trait",
  "codspeed-criterion-compat-walltime",
  "cudarc",
+ "fastlanes",
  "futures",
  "kanal",
  "rstest",

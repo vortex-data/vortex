@@ -16,7 +16,7 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
     let bits = <T>::T;
     let lanes = T::LANES;
 
-    let func_name = format!("bit_unpack_{bit_width}bw_{bits}ow_lane");
+    let func_name = format!("bit_unpack_{bits}ow_{bit_width}bw_lane");
 
     writeln!(
         output,
@@ -90,7 +90,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let lanes = T::LANES;
     let per_thread_loop_count = lanes / thread_count;
 
-    let func_name = format!("bit_unpack_{bit_width}bw_{bits}ow_{thread_count}t");
+    let func_name = format!("bit_unpack_{bits}ow_{bit_width}bw_{thread_count}t");
 
     let local_func_params = format!(
         "(const uint{bits}_t *__restrict in, uint{bits}_t *__restrict out, int thread_idx)"
@@ -100,7 +100,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
 
     output.indent(|output| {
         for thread_lane in 0..per_thread_loop_count {
-            writeln!(output, "_bit_unpack_{bit_width}bw_{bits}ow_lane(in, out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
+            writeln!(output, "_bit_unpack_{bits}ow_{bit_width}bw_lane(in, out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
         Ok(())
     })?;
@@ -115,7 +115,7 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
 ) -> io::Result<()> {
     let bits = <T>::T;
 
-    let func_name = format!("bit_unpack_{bit_width}bw_{bits}ow_{thread_count}t");
+    let func_name = format!("bit_unpack_{bits}ow_{bit_width}bw_{thread_count}t");
     let func_params =
         format!("(const uint{bits}_t *__restrict full_in, uint{bits}_t *__restrict full_out)");
 

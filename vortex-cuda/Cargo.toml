@@ -23,6 +23,7 @@ _test-harness = []
 [dependencies]
 async-trait = { workspace = true }
 cudarc = { workspace = true }
+fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
 tracing = { workspace = true }
@@ -52,6 +53,7 @@ vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-scalar = { workspace = true }
 
 [build-dependencies]
+fastlanes = { workspace = true }
 
 [[bench]]
 name = "for_cuda"

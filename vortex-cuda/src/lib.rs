@@ -18,6 +18,7 @@ pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 use kernel::ALPExecutor;
+use kernel::BitPackedExecutor;
 use kernel::DecimalBytePartsExecutor;
 use kernel::DictExecutor;
 use kernel::FoRExecutor;
@@ -31,6 +32,7 @@ pub use session::CudaSessionExt;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
+use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::FoRVTable;
 pub use vortex_nvcomp as nvcomp;
 use vortex_zigzag::ZigZagVTable;
@@ -48,9 +50,10 @@ pub fn cuda_available() -> bool {
 pub fn initialize_cuda(session: &CudaSession) {
     tracing::info!("Registering CUDA kernels");
     session.register_kernel(ALPVTable::ID, &ALPExecutor);
-    session.register_kernel(FoRVTable::ID, &FoRExecutor);
-    session.register_kernel(DictVTable::ID, &DictExecutor);
-    session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
+    session.register_kernel(BitPackedVTable::ID, &BitPackedExecutor);
     session.register_kernel(DecimalBytePartsVTable::ID, &DecimalBytePartsExecutor);
+    session.register_kernel(DictVTable::ID, &DictExecutor);
+    session.register_kernel(FoRVTable::ID, &FoRExecutor);
+    session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
     session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
 }

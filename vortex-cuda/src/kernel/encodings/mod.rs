@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod alp;
+mod bitpacked;
 mod decimal_byte_parts;
 mod for_;
 mod zigzag;
 mod zstd;
 
 pub use alp::ALPExecutor;
+pub use bitpacked::BitPackedExecutor;
 pub use decimal_byte_parts::DecimalBytePartsExecutor;
 pub use for_::FoRExecutor;
 pub use zigzag::ZigZagExecutor;
