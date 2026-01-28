@@ -109,8 +109,7 @@ where
     )))
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     use futures::executor::block_on;
     use rstest::rstest;
