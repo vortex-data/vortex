@@ -58,6 +58,7 @@ use vortex_cuda::executor::CudaArrayExt;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::ExtDType;
+use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::PType::I32;
@@ -1654,15 +1655,27 @@ async fn gpu_scan() -> VortexResult<()> {
     // Create an ALP-encoded array from primitive f64 values
     let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
     let alp_array = alp_encode(&primitive, None)?;
+    let str_array = VarBinViewArray::from_iter_str((0..100).map(|i| format!("number {i}")));
 
     println!("alp {}", alp_array.display_tree());
+
+    let array = StructArray::new(
+        FieldNames::from(vec!["float_col", "int_col", "str_col"]),
+        vec![
+            primitive.into_array(),
+            alp_array.into_array(),
+            str_array.into_array(),
+        ],
+        100,
+        Validity::NonNullable,
+    );
 
     // Write to a buffer, then to a temp file
     let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
     let mut buf = Vec::new();
     SESSION
         .write_options()
-        .write(&mut buf, alp_array.to_array_stream())
+        .write(&mut buf, array.to_array_stream())
         .await?;
     std::fs::write(&temp_path, &buf)?;
 
@@ -1683,7 +1696,11 @@ async fn gpu_scan() -> VortexResult<()> {
     let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
 
     let mut res = Vec::new();
-    let mut stream = gpu_file.scan()?.into_array_stream()?;
+    let mut stream = gpu_file
+        .scan()?
+        // filter with a predefined mask
+        .with_row_indices(buffer![0, 10, 20, 30, 40, 50, 60, 70, 80, 90])
+        .into_array_stream()?;
     while let Some(a) = stream.next().await {
         let a = a?;
         // println!("arr {}", a.display_tree());
