@@ -105,6 +105,7 @@ fn generate_rust_bindings(kernels_dir: &Path, out_dir: &Path) {
         .allowlist_type("cudaError_t")
         // Blocklist cudaStream_t and define it manually as an opaque pointer
         .blocklist_type("cudaStream_t")
+        .blocklist_type("__int256_t")
         // Generate dynamic library loading wrapper
         .dynamic_library_name("CubLibrary")
         .dynamic_link_require_all(true)
@@ -113,6 +114,7 @@ fn generate_rust_bindings(kernels_dir: &Path, out_dir: &Path) {
         .raw_line("// Functions are loaded at runtime via libloading.")
         .raw_line("")
         .raw_line("pub type cudaStream_t = *mut std::ffi::c_void;")
+        .raw_line("pub type __int256_t = vortex_dtype::i256;")
         .generate()
         .expect("Failed to generate CUB bindings");
 
