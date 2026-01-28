@@ -9,6 +9,11 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
+// The include is done to ensure C API definitions match declarations.
+// Otherwise, the implementation could diverge from the declaration causing
+// silent ABI breaks. This is crucial to keep rust bindgen in sync.
+#include "filter.h"
+
 // Bit extraction functor for TransformInputIterator
 struct BitExtractor {
     const uint8_t* packed;
