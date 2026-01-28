@@ -31,22 +31,15 @@ mod struct_;
 mod varbinview;
 
 /// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
-#[inline]
 fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
     Mask::Values(values.clone())
 }
 
-/// A helper function that lazily filters a [`Validity`] with a selection mask.
-///
-/// If the validity is a [`Validity::Array`], then this wraps it in a `FilterArray` instead of
-/// eagerly filtering the values immediately.
+/// A helper function that lazily filters a [`Validity`] with selection mask values.
 fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
-    match validity {
-        v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => v,
-        Validity::Array(arr) => {
-            Validity::Array(FilterArray::new(arr.clone(), values_to_mask(mask)).into_array())
-        }
-    }
+    validity
+        .filter(&values_to_mask(mask))
+        .vortex_expect("Somehow unable to wrap filter around a validity array")
 }
 
 /// Check for some fast-path execution conditions before calling [`execute_filter`].
