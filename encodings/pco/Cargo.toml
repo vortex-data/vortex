@@ -34,9 +34,5 @@ rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
-[[bench]]
-name = "pco"
-harness = false
-
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03"]

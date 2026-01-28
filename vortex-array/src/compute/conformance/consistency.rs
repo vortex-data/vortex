@@ -35,7 +35,6 @@ use crate::compute::Operator;
 use crate::compute::and;
 use crate::compute::cast;
 use crate::compute::compare;
-use crate::compute::filter;
 use crate::compute::invert;
 use crate::compute::mask;
 use crate::compute::or;
@@ -63,7 +62,9 @@ fn test_filter_take_consistency(array: &dyn Array) {
     let mask = Mask::from_buffer(mask_pattern.clone());
 
     // Filter the array
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     // Create indices where mask is true
     let indices: Vec<u64> = mask_pattern
@@ -191,8 +192,9 @@ fn test_filter_identity(array: &dyn Array) {
     }
 
     let all_true_mask = Mask::new_true(len);
-    let filtered =
-        filter(array, &all_true_mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(all_true_mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     // Filtered array should be identical to original
     assert_eq!(
@@ -299,7 +301,9 @@ fn test_slice_filter_consistency(array: &dyn Array) {
     mask_pattern[1..4.min(len)].fill(true);
 
     let mask = Mask::from_iter(mask_pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     // Slice should produce the same result
     let sliced = array
@@ -394,7 +398,9 @@ fn test_filter_preserves_order(array: &dyn Array) {
     let mask_pattern: Vec<bool> = (0..len).map(|i| i == 0 || i == 2 || i == 3).collect();
     let mask = Mask::from_iter(mask_pattern);
 
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     // Verify the filtered array contains the right elements in order
     assert_eq!(filtered.len(), 3.min(len));
@@ -465,12 +471,14 @@ fn test_mask_filter_null_consistency(array: &dyn Array) {
     // Then filter to remove the nulls
     let filter_pattern: Vec<bool> = (0..len).map(|i| i % 2 != 0).collect();
     let filter_mask = Mask::from_iter(filter_pattern);
-    let filtered =
-        filter(&masked, &filter_mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = masked
+        .filter(filter_mask.clone())
+        .vortex_expect("filter should succeed in conformance test");
 
     // This should be equivalent to directly filtering the original array
-    let direct_filtered =
-        filter(array, &filter_mask).vortex_expect("filter should succeed in conformance test");
+    let direct_filtered = array
+        .filter(filter_mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     assert_eq!(filtered.len(), direct_filtered.len());
     for i in 0..filtered.len() {
@@ -490,7 +498,8 @@ fn test_empty_operations_consistency(array: &dyn Array) {
     let len = array.len();
 
     // Empty filter
-    let empty_filter = filter(array, &Mask::new_false(len))
+    let empty_filter = array
+        .filter(Mask::new_false(len))
         .vortex_expect("filter should succeed in conformance test");
     assert_eq!(empty_filter.len(), 0);
     assert_eq!(empty_filter.dtype(), array.dtype());
@@ -634,7 +643,9 @@ fn test_large_array_consistency(array: &dyn Array) {
     // Create equivalent filter mask
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();
     let mask = Mask::from_iter(mask_pattern);
-    let filtered = filter(array, &mask).vortex_expect("filter should succeed in conformance test");
+    let filtered = array
+        .filter(mask)
+        .vortex_expect("filter should succeed in conformance test");
 
     // Results should match
     assert_eq!(taken.len(), filtered.len());

@@ -454,10 +454,10 @@ mod tests {
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
+    use vortex_array::display::DisplayOptions;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
-    use vortex_sparse::SparseVTable;
 
     use crate::Compressor;
     use crate::MAX_CASCADE;
@@ -474,11 +474,14 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        println!("original array: {}", strings.as_ref().display_tree());
-
         let compressed = StringCompressor::compress(&strings, false, 3, &[])?;
+        assert_eq!(compressed.len(), 2048);
 
-        println!("compression tree: {}", compressed.display_tree());
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.dict(utf8, len=2048)");
 
         Ok(())
     }
@@ -493,7 +496,13 @@ mod tests {
         let strings = strings.finish_into_varbinview();
 
         let compressed = StringCompressor::compress(&strings, false, MAX_CASCADE, &[])?;
-        assert!(compressed.is::<SparseVTable>());
+        assert_eq!(compressed.len(), 100);
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.varbinview(utf8?, len=100)");
 
         Ok(())
     }
