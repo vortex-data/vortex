@@ -80,6 +80,7 @@ pub fn filter_slices(
 
 #[cfg(test)]
 mod test {
+    use itertools::Itertools;
     use vortex_mask::Mask;
 
     use crate::arrays::BoolArray;
@@ -93,7 +94,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        let filtered = arr.filter(mask).unwrap().to_bool();
+        let filtered = arr.filter(mask).unwrap();
         assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
     }
 
@@ -102,9 +103,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
 
         let filtered = filter_slices(&arr.to_bit_buffer(), 2, [(0, 1), (2, 3)].into_iter());
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(vec![true, false], filtered.iter().collect::<Vec<_>>())
+        assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
     #[test]
@@ -112,9 +111,7 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
 
         let filtered = filter_indices(&arr.to_bit_buffer(), 2, [0, 2].into_iter());
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(vec![true, false], filtered.iter().collect::<Vec<_>>())
+        assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
     use rstest::rstest;
