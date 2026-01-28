@@ -678,7 +678,8 @@ mod tests {
     #[test]
     fn test_or_kleene_validity() {
         use crate::IntoArray;
-        use crate::arrays::{BoolArray, StructArray};
+        use crate::arrays::BoolArray;
+        use crate::arrays::StructArray;
         use crate::expr::exprs::get_item::col;
 
         let struct_arr = StructArray::from_fields(&[
