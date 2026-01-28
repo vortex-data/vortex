@@ -10589,6 +10589,7 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-cuda",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",

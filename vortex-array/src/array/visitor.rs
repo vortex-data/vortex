@@ -31,6 +31,9 @@ pub trait ArrayVisitor {
     /// Returns the buffers of the array.
     fn buffers(&self) -> Vec<ByteBuffer>;
 
+    /// Returns the buffer handles of the arrays.
+    fn buffer_handles(&self) -> Vec<BufferHandle>;
+
     /// Returns the number of buffers of the array.
     fn nbuffers(&self) -> usize;
 
@@ -61,6 +64,10 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn buffers(&self) -> Vec<ByteBuffer> {
         self.as_ref().buffers()
+    }
+
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        self.as_ref().buffer_handles()
     }
 
     fn nbuffers(&self) -> usize {

@@ -46,6 +46,7 @@ use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
 use crate::compute::ComputeFn;
@@ -784,6 +785,29 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         let mut collector = BufferCollector {
+            buffers: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.buffers
+    }
+
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        struct BufferHandleCollector {
+            buffers: Vec<BufferHandle>,
+        }
+
+        impl ArrayBufferVisitor for BufferHandleCollector {
+            fn visit_buffer_handle(&mut self, handle: &BufferHandle) -> VortexResult<()> {
+                self.buffers.push(handle.clone());
+                Ok(())
+            }
+
+            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {
+                // handled in buffers
+            }
+        }
+
+        let mut collector = BufferHandleCollector {
             buffers: Vec::new(),
         };
         <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);

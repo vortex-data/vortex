@@ -3,97 +3,64 @@
 
 use std::sync::Arc;
 
-use cudarc::driver::CudaStream;
-use cudarc::driver::DevicePtrMut;
-use cudarc::driver::result::memcpy_htod_async;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
-use vortex_io::BufferAllocator;
-use vortex_io::WriteDestination;
-use vortex_io::WriteRegion;
-use vortex_session::VortexSession;
+use vortex_io::CoalesceConfig;
+use vortex_io::VortexReadAt;
 
-use crate::device_buffer::CudaDeviceBuffer;
-use crate::session::CudaSessionExt;
-use crate::stream::await_stream_callback;
+use crate::stream::VortexCudaStream;
 
-/// Allocator that reads into host buffers and copies to device memory.
-pub struct HostToDeviceAllocator {
-    stream: Arc<CudaStream>,
+/// A wrapper that uses an allocator to produce the returned buffer handle.
+#[derive(Clone)]
+pub struct CopyDeviceReadAt<T: VortexReadAt + Clone> {
+    read: T,
+    stream: VortexCudaStream,
 }
 
-impl HostToDeviceAllocator {
-    pub fn new(stream: Arc<CudaStream>) -> Self {
-        Self { stream }
-    }
-
-    pub fn from_session(session: &VortexSession) -> VortexResult<Self> {
-        let stream = session.cuda_session().new_stream()?;
-        Ok(Self::new(stream))
+impl<T: VortexReadAt + Clone> CopyDeviceReadAt<T> {
+    pub fn new(read: T, stream: VortexCudaStream) -> Self {
+        Self { read, stream }
     }
 }
 
-impl BufferAllocator for HostToDeviceAllocator {
-    fn allocate(
+impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
+    fn uri(&self) -> Option<&Arc<str>> {
+        self.read.uri()
+    }
+
+    fn coalesce_config(&self) -> Option<CoalesceConfig> {
+        self.read.coalesce_config()
+    }
+
+    fn concurrency(&self) -> usize {
+        self.read.concurrency()
+    }
+
+    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
+        self.read.size()
+    }
+
+    fn read_at(
         &self,
-        len: usize,
+        offset: u64,
+        length: usize,
         alignment: Alignment,
-    ) -> VortexResult<Box<dyn WriteDestination>> {
-        let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
-        // # Safety (Is this safe)??
-        unsafe { buffer.set_len(len) };
-        Ok(Box::new(NaiveDeviceWriteTarget {
-            buffer,
-            stream: self.stream.clone(),
-            alignment,
-        }))
-    }
-}
-
-struct NaiveDeviceWriteTarget {
-    buffer: ByteBufferMut,
-    stream: Arc<CudaStream>,
-    alignment: Alignment,
-}
-
-impl WriteDestination for NaiveDeviceWriteTarget {
-    fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    fn region(&mut self) -> WriteRegion<'_> {
-        WriteRegion::HostSlice(self.buffer.as_mut())
-    }
-
-    fn into_handle(self: Box<Self>) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        println!("read at cuda");
+        let read = self.read.clone();
         let stream = self.stream.clone();
-        let alignment = self.alignment;
-        let host = self.buffer;
         async move {
-            let len = host.len();
-            let mut device = unsafe { stream.alloc::<u8>(len) }
-                .map_err(|e| vortex_err!("Failed to allocate device memory: {e}"))?;
-
-            let device_ptr = device.device_ptr_mut(&stream).0;
-            let host_slice = host.as_ref();
-            unsafe {
-                memcpy_htod_async(device_ptr, host_slice, stream.cu_stream())
-                    .map_err(|e| vortex_err!("Failed to schedule H2D copy: {e}"))?;
+            let handle = read.read_at(offset, length, alignment).await?;
+            if handle.is_on_device() {
+                return Ok(handle);
             }
 
-            await_stream_callback(&stream).await?;
+            let host_buffer = handle.as_host().clone();
 
-            // Keep the host buffer alive until the copy completes.
-            let _keep_alive = host;
-
-            Ok(BufferHandle::new_device(Arc::new(
-                CudaDeviceBuffer::new_aligned(device, alignment),
-            )))
+            stream.copy_to_device(host_buffer)?.await
         }
         .boxed()
     }

@@ -8,8 +8,8 @@ use std::process::Command;
 mod canonical;
 mod device_buffer;
 pub mod executor;
-mod kernel;
 mod host_to_device_allocator;
+mod kernel;
 mod session;
 mod stream;
 
@@ -18,7 +18,7 @@ pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
-pub use host_to_device_allocator::HostToDeviceAllocator;
+pub use host_to_device_allocator::CopyDeviceReadAt;
 use kernel::ALPExecutor;
 use kernel::DecimalBytePartsExecutor;
 use kernel::DictExecutor;

@@ -202,9 +202,13 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let alignment = if byte_offset == 0 {
             self.alignment
         } else {
-            Alignment::from_exponent(
-                u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
-                    .vortex_expect("impossible"),
+            // TODO(joe): self.alignment is an under approx
+            min(
+                self.alignment,
+                Alignment::from_exponent(
+                    u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
+                        .vortex_expect("impossible"),
+                ),
             )
         };
 

@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use cudarc::driver::CudaStream;
 use vortex_array::VortexSessionExecute;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
@@ -17,6 +16,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
+use crate::stream::VortexCudaStream;
 
 /// CUDA session for GPU accelerated execution.
 ///
@@ -51,10 +51,10 @@ impl CudaSession {
     }
 
     /// Create a new CUDA stream.
-    pub fn new_stream(&self) -> VortexResult<Arc<CudaStream>> {
-        self.context
-            .new_stream()
-            .map_err(|e| vortex_err!("Failed to create CUDA stream: {}", e))
+    pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
+        Ok(VortexCudaStream(self.context.new_stream().map_err(
+            |e| vortex_err!("Failed to create CUDA stream: {}", e),
+        )?))
     }
 
     /// Registers CUDA support for an array encoding.

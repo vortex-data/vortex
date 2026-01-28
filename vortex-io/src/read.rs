@@ -11,14 +11,10 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
-
-use crate::BufferAllocator;
-use crate::WriteRegion;
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -194,19 +190,6 @@ pub struct InstrumentedReadAt<T: VortexReadAt + Clone> {
     durations: Arc<Timer>,
 }
 
-/// A wrapper that uses an allocator to produce the returned buffer handle.
-#[derive(Clone)]
-pub struct AllocatingReadAt<T: VortexReadAt + Clone> {
-    read: T,
-    allocator: Arc<dyn BufferAllocator>,
-}
-
-impl<T: VortexReadAt + Clone> AllocatingReadAt<T> {
-    pub fn new(read: T, allocator: Arc<dyn BufferAllocator>) -> Self {
-        Self { read, allocator }
-    }
-}
-
 impl<T: VortexReadAt + Clone> InstrumentedReadAt<T> {
     pub fn new(read: T, metrics: &VortexMetrics) -> Self {
         Self {
@@ -278,57 +261,6 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
             sizes.update(length as i64);
             total_size.add(length as i64);
             buf
-        }
-        .boxed()
-    }
-}
-
-impl<T: VortexReadAt + Clone> VortexReadAt for AllocatingReadAt<T> {
-    fn uri(&self) -> Option<&Arc<str>> {
-        self.read.uri()
-    }
-
-    fn coalesce_config(&self) -> Option<CoalesceConfig> {
-        self.read.coalesce_config()
-    }
-
-    fn concurrency(&self) -> usize {
-        self.read.concurrency()
-    }
-
-    fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
-        self.read.size()
-    }
-
-    fn read_at(
-        &self,
-        offset: u64,
-        length: usize,
-        alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        let read = self.read.clone();
-        let allocator = self.allocator.clone();
-        async move {
-            let handle = read.read_at(offset, length, alignment).await?;
-            if handle.is_on_device() {
-                return Ok(handle);
-            }
-
-            let host = handle
-                .as_host_opt()
-                .ok_or_else(|| vortex_err!("expected host buffer"))?;
-            let mut target = allocator.allocate(length, alignment)?;
-            match target.region() {
-                WriteRegion::HostSlice(slice) => {
-                    slice.copy_from_slice(host.as_slice());
-                }
-                WriteRegion::Registered(_) | WriteRegion::Device(_) => {
-                    return Err(vortex_err!(
-                        "AllocatingReadAt does not support non-host read regions"
-                    ));
-                }
-            }
-            target.into_handle().await
         }
         .boxed()
     }
