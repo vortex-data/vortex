@@ -4,8 +4,8 @@
 // CUB DeviceSelect::Flagged wrapper for Vortex GPU filtering.
 
 #include <cub/cub.cuh>
-#include <cub/iterator/counting_input_iterator.cuh>
-#include <cub/iterator/transform_input_iterator.cuh>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
 #include <cuda_runtime.h>
 #include <stdint.h>
 
@@ -24,10 +24,9 @@ struct BitExtractor {
 };
 
 /// Type alias for the packed bit iterator.
-using PackedBitIterator = cub::TransformInputIterator<
-    uint8_t,
+using PackedBitIterator = thrust::transform_iterator<
     BitExtractor,
-    cub::CountingInputIterator<int64_t>
+    thrust::counting_iterator<int64_t>
 >;
 
 // CUB DeviceSelect::Flagged - Query temp storage size
@@ -130,7 +129,7 @@ static cudaError_t filter_bitmask_impl(
 ) {
     // Create a transform iterator to read packed bits.
     BitExtractor extractor{d_bitmask, bit_offset};
-    cub::CountingInputIterator<int64_t> counting_iter(0);
+    thrust::counting_iterator<int64_t> counting_iter(0);
     PackedBitIterator flag_iter(counting_iter, extractor);
 
     return cub::DeviceSelect::Flagged(
