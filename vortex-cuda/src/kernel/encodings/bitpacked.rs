@@ -389,10 +389,11 @@ mod tests {
 
     #[test]
     fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
+        let bit_width = 32;
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let max_val = (1u64 << 32).saturating_sub(1);
+        let max_val = (1u64 << bit_width).saturating_sub(1);
 
         let primitive_array = PrimitiveArray::new(
             (0u64..4096)
