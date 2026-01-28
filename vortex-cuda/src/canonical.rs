@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use futures::future::try_join_all;
+use vortex_array::Array;
 use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::arrays::BinaryView;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::BoolArrayParts;
@@ -13,6 +15,8 @@ use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DecimalArrayParts;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::StructArrayParts;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
@@ -32,6 +36,29 @@ pub trait CanonicalCudaExt {
 impl CanonicalCudaExt for Canonical {
     async fn into_host(self) -> VortexResult<Self> {
         match self {
+            Canonical::Struct(struct_array) => {
+                // Children should all be canonical now
+                let len = struct_array.len();
+                let StructArrayParts {
+                    fields,
+                    struct_fields,
+                    validity,
+                    ..
+                } = struct_array.into_parts();
+
+                // TODO(aduffy): try_join_all
+                let mut host_fields = vec![];
+                for field in fields.iter().cloned() {
+                    host_fields.push(field.to_canonical()?.into_host().await?.into_array());
+                }
+
+                Ok(Canonical::Struct(StructArray::new(
+                    struct_fields.names().clone(),
+                    host_fields,
+                    len,
+                    validity,
+                )))
+            }
             n @ Canonical::Null(_) => Ok(n),
             Canonical::Bool(bool) => {
                 // NOTE: update to copy to host when adding buffer handle.
@@ -102,7 +129,7 @@ impl CanonicalCudaExt for Canonical {
                     VarBinViewArray::new_unchecked(host_views, host_buffers, dtype, validity)
                 }))
             }
-            _ => todo!(),
+            c => todo!("{} not implemented", c.dtype()),
         }
     }
 }
