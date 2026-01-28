@@ -11,7 +11,6 @@ use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::{self};
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -53,8 +52,8 @@ impl FilterKernel for ListViewVTable {
         );
 
         // Simply filter the offsets and sizes arrays.
-        let new_offsets = compute::filter(offsets.as_ref(), selection_mask)?;
-        let new_sizes = compute::filter(sizes.as_ref(), selection_mask)?;
+        let new_offsets = offsets.filter(selection_mask.clone())?;
+        let new_sizes = sizes.filter(selection_mask.clone())?;
 
         // SAFETY: Filter operation maintains all `ListViewArray` invariants:
         // - Offsets and sizes are derived from existing valid child arrays.

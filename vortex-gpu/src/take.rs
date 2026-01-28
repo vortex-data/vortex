@@ -12,6 +12,7 @@ use vortex_array::arrays::{DictArray, PrimitiveArray};
 use vortex_array::validity::Validity;
 use vortex_array::{ArrayRef, Canonical, IntoArray, ToCanonical};
 use vortex_buffer::BufferMut;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::{
     DType, NativePType, Nullability, UnsignedPType, match_each_native_ptype,
     match_each_unsigned_integer_ptype,
@@ -144,8 +145,8 @@ where
         .map_err(|e| vortex_err!("Failed to load function: {e}"))
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-#[cfg(test)]
+#[cfg(feature = "cuda")]
+#[cuda_tests]
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;

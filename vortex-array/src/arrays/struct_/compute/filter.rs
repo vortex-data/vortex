@@ -12,7 +12,6 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -23,7 +22,7 @@ impl FilterKernel for StructVTable {
         let fields: Vec<ArrayRef> = array
             .unmasked_fields()
             .iter()
-            .map(|field| filter(field, mask))
+            .map(|field| field.filter(mask.clone()))
             .try_collect()?;
         let length = fields
             .first()

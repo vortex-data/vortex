@@ -215,7 +215,7 @@ impl PyExpr {
     /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
     /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
     fn evaluate(self_: PyRef<'_, Self>, array: PyIntoArray) -> PyVortexResult<PyArrayRef> {
-        Ok(PyArrayRef::from(self_.evaluate(array.inner())?))
+        Ok(PyArrayRef::from(array.inner().apply(&self_.inner)?))
     }
 }
 

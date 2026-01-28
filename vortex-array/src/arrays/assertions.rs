@@ -26,6 +26,26 @@ macro_rules! assert_nth_scalar {
     };
 }
 
+/// Asserts that the scalar at position `$n` in array `$arr` is null.
+///
+/// # Example
+///
+/// ```ignore
+/// let arr = PrimitiveArray::from_option_iter([Some(1), None, Some(3)]);
+/// assert_nth_scalar_null!(arr, 1);
+/// ```
+#[macro_export]
+macro_rules! assert_nth_scalar_is_null {
+    ($arr:expr, $n:expr) => {
+        assert!(
+            $arr.scalar_at($n).unwrap().is_null(),
+            "expected scalar at index {} to be null, but was {:?}",
+            $n,
+            $arr.scalar_at($n).unwrap()
+        );
+    };
+}
+
 #[macro_export]
 macro_rules! assert_arrays_eq {
     ($left:expr, $right:expr) => {{

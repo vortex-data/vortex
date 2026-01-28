@@ -14,6 +14,7 @@ use cudarc::driver::{
 use cudarc::nvrtc::Ptx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::{PType, UnsignedPType, match_each_unsigned_integer_ptype};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::BitPackedArray;
@@ -217,8 +218,8 @@ impl<P: UnsignedPType + DeviceRepr> GPUTask for BitPackingTask<P> {
     }
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-#[cfg(test)]
+#[cfg(feature = "cuda")]
+#[cuda_tests]
 mod tests {
     use cudarc::driver::CudaContext;
     use rstest::rstest;
@@ -251,7 +252,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+            .vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -290,7 +292,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+            .vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -345,7 +348,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+            .vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(
@@ -432,7 +436,8 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width).vortex_expect("operation should succeed in test");
+        let array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+            .vortex_expect("operation should succeed in test");
         let unpacked = cuda_bit_unpack(&array, ctx).unwrap();
 
         assert_eq!(

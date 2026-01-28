@@ -20,6 +20,7 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -301,8 +302,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     }
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::VarBinViewArray;

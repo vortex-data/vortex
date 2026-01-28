@@ -35,6 +35,7 @@ mod error;
 pub mod zstd;
 
 pub use error::NvcompError;
+use vortex_cuda_macros::cuda_tests;
 
 /// The loaded nvcomp library instance.
 static NVCOMP_LIB: OnceLock<Result<sys::NvcompLibrary, String>> = OnceLock::new();
@@ -66,8 +67,7 @@ pub fn nvcomp_library() -> Result<&'static sys::NvcompLibrary, NvcompError> {
         .map_err(|e| NvcompError::LibraryLoadError(e.clone()))
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     use crate::zstd;
 

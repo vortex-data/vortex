@@ -11,6 +11,7 @@ use cudarc::driver::{
 use cudarc::nvrtc::Ptx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_buffer::Buffer;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::{NativePType, PType};
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 use vortex_fastlanes::{BitPackedVTable, FoRArray};
@@ -140,8 +141,8 @@ pub fn cuda_for_bp_unpack(array: &FoRArray, ctx: Arc<CudaContext>) -> VortexResu
         .and_then(|c| c.into_primitive().into_host_array())
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-#[cfg(test)]
+#[cfg(feature = "cuda")]
+#[cuda_tests]
 mod tests {
     use cudarc::driver::CudaContext;
     use vortex_array::arrays::PrimitiveArray;
@@ -159,8 +160,10 @@ mod tests {
             (0u32..4096).map(|i| i % 8).collect::<Buffer<_>>(),
             Validity::NonNullable,
         );
-        let array = BitPackedArray::encode(primitive_array.as_ref(), 6).vortex_expect("operation should succeed in test");
-        let array = FoRArray::try_new(array.into_array(), 8u32.into()).vortex_expect("operation should succeed in test");
+        let array = BitPackedArray::encode(primitive_array.as_ref(), 6)
+            .vortex_expect("operation should succeed in test");
+        let array = FoRArray::try_new(array.into_array(), 8u32.into())
+            .vortex_expect("operation should succeed in test");
         let ctx = CudaContext::new(0).unwrap();
         ctx.set_blocking_synchronize().unwrap();
         let unpacked = cuda_for_bp_unpack(&array, ctx).unwrap();
