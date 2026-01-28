@@ -10,6 +10,7 @@ use vortex::expr::stats::Stat;
 use vortex::file::Footer;
 use vortex::file::SegmentSpec;
 use vortex::file::VortexFile;
+use vortex::layout::Layout;
 use vortex::layout::segments::SegmentId;
 
 /// Cached Vortex file metadata for use with DataFusion's [`FileMetadataCache`].
@@ -61,10 +62,17 @@ fn estimate_footer_size(footer: &Footer) -> usize {
         })
         .unwrap_or(0);
 
-    let root_layout = footer.layout();
-    let layout_size = size_of_val(footer.dtype())
-        + root_layout.metadata().len()
-        + root_layout.segment_ids().len() * size_of::<SegmentId>();
+    let layout_size = footer
+        .layout()
+        .depth_first_traversal()
+        .filter_map(|l| l.ok().map(|l| layout_size(l.as_ref())))
+        .sum::<usize>();
 
     segments_size + stats_size + layout_size
+}
+
+fn layout_size(layout: &dyn Layout) -> usize {
+    size_of_val(layout.dtype())
+        + layout.metadata().len()
+        + layout.segment_ids().len() * size_of::<SegmentId>()
 }
