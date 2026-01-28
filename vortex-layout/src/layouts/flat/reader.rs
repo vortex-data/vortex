@@ -214,6 +214,8 @@ impl LayoutReader for FlatReader {
             // Evaluate the projection expression.
             array = array.apply(&expr)?;
 
+            println!("array {}", array.display_tree());
+
             Ok(array)
         }
         .boxed())

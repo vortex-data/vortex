@@ -117,7 +117,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice, Alignment::of::<V>());
+    let output_device = CudaDeviceBuffer::new(output_slice);
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
@@ -226,7 +226,7 @@ async fn execute_dict_decimal_typed<
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
-    let output_device = CudaDeviceBuffer::new(output_slice, Alignment::of::<V>());
+    let output_device = CudaDeviceBuffer::new(output_slice);
 
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;

@@ -269,7 +269,7 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
     // self-contained. They neither have any parent or child encodings.
     //
     // TODO(0ax1): Don't copy back to host once VarBinView supports buffer handles.
-    let host_buffer = CudaDeviceBuffer::new(exec.device_output, Alignment::of::<u8>())
+    let host_buffer = CudaDeviceBuffer::new(exec.device_output)
         .copy_to_host(Alignment::new(1))?
         .await?;
 

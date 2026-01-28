@@ -301,7 +301,10 @@ impl LayoutReader for ChunkedReader {
             }
 
             // Combine the arrays.
-            Ok(ChunkedArray::try_new(chunks, dtype)?.to_array())
+            let x = ChunkedArray::try_new(chunks, dtype)?.to_array();
+            println!("{}", x.display_tree());
+
+            Ok(x)
         }
         .boxed())
     }

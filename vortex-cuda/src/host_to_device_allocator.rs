@@ -6,8 +6,8 @@ use std::sync::Arc;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DevicePtrMut;
 use cudarc::driver::result::memcpy_htod_async;
-use futures::future::BoxFuture;
 use futures::FutureExt;
+use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
@@ -45,6 +45,7 @@ impl BufferAllocator for HostToDeviceAllocator {
         alignment: Alignment,
     ) -> VortexResult<Box<dyn WriteDestination>> {
         let mut buffer = ByteBufferMut::with_capacity_aligned(len, alignment);
+        // # Safety (Is this safe)??
         unsafe { buffer.set_len(len) };
         Ok(Box::new(NaiveDeviceWriteTarget {
             buffer,
@@ -90,9 +91,9 @@ impl WriteDestination for NaiveDeviceWriteTarget {
             // Keep the host buffer alive until the copy completes.
             let _keep_alive = host;
 
-            Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
-                device, alignment,
-            ))))
+            Ok(BufferHandle::new_device(Arc::new(
+                CudaDeviceBuffer::new_aligned(device, alignment),
+            )))
         }
         .boxed()
     }

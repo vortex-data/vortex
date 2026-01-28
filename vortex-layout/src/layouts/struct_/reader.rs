@@ -346,7 +346,7 @@ impl LayoutReader for StructReader {
                 let mask = Mask::from_buffer(validity.to_bool().to_bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
-                if is_pack_merge {
+                let res = if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .unmasked_fields()
@@ -365,9 +365,12 @@ impl LayoutReader for StructReader {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
                     vortex_array::compute::mask(array.as_ref(), &mask)
-                }
+                };
+                res
             } else {
-                projected.await
+                projected
+                    .await
+                    .inspect(|a| println!("ret array {}", a.display_tree()))
             }
         }))
     }

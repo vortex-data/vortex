@@ -503,7 +503,7 @@ impl ArrayParts {
             let flatbuffer_loc = fb_root._tab.loc();
 
             let mut offset = 0;
-            let buffers: VortexResult<Vec<_>> = fb_array
+            let buffers = fb_array
                 .buffers()
                 .unwrap_or_default()
                 .iter()
@@ -515,15 +515,12 @@ impl ArrayParts {
 
                     // Extract a buffer and ensure it's aligned, copying if necessary
                     let buffer = segment.slice(offset..(offset + buffer_len));
-                    let buffer = buffer.ensure_aligned(Alignment::from_exponent(
-                        fb_buf.alignment_exponent(),
-                    ))?;
+                    let buffer = buffer
+                        .ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
                     offset += buffer_len;
                     Ok(buffer)
                 })
-                .collect();
-            let buffers: Arc<[_]> = buffers?.into();
-
+                .collect::<VortexResult<Arc<[_]>>>()?;
             (flatbuffer_loc, buffers)
         };
 

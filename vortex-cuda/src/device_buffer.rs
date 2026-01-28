@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
@@ -16,6 +17,7 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -32,7 +34,12 @@ pub struct CudaDeviceBuffer<T> {
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     /// Creates a new CUDA device buffer from a [`CudaSlice`].
-    pub fn new(cuda_slice: CudaSlice<T>, alignment: Alignment) -> Self {
+    pub fn new(cuda_slice: CudaSlice<T>) -> Self {
+        Self::new_aligned(cuda_slice, Alignment::of::<T>())
+    }
+
+    pub fn new_aligned(cuda_slice: CudaSlice<T>, alignment: Alignment) -> Self {
+        assert!(alignment.is_aligned_to(Alignment::of::<T>()));
         let len = cuda_slice.len();
         let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
 
@@ -195,9 +202,10 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let alignment = if byte_offset == 0 {
             self.alignment
         } else {
-            let offset_alignment = 1usize << byte_offset.trailing_zeros();
-            let max_alignment = *self.alignment;
-            Alignment::new(offset_alignment.min(max_alignment))
+            Alignment::from_exponent(
+                u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
+                    .vortex_expect("impossible"),
+            )
         };
 
         assert!(

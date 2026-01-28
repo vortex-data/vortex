@@ -23,6 +23,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -177,7 +178,12 @@ impl CudaExecutionCtx {
                 .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
         }
 
-        let cuda_buf = CudaDeviceBuffer::new(cuda_slice, Alignment::of::<T>());
+        let cuda_buf = CudaDeviceBuffer::new_aligned(
+            cuda_slice,
+            Alignment::from_exponent(
+                u8::try_from(device_ptr.trailing_zeros()).vortex_expect("aligment over 2^2^8??"),
+            ),
+        );
         let stream = Arc::clone(&self.stream);
 
         Ok(Box::pin(async move {
