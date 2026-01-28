@@ -533,14 +533,20 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 
 impl VisitorVTable<PcoVTable> for PcoVTable {
     fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in &array.chunk_metas {
+        for (i, buffer) in array.chunk_metas.iter().enumerate() {
             visitor
-                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .visit_buffer_handle(
+                    &format!("chunk_meta_{i}"),
+                    &BufferHandle::new_host(buffer.clone()),
+                )
                 .vortex_expect("Failed to visit buffer");
         }
-        for buffer in &array.pages {
+        for (i, buffer) in array.pages.iter().enumerate() {
             visitor
-                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .visit_buffer_handle(
+                    &format!("page_{i}"),
+                    &BufferHandle::new_host(buffer.clone()),
+                )
                 .vortex_expect("Failed to visit buffer");
         }
     }

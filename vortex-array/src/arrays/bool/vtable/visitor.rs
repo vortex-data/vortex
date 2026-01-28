@@ -12,7 +12,7 @@ use crate::vtable::VisitorVTable;
 impl VisitorVTable<BoolVTable> for BoolVTable {
     fn visit_buffers(array: &BoolArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor
-            .visit_buffer_handle(&array.bits)
+            .visit_buffer_handle("bits", &array.bits)
             .vortex_expect("Failed to visit buffer");
     }
 

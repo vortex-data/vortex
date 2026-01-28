@@ -13,7 +13,7 @@ use crate::vtable::VisitorVTable;
 impl VisitorVTable<DecimalVTable> for DecimalVTable {
     fn visit_buffers(array: &DecimalArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor
-            .visit_buffer_handle(&array.values)
+            .visit_buffer_handle("values", &array.values)
             .vortex_expect("Failed to visit buffer");
     }
 

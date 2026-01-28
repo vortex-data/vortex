@@ -13,7 +13,7 @@ use crate::BitPackedVTable;
 impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
     fn visit_buffers(array: &BitPackedArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor
-            .visit_buffer_handle(array.packed())
+            .visit_buffer_handle("packed", array.packed())
             .vortex_expect("Failed to visit buffer");
     }
 

@@ -159,16 +159,22 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             array.metadata_fmt(i.fmt)?;
             writeln!(i.fmt)?;
 
-            for buffer in array.buffers() {
+            for buffer in array.buffer_handles() {
                 let buffer_percent = if nbytes == 0 {
                     0.0
                 } else {
                     100_f64 * buffer.len() as f64 / nbytes as f64
                 };
+                let loc = if buffer.is_on_device() {
+                    "device"
+                } else if buffer.is_on_host() {
+                    "host"
+                } else {
+                    "unknown"
+                };
                 writeln!(
                     i,
-                    "buffer (align={}): {} ({:.2}%)",
-                    buffer.alignment(),
+                    "buffer {loc}: {} ({:.2}%)",
                     format_size(buffer.len(), DECIMAL),
                     buffer_percent
                 )?;

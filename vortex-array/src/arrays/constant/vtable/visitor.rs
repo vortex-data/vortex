@@ -19,7 +19,7 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
             .to_protobytes::<ByteBufferMut>()
             .freeze();
         visitor
-            .visit_buffer_handle(&BufferHandle::new_host(buffer))
+            .visit_buffer_handle("scalar", &BufferHandle::new_host(buffer))
             .vortex_expect("Failed to visit buffer");
     }
 

@@ -13,15 +13,19 @@ use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
     fn visit_buffers(array: &VarBinViewArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in array.buffers().as_ref() {
+        for (i, buffer) in array.buffers().iter().enumerate() {
             visitor
-                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .visit_buffer_handle(
+                    &format!("buffer_{i}"),
+                    &BufferHandle::new_host(buffer.clone()),
+                )
                 .vortex_expect("Failed to visit buffer");
         }
         visitor
-            .visit_buffer_handle(&BufferHandle::new_host(
-                array.views().clone().into_byte_buffer(),
-            ))
+            .visit_buffer_handle(
+                "views",
+                &BufferHandle::new_host(array.views().clone().into_byte_buffer()),
+            )
             .vortex_expect("Failed to visit buffer");
     }
 

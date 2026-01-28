@@ -490,7 +490,7 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
             .to_protobytes::<ByteBufferMut>()
             .freeze();
         visitor
-            .visit_buffer_handle(&BufferHandle::new_host(fill_value_buffer))
+            .visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer))
             .vortex_expect("Failed to visit buffer");
     }
 

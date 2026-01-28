@@ -898,12 +898,15 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
     fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
         if let Some(buffer) = &array.dictionary {
             visitor
-                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .visit_buffer_handle("dictionary", &BufferHandle::new_host(buffer.clone()))
                 .vortex_expect("Failed to visit buffer");
         }
-        for buffer in &array.frames {
+        for (i, buffer) in array.frames.iter().enumerate() {
             visitor
-                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .visit_buffer_handle(
+                    &format!("frame_{i}"),
+                    &BufferHandle::new_host(buffer.clone()),
+                )
                 .vortex_expect("Failed to visit buffer");
         }
     }

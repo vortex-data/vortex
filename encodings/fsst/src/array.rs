@@ -428,14 +428,16 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 impl VisitorVTable<FSSTVTable> for FSSTVTable {
     fn visit_buffers(array: &FSSTArray, visitor: &mut dyn ArrayBufferVisitor) {
         visitor
-            .visit_buffer_handle(&BufferHandle::new_host(
-                array.symbols().clone().into_byte_buffer(),
-            ))
+            .visit_buffer_handle(
+                "symbols",
+                &BufferHandle::new_host(array.symbols().clone().into_byte_buffer()),
+            )
             .vortex_expect("Failed to visit buffer");
         visitor
-            .visit_buffer_handle(&BufferHandle::new_host(
-                array.symbol_lengths().clone().into_byte_buffer(),
-            ))
+            .visit_buffer_handle(
+                "symbol_lengths",
+                &BufferHandle::new_host(array.symbol_lengths().clone().into_byte_buffer()),
+            )
             .vortex_expect("Failed to visit buffer");
     }
 

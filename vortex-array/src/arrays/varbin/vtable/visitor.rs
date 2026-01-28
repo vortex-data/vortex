@@ -14,7 +14,7 @@ impl VisitorVTable<VarBinVTable> for VarBinVTable {
     fn visit_buffers(array: &VarBinArray, visitor: &mut dyn ArrayBufferVisitor) {
         // TODO(ngates): sliced bytes?
         visitor
-            .visit_buffer_handle(array.bytes_handle())
+            .visit_buffer_handle("bytes", array.bytes_handle())
             .vortex_expect("Failed to visit buffer");
     }
 
