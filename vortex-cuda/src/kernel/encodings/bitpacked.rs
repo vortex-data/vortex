@@ -28,8 +28,6 @@ use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::launch_cuda_kernel_with_config;
 
-const BITPACKING_THREADS_PER_BLOCK: u32 = 32;
-
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
 pub struct BitPackedExecutor;
