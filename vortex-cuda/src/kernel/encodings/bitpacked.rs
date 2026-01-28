@@ -84,8 +84,8 @@ where
     let output_view = output_buf.as_view();
 
     // Load kernel function
-    // bit_unpack_{bit_width}bw_{bits}ow_{thread_count}t
-    let suffixes = ["ow", &format!("{bit_width}bw"), "32t"];
+    // bit_unpack_{bits}ow_{bit_width}bw_{thread_count}t
+    let suffixes = [&format!("{bit_width}bw"), "32t"];
     let cuda_function = ctx.load_function(
         &format!("bit_unpack_{}", size_of::<A::Physical>() * 8),
         &suffixes,

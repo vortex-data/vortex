@@ -31,10 +31,6 @@ fn main() {
         kernels_dir.display()
     );
 
-    if !is_cuda_available() {
-        return;
-    }
-
     println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
 
     generate_unpack::<u8>(&kernels_dir, 32).expect("Failed to generate unpack for u8");
@@ -42,6 +38,9 @@ fn main() {
     generate_unpack::<u32>(&kernels_dir, 32).expect("Failed to generate unpack for u32");
     generate_unpack::<u64>(&kernels_dir, 16).expect("Failed to generate unpack for u64");
 
+    if !is_cuda_available() {
+        return;
+    }
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
             match path.extension().and_then(|e| e.to_str()) {
