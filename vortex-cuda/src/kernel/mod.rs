@@ -193,7 +193,8 @@ impl KernelLoader {
 
     /// Returns the PTX file path for a given module name.
     ///
-    /// Uses the kernels directory path that was baked in at compile time by build.rs.
+    /// Checks for `VORTEX_CUDA_KERNELS_DIR` environment variable at runtime first,
+    /// falling back to the path baked in at compile time by build.rs.
     ///
     /// # Arguments
     ///
@@ -203,8 +204,9 @@ impl KernelLoader {
     ///
     /// The full path to the PTX file
     fn ptx_path_for_module(module_name: &str) -> PathBuf {
-        // VORTEX_CUDA_KERNELS_DIR is set by build.rs at compile time
-        Path::new(env!("VORTEX_CUDA_KERNELS_DIR")).join(format!("{}.ptx", module_name))
+        let kernels_dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
+            .unwrap_or_else(|_| env!("VORTEX_CUDA_KERNELS_DIR").to_string());
+        Path::new(&kernels_dir).join(format!("{}.ptx", module_name))
     }
 }
 
