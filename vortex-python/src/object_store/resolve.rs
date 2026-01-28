@@ -7,13 +7,13 @@ use std::sync::LazyLock;
 
 use object_store::ObjectStore;
 use object_store::path::Path;
-use object_store::registry::DefaultObjectStoreRegistry;
 use object_store::registry::ObjectStoreRegistry;
 use url::Url;
 use vortex::error::VortexResult;
 
-static REGISTRY: LazyLock<DefaultObjectStoreRegistry> =
-    LazyLock::new(DefaultObjectStoreRegistry::new);
+use crate::object_store::registry::Registry;
+
+static REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::default);
 
 /// Resolve a path to either a local file system path, or a registered object store.
 ///
@@ -81,7 +81,7 @@ mod test {
     use object_store::local::LocalFileSystem;
     use object_store::path::Path;
 
-    use crate::object_store_urls::resolve_store;
+    use crate::object_store::resolve::resolve_store;
 
     #[test]
     fn test_resolve() {
