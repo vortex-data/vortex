@@ -2,16 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
+use cudarc::driver::LaunchConfig;
 use cudarc::driver::PushKernelArg;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::buffer::DeviceBuffer;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
@@ -25,7 +26,9 @@ use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
+use crate::kernel::launch_cuda_kernel_with_config;
+
+const BITPACKING_THREADS_PER_BLOCK: u32 = 32;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
@@ -68,6 +71,7 @@ where
     let bit_width = array.bit_width();
     let buffer = array.packed().clone();
     let validity = array.validity()?;
+    let offset = array.offset() as usize;
 
     let device_input: BufferHandle = if buffer.is_on_device() {
         buffer
@@ -79,29 +83,36 @@ where
     let input_view = device_input.cuda_view::<A::Physical>()?;
 
     // Allocate output buffer
-    let output_slice = ctx.device_alloc::<A>(array_len)?;
+    let output_slice = ctx.device_alloc::<A>(array_len.next_multiple_of(1024))?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_view = output_buf.as_view();
 
     // Load kernel function
-    // bit_unpack_{bits}ow_{bit_width}bw_{thread_count}t
-    let suffixes = [&format!("{bit_width}bw"), "32t"];
-    let cuda_function = ctx.load_function(
-        &format!("bit_unpack_{}", size_of::<A::Physical>() * 8),
-        &suffixes,
-    )?;
+    // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
+    let bits = size_of::<A>() * 8;
+    let thread_count = if bits == 64 { 16 } else { 32 };
+    let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
+    let cuda_function = ctx.load_function(&format!("bit_unpack_{}", bits), &suffixes)?;
     let mut launch_builder = ctx.launch_builder(&cuda_function);
 
     // Build launch args: input, output, f, e, length
     launch_builder.arg(&input_view);
     launch_builder.arg(&output_view);
 
+    let num_blocks = u32::try_from(array.len().div_ceil(1024))?;
+
+    let config = LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (thread_count, 1, 1),
+        shared_mem_bytes: 0,
+    };
+
     // Launch kernel
     let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+        launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
 
     // Build result with newly allocated buffer
-    let output_handle = BufferHandle::new_device(Arc::new(output_buf));
+    let output_handle = BufferHandle::new_device(output_buf.slice(offset..offset + array_len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,

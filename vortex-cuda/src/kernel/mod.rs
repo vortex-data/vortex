@@ -12,6 +12,7 @@ use cudarc::driver::CudaContext;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
+use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
 use vortex_cuda_macros::cuda_tests;
@@ -97,12 +98,33 @@ pub fn launch_cuda_kernel_impl(
 
     let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))?;
 
-    let config = cudarc::driver::LaunchConfig {
+    let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     };
 
+    launch_cuda_kernel_with_config(launch_builder, config, event_flags)
+}
+
+/// Launches a CUDA kernel with the passed launch builder and config.
+///
+/// # Arguments
+///
+/// * `launch_builder` - Configured launch builder
+/// * `config` - Launch config to use
+///
+/// # Returns
+///
+/// A pair of CUDA events submitted before and after the kernel.
+/// Depending on `CUevent_flags` these events can contain timestamps. Use
+/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
+/// enable timestamps.
+pub fn launch_cuda_kernel_with_config(
+    launch_builder: &mut LaunchArgs,
+    config: LaunchConfig,
+    event_flags: CUevent_flags,
+) -> VortexResult<CudaKernelEvents> {
     launch_builder.record_kernel_launch(event_flags);
 
     unsafe {
