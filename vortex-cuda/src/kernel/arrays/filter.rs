@@ -21,6 +21,7 @@ use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterArrayParts;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
@@ -64,8 +65,23 @@ impl CudaExecute for FilterExecutor {
                     PType::I32 => execute_filter_primitive::<i32>(filter_array, ctx).await,
                     PType::I64 => execute_filter_primitive::<i64>(filter_array, ctx).await,
                     PType::F16 => {
-                        // TODO(aduffy): filter as u16 instead
-                        vortex_bail!("f16 not supported for filter_primitive kernel");
+                        let PrimitiveArrayParts {
+                            buffer, validity, ..
+                        } = execute_filter_primitive::<u16>(filter_array, ctx)
+                            .await?
+                            .into_primitive()
+                            .into_parts();
+
+                        Ok(Canonical::Primitive(
+                            // SAFETY: u16/f16 have same layout
+                            unsafe {
+                                PrimitiveArray::new_unchecked_from_handle(
+                                    buffer,
+                                    PType::F16,
+                                    validity,
+                                )
+                            },
+                        ))
                     }
                     PType::F32 => execute_filter_primitive::<f32>(filter_array, ctx).await,
                     PType::F64 => execute_filter_primitive::<f64>(filter_array, ctx).await,

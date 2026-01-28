@@ -149,12 +149,12 @@ extern "C" __global__ void filter_primitive_##suffix( \
     filter_primitive(input, mask, output, mask_offset, mask_len); \
 }
 
-// GENERATE_KERNEL(u8, uint8_t)
-// GENERATE_KERNEL(u16, uint16_t)
+GENERATE_KERNEL(u8, uint8_t)
+GENERATE_KERNEL(u16, uint16_t)
 GENERATE_KERNEL(u32, uint32_t)
-// GENERATE_KERNEL(u64, uint64_t)
-//
-// GENERATE_KERNEL(i8, int8_t)
-// GENERATE_KERNEL(i16, int16_t)
-// GENERATE_KERNEL(i32, int32_t)
-// GENERATE_KERNEL(i64, int64_t)
+GENERATE_KERNEL(u64, uint64_t)
+
+GENERATE_KERNEL(i8, int8_t)
+GENERATE_KERNEL(i16, int16_t)
+GENERATE_KERNEL(i32, int32_t)
+GENERATE_KERNEL(i64, int64_t)
