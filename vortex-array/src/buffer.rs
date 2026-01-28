@@ -9,9 +9,9 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
-use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::dyn_traits::DynEq;
