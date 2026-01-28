@@ -17,8 +17,10 @@ use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_fastlanes::BitPackedArray;
+use vortex_fastlanes::BitPackedArrayParts;
 use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::unpack_iter::BitPacked;
 
@@ -62,26 +64,30 @@ where
     A: BitPacked + NativePType + DeviceRepr + Send + Sync + 'static,
     A::Physical: DeviceRepr + Send + Sync + 'static,
 {
-    let array_len = array.len();
-    assert!(array_len > 0);
+    let BitPackedArrayParts {
+        offset,
+        bit_width,
+        len,
+        packed,
+        patches,
+        validity,
+    } = array.into_parts();
 
-    // Get the exponent factors from the lookup tables.
-    let bit_width = array.bit_width();
-    let buffer = array.packed().clone();
-    let validity = array.validity()?;
-    let offset = array.offset() as usize;
+    vortex_ensure!(len > 0, "Non empty array");
+    vortex_ensure!(patches.is_none(), "Patches not supported");
+    let offset = offset as usize;
 
-    let device_input: BufferHandle = if buffer.is_on_device() {
-        buffer
+    let device_input: BufferHandle = if packed.is_on_device() {
+        packed
     } else {
-        ctx.move_to_device::<A::Physical>(buffer)?.await?
+        ctx.move_to_device::<A::Physical>(packed)?.await?
     };
 
     // Get CUDA view of input
     let input_view = device_input.cuda_view::<A::Physical>()?;
 
     // Allocate output buffer
-    let output_slice = ctx.device_alloc::<A>(array_len.next_multiple_of(1024))?;
+    let output_slice = ctx.device_alloc::<A>(len.next_multiple_of(1024))?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_view = output_buf.as_view();
 
@@ -97,7 +103,7 @@ where
     launch_builder.arg(&input_view);
     launch_builder.arg(&output_view);
 
-    let num_blocks = u32::try_from(array.len().div_ceil(1024))?;
+    let num_blocks = u32::try_from(len.div_ceil(1024))?;
 
     let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
@@ -110,7 +116,7 @@ where
         launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
 
     // Build result with newly allocated buffer
-    let output_handle = BufferHandle::new_device(output_buf.slice(offset..offset + array_len));
+    let output_handle = BufferHandle::new_device(output_buf.slice(offset..offset + len));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,
@@ -369,6 +375,39 @@ mod tests {
         let gpu_result = block_on(async {
             BitPackedExecutor
                 .execute(bitpacked_array.to_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_cuda_bitunpack_sliced() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let max_val = (1u64 << 32).saturating_sub(1);
+
+        let primitive_array = PrimitiveArray::new(
+            (0u64..4096)
+                .map(|i| i % (max_val + 1))
+                .collect::<Buffer<_>>(),
+            NonNullable,
+        );
+
+        let bitpacked_array = BitPackedArray::encode(primitive_array.as_ref(), bit_width)
+            .vortex_expect("operation should succeed in test");
+        let sliced_array = bitpacked_array.slice(67..3969)?;
+        let cpu_result = sliced_array.to_canonical()?;
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(sliced_array, &mut cuda_ctx)
                 .await
                 .vortex_expect("GPU decompression failed")
                 .into_host()

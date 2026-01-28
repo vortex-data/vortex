@@ -41,6 +41,7 @@ fn main() {
     if !is_cuda_available() {
         return;
     }
+
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
             match path.extension().and_then(|e| e.to_str()) {
@@ -61,8 +62,7 @@ fn main() {
 }
 
 fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<()> {
-    let cu_path = output_dir.join(format!("bit_unpack_{}.cu", T::T));
-    let mut cu_file = File::create(&cu_path)?;
+    let mut cu_file = File::create(output_dir.join(format!("bit_unpack_{}.cu", T::T)))?;
     let mut cu_writer = IndentedWriter::new(&mut cu_file);
     generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
 }

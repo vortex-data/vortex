@@ -23,6 +23,15 @@ use crate::bitpack_compress::bitpack_encode;
 use crate::unpack_iter::BitPacked;
 use crate::unpack_iter::BitUnpackedChunks;
 
+pub struct BitPackedArrayParts {
+    pub offset: u16,
+    pub bit_width: u8,
+    pub len: usize,
+    pub packed: BufferHandle,
+    pub patches: Option<Patches>,
+    pub validity: Validity,
+}
+
 #[derive(Clone, Debug)]
 pub struct BitPackedArray {
     /// The offset within the first block (created with a slice).
@@ -274,6 +283,17 @@ impl BitPackedArray {
     #[inline]
     pub fn max_packed_value(&self) -> usize {
         (1 << self.bit_width()) - 1
+    }
+
+    pub fn into_parts(self) -> BitPackedArrayParts {
+        BitPackedArrayParts {
+            offset: self.offset,
+            bit_width: self.bit_width,
+            len: self.len,
+            packed: self.packed,
+            patches: self.patches,
+            validity: self.validity,
+        }
     }
 }
 
