@@ -115,12 +115,12 @@ mod tests {
         let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
             .unwrap()
             .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([false, true, false]));
+        assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
 
         let result = compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq)
             .unwrap()
             .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]));
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false].map(Some)));
 
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
             assert!(
@@ -170,12 +170,15 @@ mod tests {
         let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq)
             .unwrap()
             .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false].map(Some))
+        );
 
         let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq)
             .unwrap()
             .unwrap();
-        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true].map(Some)));
     }
 
     #[test]
