@@ -238,6 +238,7 @@ impl VTable for Binary {
         Ok(match operator {
             // AND and OR are kleene logic.
             Operator::And => None,
+            Operator::Or => None,
             _ => {
                 // All other binary operators are null if either side is null.
                 Some(and(lhs, rhs))
