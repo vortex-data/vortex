@@ -226,7 +226,9 @@ impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
 
 impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
     fn visit_buffers(array: &ByteBoolArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.buffer().as_host());
+        visitor
+            .visit_buffer_handle(array.buffer())
+            .vortex_expect("Failed to visit buffer");
     }
 
     fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {

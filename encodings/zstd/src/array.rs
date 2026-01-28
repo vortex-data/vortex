@@ -897,10 +897,14 @@ impl OperationsVTable<ZstdVTable> for ZstdVTable {
 impl VisitorVTable<ZstdVTable> for ZstdVTable {
     fn visit_buffers(array: &ZstdArray, visitor: &mut dyn ArrayBufferVisitor) {
         if let Some(buffer) = &array.dictionary {
-            visitor.visit_buffer(buffer);
+            visitor
+                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .vortex_expect("Failed to visit buffer");
         }
         for buffer in &array.frames {
-            visitor.visit_buffer(buffer);
+            visitor
+                .visit_buffer_handle(&BufferHandle::new_host(buffer.clone()))
+                .vortex_expect("Failed to visit buffer");
         }
     }
 
