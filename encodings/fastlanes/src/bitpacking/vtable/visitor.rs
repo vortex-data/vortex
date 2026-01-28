@@ -11,7 +11,7 @@ use crate::BitPackedVTable;
 
 impl VisitorVTable<BitPackedVTable> for BitPackedVTable {
     fn visit_buffers(array: &BitPackedArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.packed().as_host());
+        visitor.visit_buffer_handle("packed", array.packed());
     }
 
     fn visit_children(array: &BitPackedArray, visitor: &mut dyn ArrayChildVisitor) {

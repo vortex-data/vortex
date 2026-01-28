@@ -52,7 +52,7 @@ use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::half;
 use vortex_error::VortexError;
-use vortex_error::VortexExpect;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -533,11 +533,17 @@ impl OperationsVTable<PcoVTable> for PcoVTable {
 
 impl VisitorVTable<PcoVTable> for PcoVTable {
     fn visit_buffers(array: &PcoArray, visitor: &mut dyn ArrayBufferVisitor) {
-        for buffer in &array.chunk_metas {
-            visitor.visit_buffer(buffer);
+        for (i, buffer) in array.chunk_metas.iter().enumerate() {
+            visitor.visit_buffer_handle(
+                &format!("chunk_meta_{i}"),
+                &BufferHandle::new_host(buffer.clone()),
+            );
         }
-        for buffer in &array.pages {
-            visitor.visit_buffer(buffer);
+        for (i, buffer) in array.pages.iter().enumerate() {
+            visitor.visit_buffer_handle(
+                &format!("page_{i}"),
+                &BufferHandle::new_host(buffer.clone()),
+            );
         }
     }
 

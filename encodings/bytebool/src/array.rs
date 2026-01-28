@@ -33,7 +33,7 @@ use vortex_array::vtable::VisitorVTable;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -226,7 +226,7 @@ impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
 
 impl VisitorVTable<ByteBoolVTable> for ByteBoolVTable {
     fn visit_buffers(array: &ByteBoolArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.buffer().as_host());
+        visitor.visit_buffer_handle("values", array.buffer());
     }
 
     fn visit_children(array: &ByteBoolArray, visitor: &mut dyn ArrayChildVisitor) {

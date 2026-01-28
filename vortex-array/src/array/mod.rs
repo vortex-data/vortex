@@ -46,6 +46,7 @@ use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
 use crate::compute::ComputeFn;
@@ -778,12 +779,52 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer(&mut self, buffer: &ByteBuffer) {
-                self.buffers.push(buffer.clone());
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
+                self.buffers.push(handle.to_host_sync());
             }
         }
 
         let mut collector = BufferCollector {
+            buffers: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.buffers
+    }
+
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        struct BufferHandleCollector {
+            handles: Vec<BufferHandle>,
+        }
+
+        impl ArrayBufferVisitor for BufferHandleCollector {
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
+                self.handles.push(handle.clone());
+            }
+        }
+
+        let mut collector = BufferHandleCollector {
+            handles: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.handles
+    }
+
+    fn buffer_names(&self) -> Vec<String> {
+        <V::VisitorVTable as VisitorVTable<V>>::buffer_names(&self.0)
+    }
+
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        struct NamedBufferCollector {
+            buffers: Vec<(String, BufferHandle)>,
+        }
+
+        impl ArrayBufferVisitor for NamedBufferCollector {
+            fn visit_buffer_handle(&mut self, name: &str, handle: &BufferHandle) {
+                self.buffers.push((name.to_string(), handle.clone()));
+            }
+        }
+
+        let mut collector = NamedBufferCollector {
             buffers: Vec::new(),
         };
         <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);

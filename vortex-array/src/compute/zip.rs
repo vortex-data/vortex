@@ -327,9 +327,9 @@ mod tests {
         insta::assert_snapshot!(result.display_tree(), @r"
         root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
           metadata: EmptyMetadata
-          buffer (align=1): 29 B (1.75%)
-          buffer (align=1): 28 B (1.69%)
-          buffer (align=16): 1.60 kB (96.56%)
+          buffer: buffer_0 host 29 B (align=1) (1.75%)
+          buffer: buffer_1 host 28 B (align=1) (1.69%)
+          buffer: views host 1.60 kB (align=16) (96.56%)
         ");
 
         // test wrapped in a struct
@@ -346,9 +346,9 @@ mod tests {
           metadata: EmptyMetadata
           nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
             metadata: EmptyMetadata
-            buffer (align=1): 29 B (1.75%)
-            buffer (align=1): 28 B (1.69%)
-            buffer (align=16): 1.60 kB (96.56%)
+            buffer: buffer_0 host 29 B (align=1) (1.75%)
+            buffer: buffer_1 host 28 B (align=1) (1.69%)
+            buffer: views host 1.60 kB (align=16) (96.56%)
         ");
     }
 

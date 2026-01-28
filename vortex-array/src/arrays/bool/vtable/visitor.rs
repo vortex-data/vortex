@@ -9,7 +9,7 @@ use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<BoolVTable> for BoolVTable {
     fn visit_buffers(array: &BoolArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.bits.as_host())
+        visitor.visit_buffer_handle("bits", &array.bits);
     }
 
     fn visit_children(array: &BoolArray, visitor: &mut dyn ArrayChildVisitor) {
