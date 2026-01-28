@@ -524,6 +524,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::assert_arrays_eq;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
@@ -695,9 +696,6 @@ mod tests {
         let expr = or(col("a"), col("b"));
         let result = struct_arr.apply(&expr).unwrap();
 
-        assert_eq!(
-            result.scalar_at(0).vortex_expect("value"),
-            Scalar::bool(true, Nullability::NonNullable),
-        )
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
     }
 }
