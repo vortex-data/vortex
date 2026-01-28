@@ -76,7 +76,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     // TODO(connor): Remove this function completely!!!
-    array.filter(mask.clone())
+    Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
 }
 
 struct Filter;

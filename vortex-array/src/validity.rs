@@ -181,9 +181,13 @@ impl Validity {
         }
     }
 
-    /// Keep only the entries for which the mask is true.
+    /// Lazily filters a [`Validity`] with a selection mask, which keeps only the entries for which
+    /// the mask is true.
     ///
     /// The result has length equal to the number of true values in mask.
+    ///
+    /// If the validity is a [`Validity::Array`], then this lazily wraps it in a `FilterArray`
+    /// instead of eagerly filtering the values immediately.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
@@ -191,7 +195,13 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(arr.filter(mask.clone())?)),
+            Validity::Array(arr) => Ok(Validity::Array(
+                arr.filter(mask.clone())?
+                    // TODO(connor): This is wrong!!! We should not be eagerly decompressing the
+                    // validity array.
+                    .to_canonical()?
+                    .into_array(),
+            )),
         }
     }
 

@@ -502,7 +502,7 @@ mod tests {
             .display_as(DisplayOptions::MetadataOnly)
             .to_string()
             .to_lowercase();
-        assert_eq!(display, "vortex.varbinview(utf8?, len=100)");
+        assert_eq!(display, "vortex.sparse(utf8?, len=100)");
 
         Ok(())
     }
