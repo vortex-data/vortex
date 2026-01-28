@@ -179,10 +179,10 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 };
                 writeln!(
                     i,
-                    "buffer (name={}) {loc} (align={}): {} ({:.2}%)",
+                    "buffer: {} {loc} {} (align={}) ({:.2}%)",
                     name,
-                    align,
                     format_size(buffer.len(), DECIMAL),
+                    align,
                     buffer_percent
                 )?;
             }
