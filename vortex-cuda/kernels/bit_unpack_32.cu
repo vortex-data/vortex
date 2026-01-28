@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: Apache-2.0
-// SPDX-FileCopyrightText: Copyright the Vortex contributors
-
 // AUTO-GENERATED. Do not edit by hand!
 #include <cuda.h>
 #include <cuda_runtime.h>
