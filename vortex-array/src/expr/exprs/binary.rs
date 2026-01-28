@@ -676,4 +676,29 @@ mod tests {
             "Different structs should not be equal"
         );
     }
+
+    #[test]
+    fn test_or_kleene_validity() {
+        use crate::IntoArray;
+        use crate::arrays::{BoolArray, StructArray};
+        use crate::expr::exprs::get_item::col;
+
+        let struct_arr = StructArray::from_fields(&[
+            ("a", BoolArray::from_iter([Some(true)]).into_array()),
+            (
+                "b",
+                BoolArray::from_iter([Option::<bool>::None]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let expr = or(col("a"), col("b"));
+        let result = struct_arr.apply(&expr).unwrap();
+
+        assert_eq!(
+            result.scalar_at(0).vortex_expect("value"),
+            Scalar::bool(true, Nullability::NonNullable),
+        )
+    }
 }
