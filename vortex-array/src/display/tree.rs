@@ -172,9 +172,15 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
                 } else {
                     "unknown"
                 };
+                let align = if buffer.is_on_host() {
+                    buffer.as_host().alignment().to_string()
+                } else {
+                    "".to_string()
+                };
                 writeln!(
                     i,
-                    "buffer {loc}: {} ({:.2}%)",
+                    "buffer {loc} (align={}): {} ({:.2}%)",
+                    align,
                     format_size(buffer.len(), DECIMAL),
                     buffer_percent
                 )?;
