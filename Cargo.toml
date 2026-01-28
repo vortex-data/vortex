@@ -27,6 +27,7 @@ members = [
     "vortex-cuda",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
+    "vortex-cuda/cub",
     "vortex-cxx",
     "vortex-ffi",
     "fuzz",

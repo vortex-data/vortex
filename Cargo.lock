@@ -10332,6 +10332,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-cub"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+ "libloading 0.8.9",
+ "paste",
+ "vortex-cuda-macros",
+]
+
+[[package]]
 name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
@@ -10341,12 +10351,14 @@ dependencies = [
  "fastlanes",
  "futures",
  "kanal",
+ "paste",
  "rstest",
  "tokio",
  "tracing",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
+ "vortex-cub",
  "vortex-cuda",
  "vortex-cuda-macros",
  "vortex-decimal-byte-parts",

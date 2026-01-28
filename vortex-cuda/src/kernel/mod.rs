@@ -22,9 +22,11 @@ use vortex_utils::aliases::dash_map::DashMap;
 
 mod arrays;
 mod encodings;
+mod filter;
 
 pub use arrays::DictExecutor;
 pub use encodings::*;
+pub use filter::FilterExecutor;
 
 use crate::CudaKernelEvents;
 
