@@ -45,12 +45,14 @@ fn make_bitmask(len: usize, selectivity: f64) -> (Vec<u8>, usize) {
     let mut packed = vec![0u8; num_bytes];
     let mut true_count = 0;
 
-    for i in 0..len {
-        // Use a deterministic pattern based on selectivity
-        let selected = ((i as f64) / (len as f64)) < selectivity;
-        if selected {
-            let byte_idx = i / 8;
-            let bit_idx = i % 8;
+    // Calculate stride to spread selections evenly across the array.
+    let stride = ((1.0 / selectivity).round() as usize).max(1);
+
+    for idx in 0..len {
+        // Select every stride-th element to spread work across threads.
+        if idx % stride == 0 {
+            let byte_idx = idx / 8;
+            let bit_idx = idx % 8;
             packed[byte_idx] |= 1 << bit_idx;
             true_count += 1;
         }
