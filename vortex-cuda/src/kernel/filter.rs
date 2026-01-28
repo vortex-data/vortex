@@ -169,21 +169,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    
-    
-    
-    
-    
-    
-    use vortex_cuda_macros::cuda_tests;
-    
-    
-    
-    
 
-    
-    
-    
+    use vortex_cuda_macros::cuda_tests;
 
     #[cuda_tests]
     mod cuda {
