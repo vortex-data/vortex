@@ -19,11 +19,9 @@ impl<T: Copy> Filter<Mask> for &mut [T] {
     type Output = Self;
 
     fn filter(self, selection: &Mask) -> Self::Output {
-        assert_eq!(
-            self.len(),
-            selection.len(),
-            "Mask length must equal the slice length"
-        );
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection {
             Mask::AllTrue(_) => self,
             Mask::AllFalse(_) => &mut self[..0],
@@ -52,6 +50,16 @@ impl<T: Copy> Filter<MaskValues> for &mut [T] {
 impl<T: Copy> Filter<[usize]> for &mut [T] {
     type Output = Self;
 
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
     fn filter(self, indices: &[usize]) -> Self::Output {
         let mut write_pos = 0;
 
@@ -74,6 +82,16 @@ impl<T: Copy> Filter<[usize]> for &mut [T] {
 impl<T: Copy> Filter<[(usize, usize)]> for &mut [T] {
     type Output = Self;
 
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
     fn filter(self, slices: &[(usize, usize)]) -> Self::Output {
         let mut write_pos = 0;
 

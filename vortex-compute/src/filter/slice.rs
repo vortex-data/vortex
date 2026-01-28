@@ -25,6 +25,9 @@ impl<T: Copy> Filter<Mask> for &[T] {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection_mask {
             Mask::AllTrue(_) => Buffer::<T>::copy_from(self),
             Mask::AllFalse(_) => Buffer::empty(),
@@ -53,6 +56,16 @@ impl<T: Copy> Filter<MaskValues> for &[T] {
 impl<T: Copy> Filter<[usize]> for &[T] {
     type Output = Buffer<T>;
 
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
     fn filter(self, indices: &[usize]) -> Buffer<T> {
         Buffer::<T>::from_trusted_len_iter(indices.iter().map(|&idx| self[idx]))
     }
@@ -61,12 +74,24 @@ impl<T: Copy> Filter<[usize]> for &[T] {
 impl<T: Copy> Filter<[(usize, usize)]> for &[T] {
     type Output = Buffer<T>;
 
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
     fn filter(self, slices: &[(usize, usize)]) -> Buffer<T> {
         let output_len: usize = slices.iter().map(|(start, end)| end - start).sum();
+
         let mut out = BufferMut::<T>::with_capacity(output_len);
         for (start, end) in slices {
             out.extend_from_slice(&self[*start..*end]);
         }
+
         out.freeze()
     }
 }

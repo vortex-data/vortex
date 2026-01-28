@@ -17,6 +17,9 @@ impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
 
     fn filter(self, selection_mask: &Mask) -> BitBuffer {
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection_mask {
             Mask::AllTrue(_) => self.clone(),
             Mask::AllFalse(_) => BitBuffer::empty(),
@@ -42,6 +45,16 @@ impl Filter<MaskValues> for &BitBuffer {
 impl Filter<[usize]> for &BitBuffer {
     type Output = BitBuffer;
 
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
     fn filter(self, indices: &[usize]) -> BitBuffer {
         let bools = self.inner().as_ref();
         let bit_offset = self.offset();
@@ -58,6 +71,16 @@ impl Filter<[usize]> for &BitBuffer {
 impl Filter<[(usize, usize)]> for &BitBuffer {
     type Output = BitBuffer;
 
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
     fn filter(self, slices: &[(usize, usize)]) -> BitBuffer {
         let bools = self.inner().as_ref();
         let bit_offset = self.offset();
@@ -80,6 +103,9 @@ impl Filter<Mask> for &mut BitBufferMut {
     type Output = ();
 
     fn filter(self, selection_mask: &Mask) {
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection_mask {
             Mask::AllTrue(_) => {}
             Mask::AllFalse(_) => self.clear(),
@@ -106,6 +132,16 @@ impl Filter<MaskValues> for &mut BitBufferMut {
 impl Filter<[usize]> for &mut BitBufferMut {
     type Output = ();
 
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
     fn filter(self, indices: &[usize]) {
         let bools = self.inner().as_slice();
         let bit_offset = self.offset();
@@ -121,6 +157,16 @@ impl Filter<[usize]> for &mut BitBufferMut {
 impl Filter<[(usize, usize)]> for &mut BitBufferMut {
     type Output = ();
 
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
     fn filter(self, slices: &[(usize, usize)]) {
         let bools = self.inner().as_slice();
         let bit_offset = self.offset();

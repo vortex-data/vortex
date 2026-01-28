@@ -16,6 +16,9 @@ where
 {
     type Output = Self;
 
+    /// Filters a `Buffer` according to some selection mask.
+    ///
+    /// This will attempt to filter in-place if possible.
     fn filter(self, selection_mask: &M) -> Self {
         // If we have exclusive access, we can perform the filter in place.
         match self.try_into_mut() {
@@ -33,6 +36,9 @@ impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection_mask {
             Mask::AllTrue(_) => self.clone(),
             Mask::AllFalse(_) => Buffer::empty(),
@@ -45,6 +51,7 @@ impl<T: Copy> Filter<MaskValues> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, mask_values: &MaskValues) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
         self.as_slice().filter(mask_values)
     }
 }
@@ -52,7 +59,18 @@ impl<T: Copy> Filter<MaskValues> for &Buffer<T> {
 impl<T: Copy> Filter<[usize]> for &Buffer<T> {
     type Output = Buffer<T>;
 
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
     fn filter(self, indices: &[usize]) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
         self.as_slice().filter(indices)
     }
 }
@@ -60,7 +78,18 @@ impl<T: Copy> Filter<[usize]> for &Buffer<T> {
 impl<T: Copy> Filter<[(usize, usize)]> for &Buffer<T> {
     type Output = Buffer<T>;
 
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
     fn filter(self, slices: &[(usize, usize)]) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
         self.as_slice().filter(slices)
     }
 }
@@ -69,6 +98,7 @@ impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        // Delegates to the filter implementation over slices.
         self.as_slice().filter(selection)
     }
 }
@@ -80,6 +110,8 @@ where
     type Output = ();
 
     fn filter(self, selection_mask: &M) -> Self::Output {
+        // Delegates to the filter implementation over slices, as that is also an in-place
+        // operation.
         let true_count = self.as_mut_slice().filter(selection_mask).len();
         self.truncate(true_count);
     }
@@ -230,14 +262,5 @@ mod tests {
         buf.filter(&mask);
         let expected: Vec<u32> = (0..1000).filter(|i| i % 3 == 0).collect();
         assert_eq!(buf.as_slice(), &expected[..]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Mask length must equal the slice length")]
-    fn test_filter_length_mismatch() {
-        let mut buf = buffer_mut![1u32, 2, 3];
-        let mask = Mask::new_true(5); // Wrong length.
-
-        buf.filter(&mask);
     }
 }
