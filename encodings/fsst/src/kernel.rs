@@ -202,7 +202,6 @@ mod tests {
     use vortex_array::arrays::FilterArray;
     use vortex_array::arrays::builder::VarBinBuilder;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::filter;
     use vortex_array::session::ArraySession;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -251,8 +250,8 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        // Compare with filtering the canonical VarBinView
-        let expected = filter(&fsst_array, &mask)?;
+        // Compare with filtering the canonical VarBinView.
+        let expected = fsst_array.filter(mask)?;
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(result.into_array(), expected);
@@ -272,7 +271,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        let expected = filter(&fsst_array, &mask)?;
+        let expected = fsst_array.filter(mask)?;
 
         assert_eq!(result.len(), 5);
         assert_arrays_eq!(result.into_array(), expected);
@@ -316,7 +315,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        let expected = filter(input.as_ref(), &mask)?;
+        let expected = input.filter(mask)?;
 
         assert_eq!(result.len(), 1);
         assert_arrays_eq!(result.into_array(), expected);
@@ -341,7 +340,7 @@ mod tests {
         let mut ctx = SESSION.create_execution_ctx();
         let result = filter_array.execute::<Canonical>(&mut ctx)?;
 
-        let expected = filter(input.as_ref(), &mask)?;
+        let expected = input.filter(mask)?;
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(result.into_array(), expected);

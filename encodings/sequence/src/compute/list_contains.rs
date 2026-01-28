@@ -56,8 +56,9 @@ register_kernel!(ListContainsKernelAdapter(SequenceVTable).lift());
 mod tests {
     use std::sync::Arc;
 
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::list_contains;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType::I32;
@@ -82,12 +83,9 @@ mod tests {
             //            3
             let array = SequenceArray::typed_new(1, 1, Nullability::NonNullable, 3).unwrap();
 
-            let res = list_contains(elements.as_ref(), array.as_ref())
-                .unwrap()
-                .to_bool()
-                .bool_vec();
-
-            assert_eq!(res, vec![true, false, true]);
+            let result = list_contains(elements.as_ref(), array.as_ref()).unwrap();
+            let expected = BoolArray::from_iter([Some(true), Some(false), Some(true)]);
+            assert_arrays_eq!(result, expected);
         }
 
         {
@@ -96,12 +94,9 @@ mod tests {
             //            5
             let array = SequenceArray::typed_new(1, 2, Nullability::NonNullable, 3).unwrap();
 
-            let res = list_contains(elements.as_ref(), array.as_ref())
-                .unwrap()
-                .to_bool()
-                .bool_vec();
-
-            assert_eq!(res, vec![true, true, false]);
+            let result = list_contains(elements.as_ref(), array.as_ref()).unwrap();
+            let expected = BoolArray::from_iter([Some(true), Some(true), Some(false)]);
+            assert_arrays_eq!(result, expected);
         }
     }
 }

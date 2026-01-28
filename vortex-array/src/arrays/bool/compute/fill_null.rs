@@ -26,12 +26,11 @@ impl FillNullKernel for BoolVTable {
         Ok(match array.validity() {
             Validity::Array(v) => {
                 let bool_buffer = if fill {
-                    array.bit_buffer() | &!v.to_bool().bit_buffer()
+                    array.to_bit_buffer() | &!v.to_bool().to_bit_buffer()
                 } else {
-                    array.bit_buffer() & v.to_bool().bit_buffer()
+                    array.to_bit_buffer() & v.to_bool().to_bit_buffer()
                 };
-                BoolArray::from_bit_buffer(bool_buffer, fill_value.dtype().nullability().into())
-                    .into_array()
+                BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
             _ => unreachable!("checked in entry point"),
         })
@@ -57,14 +56,14 @@ mod tests {
     #[case(true, bitbuffer![true, true, false, true])]
     #[case(false, bitbuffer![true, false, false, false])]
     fn bool_fill_null(#[case] fill_value: bool, #[case] expected: BitBuffer) {
-        let bool_array = BoolArray::from_bit_buffer(
+        let bool_array = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
         let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
             .unwrap()
             .to_bool();
-        assert_eq!(non_null_array.bit_buffer(), &expected);
+        assert_eq!(non_null_array.to_bit_buffer(), expected);
         assert_eq!(
             non_null_array.dtype(),
             &DType::Bool(Nullability::NonNullable)

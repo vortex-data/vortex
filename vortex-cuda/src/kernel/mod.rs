@@ -3,7 +3,6 @@
 
 //! CUDA kernel loading and management.
 
-use std::env;
 use std::fmt::Debug;
 use std::path::Path;
 use std::path::PathBuf;
@@ -15,6 +14,7 @@ use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
+use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -164,12 +164,19 @@ impl KernelLoader {
         let module = if let Some(entry) = self.modules.get(module_name) {
             Arc::clone(entry.value())
         } else {
-            let ptx_path = Self::ptx_path_for_module(module_name)?;
+            let ptx_path = Self::ptx_path_for_module(module_name);
 
             // Compile and load the CUDA module.
             let module = cuda_context
                 .load_module(Ptx::from_file(&ptx_path))
-                .map_err(|e| vortex_err!("Failed to load CUDA module: {}", e))?;
+                .map_err(|e| {
+                    vortex_err!(
+                        "Failed to load CUDA module {}, ptx path {}: {}",
+                        module_name,
+                        ptx_path.display(),
+                        e
+                    )
+                })?;
 
             // Cache the module
             self.modules
@@ -186,7 +193,8 @@ impl KernelLoader {
 
     /// Returns the PTX file path for a given module name.
     ///
-    /// Constructs the path based on the crate's manifest directory.
+    /// Checks for `VORTEX_CUDA_KERNELS_DIR` environment variable at runtime first,
+    /// falling back to the path baked in at compile time by build.rs.
     ///
     /// # Arguments
     ///
@@ -195,17 +203,14 @@ impl KernelLoader {
     /// # Returns
     ///
     /// The full path to the PTX file
-    fn ptx_path_for_module(module_name: &str) -> VortexResult<PathBuf> {
-        let manifest_dir = env::var("CARGO_MANIFEST_DIR")
-            .map_err(|e| vortex_err!("Failed to get manifest dir: {}", e))?;
-        Ok(Path::new(&manifest_dir)
-            .join("kernels")
-            .join(format!("{}.ptx", module_name)))
+    fn ptx_path_for_module(module_name: &str) -> PathBuf {
+        let kernels_dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
+            .unwrap_or_else(|_| env!("VORTEX_CUDA_KERNELS_DIR").to_string());
+        Path::new(&kernels_dir).join(format!("{}.ptx", module_name))
     }
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     #![allow(clippy::expect_used)]
 

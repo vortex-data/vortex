@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 libloading = { workspace = true }
+vortex-cuda-macros = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

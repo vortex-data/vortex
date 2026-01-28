@@ -303,12 +303,19 @@ mod test {
 
     #[test]
     fn test_encode() {
-        let values = [Some(1), None, Some(1), None, Some(1), None, Some(u64::MAX)];
+        let values = [
+            Some(1u64),
+            None,
+            Some(1),
+            None,
+            Some(1),
+            None,
+            Some(u64::MAX),
+        ];
         let uncompressed = PrimitiveArray::from_option_iter(values);
         let packed = BitPackedArray::encode(uncompressed.as_ref(), 1).unwrap();
-        let expected = &[1, 0, 1, 0, 1, 0, u64::MAX];
-        let results = packed.to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, expected);
+        let expected = PrimitiveArray::from_option_iter(values);
+        assert_arrays_eq!(packed.to_primitive(), expected);
     }
 
     #[test]

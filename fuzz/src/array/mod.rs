@@ -549,7 +549,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::compute::cast;
     use vortex_array::compute::compare;
     use vortex_array::compute::fill_null;
-    use vortex_array::compute::filter;
     use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
@@ -591,7 +590,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_search_sorted(sorted, s, side, expected.search(), i)?;
             }
             Action::Filter(mask_val) => {
-                current_array = filter(&current_array, &mask_val)
+                current_array = current_array
+                    .filter(mask_val)
                     .vortex_expect("filter operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

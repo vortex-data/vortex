@@ -62,8 +62,8 @@ pub fn take_canonical_array(
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            let vec_values = bool_array.bit_buffer().iter().collect::<Vec<_>>();
-            Ok(BoolArray::from_bit_buffer(
+            let vec_values = bool_array.to_bit_buffer().iter().collect::<Vec<_>>();
+            Ok(BoolArray::new(
                 indices_slice_non_opt
                     .iter()
                     .map(|i| vec_values[*i])

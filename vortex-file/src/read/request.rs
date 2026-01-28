@@ -116,7 +116,7 @@ impl ReadRequest {
 /// A set of I/O requests that have been coalesced into a single larger request.
 pub(crate) struct CoalescedRequest {
     pub(crate) range: Range<u64>,
-    pub(crate) alignment: Alignment, // The alignment of the first request in the coalesced range.
+    pub(crate) alignment: Alignment, // Global max segment alignment used for the coalesced range.
     pub(crate) requests: Vec<ReadRequest>, // TODO(ngates): we could have enum of Single/Many to avoid Vec.
 }
 

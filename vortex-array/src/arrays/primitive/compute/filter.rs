@@ -45,16 +45,13 @@ mod test {
     use crate::compute::conformance::filter::LARGE_SIZE;
     use crate::compute::conformance::filter::MEDIUM_SIZE;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::filter;
 
     #[test]
     fn filter_run_variant_mixed_test() {
         let mask = [true, true, false, true, true, true, false, true];
         let arr = PrimitiveArray::from_iter([1u32, 24, 54, 2, 3, 2, 3, 2]);
 
-        let filtered = filter(arr.as_ref(), &Mask::from_iter(mask))
-            .unwrap()
-            .to_primitive();
+        let filtered = arr.filter(Mask::from_iter(mask)).unwrap().to_primitive();
         assert_eq!(
             filtered.len(),
             mask.iter().filter(|x| **x).collect_vec().len()

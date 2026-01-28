@@ -22,7 +22,7 @@ use vortex_scalar::Scalar;
 
 pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Operator) -> ArrayRef {
     if value.is_null() {
-        return BoolArray::from_bit_buffer(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
+        return BoolArray::new(BitBuffer::new_unset(array.len()), Validity::AllInvalid)
             .into_array();
     }
 
@@ -37,7 +37,7 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             compare_to(
                 array
                     .to_bool()
-                    .bit_buffer()
+                    .to_bit_buffer()
                     .iter()
                     .zip(
                         array

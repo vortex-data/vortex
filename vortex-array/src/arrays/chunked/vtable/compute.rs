@@ -110,8 +110,8 @@ mod tests {
             .unwrap()
             .to_bool();
         assert_eq!(
-            result.bit_buffer(),
-            &BitBuffer::from_iter([true, true, false, false, true])
+            result.to_bit_buffer(),
+            BitBuffer::from_iter([true, true, false, false, true])
         );
     }
 }

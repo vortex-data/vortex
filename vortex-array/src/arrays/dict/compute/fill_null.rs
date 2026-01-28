@@ -30,7 +30,7 @@ impl FillNullKernel for DictVTable {
         )?
         .to_bool();
 
-        let Some(first_fill_value) = found_fill_values.bit_buffer().set_indices().next() else {
+        let Some(first_fill_value) = found_fill_values.to_bit_buffer().set_indices().next() else {
             // No fill values found, so we must canonicalize and fill_null.
             // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
             //  fall back.

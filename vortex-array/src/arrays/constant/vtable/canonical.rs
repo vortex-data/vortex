@@ -53,7 +53,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
 
     Ok(match array.dtype() {
         DType::Null => Canonical::Null(NullArray::new(array.len())),
-        DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
+        DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if BoolScalar::try_from(scalar)
                 .vortex_expect("must be bool")
                 .value()
@@ -335,6 +335,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::ListViewRebuildMode;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::expr::stats::Stat;
@@ -354,14 +355,8 @@ mod tests {
     fn test_canonicalize_const_str() {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
-        // Check all values correct.
-        let canonical = const_array.to_varbinview();
-
-        assert_eq!(canonical.len(), 4);
-
-        for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
-        }
+        let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);
+        assert_arrays_eq!(const_array, expected);
     }
 
     #[test]

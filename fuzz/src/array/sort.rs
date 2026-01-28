@@ -26,7 +26,7 @@ pub fn sort_canonical_array(array: &dyn Array) -> VortexResult<ArrayRef> {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
             let mut opt_values = bool_array
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
                 .zip(bool_array.validity_mask()?.to_bit_buffer().iter())
                 .map(|(b, v)| v.then_some(b))

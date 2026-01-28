@@ -360,7 +360,7 @@ mod tests {
             true,
             root(),
         );
-        let result = expr.evaluate(&input)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
         Ok(())
     }
@@ -375,7 +375,7 @@ mod tests {
             true,
             root(),
         );
-        let result = expr.evaluate(&input)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, true]));
         Ok(())
     }
@@ -390,7 +390,7 @@ mod tests {
             false,
             root(),
         );
-        let result = expr.evaluate(&input)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([false, false, false]));
         Ok(())
     }
@@ -408,11 +408,11 @@ mod tests {
         );
         let input = buffer![1i32, 5, 10].into_array();
 
-        let result = expr.evaluate(&input)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, false, false]));
 
         threshold.store(10, Ordering::SeqCst);
-        let result = expr.evaluate(&input)?;
+        let result = input.apply(&expr)?;
         assert_arrays_eq!(result, BoolArray::from_iter([true, true, false]));
 
         Ok(())

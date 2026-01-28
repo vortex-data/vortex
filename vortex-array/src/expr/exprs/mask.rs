@@ -95,7 +95,7 @@ impl VTable for Mask {
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
         let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
-        let inverted = mask_bool.bit_buffer().not();
+        let inverted = mask_bool.to_bit_buffer().not();
         compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
     }
 

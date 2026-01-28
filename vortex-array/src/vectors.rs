@@ -84,7 +84,7 @@ impl VectorIntoArray<BoolArray> for BoolVector {
         assert!(matches!(dtype, DType::Bool(_)));
 
         let (bits, validity) = self.into_parts();
-        BoolArray::from_bit_buffer(bits, Validity::from_mask(validity, dtype.nullability()))
+        BoolArray::new(bits, Validity::from_mask(validity, dtype.nullability()))
     }
 }
 

@@ -18,18 +18,19 @@ impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Range;
+
+    use rstest::rstest;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::NativePType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
 
     use crate::IntoArray;
-    use crate::array::Array;
     use crate::arrays::ChunkedArray;
-    use crate::arrays::ChunkedVTable;
-    use crate::canonical::ToCanonical;
+    use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
 
     fn chunked_array() -> ChunkedArray {
         ChunkedArray::try_new(
@@ -43,50 +44,18 @@ mod tests {
         .unwrap()
     }
 
-    fn assert_equal_slices<T: NativePType>(arr: &dyn Array, slice: &[T]) {
-        let mut values = Vec::with_capacity(arr.len());
-        if let Some(arr) = arr.as_opt::<ChunkedVTable>() {
-            arr.chunks()
-                .iter()
-                .map(|a| a.to_primitive())
-                .for_each(|a| values.extend_from_slice(a.as_slice::<T>()));
-        } else {
-            values.extend_from_slice(arr.to_primitive().as_slice::<T>());
-        }
-        assert_eq!(values, slice);
-    }
-
-    #[test]
-    fn slice_middle() {
-        assert_equal_slices(chunked_array().slice(2..5).unwrap().as_ref(), &[3u64, 4, 5])
-    }
-
-    #[test]
-    fn slice_begin() {
-        assert_equal_slices(chunked_array().slice(1..3).unwrap().as_ref(), &[2u64, 3]);
-    }
-
-    #[test]
-    fn slice_aligned() {
-        assert_equal_slices(chunked_array().slice(3..6).unwrap().as_ref(), &[4u64, 5, 6]);
-    }
-
-    #[test]
-    fn slice_many_aligned() {
-        assert_equal_slices(
-            chunked_array().slice(0..6).unwrap().as_ref(),
-            &[1u64, 2, 3, 4, 5, 6],
+    #[rstest]
+    #[case::middle(2..5, &[3u64, 4, 5])]
+    #[case::begin(1..3, &[2u64, 3])]
+    #[case::aligned(3..6, &[4u64, 5, 6])]
+    #[case::many_aligned(0..6, &[1u64, 2, 3, 4, 5, 6])]
+    #[case::end(7..8, &[8u64])]
+    #[case::exactly_end(6..9, &[7u64, 8, 9])]
+    fn slice(#[case] range: Range<usize>, #[case] expected: &[u64]) {
+        assert_arrays_eq!(
+            chunked_array().slice(range).unwrap(),
+            PrimitiveArray::from_iter(expected.iter().copied())
         );
-    }
-
-    #[test]
-    fn slice_end() {
-        assert_equal_slices(chunked_array().slice(7..8).unwrap().as_ref(), &[8u64]);
-    }
-
-    #[test]
-    fn slice_exactly_end() {
-        assert_equal_slices(chunked_array().slice(6..9).unwrap().as_ref(), &[7u64, 8, 9]);
     }
 
     #[test]
@@ -110,8 +79,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2]));
     }
 
     #[test]
@@ -126,10 +94,7 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
     }
 
     #[test]
@@ -144,9 +109,6 @@ mod tests {
             DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .unwrap();
-        assert_eq!(array.scalar_at(0).unwrap(), 1u64.into());
-        assert_eq!(array.scalar_at(1).unwrap(), 2u64.into());
-        assert_eq!(array.scalar_at(2).unwrap(), 3u64.into());
-        assert_eq!(array.scalar_at(3).unwrap(), 4u64.into());
+        assert_arrays_eq!(array, PrimitiveArray::from_iter([1u64, 2, 3, 4]));
     }
 }

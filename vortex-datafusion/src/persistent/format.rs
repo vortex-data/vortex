@@ -28,6 +28,7 @@ use datafusion_datasource::file_compression_type::FileCompressionType;
 use datafusion_datasource::file_format::FileFormat;
 use datafusion_datasource::file_format::FileFormatFactory;
 use datafusion_datasource::file_scan_config::FileScanConfig;
+use datafusion_datasource::file_scan_config::FileScanConfigBuilder;
 use datafusion_datasource::file_sink_config::FileSinkConfig;
 use datafusion_datasource::sink::DataSinkExec;
 use datafusion_datasource::source::DataSourceExec;
@@ -54,13 +55,14 @@ use vortex::expr::stats;
 use vortex::expr::stats::Stat;
 use vortex::file::EOF_SIZE;
 use vortex::file::MAX_POSTSCRIPT_SIZE;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::io::file::object_store::ObjectStoreSource;
 use vortex::io::session::RuntimeSessionExt;
 use vortex::scalar::Scalar;
 use vortex::session::VortexSession;
 
-use super::cache::VortexFileCache;
+use super::cache::CachedVortexMetadata;
 use super::sink::VortexSink;
 use super::source::VortexSource;
 use crate::PrecisionExt as _;
@@ -71,7 +73,6 @@ const DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES: usize = MAX_POSTSCRIPT_SIZE as usi
 /// Vortex implementation of a DataFusion [`FileFormat`].
 pub struct VortexFormat {
     session: VortexSession,
-    file_cache: VortexFileCache,
     opts: VortexOptions,
 }
 
@@ -90,10 +91,6 @@ config_namespace! {
     ///
     /// [`SessionConfig`]: https://docs.rs/datafusion/latest/datafusion/prelude/struct.SessionConfig.html
     pub struct VortexOptions {
-        /// The size of the in-memory [`vortex::file::Footer`] cache.
-        pub footer_cache_size_mb: usize, default = 64
-        /// The size of the in-memory segment cache.
-        pub segment_cache_size_mb: usize, default = 0
         /// The number of bytes to read when parsing a file footer.
         ///
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
@@ -193,16 +190,7 @@ impl VortexFormat {
 
     /// Creates a new instance with configured by a [`VortexOptions`].
     pub fn new_with_options(session: VortexSession, opts: VortexOptions) -> Self {
-        Self {
-            session: session.clone(),
-            file_cache: VortexFileCache::new(
-                opts.footer_cache_size_mb,
-                opts.segment_cache_size_mb,
-                opts.footer_initial_read_size_bytes,
-                session,
-            ),
-            opts,
-        }
+        Self { session, opts }
     }
 
     /// Return the format specific configuration
@@ -243,18 +231,45 @@ impl FileFormat for VortexFormat {
         store: &Arc<dyn ObjectStore>,
         objects: &[ObjectMeta],
     ) -> DFResult<SchemaRef> {
+        let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
+
         let mut file_schemas = stream::iter(objects.iter().cloned())
-            .map(|o| {
-                let reader = Arc::new(ObjectStoreSource::new(
-                    store.clone(),
-                    o.location.clone(),
-                    self.session.handle(),
-                ));
-                let cache = self.file_cache.clone();
+            .map(|object| {
+                let store = store.clone();
+                let session = self.session.clone();
+                let opts = self.opts.clone();
+                let cache = file_metadata_cache.clone();
+
                 SpawnedTask::spawn(async move {
-                    let vxf = cache.try_get(&o, reader).await?;
+                    // Check if we have cached metadata for this file
+                    if let Some(cached) = cache.get(&object)
+                        && let Some(cached_vortex) =
+                            cached.as_any().downcast_ref::<CachedVortexMetadata>()
+                    {
+                        let inferred_schema = cached_vortex.footer().dtype().to_arrow_schema()?;
+                        return VortexResult::Ok((object.location, inferred_schema));
+                    }
+
+                    // Not cached or invalid - open the file
+                    let reader = Arc::new(ObjectStoreSource::new(
+                        store,
+                        object.location.clone(),
+                        session.handle(),
+                    ));
+
+                    let vxf = session
+                        .open_options()
+                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                        .with_file_size(object.size)
+                        .open_read(reader)
+                        .await?;
+
+                    // Cache the metadata
+                    let cached_metadata = Arc::new(CachedVortexMetadata::new(&vxf));
+                    cache.put(&object, cached_metadata);
+
                     let inferred_schema = vxf.dtype().to_arrow_schema()?;
-                    VortexResult::Ok((o.location, inferred_schema))
+                    VortexResult::Ok((object.location, inferred_schema))
                 })
                 .map(|f| f.vortex_expect("Failed to spawn infer_schema"))
             })
@@ -273,40 +288,77 @@ impl FileFormat for VortexFormat {
     #[tracing::instrument(skip_all, fields(location = object.location.as_ref()))]
     async fn infer_stats(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         store: &Arc<dyn ObjectStore>,
         table_schema: SchemaRef,
         object: &ObjectMeta,
     ) -> DFResult<Statistics> {
         let object = object.clone();
         let store = store.clone();
-        let cache = self.file_cache.clone();
-        let handle = self.session.handle();
+        let session = self.session.clone();
+        let opts = self.opts.clone();
+        let file_metadata_cache = state.runtime_env().cache_manager.get_file_metadata_cache();
 
         SpawnedTask::spawn(async move {
-            let reader = Arc::new(ObjectStoreSource::new(
-                store.clone(),
-                object.location.clone(),
-                handle,
-            ));
-            let vxf = cache.try_get(&object, reader).await.map_err(|e| {
-                DataFusionError::Execution(format!(
-                    "Failed to open Vortex file {}: {e}",
-                    object.location
-                ))
-            })?;
+            // Try to get cached metadata first
+            let cached_metadata = file_metadata_cache.get(&object).and_then(|cached| {
+                cached
+                    .as_any()
+                    .downcast_ref::<CachedVortexMetadata>()
+                    .map(|m| {
+                        (
+                            m.footer().dtype().clone(),
+                            m.footer().statistics().cloned(),
+                            m.footer().row_count(),
+                        )
+                    })
+            });
 
-            let struct_dtype = vxf
-                .dtype()
+            let (dtype, file_stats, row_count) = match cached_metadata {
+                Some(metadata) => metadata,
+                None => {
+                    // Not cached - open the file
+                    let reader = Arc::new(ObjectStoreSource::new(
+                        store,
+                        object.location.clone(),
+                        session.handle(),
+                    ));
+
+                    let vxf = session
+                        .open_options()
+                        .with_initial_read_size(opts.footer_initial_read_size_bytes)
+                        .with_file_size(object.size)
+                        .open_read(reader)
+                        .await
+                        .map_err(|e| {
+                            DataFusionError::Execution(format!(
+                                "Failed to open Vortex file {}: {e}",
+                                object.location
+                            ))
+                        })?;
+
+                    // Cache the metadata
+                    let cached = Arc::new(CachedVortexMetadata::new(&vxf));
+                    file_metadata_cache.put(&object, cached);
+
+                    (
+                        vxf.dtype().clone(),
+                        vxf.file_stats().cloned(),
+                        vxf.row_count(),
+                    )
+                }
+            };
+
+            let struct_dtype = dtype
                 .as_struct_fields_opt()
                 .vortex_expect("dtype is not a struct");
 
             // Evaluate the statistics for each column that we are able to return to DataFusion.
-            let Some(file_stats) = vxf.file_stats() else {
+            let Some(file_stats) = file_stats else {
                 // If the file has no column stats, the best we can do is return a row count.
                 return Ok(Statistics {
                     num_rows: Precision::Exact(
-                        usize::try_from(vxf.row_count())
+                        usize::try_from(row_count)
                             .map_err(|_| vortex_err!("Row count overflow"))
                             .vortex_expect("Row count overflow"),
                     ),
@@ -393,7 +445,7 @@ impl FileFormat for VortexFormat {
 
             Ok(Statistics {
                 num_rows: Precision::Exact(
-                    usize::try_from(vxf.row_count())
+                    usize::try_from(row_count)
                         .map_err(|_| vortex_err!("Row count overflow"))
                         .vortex_expect("Row count overflow"),
                 ),
@@ -407,15 +459,24 @@ impl FileFormat for VortexFormat {
 
     async fn create_physical_plan(
         &self,
-        _state: &dyn Session,
+        state: &dyn Session,
         file_scan_config: FileScanConfig,
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
-        // We make sure the scan's source is the right type, but we don't have anything else to do here.
-        if !file_scan_config.file_source().as_any().is::<VortexSource>() {
-            return Err(internal_datafusion_err!("Expected VortexSource"));
-        }
+        let mut source = file_scan_config
+            .file_source()
+            .as_any()
+            .downcast_ref::<VortexSource>()
+            .cloned()
+            .ok_or_else(|| internal_datafusion_err!("Expected VortexSource"))?;
 
-        Ok(DataSourceExec::from_data_source(file_scan_config))
+        source = source
+            .with_file_metadata_cache(state.runtime_env().cache_manager.get_file_metadata_cache());
+
+        let conf = FileScanConfigBuilder::from(file_scan_config)
+            .with_source(Arc::new(source))
+            .build();
+
+        Ok(DataSourceExec::from_data_source(conf))
     }
 
     async fn create_writer_physical_plan(
@@ -436,11 +497,7 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::new(
-            table_schema,
-            self.session.clone(),
-            self.file_cache.clone(),
-        ))
+        Arc::new(VortexSource::new(table_schema, self.session.clone()))
     }
 }
 
@@ -491,7 +548,7 @@ mod tests {
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
                 LOCATION '{}' \
-                OPTIONS( segment_cache_size_mb '5', footer_initial_read_size_bytes '12345' );",
+                OPTIONS( footer_initial_read_size_bytes '12345' );",
                 dir.path().to_str().unwrap()
             ))
             .await
@@ -507,6 +564,6 @@ mod tests {
         opts.set("footer_initial_read_size_bytes", "12345").unwrap();
 
         let format = VortexFormat::new_with_options(VortexSession::default(), opts);
-        assert_eq!(format.file_cache.footer_initial_read_size_bytes(), 12345);
+        assert_eq!(format.options().footer_initial_read_size_bytes, 12345);
     }
 }

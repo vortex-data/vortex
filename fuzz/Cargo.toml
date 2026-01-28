@@ -22,7 +22,7 @@ default = ["native"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
 zstd = ["vortex/zstd"]
-cuda = ["vortex-cuda", "tokio"]
+cuda = ["vortex-cuda", "vortex/cuda", "tokio"]
 
 [dependencies]
 # Always needed - arbitrary is used for input generation

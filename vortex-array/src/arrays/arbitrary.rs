@@ -325,7 +325,7 @@ fn random_bool(
 ) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(BoolArray::from_bit_buffer(BitBuffer::from(v), validity).into_array())
+    Ok(BoolArray::new(BitBuffer::from(v), validity).into_array())
 }
 
 pub fn random_validity(

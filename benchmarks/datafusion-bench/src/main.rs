@@ -17,6 +17,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
@@ -300,10 +301,11 @@ pub async fn execute_query(
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let df = ctx.sql(query).await?;
 
-    let physical_plan = df.clone().create_physical_plan().await?;
-    let result = df.collect().await?;
+    let task_ctx = Arc::new(df.task_ctx());
+    let plan = df.create_physical_plan().await?;
+    let result = collect(plan.clone(), task_ctx).await?;
 
-    Ok((result, physical_plan))
+    Ok((result, plan))
 }
 
 /// Print Vortex metrics from execution plans.

@@ -48,8 +48,8 @@ mod tests {
     fn fill_null_chunks() {
         let chunked = ChunkedArray::try_new(
             vec![
-                BoolArray::from_bit_buffer(BitBuffer::new_set(5), Validity::AllInvalid).to_array(),
-                BoolArray::from_bit_buffer(BitBuffer::new_set(5), Validity::AllValid).to_array(),
+                BoolArray::new(BitBuffer::new_set(5), Validity::AllInvalid).to_array(),
+                BoolArray::new(BitBuffer::new_set(5), Validity::AllValid).to_array(),
             ],
             DType::Bool(Nullability::Nullable),
         )

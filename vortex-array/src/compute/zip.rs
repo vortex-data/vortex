@@ -251,12 +251,12 @@ mod tests {
 
     use crate::Array;
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
@@ -271,10 +271,7 @@ mod tests {
         let result = zip(&if_true, &if_false, &mask).unwrap();
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
-        assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            expected.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -285,11 +282,10 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
         let result = zip(&if_true, &if_false, &mask).unwrap();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
-        assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            if_true.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(result, expected);
 
         // result must be nullable even if_true was not
         assert_eq!(result.dtype(), if_false.dtype())

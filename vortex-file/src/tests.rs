@@ -10,7 +10,6 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
-use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -595,20 +594,17 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().unmasked_fields()[0].clone();
-    assert_eq!(
-        names.to_varbinview().with_iterator(|iter| iter
-            .flatten()
-            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-            .collect::<Vec<_>>()),
-        vec!["Joseph".to_string(), "Angela".to_string()]
-    );
-    let ages = result[0].to_struct().unmasked_fields()[1].clone();
-    assert_eq!(
-        ages.to_primitive()
-            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>()),
-        vec![Some(25), None]
-    );
+    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_expected = VarBinArray::from_iter(
+        vec![Some("Joseph"), Some("Angela")],
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+
+    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
+    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
 #[tokio::test]
@@ -878,16 +874,16 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_numbers_array = actual_array.unmasked_fields()[0].to_primitive();
-    let actual_numbers = actual_numbers_array.as_slice::<i16>();
-
-    assert_eq!(
-        expected_numbers
-            .iter()
-            .filter(|&&x| x > 50)
-            .cloned()
-            .collect::<Vec<_>>(),
-        actual_numbers
+    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let expected_filtered: Buffer<i16> = expected_numbers
+        .iter()
+        .filter(|&&x| x > 50)
+        .cloned()
+        .collect();
+    let expected_numbers_array = expected_filtered.into_array();
+    assert_arrays_eq!(
+        actual_numbers_array.as_ref(),
+        expected_numbers_array.as_ref()
     );
 }
 
@@ -1101,14 +1097,7 @@ async fn test_repeated_projection() {
         .unwrap()
         .to_struct();
 
-    assert_eq!(
-        (0..actual.len())
-            .map(|index| actual.scalar_at(index).unwrap())
-            .collect_vec(),
-        (0..expected.len())
-            .map(|index| expected.scalar_at(index).unwrap())
-            .collect_vec()
-    );
+    assert_arrays_eq!(actual, expected);
 }
 
 async fn chunked_file() -> VortexResult<VortexFile> {

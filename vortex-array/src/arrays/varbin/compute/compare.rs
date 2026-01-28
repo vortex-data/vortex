@@ -69,7 +69,7 @@ impl CompareKernel for VarBinVTable {
                 };
 
                 return Ok(Some(
-                    BoolArray::from_bit_buffer(
+                    BoolArray::new(
                         buffer,
                         lhs.validity()
                             .clone()
@@ -174,8 +174,8 @@ mod test {
             &BitBuffer::from_iter([true, false, true])
         );
         assert_eq!(
-            result.bit_buffer(),
-            &BitBuffer::from_iter([true, false, false])
+            result.to_bit_buffer(),
+            BitBuffer::from_iter([true, false, false])
         );
     }
 
@@ -194,12 +194,12 @@ mod test {
             .to_bool();
 
         assert_eq!(
-            &result.validity_mask().unwrap().to_bit_buffer(),
-            &BitBuffer::from_iter([false, false, true])
+            result.validity_mask().unwrap().to_bit_buffer(),
+            BitBuffer::from_iter([false, false, true])
         );
         assert_eq!(
-            result.bit_buffer(),
-            &BitBuffer::from_iter([false, true, true])
+            result.to_bit_buffer(),
+            BitBuffer::from_iter([false, true, true])
         );
     }
 }

@@ -315,6 +315,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::expr::Expression;
     use crate::expr::Pack;
     use crate::expr::exprs::get_item::get_item;
@@ -378,42 +379,32 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
             ["a", "b", "c", "d", "e"]
         );
 
-        assert_eq!(
-            primitive_field(&actual_array, &["a"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 0, 0]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["a"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 0, 0])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["b"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [2, 2, 2]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["b"]).unwrap(),
+            PrimitiveArray::from_iter([2i32, 2, 2])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["c"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [3, 3, 3]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["c"]).unwrap(),
+            PrimitiveArray::from_iter([3i32, 3, 3])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["d"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [4, 4, 4]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["d"]).unwrap(),
+            PrimitiveArray::from_iter([4i32, 4, 4])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["e"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [5, 5, 5]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["e"]).unwrap(),
+            PrimitiveArray::from_iter([5i32, 5, 5])
         );
     }
 
@@ -460,7 +451,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.evaluate(&test_array).unwrap();
+        test_array.apply(&expr).unwrap();
     }
 
     #[test]
@@ -470,7 +461,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -513,7 +504,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
@@ -554,7 +545,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

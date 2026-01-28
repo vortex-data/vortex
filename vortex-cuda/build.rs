@@ -10,15 +10,21 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    // Declare the cfg so rustc doesn't warn about unexpected cfg.
-    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+    let kernels_dir = Path::new(&manifest_dir).join("kernels");
+
+    // Always emit the kernels directory path as a compile-time env var so any binary
+    // linking against vortex-cuda can find the PTX files. This must be set regardless
+    // of CUDA availability since the code using env!() is always compiled.
+    // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
+    println!(
+        "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
+        kernels_dir.display()
+    );
 
     if !is_cuda_available() {
         return;
     }
-
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
-    let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
     println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
 
@@ -39,9 +45,6 @@ fn main() {
             }
         }
     }
-
-    // Signal that CUDA kernels are available for conditional compilation.
-    println!("cargo:rustc-cfg=cuda_available");
 }
 
 fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {

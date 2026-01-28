@@ -5,7 +5,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -17,9 +16,9 @@ impl FilterKernel for DateTimePartsVTable {
     fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
         Ok(DateTimePartsArray::try_new(
             array.dtype().clone(),
-            filter(array.days().as_ref(), mask)?,
-            filter(array.seconds().as_ref(), mask)?,
-            filter(array.subseconds().as_ref(), mask)?,
+            array.days().filter(mask.clone())?,
+            array.seconds().filter(mask.clone())?,
+            array.subseconds().filter(mask.clone())?,
         )?
         .into_array())
     }

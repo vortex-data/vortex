@@ -15,7 +15,6 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
 use crate::compute::take;
 use crate::register_kernel;
 use crate::search_sorted::SearchSorted;
@@ -75,7 +74,7 @@ fn filter_slices(
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(chunk, &Mask::from_slices(chunk.len(), slices))?);
+                result.push(chunk.filter(Mask::from_slices(chunk.len(), slices))?);
             }
         }
     }
@@ -215,7 +214,6 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::filter;
 
     #[test]
     fn filter_chunked_floats() {
@@ -245,7 +243,7 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
-        let filtered = filter(chunked.as_ref(), &mask).unwrap();
+        let filtered = chunked.filter(mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }
 

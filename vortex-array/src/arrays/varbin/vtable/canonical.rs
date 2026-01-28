@@ -28,7 +28,7 @@ pub(crate) fn varbin_to_canonical(
 
     // offsets_to_lengths
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
-    let bytes = bytes.into_mut();
+    let bytes = bytes.unwrap_host().into_mut();
 
     match_each_integer_ptype!(offsets.ptype(), |P| {
         let lens = offsets_to_lengths(offsets.as_slice::<P>());
