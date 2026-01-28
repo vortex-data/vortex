@@ -571,7 +571,7 @@ mod tests {
             .display_as(DisplayOptions::MetadataOnly)
             .to_string()
             .to_lowercase();
-        assert_eq!(display, "vortex.primitive(f32?, len=96)");
+        assert_eq!(display, "vortex.sparse(f32?, len=96)");
 
         Ok(())
     }
