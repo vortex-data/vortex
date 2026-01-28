@@ -68,7 +68,8 @@ impl VTable for FilterVTable {
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
+        // TODO(joe): make this configurable
+        vortex_bail!("Filter array is not serializable")
     }
 
     fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
