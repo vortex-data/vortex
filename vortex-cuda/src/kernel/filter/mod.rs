@@ -1,0 +1,164 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! GPU filter implementation using CUB DeviceSelect::Flagged.
+
+mod decimal;
+mod primitive;
+mod varbinview;
+
+use std::ffi::c_void;
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use cudarc::driver::DevicePtr;
+use cudarc::driver::DevicePtrMut;
+use cudarc::driver::DeviceRepr;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::arrays::FilterArrayParts;
+use vortex_array::arrays::FilterVTable;
+use vortex_array::buffer::BufferHandle;
+use vortex_cub::filter::CubFilterable;
+use vortex_cub::filter::cudaStream_t;
+use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_native_simd_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_mask::Mask;
+
+use crate::CudaDeviceBuffer;
+use crate::executor::CudaArrayExt;
+use crate::executor::CudaExecute;
+use crate::executor::CudaExecutionCtx;
+use crate::kernel::filter::decimal::filter_decimal;
+use crate::kernel::filter::primitive::filter_primitive;
+use crate::kernel::filter::varbinview::filter_varbinview;
+use crate::stream::await_stream_callback;
+
+/// CUDA executor for FilterArray using CUB DeviceSelect::Flagged.
+#[derive(Debug)]
+pub struct FilterExecutor;
+
+#[async_trait]
+impl CudaExecute for FilterExecutor {
+    async fn execute(
+        &self,
+        array: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let filter_array = array
+            .try_into::<FilterVTable>()
+            .map_err(|_| vortex_err!("Expected FilterArray"))?;
+
+        let FilterArrayParts { child, mask } = filter_array.into_parts();
+
+        // Early return for trivial cases.
+        match mask {
+            Mask::AllTrue(_) => {
+                // No data filtered => execute child without any post-processing
+                child.execute_cuda(ctx).await
+            }
+            Mask::AllFalse(_) => {
+                // All data filtered => empty canonical
+                Ok(Canonical::empty(child.dtype()))
+            }
+            m @ Mask::Values(_) => {
+                let canonical = child.execute_cuda(ctx).await?;
+                match canonical {
+                    Canonical::Primitive(prim) => {
+                        match_each_native_simd_ptype!(prim.ptype(), |T| {
+                            filter_primitive::<T>(prim, m, ctx).await
+                        })
+                    }
+                    Canonical::Decimal(decimal) => {
+                        match_each_decimal_value_type!(decimal.values_type(), |D| {
+                            filter_decimal::<D>(decimal, m, ctx).await
+                        })
+                    }
+                    Canonical::VarBinView(varbinview) => {
+                        filter_varbinview(varbinview, m, ctx).await
+                    }
+                    _ => unimplemented!(),
+                }
+            }
+        }
+    }
+}
+
+async fn filter_sized<T: DeviceRepr + CubFilterable + Send + Sync + 'static>(
+    input: BufferHandle,
+    mask: Mask,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    // Return  a buffer handle back once this has completed.
+    let d_input = if input.is_on_device() {
+        input
+    } else {
+        ctx.move_to_device::<T>(input)?.await?
+    };
+
+    // Construct the inputs for the cub::DeviceSelect::Flagged call.
+    let output_len = mask.true_count();
+    let (offset, len, flags) = mask.into_bit_buffer().into_inner();
+
+    let d_flags = ctx.copy_to_device(flags.to_vec())?.await?;
+
+    let offset = offset as u64;
+    let len = len as i64;
+
+    let temp_bytes =
+        T::get_temp_size(len).map_err(|e| vortex_err!("CUB filter_temp_size failed: {}", e))?;
+
+    // Allocate device buffers for input, output, mask, and temp space
+    let d_temp = ctx.device_alloc::<u8>(temp_bytes.max(1))?;
+    let mut d_output = ctx.device_alloc::<T>(output_len)?;
+    let mut d_num_selected = ctx.device_alloc::<i64>(1)?;
+    // Get raw pointers for FFI.
+    let stream = ctx.stream();
+    let stream_ptr = stream.cu_stream() as cudaStream_t;
+
+    // Downcast input buffer to get device pointer.
+    let d_input_cuda = d_input
+        .as_device()
+        .as_any()
+        .downcast_ref::<CudaDeviceBuffer<T>>()
+        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer<T> for input"))?;
+    let d_input_ptr = d_input_cuda.as_view().device_ptr(stream).0 as *const T;
+
+    // Downcast to get device pointer.
+    let d_packed_cuda = d_flags
+        .as_device()
+        .as_any()
+        .downcast_ref::<CudaDeviceBuffer<u8>>()
+        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer<u8> for packed flags"))?;
+    let d_packed_ptr = d_packed_cuda.as_view().device_ptr(stream).0 as *const u8;
+
+    let d_temp_ptr = d_temp.device_ptr(stream).0 as *mut c_void;
+    let d_output_ptr = d_output.device_ptr_mut(stream).0 as *mut T;
+    let d_num_selected_ptr = d_num_selected.device_ptr_mut(stream).0 as *mut i64;
+
+    // CUB uses TransformInputIterator internally to read bits on-the-fly.
+    unsafe {
+        T::filter_bitmask(
+            d_temp_ptr,
+            temp_bytes,
+            d_input_ptr,
+            d_packed_ptr,
+            offset,
+            d_output_ptr,
+            d_num_selected_ptr,
+            len,
+            stream_ptr,
+        )
+        .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))?;
+    }
+
+    // Wait for completion
+    await_stream_callback(stream).await?;
+
+    // Wrap the device buffer of outputs back up into a BufferHandle.
+    Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
+        d_output,
+    ))))
+}

@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
+use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::decimal::DVector;
@@ -98,19 +99,21 @@ impl Canonical {
             }
             Canonical::VarBinView(a) => {
                 let validity = a.validity_mask()?;
+                let views =
+                    Buffer::<BinaryView>::from_byte_buffer(a.views_handle().as_host().clone());
                 match a.dtype() {
                     DType::Utf8(_) => {
-                        let views = a.views().clone();
                         // Convert Arc<[ByteBuffer]> to Arc<Box<[ByteBuffer]>>
-                        let buffers: Box<[_]> = a.buffers().iter().cloned().collect();
+                        let buffers: Box<[_]> =
+                            a.buffers().iter().map(|b| b.as_host()).cloned().collect();
                         Vector::String(unsafe {
                             StringVector::new_unchecked(views, Arc::new(buffers), validity)
                         })
                     }
                     DType::Binary(_) => {
-                        let views = a.views().clone();
                         // Convert Arc<[ByteBuffer]> to Arc<Box<[ByteBuffer]>>
-                        let buffers: Box<[_]> = a.buffers().iter().cloned().collect();
+                        let buffers: Box<[_]> =
+                            a.buffers().iter().map(|b| b.as_host()).cloned().collect();
                         Vector::Binary(unsafe {
                             BinaryVector::new_unchecked(views, Arc::new(buffers), validity)
                         })

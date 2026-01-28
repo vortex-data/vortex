@@ -9,6 +9,12 @@
 #include <stddef.h>
 #include <stdint.h>
 
+// i256 type
+typedef struct {
+    __int128_t high;
+    __int128_t low;
+} __int256_t;
+
 // CUDA types - defined as opaque for bindgen
 typedef int cudaError_t;
 typedef void* cudaStream_t;
@@ -28,7 +34,9 @@ extern "C" {
     X(u64, uint64_t)          \
     X(i64, int64_t)           \
     X(f32, float)             \
-    X(f64, double)
+    X(f64, double)            \
+    X(i128, __int128_t)       \
+    X(i256, __int256_t)
 
 // Filter temp size query functions
 #define DECLARE_FILTER_TEMP_SIZE(suffix, c_type) \

@@ -5,6 +5,7 @@ use std::any::Any;
 use std::ops::Range;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
@@ -437,7 +438,7 @@ impl CompletedBuffers {
                 Self::Deduplicated(completed_buffers),
                 BuffersWithOffsets::AllKept { buffers, offsets },
             ) => {
-                let buffer_lookup = completed_buffers.extend_from_slice(&buffers);
+                let buffer_lookup = completed_buffers.extend_from_iter(buffers.iter().cloned());
                 ViewAdjustment::lookup(buffer_lookup, offsets)
             }
             (
@@ -498,11 +499,11 @@ impl DeduplicatedBuffers {
             .collect()
     }
 
-    pub(crate) fn extend_from_slice(&mut self, buffers: &[ByteBuffer]) -> Vec<u32> {
-        buffers
-            .iter()
-            .map(|buffer| self.push(buffer.clone()))
-            .collect()
+    pub(crate) fn extend_from_iter(
+        &mut self,
+        buffers: impl Iterator<Item = ByteBuffer>,
+    ) -> Vec<u32> {
+        buffers.map(|buffer| self.push(buffer)).collect()
     }
 
     pub(crate) fn finish(self) -> Arc<[ByteBuffer]> {
@@ -589,7 +590,14 @@ impl BuffersWithOffsets {
     pub fn from_array(array: &VarBinViewArray, compaction_threshold: f64) -> Self {
         if compaction_threshold == 0.0 {
             return Self::AllKept {
-                buffers: array.buffers().clone(),
+                buffers: Arc::from(
+                    array
+                        .buffers()
+                        .to_vec()
+                        .into_iter()
+                        .map(|b| b.unwrap_host())
+                        .collect_vec(),
+                ),
                 offsets: None,
             };
         }
@@ -613,10 +621,11 @@ impl BuffersWithOffsets {
                 .zip(array.buffers().iter())
                 .map(|(utilization, buffer)| {
                     match compaction_strategy(utilization, compaction_threshold) {
-                        CompactionStrategy::KeepFull => (Some(buffer.clone()), 0),
-                        CompactionStrategy::Slice { start, end } => {
-                            (Some(buffer.slice(start as usize..end as usize)), start)
-                        }
+                        CompactionStrategy::KeepFull => (Some(buffer.as_host().clone()), 0),
+                        CompactionStrategy::Slice { start, end } => (
+                            Some(buffer.as_host().slice(start as usize..end as usize)),
+                            start,
+                        ),
                         CompactionStrategy::Rewrite => (None, 0),
                     }
                 });

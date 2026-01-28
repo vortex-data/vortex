@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
+use futures::future::try_join_all;
 use vortex_array::Canonical;
+use vortex_array::arrays::BinaryView;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::BoolArrayParts;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DecimalArrayParts;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::Buffer;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 
 /// Move all canonical data from to_host from device.
@@ -67,6 +75,31 @@ impl CanonicalCudaExt for Canonical {
                         decimal_dtype,
                         validity,
                     )
+                }))
+            }
+            Canonical::VarBinView(varbinview) => {
+                let VarBinViewArrayParts {
+                    views,
+                    buffers,
+                    validity,
+                    dtype,
+                } = varbinview.into_parts();
+
+                // Copy all device views to host
+                let host_views = views.try_into_host()?.await?;
+                let host_views = Buffer::<BinaryView>::from_byte_buffer(host_views);
+
+                // Copy any string data buffers back over to the host
+                let host_buffers = buffers
+                    .iter()
+                    .cloned()
+                    .map(|b| b.try_into_host())
+                    .collect::<VortexResult<Vec<_>>>()?;
+                let host_buffers = try_join_all(host_buffers).await?;
+                let host_buffers: Arc<[ByteBuffer]> = Arc::from(host_buffers);
+
+                Ok(Canonical::VarBinView(unsafe {
+                    VarBinViewArray::new_unchecked(host_views, host_buffers, dtype, validity)
                 }))
             }
             _ => todo!(),

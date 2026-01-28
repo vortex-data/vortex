@@ -52,8 +52,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::VarBinView(array) => {
             let new_validity = array.validity().mask(mask);
-            VarBinViewArray::new(
-                array.views().clone(),
+            VarBinViewArray::new_handle(
+                array.views_handle().clone(),
                 array.buffers().clone(),
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
