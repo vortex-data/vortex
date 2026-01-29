@@ -302,15 +302,18 @@ impl IntoArray for BitBufferMut {
 
 #[cfg(test)]
 mod tests {
+    use std::iter::once;
+    use std::iter::repeat_n;
+
     use vortex_buffer::BitBuffer;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
 
     use crate::Array;
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
+    use crate::assert_arrays_eq;
     use crate::patches::Patches;
     use crate::validity::Validity;
     use crate::vtable::ValidityHelper;
@@ -358,10 +361,7 @@ mod tests {
     fn patch_sliced_bools() {
         let arr = BoolArray::from(BitBuffer::new_set(12));
         let sliced = arr.slice(4..12).unwrap();
-        assert_eq!(sliced.len(), 8);
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.len(), 8);
-        assert_eq!(values.as_slice(), &[255, 255]);
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
 
         let arr = {
             let mut builder = BitBufferMut::new_unset(12);
@@ -369,40 +369,32 @@ mod tests {
             BoolArray::from(builder.freeze())
         };
         let sliced = arr.slice(4..12).unwrap();
-        let sliced_len = sliced.len();
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.as_slice(), &[254, 15]);
+        let expected_slice: Vec<bool> = (4..12).map(|i| (1..12).contains(&i)).collect();
+        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice.clone()));
 
-        // patch the underlying array
+        // patch the underlying array at index 4 to false
         let patches = Patches::new(
             arr.len(),
             0,
-            buffer![4u32].into_array(), // This creates a non-nullable array
+            buffer![4u32].into_array(),
             BoolArray::from(BitBuffer::new_unset(1)).into_array(),
             None,
         )
         .unwrap();
         let arr = arr.patch(&patches).unwrap();
-        let arr_len = arr.len();
-        let values = arr.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.len(), arr_len);
-        assert_eq!(values.as_slice(), &[238, 15]);
+        // After patching index 4 to false: indices 1-3 and 5-11 are true, index 0 and 4 are false
+        let expected_patched: Vec<bool> = (0..12).map(|i| (1..12).contains(&i) && i != 4).collect();
+        assert_arrays_eq!(arr, BoolArray::from_iter(expected_patched));
 
-        // the slice should be unchanged
-        let sliced = sliced.to_bool();
-        let values = sliced.into_bit_buffer().into_mut();
-        assert_eq!(values.len(), sliced_len);
-        assert_eq!(values.as_slice(), &[254, 15]); // unchanged
+        // the slice should be unchanged (still has original values before patch)
+        assert_arrays_eq!(sliced, BoolArray::from_iter(expected_slice));
     }
 
     #[test]
     fn slice_array_in_middle() {
         let arr = BoolArray::from(BitBuffer::new_set(16));
         let sliced = arr.slice(4..12).unwrap();
-        let sliced_len = sliced.len();
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.len(), sliced_len);
-        assert_eq!(values.as_slice(), &[255, 255]);
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 8]));
     }
 
     #[test]
@@ -419,17 +411,18 @@ mod tests {
         )
         .unwrap();
         let arr = arr.patch(&patches).unwrap();
+        // Verify buffer was reused in place
         assert_eq!(arr.to_bit_buffer().inner().as_ptr(), buf_ptr);
 
-        let values = arr.into_bit_buffer();
-        assert_eq!(values.inner().as_slice(), &[254, 255]);
+        // After patching index 0 to false: [false, true, true, ..., true] (16 values)
+        let expected: BoolArray = once(false).chain(repeat_n(true, 15)).collect();
+        assert_arrays_eq!(arr, expected);
     }
 
     #[test]
     fn patch_sliced_bools_offset() {
         let arr = BoolArray::from(BitBuffer::new_set(15));
         let sliced = arr.slice(4..15).unwrap();
-        let values = sliced.to_bool().into_bit_buffer().into_mut();
-        assert_eq!(values.as_slice(), &[255, 255]);
+        assert_arrays_eq!(sliced, BoolArray::from_iter([true; 11]));
     }
 }

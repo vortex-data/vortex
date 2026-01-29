@@ -9,9 +9,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
@@ -48,9 +46,9 @@ fn test_project() {
     assert_eq!(struct_b.len(), 5);
 
     let bools = &struct_b.fields[0];
-    assert_eq!(
-        bools.to_bool().to_bit_buffer().iter().collect::<Vec<_>>(),
-        vec![true, true, true, false, false]
+    assert_arrays_eq!(
+        bools,
+        BoolArray::from_iter([true, true, true, false, false])
     );
 
     let prims = &struct_b.fields[1];

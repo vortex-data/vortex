@@ -125,10 +125,10 @@ mod tests {
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
 
-    use crate::Array;
-    use crate::ToCanonical;
+    use crate::arrays::BoolArray;
     use crate::arrays::ConstantArray;
     use crate::arrays::DecimalArray;
+    use crate::assert_arrays_eq;
     use crate::compute::BetweenOptions;
     use crate::compute::StrictComparison;
     use crate::compute::between;
@@ -168,7 +168,10 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(bool_to_vec(&between_strict), vec![false, true, true, true]);
+        assert_arrays_eq!(
+            between_strict,
+            BoolArray::from_iter([false, true, true, true])
+        );
 
         // Non-strict lower bound, strict upper bound
         let between_strict = between(
@@ -181,10 +184,9 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(bool_to_vec(&between_strict), vec![true, true, true, false]);
-    }
-
-    fn bool_to_vec(array: &dyn Array) -> Vec<bool> {
-        array.to_bool().to_bit_buffer().iter().collect()
+        assert_arrays_eq!(
+            between_strict,
+            BoolArray::from_iter([true, true, true, false])
+        );
     }
 }

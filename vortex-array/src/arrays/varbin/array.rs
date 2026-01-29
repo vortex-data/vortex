@@ -274,6 +274,12 @@ impl VarBinArray {
         self.bytes.as_host()
     }
 
+    /// Access the value bytes buffer handle.
+    #[inline]
+    pub fn bytes_handle(&self) -> &BufferHandle {
+        &self.bytes
+    }
+
     /// Access value bytes child array limited to values that are logically present in
     /// the array unlike [bytes][Self::bytes].
     pub fn sliced_bytes(&self) -> ByteBuffer {

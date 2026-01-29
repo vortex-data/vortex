@@ -163,9 +163,8 @@ impl VortexSessionDefault for VortexSession {
         // Even if the CUDA feature is enabled we need to check at
         // runtime whether CUDA is available in the current environment.
         if vortex_cuda::cuda_available() {
-            session = session.with::<CudaSession>();
-            use vortex_cuda::CudaSession;
             use vortex_cuda::CudaSessionExt;
+            session = session.with::<vortex_cuda::CudaSession>();
             vortex_cuda::initialize_cuda(&session.cuda_session());
         }
 

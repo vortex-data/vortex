@@ -95,8 +95,15 @@ impl WriteStrategyBuilder {
         let coalescing = RepartitionStrategy::new(
             compressing,
             RepartitionWriterOptions {
+                // Write stream partitions roughly become segments. Because Vortex never reads less
+                // than one segment, the size of segments and, therefore, partitions, must be small
+                // enough to both (1) allow fine-grained random access reads and (2) allow
+                // sufficient read concurrency for the desired throughput. One megabyte is small
+                // enough to achieve this for S3 (Durner et al., "Exploiting Cloud Object Storage for
+                // High-Performance Analytics", VLDB Vol 16, Iss 11).
                 block_size_minimum: ONE_MEG,
                 block_len_multiple: self.row_block_size,
+                block_size_target: Some(ONE_MEG),
                 canonicalize: true,
             },
         );
@@ -134,6 +141,7 @@ impl WriteStrategyBuilder {
                 block_size_minimum: 0,
                 // Always repartition into 8K row blocks
                 block_len_multiple: self.row_block_size,
+                block_size_target: None,
                 canonicalize: false,
             },
         );

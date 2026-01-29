@@ -243,6 +243,16 @@ jobs:
           # unique benchmark configuration must have a unique comment-tag.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-failure-${{ matrix.id }}
+
       - name: Upload Benchmark Results
         if: inputs.mode == 'develop'
         shell: bash

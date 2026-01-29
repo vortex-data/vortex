@@ -11,7 +11,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -71,7 +70,7 @@ fn filter_primitive<T: NativePType + BitPacking>(
     };
     if mask.density() >= full_decompression_threshold {
         let decompressed_array = array.to_primitive();
-        Ok(filter(decompressed_array.as_ref(), mask)?.to_primitive())
+        Ok(decompressed_array.filter(mask.clone())?.to_primitive())
     } else {
         filter_primitive_no_decompression::<T>(array, mask)
     }
@@ -170,7 +169,6 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
@@ -186,7 +184,7 @@ mod test {
 
         let mask = Mask::from_indices(bitpacked.len(), vec![0, 125, 2047, 2049, 2151, 2790]);
 
-        let primitive_result = filter(bitpacked.as_ref(), &mask).unwrap();
+        let primitive_result = bitpacked.filter(mask).unwrap();
         assert_arrays_eq!(
             primitive_result,
             PrimitiveArray::from_iter([0u8, 62, 31, 33, 9, 18])
@@ -202,7 +200,7 @@ mod test {
 
         let mask = Mask::from_indices(sliced.len(), vec![1919, 1921]);
 
-        let primitive_result = filter(&sliced, &mask).unwrap();
+        let primitive_result = sliced.filter(mask).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));
     }
 
@@ -210,11 +208,9 @@ mod test {
     fn filter_bitpacked() {
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let filtered = filter(
-            bitpacked.as_ref(),
-            &Mask::from_indices(4096, (0..1024).collect()),
-        )
-        .unwrap();
+        let filtered = bitpacked
+            .filter(Mask::from_indices(4096, (0..1024).collect()))
+            .unwrap();
         assert_arrays_eq!(
             filtered.to_primitive(),
             PrimitiveArray::from_iter((0..1024).map(|i| (i % 63) as u8))
@@ -226,12 +222,10 @@ mod test {
         let values: Buffer<i64> = (0..500).collect();
         let unpacked = PrimitiveArray::new(values.clone(), Validity::NonNullable);
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 9).unwrap();
-        let filtered = filter(
-            bitpacked.as_ref(),
-            &Mask::from_indices(values.len(), (0..250).collect()),
-        )
-        .unwrap()
-        .to_primitive();
+        let filtered = bitpacked
+            .filter(Mask::from_indices(values.len(), (0..250).collect()))
+            .unwrap()
+            .to_primitive();
 
         assert_arrays_eq!(
             filtered,
@@ -275,12 +269,10 @@ mod test {
         );
 
         // Filter to include some patched and some non-patched values.
-        let filtered = filter(
-            bitpacked.as_ref(),
-            &Mask::from_indices(values.len(), vec![0, 2, 5, 9]),
-        )
-        .unwrap()
-        .to_primitive();
+        let filtered = bitpacked
+            .filter(Mask::from_indices(values.len(), vec![0, 2, 5, 9]))
+            .unwrap()
+            .to_primitive();
 
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter([0i32, 1000, 2000, 70]));
     }
@@ -310,12 +302,10 @@ mod test {
 
         // Use low selectivity (only select 2% of values) to avoid full decompression.
         let indices: Vec<usize> = (0..20).collect();
-        let filtered = filter(
-            bitpacked.as_ref(),
-            &Mask::from_indices(values.len(), indices),
-        )
-        .unwrap()
-        .to_primitive();
+        let filtered = bitpacked
+            .filter(Mask::from_indices(values.len(), indices))
+            .unwrap()
+            .to_primitive();
 
         let expected: Vec<i32> = values[0..20].to_vec();
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter(expected));

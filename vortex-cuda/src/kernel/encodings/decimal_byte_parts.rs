@@ -8,6 +8,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_cuda_macros::cuda_tests;
 use vortex_decimal_byte_parts::DecimalBytePartsArrayParts;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
 use vortex_error::VortexResult;
@@ -49,8 +50,7 @@ impl CudaExecute for DecimalBytePartsExecutor {
     }
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;

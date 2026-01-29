@@ -188,6 +188,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::expr::VTableExt;
     use crate::expr::exprs::get_item::col;
     use crate::validity::Validity;
@@ -247,23 +248,17 @@ mod tests {
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
         assert_eq!(actual_array.validity(), &Validity::NonNullable);
 
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["one"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 1, 2]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["one"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 1, 2])
         );
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["two"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [4, 5, 6]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["two"]).unwrap(),
+            PrimitiveArray::from_iter([4i32, 5, 6])
         );
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["three"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 1, 2]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["three"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }
 
@@ -291,29 +286,21 @@ mod tests {
 
         assert_eq!(actual_array.names(), ["one", "two", "three"]);
 
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["one"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 1, 2]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["one"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 1, 2])
         );
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["two", "two_one"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [4, 5, 6]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["two", "two_one"]).unwrap(),
+            PrimitiveArray::from_iter([4i32, 5, 6])
         );
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["two", "two_two"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [4, 5, 6]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["two", "two_two"]).unwrap(),
+            PrimitiveArray::from_iter([4i32, 5, 6])
         );
-        assert_eq!(
-            primitive_field(actual_array.as_ref(), &["three"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 1, 2]
+        assert_arrays_eq!(
+            primitive_field(actual_array.as_ref(), &["three"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 1, 2])
         );
     }
 

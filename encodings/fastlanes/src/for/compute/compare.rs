@@ -93,10 +93,10 @@ where
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
 
@@ -112,14 +112,16 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq),
-            [false, true, false],
-        );
-        assert_result(
-            compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq),
-            [true, true, false],
-        );
+        let result = compare_constant(&lhs, 30i32, Nullability::NonNullable, Operator::Eq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([false, true, false].map(Some)));
+
+        let result = compare_constant(&lhs, 12i32, Nullability::NonNullable, Operator::NotEq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, false].map(Some)));
+
         for op in [Operator::Lt, Operator::Lte, Operator::Gt, Operator::Gte] {
             assert!(
                 compare_constant(&lhs, 30i32, Nullability::NonNullable, op)
@@ -165,14 +167,18 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq),
-            [false, false, false],
+        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::Eq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(
+            result,
+            BoolArray::from_iter([false, false, false].map(Some))
         );
-        assert_result(
-            compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq),
-            [true, true, true],
-        );
+
+        let result = compare_constant(&lhs, -1i32, Nullability::NonNullable, Operator::NotEq)
+            .unwrap()
+            .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([true, true, true].map(Some)));
     }
 
     #[test]
@@ -189,31 +195,24 @@ mod tests {
         )
         .unwrap();
 
-        assert_result(
-            compare_constant(
-                &lhs,
-                435090932899640449i64,
-                Nullability::Nullable,
-                Operator::Eq,
-            ),
-            [false, true],
-        );
-        assert_result(
-            compare_constant(
-                &lhs,
-                435090932899640449i64,
-                Nullability::Nullable,
-                Operator::NotEq,
-            ),
-            [true, false],
-        );
-    }
+        let result = compare_constant(
+            &lhs,
+            435090932899640449i64,
+            Nullability::Nullable,
+            Operator::Eq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(false), Some(true)]));
 
-    fn assert_result<T: IntoIterator<Item = bool>>(
-        result: VortexResult<Option<ArrayRef>>,
-        expected: T,
-    ) {
-        let result = result.unwrap().unwrap().to_bool();
-        assert_eq!(result.to_bit_buffer(), BitBuffer::from_iter(expected));
+        let result = compare_constant(
+            &lhs,
+            435090932899640449i64,
+            Nullability::Nullable,
+            Operator::NotEq,
+        )
+        .unwrap()
+        .unwrap();
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(true), Some(false)]));
     }
 }

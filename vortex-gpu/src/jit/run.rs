@@ -7,6 +7,7 @@ use std::time::Duration;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT;
 use cudarc::driver::{CudaContext, CudaEvent, CudaStream, LaunchArgs, LaunchConfig, PushKernelArg};
 use vortex_array::ArrayRef;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::{VortexExpect, VortexResult, vortex_err};
 
@@ -114,8 +115,8 @@ fn collect_args<'a>(
     Ok(())
 }
 
-#[cfg(all(target_os = "linux", feature = "cuda"))]
-#[cfg(test)]
+#[cfg(feature = "cuda")]
+#[cuda_tests]
 mod tests {
     use cudarc::driver::CudaContext;
     use vortex_alp::{ALPArray, Exponents};

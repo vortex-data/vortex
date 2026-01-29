@@ -124,8 +124,10 @@ fn compare_fsst_constant(
 mod tests {
     use vortex_array::Array;
     use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::VarBinArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_dtype::DType;
@@ -160,9 +162,9 @@ mod tests {
 
         assert_eq!(equals.dtype(), &DType::Bool(Nullability::Nullable));
 
-        assert_eq!(
-            equals.to_bit_buffer().into_iter().collect::<Vec<_>>(),
-            vec![false, false, true, false, false]
+        assert_arrays_eq!(
+            &equals,
+            &BoolArray::from_iter([Some(false), None, Some(true), None, Some(false)])
         );
 
         // Ensure fastpath for Eq exists, and returns correct answer
@@ -171,22 +173,24 @@ mod tests {
             .to_bool();
 
         assert_eq!(not_equals.dtype(), &DType::Bool(Nullability::Nullable));
-        assert_eq!(
-            not_equals.to_bit_buffer().into_iter().collect::<Vec<_>>(),
-            vec![true, true, false, true, true]
+        assert_arrays_eq!(
+            &not_equals,
+            &BoolArray::from_iter([Some(true), None, Some(false), None, Some(true)])
         );
 
         // Ensure null constants are handled correctly.
         let null_rhs =
             ConstantArray::new(Scalar::null(DType::Utf8(Nullability::Nullable)), lhs.len());
         let equals_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::Eq).unwrap();
-        for idx in 0..lhs.len() {
-            assert!(equals_null.scalar_at(idx).unwrap().is_null());
-        }
+        assert_arrays_eq!(
+            &equals_null,
+            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+        );
 
         let noteq_null = compare(lhs.as_ref(), null_rhs.as_ref(), Operator::NotEq).unwrap();
-        for idx in 0..lhs.len() {
-            assert!(noteq_null.scalar_at(idx).unwrap().is_null());
-        }
+        assert_arrays_eq!(
+            &noteq_null,
+            &BoolArray::from_iter([None::<bool>, None, None, None, None])
+        );
     }
 }

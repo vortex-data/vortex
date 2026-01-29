@@ -158,7 +158,6 @@ impl VortexOpenOptions {
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
         let metrics = self.metrics.clone().unwrap_or_default();
-        let reader = InstrumentedReadAt::new(reader, &metrics);
         let footer = if let Some(footer) = self.footer {
             footer
         } else {

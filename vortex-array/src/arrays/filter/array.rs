@@ -9,16 +9,26 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
 
+// TODO(connor): Write docs on why we have this, and what we had in the old world so that the future
+// does not repeat the mistakes of the past.
+/// A lazy array that represents filtering a child array by a boolean [`Mask`].
+///
+/// The resulting array contains only the elements where the mask is true.
 #[derive(Clone, Debug)]
 pub struct FilterArray {
+    /// The source array being filtered.
     pub(super) child: ArrayRef,
+
+    /// The boolean mask selecting which elements to keep.
     pub(super) mask: Mask,
+
+    /// The stats for this array.
     pub(super) stats: ArrayStats,
 }
 
 impl FilterArray {
     pub fn new(array: ArrayRef, mask: Mask) -> Self {
-        Self::try_new(array, mask).vortex_expect("new FilterArray")
+        Self::try_new(array, mask).vortex_expect("FilterArray construction failed")
     }
 
     pub fn try_new(array: ArrayRef, mask: Mask) -> VortexResult<Self> {
@@ -29,6 +39,7 @@ impl FilterArray {
             array.len(),
             mask.len()
         );
+
         Ok(Self {
             child: array,
             mask,

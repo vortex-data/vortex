@@ -3,7 +3,6 @@
 
 //! CUDA kernel loading and management.
 
-use std::env;
 use std::fmt::Debug;
 use std::path::Path;
 use std::path::PathBuf;
@@ -13,17 +12,21 @@ use cudarc::driver::CudaContext;
 use cudarc::driver::CudaFunction;
 use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
+use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
 use cudarc::nvrtc::Ptx;
+use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::dash_map::DashMap;
 
 mod arrays;
 mod encodings;
+mod filter;
 
 pub use arrays::DictExecutor;
 pub use encodings::*;
+pub use filter::FilterExecutor;
 
 use crate::CudaKernelEvents;
 
@@ -97,12 +100,33 @@ pub fn launch_cuda_kernel_impl(
 
     let num_blocks = u32::try_from(array_len.div_ceil(ELEMENTS_PER_BLOCK))?;
 
-    let config = cudarc::driver::LaunchConfig {
+    let config = LaunchConfig {
         grid_dim: (num_blocks, 1, 1),
         block_dim: (THREADS_PER_BLOCK, 1, 1),
         shared_mem_bytes: 0,
     };
 
+    launch_cuda_kernel_with_config(launch_builder, config, event_flags)
+}
+
+/// Launches a CUDA kernel with the passed launch builder and config.
+///
+/// # Arguments
+///
+/// * `launch_builder` - Configured launch builder
+/// * `config` - Launch config to use
+///
+/// # Returns
+///
+/// A pair of CUDA events submitted before and after the kernel.
+/// Depending on `CUevent_flags` these events can contain timestamps. Use
+/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
+/// enable timestamps.
+pub fn launch_cuda_kernel_with_config(
+    launch_builder: &mut LaunchArgs,
+    config: LaunchConfig,
+    event_flags: CUevent_flags,
+) -> VortexResult<CudaKernelEvents> {
     launch_builder.record_kernel_launch(event_flags);
 
     unsafe {
@@ -164,12 +188,19 @@ impl KernelLoader {
         let module = if let Some(entry) = self.modules.get(module_name) {
             Arc::clone(entry.value())
         } else {
-            let ptx_path = Self::ptx_path_for_module(module_name)?;
+            let ptx_path = Self::ptx_path_for_module(module_name);
 
             // Compile and load the CUDA module.
             let module = cuda_context
                 .load_module(Ptx::from_file(&ptx_path))
-                .map_err(|e| vortex_err!("Failed to load CUDA module: {}", e))?;
+                .map_err(|e| {
+                    vortex_err!(
+                        "Failed to load CUDA module {}, ptx path {}: {}",
+                        module_name,
+                        ptx_path.display(),
+                        e
+                    )
+                })?;
 
             // Cache the module
             self.modules
@@ -186,7 +217,8 @@ impl KernelLoader {
 
     /// Returns the PTX file path for a given module name.
     ///
-    /// Constructs the path based on the crate's manifest directory.
+    /// Checks for `VORTEX_CUDA_KERNELS_DIR` environment variable at runtime first,
+    /// falling back to the path baked in at compile time by build.rs.
     ///
     /// # Arguments
     ///
@@ -195,17 +227,14 @@ impl KernelLoader {
     /// # Returns
     ///
     /// The full path to the PTX file
-    fn ptx_path_for_module(module_name: &str) -> VortexResult<PathBuf> {
-        let manifest_dir = env::var("CARGO_MANIFEST_DIR")
-            .map_err(|e| vortex_err!("Failed to get manifest dir: {}", e))?;
-        Ok(Path::new(&manifest_dir)
-            .join("kernels")
-            .join(format!("{}.ptx", module_name)))
+    fn ptx_path_for_module(module_name: &str) -> PathBuf {
+        let kernels_dir = std::env::var("VORTEX_CUDA_KERNELS_DIR")
+            .unwrap_or_else(|_| env!("VORTEX_CUDA_KERNELS_DIR").to_string());
+        Path::new(&kernels_dir).join(format!("{}.ptx", module_name))
     }
 }
 
-#[cfg(test)]
-#[cfg(cuda_available)]
+#[cuda_tests]
 mod tests {
     #![allow(clippy::expect_used)]
 

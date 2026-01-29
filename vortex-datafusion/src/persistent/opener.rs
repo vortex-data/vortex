@@ -14,6 +14,7 @@ use datafusion_datasource::PartitionedFile;
 use datafusion_datasource::TableSchema;
 use datafusion_datasource::file_stream::FileOpenFuture;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::projection::ProjectionExprs;
 use datafusion_physical_expr::simplifier::PhysicalExprSimplifier;
@@ -34,6 +35,7 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
+use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
@@ -42,13 +44,13 @@ use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
 
-use super::cache::VortexFileCache;
 use crate::VortexAccessPlan;
 use crate::VortexReaderFactory;
 use crate::convert::exprs::ExpressionConvertor;
 use crate::convert::exprs::ProcessedProjection;
 use crate::convert::exprs::make_vortex_predicate;
 use crate::convert::schema::calculate_physical_schema;
+use crate::persistent::cache::CachedVortexMetadata;
 use crate::persistent::stream::PrunableStream;
 
 #[derive(Clone)]
@@ -69,8 +71,6 @@ pub(crate) struct VortexOpener {
     /// This is the table's schema without partition columns. It may contain fields which do
     /// not exist in the file, and are supplied by the `schema_adapter_factory`.
     pub table_schema: TableSchema,
-    /// Caching Vortex file opener
-    pub file_cache: VortexFileCache,
     /// A hint for the desired row count of record batches returned from the scan.
     pub batch_size: usize,
     /// If provided, the scan will not return more than this many rows.
@@ -86,6 +86,7 @@ pub(crate) struct VortexOpener {
     pub has_output_ordering: bool,
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
 }
 
 impl FileOpener for VortexOpener {
@@ -106,8 +107,8 @@ impl FileOpener for VortexOpener {
 
         let file_pruning_predicate = self.file_pruning_predicate.clone();
         let expr_adapter_factory = self.expr_adapter_factory.clone();
+        let file_metadata_cache = self.file_metadata_cache.clone();
 
-        let file_cache = self.file_cache.clone();
         let unified_file_schema = self.table_schema.file_schema().clone();
         let batch_size = self.batch_size;
         let limit = self.limit;
@@ -165,8 +166,22 @@ impl FileOpener for VortexOpener {
                 return Ok(stream::empty().boxed());
             }
 
-            let vxf = file_cache
-                .try_get(&file.object_meta, reader)
+            let mut open_opts = session
+                .open_options()
+                .with_file_size(file.object_meta.size)
+                .with_metrics(metrics.clone());
+
+            if let Some(file_metadata_cache) = file_metadata_cache
+                && let Some(file_metadata) = file_metadata_cache.get(&file.object_meta)
+                && let Some(vortex_metadata) = file_metadata
+                    .as_any()
+                    .downcast_ref::<CachedVortexMetadata>()
+            {
+                open_opts = open_opts.with_footer(vortex_metadata.footer().clone());
+            }
+
+            let vxf = open_opts
+                .open_read(reader)
                 .await
                 .map_err(|e| exec_datafusion_err!("Failed to open Vortex file {e}"))?;
 
@@ -507,8 +522,6 @@ mod tests {
             filter,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema,
             batch_size: 100,
             limit: None,
@@ -516,6 +529,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         }
     }
 
@@ -599,7 +613,6 @@ mod tests {
             filter: Some(filter),
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -607,6 +620,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -682,7 +696,6 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema: TableSchema::from_file_schema(table_schema.clone()),
             batch_size: 100,
             limit: None,
@@ -690,6 +703,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         // The opener should successfully open the file and reorder columns
@@ -834,7 +848,6 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema: table_schema.clone(),
             batch_size: 100,
             limit: None,
@@ -842,6 +855,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -890,7 +904,6 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema: TableSchema::from_file_schema(schema),
             batch_size: 100,
             limit: None,
@@ -898,6 +911,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         }
     }
 
@@ -1088,7 +1102,6 @@ mod tests {
             filter: None,
             file_pruning_predicate: None,
             expr_adapter_factory: Arc::new(DefaultPhysicalExprAdapterFactory),
-            file_cache: VortexFileCache::new(1, 1, 161984, SESSION.clone()),
             table_schema,
             batch_size: 100,
             limit: None,
@@ -1096,6 +1109,7 @@ mod tests {
             layout_readers: Default::default(),
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: None,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

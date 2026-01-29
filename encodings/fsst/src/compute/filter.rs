@@ -6,7 +6,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -21,10 +20,12 @@ impl FilterKernel for FSSTVTable {
             array.dtype().clone(),
             array.symbols().clone(),
             array.symbol_lengths().clone(),
-            filter(array.codes().as_ref(), mask)?
+            array
+                .codes()
+                .filter(mask.clone())?
                 .as_::<VarBinVTable>()
                 .clone(),
-            filter(array.uncompressed_lengths(), mask)?,
+            array.uncompressed_lengths().filter(mask.clone())?,
         )?
         .into_array())
     }

@@ -6,21 +6,41 @@
 #![allow(clippy::use_debug)]
 
 use std::env;
+use std::fs::File;
+use std::io;
 use std::path::Path;
 use std::process::Command;
 
+use fastlanes::FastLanes;
+
+use crate::cuda_kernel_generator::IndentedWriter;
+use crate::cuda_kernel_generator::generate_cuda_unpack_for_width;
+
+pub mod cuda_kernel_generator;
+
 fn main() {
-    // Declare the cfg so rustc doesn't warn about unexpected cfg.
-    println!("cargo::rustc-check-cfg=cfg(cuda_available)");
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+    let kernels_dir = Path::new(&manifest_dir).join("kernels");
+
+    // Always emit the kernels directory path as a compile-time env var so any binary
+    // linking against vortex-cuda can find the PTX files. This must be set regardless
+    // of CUDA availability since the code using env!() is always compiled.
+    // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
+    println!(
+        "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
+        kernels_dir.display()
+    );
+
+    println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
+
+    generate_unpack::<u8>(&kernels_dir, 32).expect("Failed to generate unpack for u8");
+    generate_unpack::<u16>(&kernels_dir, 32).expect("Failed to generate unpack for u16");
+    generate_unpack::<u32>(&kernels_dir, 32).expect("Failed to generate unpack for u32");
+    generate_unpack::<u64>(&kernels_dir, 16).expect("Failed to generate unpack for u64");
 
     if !is_cuda_available() {
         return;
     }
-
-    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
-    let kernels_dir = Path::new(&manifest_dir).join("kernels");
-
-    println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
 
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
@@ -39,12 +59,15 @@ fn main() {
             }
         }
     }
-
-    // Signal that CUDA kernels are available for conditional compilation.
-    println!("cargo:rustc-cfg=cuda_available");
 }
 
-fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
+fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<()> {
+    let mut cu_file = File::create(output_dir.join(format!("bit_unpack_{}.cu", T::T)))?;
+    let mut cu_writer = IndentedWriter::new(&mut cu_file);
+    generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
+}
+
+fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> io::Result<()> {
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
     let profile = env::var("PROFILE").unwrap();
 
@@ -111,7 +134,7 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
             }
         }
 
-        return Err(std::io::Error::other(format!(
+        return Err(io::Error::other(format!(
             "nvcc compilation failed for {}",
             cu_path.display()
         )));

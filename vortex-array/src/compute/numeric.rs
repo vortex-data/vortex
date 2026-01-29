@@ -283,53 +283,33 @@ fn arrow_numeric(
 #[cfg(test)]
 mod test {
     use vortex_buffer::buffer;
-    use vortex_scalar::Scalar;
 
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::sub_scalar;
 
     #[test]
     fn test_scalar_subtract_unsigned() {
         let values = buffer![1u16, 2, 3].into_array();
-        let results = sub_scalar(&values, 1u16.into())
-            .unwrap()
-            .to_primitive()
-            .as_slice::<u16>()
-            .to_vec();
-        assert_eq!(results, &[0u16, 1, 2]);
+        let result = sub_scalar(&values, 1u16.into()).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u16, 1, 2]));
     }
 
     #[test]
     fn test_scalar_subtract_signed() {
         let values = buffer![1i64, 2, 3].into_array();
-        let results = sub_scalar(&values, (-1i64).into())
-            .unwrap()
-            .to_primitive()
-            .as_slice::<i64>()
-            .to_vec();
-        assert_eq!(results, &[2i64, 3, 4]);
+        let result = sub_scalar(&values, (-1i64).into()).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2i64, 3, 4]));
     }
 
     #[test]
     fn test_scalar_subtract_nullable() {
         let values = PrimitiveArray::from_option_iter([Some(1u16), Some(2), None, Some(3)]);
-        let result = sub_scalar(values.as_ref(), Some(1u16).into())
-            .unwrap()
-            .to_primitive();
-
-        let actual = (0..result.len())
-            .map(|index| result.scalar_at(index).unwrap())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            actual,
-            vec![
-                Scalar::from(Some(0u16)),
-                Scalar::from(Some(1u16)),
-                Scalar::from(None::<u16>),
-                Scalar::from(Some(2u16))
-            ]
+        let result = sub_scalar(values.as_ref(), Some(1u16).into()).unwrap();
+        assert_arrays_eq!(
+            result,
+            PrimitiveArray::from_option_iter([Some(0u16), Some(1), None, Some(2)])
         );
     }
 
@@ -337,12 +317,8 @@ mod test {
     fn test_scalar_subtract_float() {
         let values = buffer![1.0f64, 2.0, 3.0].into_array();
         let to_subtract = -1f64;
-        let results = sub_scalar(&values, to_subtract.into())
-            .unwrap()
-            .to_primitive()
-            .as_slice::<f64>()
-            .to_vec();
-        assert_eq!(results, &[2.0f64, 3.0, 4.0]);
+        let result = sub_scalar(&values, to_subtract.into()).unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([2.0f64, 3.0, 4.0]));
     }
 
     #[test]

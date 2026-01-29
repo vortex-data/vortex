@@ -1,31 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_mask::Mask;
+use std::sync::Arc;
 
-use crate::ArrayRef;
+use vortex_error::VortexExpect;
+use vortex_mask::MaskValues;
+
+use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
+use crate::arrays::filter::execute::values_to_mask;
 use crate::compute::arrow_filter_fn;
-use crate::register_kernel;
 
-impl FilterKernel for VarBinViewVTable {
-    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
-        arrow_filter_fn(array.as_ref(), mask)
-    }
+pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
+    arrow_filter_fn(array.as_ref(), &values_to_mask(mask))
+        .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
+        .as_::<VarBinViewVTable>()
+        .clone()
 }
 
-register_kernel!(FilterKernelAdapter(VarBinViewVTable).lift());
-
 #[cfg(test)]
-mod tests {
+mod test {
     use crate::arrays::VarBinViewArray;
     use crate::compute::conformance::filter::test_filter_conformance;
 
     #[test]
-    fn test_filter_var_bin_view_array() {
+    fn test_filter_varbinview_conformance() {
         test_filter_conformance(
             VarBinViewArray::from_iter_str(["one", "two", "three", "four", "five"]).as_ref(),
         );

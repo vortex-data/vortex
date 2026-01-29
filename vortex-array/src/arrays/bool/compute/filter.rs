@@ -86,22 +86,16 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::bool::compute::filter::filter_indices;
     use crate::arrays::bool::compute::filter::filter_slices;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::filter;
 
     #[test]
     fn filter_bool_test() {
         let arr = BoolArray::from_iter([true, true, false]);
         let mask = Mask::from_iter([true, false, true]);
 
-        let filtered = filter(arr.as_ref(), &mask).unwrap().to_bool();
-        assert_eq!(2, filtered.len());
-
-        assert_eq!(
-            vec![true, false],
-            filtered.to_bit_buffer().iter().collect_vec()
-        )
+        let filtered = arr.filter(mask).unwrap();
+        assert_arrays_eq!(filtered, BoolArray::from_iter([true, false]));
     }
 
     #[test]
@@ -109,8 +103,6 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
 
         let filtered = filter_slices(&arr.to_bit_buffer(), 2, [(0, 1), (2, 3)].into_iter());
-        assert_eq!(2, filtered.len());
-
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 
@@ -119,8 +111,6 @@ mod test {
         let arr = BoolArray::from_iter([true, true, false]);
 
         let filtered = filter_indices(&arr.to_bit_buffer(), 2, [0, 2].into_iter());
-        assert_eq!(2, filtered.len());
-
         assert_eq!(vec![true, false], filtered.iter().collect_vec())
     }
 

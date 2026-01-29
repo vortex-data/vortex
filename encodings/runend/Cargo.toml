@@ -42,10 +42,6 @@ arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
 arrow = ["dep:arrow-array"]
 
 [[bench]]
-name = "run_end_filter"
-harness = false
-
-[[bench]]
 name = "run_end_null_count"
 harness = false
 

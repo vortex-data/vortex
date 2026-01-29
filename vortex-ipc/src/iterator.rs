@@ -169,7 +169,7 @@ mod test {
     use std::io::Cursor;
 
     use vortex_array::IntoArray as _;
-    use vortex_array::ToCanonical;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
     use vortex_array::session::ArraySession;
@@ -178,25 +178,18 @@ mod test {
     use super::*;
 
     #[test]
-    fn test_sync_stream() {
+    fn test_sync_stream() -> VortexResult<()> {
         let session = ArraySession::default();
 
         let array = buffer![1i32, 2, 3].into_array();
-        let ipc_buffer = array
-            .to_array_iterator()
-            .into_ipc()
-            .unwrap()
-            .collect_to_buffer()
-            .unwrap();
+        let ipc_buffer = array.to_array_iterator().into_ipc()?.collect_to_buffer()?;
 
-        let reader =
-            SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone()).unwrap();
+        let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone())?;
 
         assert_eq!(reader.dtype(), array.dtype());
-        let result = reader.read_all().unwrap().to_primitive();
-        assert_eq!(
-            array.to_primitive().as_slice::<i32>(),
-            result.as_slice::<i32>()
-        );
+        let result = reader.read_all()?;
+        assert_arrays_eq!(result, array);
+
+        Ok(())
     }
 }

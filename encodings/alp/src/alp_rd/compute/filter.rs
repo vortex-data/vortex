@@ -5,7 +5,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -23,9 +22,9 @@ impl FilterKernel for ALPRDVTable {
 
         Ok(ALPRDArray::try_new(
             array.dtype().clone(),
-            filter(array.left_parts(), mask)?,
+            array.left_parts().filter(mask.clone())?,
             array.left_parts_dictionary().clone(),
-            filter(array.right_parts(), mask)?,
+            array.right_parts().filter(mask.clone())?,
             array.right_bit_width(),
             left_parts_exceptions,
         )?
@@ -42,7 +41,6 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
-    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_mask::Mask;
@@ -61,7 +59,9 @@ mod test {
         assert!(encoded.left_parts_patches().is_some());
 
         // The first two values need no patching
-        let filtered = filter(encoded.as_ref(), &Mask::from_iter([true, false, true])).unwrap();
+        let filtered = encoded
+            .filter(Mask::from_iter([true, false, true]))
+            .unwrap();
         assert_arrays_eq!(filtered, PrimitiveArray::from_iter([a, outlier]));
     }
 

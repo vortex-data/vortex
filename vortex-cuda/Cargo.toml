@@ -23,12 +23,16 @@ _test-harness = []
 [dependencies]
 async-trait = { workspace = true }
 cudarc = { workspace = true }
+fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
+paste = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
+vortex-cub = { path = "cub" }
+vortex-cuda-macros = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
@@ -52,6 +56,7 @@ vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-scalar = { workspace = true }
 
 [build-dependencies]
+fastlanes = { workspace = true }
 
 [[bench]]
 name = "for_cuda"
@@ -63,4 +68,8 @@ harness = false
 
 [[bench]]
 name = "zstd_cuda"
+harness = false
+
+[[bench]]
+name = "filter_cuda"
 harness = false

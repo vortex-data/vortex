@@ -238,6 +238,7 @@ impl VTable for Binary {
         Ok(match operator {
             // AND and OR are kleene logic.
             Operator::And => None,
+            Operator::Or => None,
             _ => {
                 // All other binary operators are null if either side is null.
                 Some(and(lhs, rhs))
@@ -523,6 +524,7 @@ mod tests {
     use vortex_scalar::Scalar;
 
     use super::*;
+    use crate::assert_arrays_eq;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
@@ -672,5 +674,28 @@ mod tests {
             Scalar::bool(false, Nullability::NonNullable),
             "Different structs should not be equal"
         );
+    }
+
+    #[test]
+    fn test_or_kleene_validity() {
+        use crate::IntoArray;
+        use crate::arrays::BoolArray;
+        use crate::arrays::StructArray;
+        use crate::expr::exprs::get_item::col;
+
+        let struct_arr = StructArray::from_fields(&[
+            ("a", BoolArray::from_iter([Some(true)]).into_array()),
+            (
+                "b",
+                BoolArray::from_iter([Option::<bool>::None]).into_array(),
+            ),
+        ])
+        .unwrap()
+        .into_array();
+
+        let expr = or(col("a"), col("b"));
+        let result = struct_arr.apply(&expr).unwrap();
+
+        assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())
     }
 }

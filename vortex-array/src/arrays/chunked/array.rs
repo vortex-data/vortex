@@ -230,7 +230,6 @@ mod test {
     use vortex_error::VortexResult;
 
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::array::Array;
     use crate::arrays::ChunkedVTable;
     use crate::arrays::PrimitiveArray;
@@ -260,12 +259,9 @@ mod test {
         let chunked = array.as_::<ChunkedVTable>();
         let chunks_out = chunked.chunks();
 
-        let results = chunks_out[0].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[0u64, 1, 2]);
-        let results = chunks_out[1].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[3u64, 4, 5]);
-        let results = chunks_out[2].to_primitive().as_slice::<u64>().to_vec();
-        assert_eq!(results, &[6u64, 7, 8]);
+        assert_arrays_eq!(chunks_out[0], PrimitiveArray::from_iter([0u64, 1, 2]));
+        assert_arrays_eq!(chunks_out[1], PrimitiveArray::from_iter([3u64, 4, 5]));
+        assert_arrays_eq!(chunks_out[2], PrimitiveArray::from_iter([6u64, 7, 8]));
     }
 
     #[test]

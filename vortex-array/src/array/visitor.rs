@@ -31,8 +31,14 @@ pub trait ArrayVisitor {
     /// Returns the buffers of the array.
     fn buffers(&self) -> Vec<ByteBuffer>;
 
-    /// Returns the buffer handles of the arrays.
+    /// Returns the buffer handles of the array.
     fn buffer_handles(&self) -> Vec<BufferHandle>;
+
+    /// Returns the names of the buffers of the array.
+    fn buffer_names(&self) -> Vec<String>;
+
+    /// Returns the array's buffers with their names.
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)>;
 
     /// Returns the number of buffers of the array.
     fn nbuffers(&self) -> usize;
@@ -68,6 +74,14 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn buffer_handles(&self) -> Vec<BufferHandle> {
         self.as_ref().buffer_handles()
+    }
+
+    fn buffer_names(&self) -> Vec<String> {
+        self.as_ref().buffer_names()
+    }
+
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        self.as_ref().named_buffers()
     }
 
     fn nbuffers(&self) -> usize {
@@ -121,11 +135,7 @@ pub trait ArrayVisitorExt: Array {
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
 pub trait ArrayBufferVisitor {
-    fn visit_buffer_handle(&mut self, handle: &BufferHandle) -> VortexResult<()> {
-        self.visit_buffer(&handle.clone().try_to_host_sync()?);
-        Ok(())
-    }
-    fn visit_buffer(&mut self, buffer: &ByteBuffer);
+    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
 }
 
 pub trait ArrayChildVisitor {

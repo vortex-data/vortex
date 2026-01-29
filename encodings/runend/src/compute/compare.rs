@@ -50,12 +50,12 @@ register_kernel!(CompareKernelAdapter(RunEndVTable).lift());
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
-    use vortex_buffer::BitBuffer;
 
     use crate::RunEndArray;
 
@@ -75,12 +75,9 @@ mod test {
             Operator::Eq,
         )
         .unwrap();
-        let res_canon = res.to_bool();
-        assert_eq!(
-            res_canon.to_bit_buffer(),
-            BitBuffer::from(vec![
-                false, false, false, false, false, false, false, false, true, true, true, true
-            ])
-        );
+        let expected = BoolArray::from_iter([
+            false, false, false, false, false, false, false, false, true, true, true, true,
+        ]);
+        assert_arrays_eq!(res, expected);
     }
 }
