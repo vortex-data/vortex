@@ -185,21 +185,31 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    fn prepare_projection_and_reader(
+        session: &VortexSession,
+        row_offset: u64,
+        layout_reader: LayoutReaderRef,
+        projection: &Expression,
+    ) -> VortexResult<(LayoutReaderRef, Expression, DType)> {
+        let layout_reader = Arc::new(RowIdxLayoutReader::new(
+            row_offset,
+            layout_reader,
+            session.clone(),
+        ));
+        let projection = projection.optimize_recursive(layout_reader.dtype())?;
+        let dtype = projection.return_dtype(layout_reader.dtype())?;
+        Ok((layout_reader, projection, dtype))
+    }
+
     /// The [`DType`] returned by the scan, after applying the projection.
     pub fn dtype(&self) -> VortexResult<DType> {
-        // NOTE: `GetItem` may simplify into `GetItemList` for list-of-struct projections.
-        // To avoid rejecting valid nested projections (like `items.a`) we must simplify before
-        // validating the return dtype.
-        //
-        // Also, `row_idx` support is provided by `RowIdxLayoutReader`, so use the same reader
-        // enrichment as `prepare`.
-        let layout_reader = Arc::new(RowIdxLayoutReader::new(
+        let (_, _, dtype) = Self::prepare_projection_and_reader(
+            &self.session,
             self.row_offset,
             self.layout_reader.clone(),
-            self.session.clone(),
-        ));
-        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
-        projection.return_dtype(layout_reader.dtype())
+            &self.projection,
+        )?;
+        Ok(dtype)
     }
 
     /// The session used by the scan.
@@ -238,23 +248,28 @@ impl<A: 'static + Send> ScanBuilder<A> {
 
         // Spin up the root layout reader, and wrap it in a FilterLayoutReader to perform
         // conjunction splitting if a filter is provided.
-        let mut layout_reader = self.layout_reader;
-
-        // Enrich the layout reader to support RowIdx expressions.
-        // Note that this is applied below the filter layout reader since it can perform
-        // better over individual conjunctions.
-        layout_reader = Arc::new(RowIdxLayoutReader::new(
-            self.row_offset,
+        let ScanBuilder {
+            session,
             layout_reader,
-            self.session.clone(),
-        ));
+            projection,
+            filter,
+            ordered,
+            row_range,
+            selection,
+            split_by,
+            concurrency,
+            map_fn,
+            limit,
+            row_offset,
+            ..
+        } = self;
 
-        // Normalize and simplify the expressions.
-        let projection = self.projection.optimize_recursive(layout_reader.dtype())?;
-        let dtype = projection.return_dtype(layout_reader.dtype())?;
+        // Normalize and simplify the expressions, and enrich the layout reader to support
+        // RowIdx expressions.
+        let (layout_reader, projection, dtype) =
+            Self::prepare_projection_and_reader(&session, row_offset, layout_reader, &projection)?;
 
-        let filter = self
-            .filter
+        let filter = filter
             .map(|f| f.optimize_recursive(layout_reader.dtype()))
             .transpose()?;
 
@@ -263,33 +278,27 @@ impl<A: 'static + Send> ScanBuilder<A> {
             filter_and_projection_masks(&projection, filter.as_ref(), layout_reader.dtype())?;
         let field_mask: Vec<_> = [filter_mask, projection_mask].concat();
 
-        let splits =
-            if let Some(ranges) = attempt_split_ranges(&self.selection, self.row_range.as_ref()) {
-                Splits::Ranges(ranges)
-            } else {
-                let split_range = self
-                    .row_range
-                    .clone()
-                    .unwrap_or_else(|| 0..layout_reader.row_count());
-                Splits::Natural(self.split_by.splits(
-                    layout_reader.as_ref(),
-                    &split_range,
-                    &field_mask,
-                )?)
-            };
+        let splits = if let Some(ranges) = attempt_split_ranges(&selection, row_range.as_ref()) {
+            Splits::Ranges(ranges)
+        } else {
+            let split_range = row_range
+                .clone()
+                .unwrap_or_else(|| 0..layout_reader.row_count());
+            Splits::Natural(split_by.splits(layout_reader.as_ref(), &split_range, &field_mask)?)
+        };
 
         Ok(RepeatedScan::new(
-            self.session.clone(),
+            session.clone(),
             layout_reader,
             projection,
             filter,
-            self.ordered,
-            self.row_range,
-            self.selection,
+            ordered,
+            row_range,
+            selection,
             splits,
-            self.concurrency,
-            self.map_fn,
-            self.limit,
+            concurrency,
+            map_fn,
+            limit,
             dtype,
         ))
     }
@@ -658,6 +667,47 @@ mod test {
         let actual = builder.dtype()?;
         let expected = DType::List(
             Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            Nullability::NonNullable,
+        );
+        assert_eq!(actual, expected);
+        Ok(())
+    }
+
+    #[test]
+    fn dtype_simplifies_fixed_size_list_of_struct_nested_projection() -> VortexResult<()> {
+        let element_dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b"]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::NonNullable),
+                    DType::Utf8(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        );
+        let list_size: u32 = 2;
+        let dtype = DType::Struct(
+            StructFields::new(
+                FieldNames::from(["items"]),
+                vec![DType::FixedSizeList(
+                    Arc::new(element_dtype),
+                    list_size,
+                    Nullability::NonNullable,
+                )],
+            ),
+            Nullability::NonNullable,
+        );
+
+        let reader = Arc::new(DTypeOnlyLayoutReader::new(dtype));
+        let session = crate::test::SCAN_SESSION.clone();
+
+        let projection = get_item("a", get_item("items", root()));
+        let builder = ScanBuilder::new(session, reader).with_projection(projection);
+
+        let actual = builder.dtype()?;
+        let expected = DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
+            list_size,
             Nullability::NonNullable,
         );
         assert_eq!(actual, expected);
