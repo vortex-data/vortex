@@ -90,7 +90,7 @@ impl ArrayBuilder for ExtensionBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ExtensionBuilder expected scalar with dtype {:?}, got {:?}",
+            "ExtensionBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -140,12 +140,12 @@ mod tests {
         let mut builder = ExtensionBuilder::new(ext_dtype.clone());
 
         // Test appending a valid extension value.
-        let storage1 = Scalar::from(42i32);
+        let storage1 = Scalar::from(Some(42i32));
         let ext_scalar1 = Scalar::extension::<Date>(TimeUnit::Days, storage1);
         builder.append_scalar(&ext_scalar1).unwrap();
 
         // Test appending another value.
-        let storage2 = Scalar::from(84i32);
+        let storage2 = Scalar::from(Some(84i32));
         let ext_scalar2 = Scalar::extension::<Date>(TimeUnit::Days, storage2);
         builder.append_scalar(&ext_scalar2).unwrap();
 
