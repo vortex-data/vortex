@@ -48,7 +48,7 @@ impl CanonicalCudaExt for Canonical {
 
                 // TODO(aduffy): try_join_all
                 let mut host_fields = vec![];
-                for field in fields.iter().cloned() {
+                for field in fields.iter() {
                     host_fields.push(field.to_canonical()?.into_host().await?.into_array());
                 }
 

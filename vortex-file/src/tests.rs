@@ -55,7 +55,6 @@ use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::ExtDType;
-use vortex_dtype::FieldNames;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::PType::I32;
@@ -1651,11 +1650,16 @@ mod cuda_tests {
     use futures::StreamExt;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::StructArray;
+    use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
     use vortex_cuda::CanonicalCudaExt;
     use vortex_cuda::CopyDeviceReadAt;
     use vortex_cuda::CudaSession;
     use vortex_cuda::CudaSessionExt;
     use vortex_cuda::executor::CudaArrayExt;
+    use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_io::file::std_file::FileReadAdapter;
     use vortex_io::session::RuntimeSessionExt;
@@ -1712,6 +1716,13 @@ mod cuda_tests {
         let cpu_reader = source;
 
         let cpu_file = SESSION.open_options().open_read(cpu_reader).await?;
+        let gpu_file = SESSION
+            .open_options()
+            .with_footer(cpu_file.footer)
+            .open_read(gpu_reader)
+            .await?;
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
 
         let mut res = Vec::new();
         let mut stream = gpu_file
@@ -1730,5 +1741,14 @@ mod cuda_tests {
                 .into_array();
             res.push(array);
         }
+
+        for a in res {
+            println!("a {} ", a.display_tree())
+        }
+
+        // Cleanup
+        std::fs::remove_file(&temp_path)?;
+
+        Ok(())
     }
 }
