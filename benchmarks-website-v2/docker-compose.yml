@@ -1,6 +1,6 @@
 services:
   benchmarks-website:
-    image: ghcr.io/palaska/vortex/benchmarks-website:latest
+    image: ghcr.io/vortex-data/vortex/benchmarks-website:latest
     ports:
       - "80:3000"
     restart: unless-stopped
