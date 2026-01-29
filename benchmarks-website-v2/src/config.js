@@ -320,35 +320,34 @@ export const ENGINE_LABELS = {
   parquet: 'Parquet',
 };
 
-// Series color map - professional palette
+// Series color map
 export const SERIES_COLOR_MAP = {
-  'vortex-nvme': '#0369A1',
-  'parquet-nvme': '#D97706',
-  'lance-nvme': '#059669',
-  'datafusion:arrow': '#7C3AED',
-  'datafusion:in-memory-arrow': '#7C3AED',
-  'datafusion:parquet': '#D97706',
-  'datafusion:vortex': '#0369A1',
-  'datafusion:vortex-compact': '#0284C7',
-  'datafusion:lance': '#059669',
-  'duckdb:parquet': '#B45309',
-  'duckdb:vortex': '#0369A1',
-  'duckdb:vortex-compact': '#0284C7',
-  'duckdb:duckdb': '#CA8A04',
+  'vortex-nvme': '#19a508',
+  'parquet-nvme': '#ef7f1d',
+  'lance-nvme': '#2D936C',
+  'datafusion:arrow': '#7a27b1',
+  'datafusion:in-memory-arrow': '#7a27b1',
+  'datafusion:parquet': '#ef7f1d',
+  'datafusion:vortex': '#19a508',
+  'datafusion:vortex-compact': '#15850a',
+  'datafusion:lance': '#2D936C',
+  'duckdb:parquet': '#985113',
+  'duckdb:vortex': '#0e5e04',
+  'duckdb:vortex-compact': '#0b4a03',
+  'duckdb:duckdb': '#87752e',
+  'vortex:lance': '#FF8787',
 };
 
-// Fallback color palette - professional, accessible colors
+// Fallback color palette
 export const FALLBACK_PALETTE = [
-  '#0369A1', // Sky blue
-  '#D97706', // Amber
-  '#059669', // Emerald
-  '#7C3AED', // Violet
-  '#DC2626', // Red
-  '#0891B2', // Cyan
-  '#4F46E5', // Indigo
-  '#EA580C', // Orange
-  '#65A30D', // Lime
-  '#DB2777', // Pink
+  '#5971FD', // Vortex Blue
+  '#CEE562', // Vortex Green
+  '#EEB3E1', // Vortex Pink
+  '#FF8C42', // Orange
+  '#B8336A', // Deep pink
+  '#726DA8', // Purple
+  '#2D936C', // Teal
+  '#E9B44C', // Gold
 ];
 
 // Default visible commits
