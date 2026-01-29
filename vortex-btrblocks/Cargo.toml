@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+enum-iterator = { workspace = true }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }

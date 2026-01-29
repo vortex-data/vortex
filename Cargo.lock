@@ -10290,6 +10290,7 @@ name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "enum-iterator",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "num-traits",

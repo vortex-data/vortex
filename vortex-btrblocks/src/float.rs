@@ -4,6 +4,7 @@
 pub(crate) mod dictionary;
 mod stats;
 
+use enum_iterator::Sequence;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPVTable;
 use vortex_alp::RDEncoder;
@@ -65,19 +66,30 @@ impl Compressor for FloatCompressor {
     }
 
     fn dict_scheme_code() -> FloatCode {
-        DICT_SCHEME
+        FloatCode::Dict
     }
 }
 
-const UNCOMPRESSED_SCHEME: FloatCode = FloatCode(0);
-const CONSTANT_SCHEME: FloatCode = FloatCode(1);
-const ALP_SCHEME: FloatCode = FloatCode(2);
-const ALPRD_SCHEME: FloatCode = FloatCode(3);
-const DICT_SCHEME: FloatCode = FloatCode(4);
-const RUN_END_SCHEME: FloatCode = FloatCode(5);
-const RUN_LENGTH_SCHEME: FloatCode = FloatCode(6);
-
-const SPARSE_SCHEME: FloatCode = FloatCode(7);
+/// Unique identifier for float compression schemes.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+pub enum FloatCode {
+    /// No compression applied.
+    Uncompressed,
+    /// Constant encoding for arrays with a single distinct value.
+    Constant,
+    /// ALP (Adaptive Lossless floating-Point) encoding.
+    Alp,
+    /// ALPRD (ALP with Right Division) encoding variant.
+    AlpRd,
+    /// Dictionary encoding for low-cardinality float values.
+    Dict,
+    /// Run-end encoding.
+    RunEnd,
+    /// RLE encoding - generic run-length encoding.
+    Rle,
+    /// Sparse encoding for null-dominated arrays.
+    Sparse,
+}
 
 #[derive(Debug, Copy, Clone)]
 struct UncompressedScheme;
@@ -98,7 +110,7 @@ struct DictScheme;
 pub struct NullDominated;
 
 pub const RLE_FLOAT_SCHEME: RLEScheme<FloatStats, FloatCode> = RLEScheme::new(
-    RUN_LENGTH_SCHEME,
+    FloatCode::Rle,
     |values, is_sample, allowed_cascading, excludes| {
         FloatCompressor::compress(values, is_sample, allowed_cascading, excludes)
     },
@@ -109,7 +121,7 @@ impl Scheme for UncompressedScheme {
     type CodeType = FloatCode;
 
     fn code(&self) -> FloatCode {
-        UNCOMPRESSED_SCHEME
+        FloatCode::Uncompressed
     }
 
     fn expected_compression_ratio(
@@ -138,7 +150,7 @@ impl Scheme for ConstantScheme {
     type CodeType = FloatCode;
 
     fn code(&self) -> FloatCode {
-        CONSTANT_SCHEME
+        FloatCode::Constant
     }
 
     fn expected_compression_ratio(
@@ -194,15 +206,12 @@ impl Scheme for ConstantScheme {
     }
 }
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct FloatCode(u8);
-
 impl Scheme for ALPScheme {
     type StatsType = FloatStats;
     type CodeType = FloatCode;
 
     fn code(&self) -> FloatCode {
-        ALP_SCHEME
+        FloatCode::Alp
     }
 
     fn expected_compression_ratio(
@@ -247,10 +256,10 @@ impl Scheme for ALPScheme {
         // Patches are not compressed. They should be infrequent, and if they are not then we want
         // to keep them linear for easy indexing.
         let mut int_excludes = Vec::new();
-        if excludes.contains(&DICT_SCHEME) {
+        if excludes.contains(&FloatCode::Dict) {
             int_excludes.push(integer::DictScheme.code());
         }
-        if excludes.contains(&RUN_END_SCHEME) {
+        if excludes.contains(&FloatCode::RunEnd) {
             int_excludes.push(integer::RunEndScheme.code());
         }
 
@@ -268,7 +277,7 @@ impl Scheme for ALPRDScheme {
     type CodeType = FloatCode;
 
     fn code(&self) -> FloatCode {
-        ALPRD_SCHEME
+        FloatCode::AlpRd
     }
 
     fn expected_compression_ratio(
@@ -321,7 +330,7 @@ impl Scheme for DictScheme {
     type CodeType = FloatCode;
 
     fn code(&self) -> FloatCode {
-        DICT_SCHEME
+        FloatCode::Dict
     }
 
     fn expected_compression_ratio(
@@ -383,7 +392,7 @@ impl Scheme for DictScheme {
             &dict_array.values().to_primitive(),
             is_sample,
             allowed_cascading - 1,
-            &[DICT_SCHEME],
+            &[FloatCode::Dict],
         )?;
 
         // SAFETY: compressing codes or values does not alter the invariants
@@ -402,7 +411,7 @@ impl Scheme for NullDominated {
     type CodeType = FloatCode;
 
     fn code(&self) -> Self::CodeType {
-        SPARSE_SCHEME
+        FloatCode::Sparse
     }
 
     fn expected_compression_ratio(

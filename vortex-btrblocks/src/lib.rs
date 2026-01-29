@@ -21,18 +21,25 @@
 //! # Example
 //!
 //! ```rust
-//! use vortex_btrblocks::BtrBlocksCompressor;
+//! use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, IntCode};
 //! use vortex_array::Array;
 //!
+//! // Default compressor with all schemes enabled
 //! let compressor = BtrBlocksCompressor::default();
-//! // let compressed = compressor.compress(&array)?;
+//!
+//! // Configure with builder to exclude specific schemes
+//! let compressor = BtrBlocksCompressorBuilder::new()
+//!     .exclude_int([IntCode::Dict])
+//!     .build();
 //! ```
 //!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::sync::Arc;
 
+use enum_iterator::all;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -55,18 +62,23 @@ use vortex_dtype::Nullability;
 use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::decimal::compress_decimal;
+pub use crate::float::FloatCode;
 pub use crate::float::FloatCompressor;
 pub use crate::float::FloatStats;
 pub use crate::float::dictionary::dictionary_encode as float_dictionary_encode;
+pub use crate::integer::IntCode;
 pub use crate::integer::IntCompressor;
 pub use crate::integer::IntegerStats;
 pub use crate::integer::dictionary::dictionary_encode as integer_dictionary_encode;
+pub use crate::string::StringCode;
 pub use crate::string::StringCompressor;
 pub use crate::string::StringStats;
 pub use crate::temporal::compress_temporal;
 
+mod builder;
 mod decimal;
 mod float;
 mod integer;
@@ -75,6 +87,8 @@ mod rle;
 mod sample;
 mod string;
 mod temporal;
+
+pub use builder::BtrBlocksCompressorBuilder;
 
 /// Configures how stats are generated.
 pub struct GenerateStatsOptions {
@@ -357,6 +371,49 @@ pub trait Compressor {
     }
 }
 
+/// Configuration for allowed compression schemes.
+///
+/// This is immutable after construction and can be shared across multiple compression calls.
+/// Use [`BtrBlocksCompressorBuilder`] to create a custom configuration.
+#[derive(Debug, Clone)]
+pub struct BtrBlocksCompressorConfig {
+    /// Allowed integer compression schemes.
+    int_schemes: HashSet<IntCode>,
+
+    /// Allowed float compression schemes.
+    float_schemes: HashSet<FloatCode>,
+
+    /// Allowed string compression schemes.
+    string_schemes: HashSet<StringCode>,
+}
+
+impl Default for BtrBlocksCompressorConfig {
+    fn default() -> Self {
+        Self {
+            int_schemes: all::<IntCode>().collect(),
+            float_schemes: all::<FloatCode>().collect(),
+            string_schemes: all::<StringCode>().collect(),
+        }
+    }
+}
+
+impl BtrBlocksCompressorConfig {
+    /// Creates a config from the given allowed schemes.
+    ///
+    /// This is used by [`BtrBlocksCompressorBuilder::build`].
+    pub(crate) fn from_schemes(
+        int_schemes: HashSet<IntCode>,
+        float_schemes: HashSet<FloatCode>,
+        string_schemes: HashSet<StringCode>,
+    ) -> Self {
+        Self {
+            int_schemes,
+            float_schemes,
+            string_schemes,
+        }
+    }
+}
+
 /// The main compressor type implementing BtrBlocks-inspired compression.
 ///
 /// This compressor applies adaptive compression schemes to arrays based on their data types
@@ -369,26 +426,122 @@ pub trait Compressor {
 /// 3. Recursively compressing nested structures
 /// 4. Applying type-specific compression for primitives, strings, and temporal data
 ///
+/// Use [`BtrBlocksCompressorBuilder`] to configure which compression schemes are enabled.
+///
 /// # Examples
 ///
 /// ```rust
-/// use vortex_btrblocks::BtrBlocksCompressor;
-/// use vortex_array::Array;
+/// use vortex_btrblocks::{BtrBlocksCompressor, BtrBlocksCompressorBuilder, IntCode};
 ///
+/// // Default compressor - all schemes allowed
 /// let compressor = BtrBlocksCompressor::default();
-/// // let compressed = compressor.compress(&array)?;
+///
+/// // Exclude specific schemes using the builder
+/// let compressor = BtrBlocksCompressorBuilder::new()
+///     .exclude_int([IntCode::Dict])
+///     .build();
 /// ```
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct BtrBlocksCompressor {
-    /// Whether to exclude ints from dictionary encoding.
-    ///
-    /// When `true`, integer arrays will not use dictionary compression schemes,
-    /// which can be useful when the data has high cardinality or when dictionary
-    /// overhead would exceed compression benefits.
-    pub exclude_int_dict_encoding: bool,
+    /// Immutable configuration for allowed schemes.
+    config: Arc<BtrBlocksCompressorConfig>,
+
+    /// Runtime integer excludes used during recursion.
+    int_excludes: Vec<IntCode>,
+
+    /// Runtime float excludes used during recursion.
+    float_excludes: Vec<FloatCode>,
+
+    /// Runtime string excludes used during recursion.
+    string_excludes: Vec<StringCode>,
+}
+
+impl Default for BtrBlocksCompressor {
+    fn default() -> Self {
+        Self {
+            config: Arc::new(BtrBlocksCompressorConfig::default()),
+            int_excludes: Vec::new(),
+            float_excludes: Vec::new(),
+            string_excludes: Vec::new(),
+        }
+    }
 }
 
 impl BtrBlocksCompressor {
+    /// Creates a new compressor with default settings (all schemes allowed).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a compressor from a config.
+    ///
+    /// This is used by [`BtrBlocksCompressorBuilder::build`].
+    pub(crate) fn from_config(config: BtrBlocksCompressorConfig) -> Self {
+        Self {
+            config: Arc::new(config),
+            int_excludes: Vec::new(),
+            float_excludes: Vec::new(),
+            string_excludes: Vec::new(),
+        }
+    }
+
+    fn int_excludes(&self) -> Vec<IntCode> {
+        all::<IntCode>()
+            .filter(|c| !self.config.int_schemes.contains(c) || self.int_excludes.contains(c))
+            .collect()
+    }
+
+    fn float_excludes(&self) -> Vec<FloatCode> {
+        all::<FloatCode>()
+            .filter(|c| !self.config.float_schemes.contains(c) || self.float_excludes.contains(c))
+            .collect()
+    }
+
+    fn string_excludes(&self) -> Vec<StringCode> {
+        all::<StringCode>()
+            .filter(|c| !self.config.string_schemes.contains(c) || self.string_excludes.contains(c))
+            .collect()
+    }
+
+    /// Returns a new compressor with additional runtime int excludes for recursion.
+    #[allow(dead_code)]
+    fn with_int_excludes(&self, excludes: impl IntoIterator<Item = IntCode>) -> Self {
+        let mut int_excludes = self.int_excludes.clone();
+        int_excludes.extend(excludes);
+        Self {
+            config: Arc::clone(&self.config),
+            int_excludes,
+            float_excludes: self.float_excludes.clone(),
+            string_excludes: self.string_excludes.clone(),
+        }
+    }
+
+    /// Returns a new compressor with additional runtime float excludes for recursion.
+    #[allow(dead_code)]
+    fn with_float_excludes(&self, excludes: impl IntoIterator<Item = FloatCode>) -> Self {
+        let mut float_excludes = self.float_excludes.clone();
+        float_excludes.extend(excludes);
+        Self {
+            config: Arc::clone(&self.config),
+            int_excludes: self.int_excludes.clone(),
+            float_excludes,
+            string_excludes: self.string_excludes.clone(),
+        }
+    }
+
+    /// Returns a new compressor with additional runtime string excludes for recursion.
+    #[allow(dead_code)]
+    fn with_string_excludes(&self, excludes: impl IntoIterator<Item = StringCode>) -> Self {
+        let mut string_excludes = self.string_excludes.clone();
+        string_excludes.extend(excludes);
+        Self {
+            config: Arc::clone(&self.config),
+            int_excludes: self.int_excludes.clone(),
+            float_excludes: self.float_excludes.clone(),
+            string_excludes,
+        }
+    }
+
     /// Compresses an array using BtrBlocks-inspired compression.
     ///
     /// First canonicalizes and compacts the array, then applies optimal compression schemes.
@@ -412,13 +565,14 @@ impl BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    if self.exclude_int_dict_encoding {
-                        IntCompressor::compress_no_dict(&primitive, false, MAX_CASCADE, &[])
-                    } else {
-                        IntCompressor::compress(&primitive, false, MAX_CASCADE, &[])
-                    }
+                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &self.int_excludes())
                 } else {
-                    FloatCompressor::compress(&primitive, false, MAX_CASCADE, &[])
+                    FloatCompressor::compress(
+                        &primitive,
+                        false,
+                        MAX_CASCADE,
+                        &self.float_excludes(),
+                    )
                 }
             }
             Canonical::Decimal(decimal) => compress_decimal(&decimal),
@@ -483,7 +637,12 @@ impl BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    StringCompressor::compress(&strings, false, MAX_CASCADE, &[])
+                    StringCompressor::compress(
+                        &strings,
+                        false,
+                        MAX_CASCADE,
+                        &self.string_excludes(),
+                    )
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())

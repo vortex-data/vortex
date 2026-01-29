@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use enum_iterator::Sequence;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
@@ -128,7 +129,7 @@ impl Compressor for StringCompressor {
     }
 
     fn dict_scheme_code() -> StringCode {
-        DICT_SCHEME
+        StringCode::Dict
     }
 }
 
@@ -151,22 +152,27 @@ pub struct ConstantScheme;
 #[derive(Debug, Copy, Clone)]
 pub struct NullDominated;
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct StringCode(u8);
-
-const UNCOMPRESSED_SCHEME: StringCode = StringCode(0);
-const DICT_SCHEME: StringCode = StringCode(1);
-const FSST_SCHEME: StringCode = StringCode(2);
-const CONSTANT_SCHEME: StringCode = StringCode(3);
-
-const SPARSE_SCHEME: StringCode = StringCode(4);
+/// Unique identifier for string compression schemes.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+pub enum StringCode {
+    /// No compression applied.
+    Uncompressed,
+    /// Dictionary encoding for low-cardinality strings.
+    Dict,
+    /// FSST (Fast Static Symbol Table) compression.
+    Fsst,
+    /// Constant encoding for arrays with a single distinct value.
+    Constant,
+    /// Sparse encoding for null-dominated arrays.
+    Sparse,
+}
 
 impl Scheme for UncompressedScheme {
     type StatsType = StringStats;
     type CodeType = StringCode;
 
     fn code(&self) -> StringCode {
-        UNCOMPRESSED_SCHEME
+        StringCode::Uncompressed
     }
 
     fn expected_compression_ratio(
@@ -195,7 +201,7 @@ impl Scheme for DictScheme {
     type CodeType = StringCode;
 
     fn code(&self) -> StringCode {
-        DICT_SCHEME
+        StringCode::Dict
     }
 
     fn expected_compression_ratio(
@@ -271,7 +277,7 @@ impl Scheme for FSSTScheme {
     type CodeType = StringCode;
 
     fn code(&self) -> StringCode {
-        FSST_SCHEME
+        StringCode::Fsst
     }
 
     fn compress(
@@ -321,7 +327,7 @@ impl Scheme for ConstantScheme {
     type CodeType = StringCode;
 
     fn code(&self) -> Self::CodeType {
-        CONSTANT_SCHEME
+        StringCode::Constant
     }
 
     fn is_constant(&self) -> bool {
@@ -382,7 +388,7 @@ impl Scheme for NullDominated {
     type CodeType = StringCode;
 
     fn code(&self) -> Self::CodeType {
-        SPARSE_SCHEME
+        StringCode::Sparse
     }
 
     fn expected_compression_ratio(

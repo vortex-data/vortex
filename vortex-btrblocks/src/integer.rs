@@ -4,9 +4,7 @@
 pub mod dictionary;
 mod stats;
 
-use std::fmt::Debug;
-use std::hash::Hash;
-
+use enum_iterator::Sequence;
 pub use stats::IntegerStats;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -70,7 +68,7 @@ impl Compressor for IntCompressor {
     }
 
     fn dict_scheme_code() -> IntCode {
-        DICT_SCHEME
+        IntCode::Dict
     }
 }
 
@@ -105,19 +103,30 @@ pub trait IntegerScheme: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
 // Auto-impl
 impl<T> IntegerScheme for T where T: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct IntCode(u8);
-
-const UNCOMPRESSED_SCHEME: IntCode = IntCode(0);
-const CONSTANT_SCHEME: IntCode = IntCode(1);
-const FOR_SCHEME: IntCode = IntCode(2);
-const ZIGZAG_SCHEME: IntCode = IntCode(3);
-const BITPACKING_SCHEME: IntCode = IntCode(4);
-const SPARSE_SCHEME: IntCode = IntCode(5);
-const DICT_SCHEME: IntCode = IntCode(6);
-const RUN_END_SCHEME: IntCode = IntCode(7);
-const SEQUENCE_SCHEME: IntCode = IntCode(8);
-const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
+/// Unique identifier for integer compression schemes.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+pub enum IntCode {
+    /// No compression applied.
+    Uncompressed,
+    /// Constant encoding for arrays with a single distinct value.
+    Constant,
+    /// Frame of Reference encoding - subtracts minimum value then bitpacks.
+    For,
+    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
+    ZigZag,
+    /// BitPacking encoding - compresses non-negative integers by reducing bit width.
+    BitPacking,
+    /// Sparse encoding - optimizes null-dominated or single-value-dominated arrays.
+    Sparse,
+    /// Dictionary encoding - creates a dictionary of unique values.
+    Dict,
+    /// Run-end encoding - run-length encoding with end positions.
+    RunEnd,
+    /// Sequence encoding - detects sequential patterns.
+    Sequence,
+    /// RLE encoding - generic run-length encoding.
+    Rle,
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct UncompressedScheme;
@@ -150,7 +159,7 @@ pub struct SequenceScheme;
 const RUN_END_THRESHOLD: u32 = 4;
 
 pub const RLE_INTEGER_SCHEME: RLEScheme<IntegerStats, IntCode> = RLEScheme::new(
-    RUN_LENGTH_SCHEME,
+    IntCode::Rle,
     |values, is_sample, allowed_cascading, excludes| {
         IntCompressor::compress_no_dict(values, is_sample, allowed_cascading, excludes)
     },
@@ -161,7 +170,7 @@ impl Scheme for UncompressedScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        UNCOMPRESSED_SCHEME
+        IntCode::Uncompressed
     }
 
     fn expected_compression_ratio(
@@ -191,7 +200,7 @@ impl Scheme for ConstantScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        CONSTANT_SCHEME
+        IntCode::Constant
     }
 
     fn is_constant(&self) -> bool {
@@ -252,7 +261,7 @@ impl Scheme for FORScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        FOR_SCHEME
+        IntCode::For
     }
 
     fn expected_compression_ratio(
@@ -335,7 +344,7 @@ impl Scheme for ZigZagScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        ZIGZAG_SCHEME
+        IntCode::ZigZag
     }
 
     fn expected_compression_ratio(
@@ -405,7 +414,7 @@ impl Scheme for BitPackingScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        BITPACKING_SCHEME
+        IntCode::BitPacking
     }
 
     fn expected_compression_ratio(
@@ -461,7 +470,7 @@ impl Scheme for SparseScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        SPARSE_SCHEME
+        IntCode::Sparse
     }
 
     // We can avoid asserting the encoding tree instead.
@@ -574,7 +583,7 @@ impl Scheme for DictScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        DICT_SCHEME
+        IntCode::Dict
     }
 
     fn expected_compression_ratio(
@@ -633,7 +642,7 @@ impl Scheme for DictScheme {
 
         // Cascade the codes child
         // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
-        let mut new_excludes = vec![DICT_SCHEME, SEQUENCE_SCHEME];
+        let mut new_excludes = vec![IntCode::Dict, IntCode::Sequence];
         new_excludes.extend_from_slice(excludes);
 
         let compressed_codes = IntCompressor::compress_no_dict(
@@ -659,7 +668,7 @@ impl Scheme for RunEndScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        RUN_END_SCHEME
+        IntCode::RunEnd
     }
 
     fn expected_compression_ratio(
@@ -740,7 +749,7 @@ impl Scheme for SequenceScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> Self::CodeType {
-        SEQUENCE_SCHEME
+        IntCode::Sequence
     }
 
     fn expected_compression_ratio(
