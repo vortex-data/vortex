@@ -62,7 +62,7 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
 
         Ok(Scalar::extension::<Timestamp>(
             options.clone(),
-            Scalar::primitive(ts, ext.storage_dtype().nullability()),
+            Scalar::primitive(ts, ext.nullability()),
         ))
     }
 }

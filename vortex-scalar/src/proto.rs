@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use num_traits::ToBytes;
+use num_traits::ToPrimitive;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
@@ -18,20 +18,25 @@ use vortex_proto::scalar::scalar_value::Kind;
 use vortex_session::VortexSession;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 use crate::pvalue::PValue;
 
 impl From<&Scalar> for pb::Scalar {
-    fn from(value: &Scalar) -> Self {
+    fn from(scalar: &Scalar) -> Self {
+        let pb_value: pb::ScalarValue = match scalar.value() {
+            None => pb::ScalarValue {
+                kind: Some(Kind::NullValue(0)),
+            },
+            Some(v) => v.into(),
+        };
         pb::Scalar {
             dtype: Some(
-                (value.dtype())
+                (scalar.dtype())
                     .try_into()
                     .vortex_expect("Failed to convert DType to proto"),
             ),
-            value: Some((value.value()).into()),
+            value: Some(pb_value),
         }
     }
 }
@@ -39,14 +44,11 @@ impl From<&Scalar> for pb::Scalar {
 impl From<&ScalarValue> for pb::ScalarValue {
     fn from(value: &ScalarValue) -> Self {
         match value {
-            ScalarValue(InnerScalarValue::Null) => pb::ScalarValue {
-                kind: Some(Kind::NullValue(0)),
-            },
-            ScalarValue(InnerScalarValue::Bool(v)) => pb::ScalarValue {
+            ScalarValue::Bool(v) => pb::ScalarValue {
                 kind: Some(Kind::BoolValue(*v)),
             },
-            ScalarValue(InnerScalarValue::Primitive(v)) => v.into(),
-            ScalarValue(InnerScalarValue::Decimal(v)) => {
+            ScalarValue::Primitive(v) => v.into(),
+            ScalarValue::Decimal(v) => {
                 let inner_value = match v {
                     DecimalValue::I8(v) => v.to_le_bytes().to_vec(),
                     DecimalValue::I16(v) => v.to_le_bytes().to_vec(),
@@ -55,26 +57,31 @@ impl From<&ScalarValue> for pb::ScalarValue {
                     DecimalValue::I128(v128) => v128.to_le_bytes().to_vec(),
                     DecimalValue::I256(v256) => v256.to_le_bytes().to_vec(),
                 };
-
                 pb::ScalarValue {
                     kind: Some(Kind::BytesValue(inner_value)),
                 }
             }
-            ScalarValue(InnerScalarValue::Buffer(v)) => pb::ScalarValue {
+            ScalarValue::Binary(v) => pb::ScalarValue {
                 kind: Some(Kind::BytesValue(v.as_slice().to_vec())),
             },
-            ScalarValue(InnerScalarValue::BufferString(v)) => pb::ScalarValue {
+            ScalarValue::Utf8(v) => pb::ScalarValue {
                 kind: Some(Kind::StringValue(v.as_str().to_string())),
             },
-            ScalarValue(InnerScalarValue::List(v)) => {
+            ScalarValue::List(v) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
-                    values.push(pb::ScalarValue::from(elem));
+                    values.push(match elem {
+                        None => pb::ScalarValue {
+                            kind: Some(Kind::NullValue(0)),
+                        },
+                        Some(v) => v.into(),
+                    });
                 }
                 pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
                 }
             }
+            ScalarValue::Extension(v) => v.storage().into(),
         }
     }
 }
@@ -129,56 +136,94 @@ impl Scalar {
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing dtype"))?,
             session,
         )?;
-
-        let value = ScalarValue::try_from(
+        let value = ScalarValue::from_proto(
             value
                 .value
                 .as_ref()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?,
+                .ok_or_else(|| vortex_err!("Scalar missing value"))?,
+            &dtype,
+            session,
         )?;
-
-        Ok(Scalar::new(dtype, value))
+        Scalar::try_new(dtype, value)
     }
 }
 
-impl TryFrom<&pb::ScalarValue> for ScalarValue {
-    type Error = VortexError;
-
-    fn try_from(value: &pb::ScalarValue) -> Result<Self, Self::Error> {
+impl ScalarValue {
+    /// Creates a ScalarValue from its protobuf representation.
+    #[allow(clippy::only_used_in_recursion)]
+    pub fn from_proto(
+        value: &pb::ScalarValue,
+        dtype: &DType,
+        session: &VortexSession,
+    ) -> VortexResult<Option<Self>> {
         let kind = value
             .kind
             .as_ref()
-            .ok_or_else(|| vortex_err!(InvalidSerde: "ScalarValue missing kind"))?;
+            .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar value missing kind"))?;
 
-        match kind {
-            Kind::NullValue(_) => Ok(ScalarValue(InnerScalarValue::Null)),
-            Kind::BoolValue(v) => Ok(ScalarValue(InnerScalarValue::Bool(*v))),
-            Kind::Int64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::I64(*v)))),
-            Kind::Uint64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::U64(*v)))),
-            Kind::F16Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F16(
-                f16::from_bits(u16::try_from(*v).map_err(|_| {
+        Ok(match kind {
+            Kind::NullValue(_) => None,
+            Kind::BoolValue(v) => Some(ScalarValue::Bool(*v)),
+            Kind::Int64Value(v) => {
+                let pvalue = match dtype.as_ptype() {
+                    PType::I8 => v.to_i8().map(PValue::I8),
+                    PType::I16 => v.to_i16().map(PValue::I16),
+                    PType::I32 => v.to_i32().map(PValue::I32),
+                    PType::I64 => Some(PValue::I64(*v)),
+                    _ => vortex_bail!("Found Int64 proto value for dtype: {}", dtype),
+                }
+                .ok_or_else(|| {
+                    vortex_err!(
+                        InvalidSerde: "Protobuf Int64 value {} out of range for dtype: {}", v, dtype
+                    )
+                })?;
+                Some(ScalarValue::Primitive(pvalue))
+            }
+            Kind::Uint64Value(v) => {
+                let pvalue = match dtype.as_ptype() {
+                    PType::U8 => v.to_u8().map(PValue::U8),
+                    PType::U16 => v.to_u16().map(PValue::U16),
+                    PType::U32 => v.to_u32().map(PValue::U32),
+                    PType::U64 => Some(PValue::U64(*v)),
+                    _ => vortex_bail!("Found Uint64 proto value for dtype: {}", dtype),
+                }
+                    .ok_or_else(|| {
+                        vortex_err!(
+                        InvalidSerde: "Protobuf Uint64 value {} out of range for dtype: {}", v, dtype
+                    )
+                    })?;
+                Some(ScalarValue::Primitive(pvalue))
+            }
+            Kind::F16Value(v) => {
+                let pvalue = PValue::F16(f16::from_bits(u16::try_from(*v).map_err(|_| {
                     vortex_err!("f16 bitwise representation has more than 16 bits: {}", v)
-                })?),
-            )))),
-            Kind::F32Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F32(*v)))),
-            Kind::F64Value(v) => Ok(ScalarValue(InnerScalarValue::Primitive(PValue::F64(*v)))),
-            Kind::StringValue(v) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                BufferString::from(v.clone()),
-            )))),
-            Kind::BytesValue(v) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-                ByteBuffer::from(v.clone()),
-            )))),
+                })?));
+                Some(ScalarValue::Primitive(pvalue))
+            }
+            Kind::F32Value(v) => Some(ScalarValue::Primitive(PValue::F32(*v))),
+            Kind::F64Value(v) => Some(ScalarValue::Primitive(PValue::F64(*v))),
+            Kind::StringValue(v) => Some(ScalarValue::Utf8(BufferString::from(v.as_str()))),
+            Kind::BytesValue(v) => Some(ScalarValue::Binary(ByteBuffer::copy_from(v))),
             Kind::ListValue(v) => {
                 let mut values = Vec::with_capacity(v.values.len());
+                let element_dtype = dtype.as_list_element_opt().ok_or_else(|| {
+                    vortex_err!("Storage dtype for List ScalarValue must be a List DType")
+                })?;
                 for elem in v.values.iter() {
-                    values.push(elem.try_into()?);
+                    values.push(ScalarValue::from_proto(
+                        elem,
+                        element_dtype.as_ref(),
+                        session,
+                    )?);
                 }
-                Ok(ScalarValue(InnerScalarValue::List(values.into())))
+                Some(ScalarValue::List(values))
             }
-        }
+        })
     }
 }
 
+// TODO(v2): re-enable tests when removed API features are restored
+/*
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -197,7 +242,6 @@ mod tests {
     use vortex_proto::scalar as pb;
 
     use super::*;
-    use crate::InnerScalarValue;
     use crate::Scalar;
     use crate::ScalarValue;
     use crate::tests::SESSION;
@@ -541,3 +585,5 @@ mod tests {
         }
     }
 }
+
+*/

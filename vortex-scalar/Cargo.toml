@@ -21,6 +21,7 @@ arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 bytes = { workspace = true }
 itertools = { workspace = true }
+jiff = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }
@@ -31,6 +32,7 @@ vortex-mask = { workspace = true }
 vortex-proto = { workspace = true, features = ["scalar"] }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
+clap = { version = "4.5.54", features = ["derive"] }
 
 [dev-dependencies]
 rstest = { workspace = true }

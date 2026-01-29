@@ -18,7 +18,8 @@ impl Display for Scalar {
             DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
-            DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
+            DType::List(..) => write!(f, "{}", self.as_list()),
+            DType::FixedSizeList(..) => write!(f, "{}", self.as_fixed_size_list()),
             DType::Extension(_) => write!(f, "{}", self.as_extension()),
         }
     }
@@ -38,7 +39,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
@@ -103,41 +103,40 @@ mod tests {
 
     #[test]
     fn display_empty_struct() {
-        fn dtype() -> DType {
-            DType::Struct(StructFields::new(Default::default(), vec![]), Nullable)
-        }
+        let fields = StructFields::new(Default::default(), vec![]);
 
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        assert_eq!(
+            format!("{}", Scalar::null(DType::Struct(fields.clone(), Nullable))),
+            "null"
+        );
 
-        assert_eq!(format!("{}", Scalar::struct_(dtype(), vec![])), "{}");
+        assert_eq!(
+            format!("{}", Scalar::struct_(fields, Nullable, vec![])),
+            "{}"
+        );
     }
 
     #[test]
     fn display_one_field_struct() {
-        fn dtype() -> DType {
-            DType::Struct(
-                StructFields::new(
-                    [FieldName::from("foo")].into(),
-                    vec![DType::Primitive(PType::U32, Nullable)],
-                ),
-                Nullable,
-            )
-        }
-
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        let fields = StructFields::new(
+            [FieldName::from("foo")].into(),
+            vec![DType::Primitive(PType::U32, Nullable)],
+        );
 
         assert_eq!(
-            format!(
-                "{}",
-                Scalar::struct_(dtype(), vec![Scalar::null_typed::<u32>()])
-            ),
+            format!("{}", Scalar::null(DType::Struct(fields.clone(), Nullable))),
+            "null"
+        );
+
+        assert_eq!(
+            format!("{}", Scalar::struct_(fields.clone(), Nullable, vec![None])),
             "{foo: null}"
         );
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype(), vec![Scalar::from(Some(32_u32))])
+                Scalar::struct_(fields, Nullable, vec![Some(ScalarValue::from(32_u32))])
             ),
             "{foo: 32u32}"
         );
@@ -145,27 +144,23 @@ mod tests {
 
     #[test]
     fn display_two_field_struct() {
-        // fn dtype() -> (DType, DType, DType) {
-        let f1 = DType::Bool(Nullable);
-        let f2 = DType::Primitive(PType::U32, Nullable);
-        let dtype = DType::Struct(
-            StructFields::new(
-                [FieldName::from("foo"), FieldName::from("bar")].into(),
-                vec![f1.clone(), f2.clone()],
-            ),
-            Nullable,
+        let fields = StructFields::new(
+            [FieldName::from("foo"), FieldName::from("bar")].into(),
+            vec![
+                DType::Bool(Nullable),
+                DType::Primitive(PType::U32, Nullable),
+            ],
         );
-        // }
 
-        assert_eq!(format!("{}", Scalar::null(dtype.clone())), "null");
+        assert_eq!(
+            format!("{}", Scalar::null(DType::Struct(fields.clone(), Nullable))),
+            "null"
+        );
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(
-                    dtype.clone(),
-                    vec![Scalar::null(f1), Scalar::null(f2.clone())]
-                )
+                Scalar::struct_(fields.clone(), Nullable, vec![None, None])
             ),
             "{foo: null, bar: null}"
         );
@@ -174,8 +169,9 @@ mod tests {
             format!(
                 "{}",
                 Scalar::struct_(
-                    dtype.clone(),
-                    vec![Scalar::from(Some(true)), Scalar::null(f2)]
+                    fields.clone(),
+                    Nullable,
+                    vec![Some(ScalarValue::from(true)), None]
                 )
             ),
             "{foo: true, bar: null}"
@@ -185,8 +181,12 @@ mod tests {
             format!(
                 "{}",
                 Scalar::struct_(
-                    dtype,
-                    vec![Scalar::from(Some(true)), Scalar::from(Some(32_u32))]
+                    fields,
+                    Nullable,
+                    vec![
+                        Some(ScalarValue::from(true)),
+                        Some(ScalarValue::from(32_u32))
+                    ]
                 )
             ),
             "{foo: true, bar: 32u32}"
@@ -195,19 +195,24 @@ mod tests {
 
     #[test]
     fn display_time() {
-        fn dtype() -> DType {
-            DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased())
-        }
-
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        let ext_dtype = Time::new(TimeUnit::Seconds, Nullable);
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
+                Scalar::null(DType::Extension(ext_dtype.clone().erased()))
+            ),
+            "null"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Scalar::extension(
+                    ext_dtype,
+                    ScalarValue::Primitive(PValue::I32(3 * MINUTES + 25))
                 )
+                .unwrap()
             ),
             "00:03:25"
         );
@@ -215,19 +220,21 @@ mod tests {
 
     #[test]
     fn display_date() {
-        fn dtype() -> DType {
-            DType::Extension(Date::new(TimeUnit::Days, Nullable).erased())
-        }
-
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        let ext_dtype = Date::new(TimeUnit::Days, Nullable);
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
-                )
+                Scalar::null(DType::Extension(ext_dtype.clone().erased()))
+            ),
+            "null"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Scalar::extension(ext_dtype.clone(), ScalarValue::Primitive(PValue::I32(25)))
+                    .unwrap()
             ),
             "1970-01-26"
         );
@@ -235,10 +242,8 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
-                )
+                Scalar::extension(ext_dtype.clone(), ScalarValue::Primitive(PValue::I32(365)))
+                    .unwrap()
             ),
             "1971-01-01"
         );
@@ -246,10 +251,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
-                )
+                Scalar::extension(ext_dtype, ScalarValue::Primitive(PValue::I32(365 * 4))).unwrap()
             ),
             "1973-12-31"
         );
@@ -257,45 +259,48 @@ mod tests {
 
     #[test]
     fn display_local_timestamp() {
-        fn dtype() -> DType {
-            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased())
-        }
-
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        let ext_dtype = Timestamp::new(TimeUnit::Seconds, Nullable);
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
-                    )))
-                )
+                Scalar::null(DType::Extension(ext_dtype.clone().erased()))
             ),
-            "1970-01-04T02:05:10"
+            "null"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Scalar::extension(
+                    ext_dtype,
+                    ScalarValue::Primitive(PValue::I32(3 * DAYS + 2 * HOURS + 5 * MINUTES + 10))
+                )
+                .unwrap()
+            ),
+            "1970-01-04T02:05:10Z"
         );
     }
 
     #[cfg_attr(miri, ignore)]
     #[test]
     fn display_zoned_timestamp() {
-        fn dtype() -> DType {
-            DType::Extension(
-                Timestamp::new_with_tz(TimeUnit::Seconds, Some("Pacific/Guam".into()), Nullable)
-                    .erased(),
-            )
-        }
-
-        assert_eq!(format!("{}", Scalar::null(dtype())), "null");
+        let ext_dtype =
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("Pacific/Guam".into()), Nullable);
 
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
-                )
+                Scalar::null(DType::Extension(ext_dtype.clone().erased()))
+            ),
+            "null"
+        );
+
+        assert_eq!(
+            format!(
+                "{}",
+                Scalar::extension(ext_dtype.clone(), ScalarValue::Primitive(PValue::I32(0)))
+                    .unwrap()
             ),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
         );
@@ -303,12 +308,11 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
-                    )))
+                Scalar::extension(
+                    ext_dtype,
+                    ScalarValue::Primitive(PValue::I32(3 * DAYS + 2 * HOURS + 5 * MINUTES + 10))
                 )
+                .unwrap()
             ),
             "1970-01-04T12:05:10+10:00[Pacific/Guam]"
         );

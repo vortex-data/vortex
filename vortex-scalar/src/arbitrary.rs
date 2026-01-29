@@ -21,7 +21,6 @@ use vortex_dtype::half::f16;
 use vortex_dtype::match_each_decimal_value_type;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::PValue;
 use crate::Scalar;
 use crate::ScalarValue;

@@ -3,13 +3,13 @@
 
 use std::fmt;
 use std::fmt::Display;
-use std::hash::Hash;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 
 use crate::Scalar;
 use crate::ScalarValue;
@@ -24,25 +24,27 @@ use crate::ScalarValue;
 /// number of `elements` is equal to the `size` field of the [`FixedSizeList`].
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ListScalar<'a> {
+#[derive(Debug, Clone)]
+pub struct FixedSizeListScalar<'a> {
+    pub(super) list_size: u32,
     pub(super) element_dtype: &'a Arc<DType>,
     pub(super) nullability: Nullability,
     pub(super) elements: Option<&'a [Option<ScalarValue>]>,
 }
 
-impl Display for ListScalar<'_> {
+impl Display for FixedSizeListScalar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.elements {
             None => write!(f, "null"),
             Some(elems) => {
                 write!(
                     f,
-                    "[{}]",
+                    "fixed_size<{}>[{}]",
+                    self.list_size,
                     elems
                         .iter()
                         .map(|e| unsafe {
-                            Scalar::new_unchecked(self.element_dtype.as_ref().clone(), e.clone())
+                            Scalar::new_unchecked(self.element_dtype().as_ref().clone(), e.clone())
                         })
                         .format(", ")
                 )
@@ -51,23 +53,52 @@ impl Display for ListScalar<'_> {
     }
 }
 
+impl FixedSizeListScalar<'_> {
+    /// Returns the number of elements in the list.
+    pub fn list_size(&self) -> u32 {
+        self.list_size
+    }
+
+    /// Returns the data type of the list elements.
+    pub fn element_dtype(&self) -> &Arc<DType> {
+        self.element_dtype
+    }
+
+    /// Returns the nullability of the list.
+    pub fn nullability(&self) -> Nullability {
+        self.nullability
+    }
+
+    /// Returns all elements as a slice of scalars, or `None` if null.
+    pub fn elements(&self) -> Option<&[Option<ScalarValue>]> {
+        self.elements
+    }
+
+    /// Returns the elements as an iterator of scalars, or `None` if null.
+    pub fn elements_iter(&self) -> Option<impl Iterator<Item = Scalar>> {
+        self.elements.as_ref().map(|elems| {
+            elems
+                .iter()
+                .cloned()
+                .map(|sv| unsafe { Scalar::new_unchecked(self.element_dtype.deref().clone(), sv) })
+        })
+    }
+}
+
+/// Helper functions to create a [`ListScalar`] as a [`Scalar`].
 impl Scalar {
-    /// Creates a new list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn list(
+    pub fn fixed_size_list(
         element_dtype: Arc<DType>,
-        nullability: Nullability,
         children: Vec<Option<ScalarValue>>,
+        nullability: Nullability,
     ) -> Self {
+        let size = u32::try_from(children.len())
+            .vortex_expect("tried to create a fixed-size list that was larger than u32");
         Self::try_new(
-            DType::List(element_dtype, nullability),
+            DType::FixedSizeList(element_dtype, size, nullability),
             Some(ScalarValue::List(children)),
         )
-        .vortex_expect("Failed to create list scalar")
+        .vortex_expect("failed to create fixed-size list scalar")
     }
 }
 

@@ -20,13 +20,13 @@ impl TakeReduce for ConstantVTable {
     fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
-                    array
+                let scalar = array.scalar().cast(
+                    &array
                         .scalar()
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
                     array.scalar().value().clone(),
-                );
+                )?;
                 ConstantArray::new(scalar, indices.len()).into_array()
             }
             AllOr::None => ConstantArray::new(
