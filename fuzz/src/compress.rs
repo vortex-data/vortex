@@ -271,6 +271,12 @@ pub fn run_compress_expr_roundtrip(
 #[cfg(test)]
 mod tests {
     use arbitrary::Unstructured;
+    use vortex_array::Array;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::ArbitraryDictArray;
+    use vortex_array::expr::is_null;
+    use vortex_array::expr::root;
 
     use super::*;
 
@@ -315,5 +321,164 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_explicit_evaluation() {
+        // Create a DictArray with known values
+        let data = vec![100u8; 512];
+        let mut u = Unstructured::new(&data);
+
+        let dict_array = ArbitraryDictArray::arbitrary(&mut u)
+            .expect("should create dict array")
+            .0
+            .into_array();
+
+        println!("\n=== Explicit Evaluation Test ===");
+        println!("Array encoding: {}", dict_array.encoding_id());
+        println!("Array dtype: {}", dict_array.dtype());
+        println!("Array len: {}", dict_array.len());
+
+        // Canonicalize
+        let canonical = dict_array.to_canonical().expect("should canonicalize");
+        let canonical_array = canonical.into_array();
+
+        // Create a simple expression: is_null(root())
+        let expr = is_null(root());
+        println!("Expression: {expr}");
+
+        // Apply to both
+        let compressed_applied = dict_array.apply(&expr).expect("apply to compressed");
+        let canonical_applied = canonical_array.apply(&expr).expect("apply to canonical");
+
+        // Execute both
+        let session = crate::SESSION.clone();
+        let mut ctx = ExecutionCtx::new(session);
+
+        let compressed_result = compressed_applied
+            .execute::<Canonical>(&mut ctx)
+            .expect("execute compressed")
+            .into_array();
+        let canonical_result = canonical_applied
+            .execute::<Canonical>(&mut ctx)
+            .expect("execute canonical")
+            .into_array();
+
+        println!("Compressed result len: {}", compressed_result.len());
+        println!("Canonical result len: {}", canonical_result.len());
+
+        // Compare first few elements
+        let limit = compressed_result.len().min(10);
+        println!("\nFirst {limit} results:");
+        for i in 0..limit {
+            let c = compressed_result.scalar_at(i).unwrap();
+            let n = canonical_result.scalar_at(i).unwrap();
+            let match_str = if c == n { "✓" } else { "✗ MISMATCH" };
+            println!("  [{i}] compressed={c}, canonical={n} {match_str}");
+        }
+
+        // Verify they match
+        assert_eq!(
+            compressed_result.len(),
+            canonical_result.len(),
+            "lengths should match"
+        );
+        for i in 0..compressed_result.len() {
+            let c = compressed_result.scalar_at(i).unwrap();
+            let n = canonical_result.scalar_at(i).unwrap();
+            assert_eq!(c, n, "mismatch at index {i}");
+        }
+
+        println!("\n✓ All {} elements match!", compressed_result.len());
+    }
+
+    #[test]
+    fn test_generated_expr_evaluation() {
+        println!("\n=== Generated Expression Evaluation Test ===\n");
+
+        let mut successes = 0;
+        for seed in 0u8..20 {
+            let data = vec![seed; 1024];
+            let mut u = Unstructured::new(&data);
+
+            // Generate a compressed array
+            let Ok(fuzz) = FuzzCompressExprRoundtrip::arbitrary(&mut u) else {
+                continue;
+            };
+
+            let array = &fuzz.array;
+            let expr = &fuzz.expr;
+
+            // Skip empty arrays
+            if array.is_empty() {
+                continue;
+            }
+
+            // Canonicalize
+            let Ok(canonical) = array.to_canonical() else {
+                continue;
+            };
+            let canonical_array = canonical.into_array();
+
+            // Apply expression
+            let Ok(compressed_applied) = array.apply(expr) else {
+                continue;
+            };
+            let Ok(canonical_applied) = canonical_array.apply(expr) else {
+                continue;
+            };
+
+            // Execute
+            let session = crate::SESSION.clone();
+            let mut ctx = ExecutionCtx::new(session);
+
+            let Ok(compressed_result) = compressed_applied.execute::<Canonical>(&mut ctx) else {
+                continue;
+            };
+            let compressed_result = compressed_result.into_array();
+
+            let session2 = crate::SESSION.clone();
+            let mut ctx2 = ExecutionCtx::new(session2);
+            let Ok(canonical_result) = canonical_applied.execute::<Canonical>(&mut ctx2) else {
+                continue;
+            };
+            let canonical_result = canonical_result.into_array();
+
+            // Compare
+            if compressed_result.len() != canonical_result.len() {
+                panic!("Length mismatch for expr: {expr}");
+            }
+
+            let mut all_match = true;
+            for i in 0..compressed_result.len() {
+                let c = compressed_result.scalar_at(i).unwrap();
+                let n = canonical_result.scalar_at(i).unwrap();
+                if c != n {
+                    all_match = false;
+                    break;
+                }
+            }
+
+            if all_match {
+                println!(
+                    "Seed {:2}: {} ({}, len={}) -> ✓ {} elements match",
+                    seed,
+                    array.encoding_id(),
+                    array.dtype(),
+                    array.len(),
+                    compressed_result.len()
+                );
+                println!("         Expr: {expr}");
+                successes += 1;
+            } else {
+                panic!("Mismatch for expr: {expr}");
+            }
+        }
+
+        println!("\n✓ {successes} expressions evaluated correctly!");
+        assert!(
+            successes > 0,
+            "Should have at least one successful evaluation"
+        );
     }
 }
