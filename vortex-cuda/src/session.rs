@@ -60,21 +60,11 @@ impl CudaSession {
     pub fn create_execution_ctx(
         vortex_session: &vortex_session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
-        let stream = vortex_session.cuda_session().new_stream()?;
+        let stream = vortex_session.cuda_session().stream_pool.get_stream()?;
         Ok(CudaExecutionCtx::new(
             stream,
             vortex_session.create_execution_ctx(),
         ))
-    }
-
-    /// Gets a CUDA stream.
-    ///
-    /// This uses stream pooling, so you may get a stream used by others.
-    ///
-    /// The pool will reuse existing streams when at capacity, selecting the
-    /// stream with the fewest active references using round-robin.
-    pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
-        self.stream_pool.get_stream()
     }
 
     /// Registers CUDA support for an array encoding.
