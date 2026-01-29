@@ -1646,12 +1646,15 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
 #[cuda_tests]
 mod cuda_tests {
     use std::sync::Arc;
+    use std::sync::LazyLock;
 
     use futures::StreamExt;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinViewArray;
+    use vortex_array::expr::session::ExprSession;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_cuda::CanonicalCudaExt;
@@ -1662,11 +1665,29 @@ mod cuda_tests {
     use vortex_dtype::FieldNames;
     use vortex_error::VortexResult;
     use vortex_io::file::std_file::FileReadAdapter;
+    use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_layout::session::LayoutSession;
+    use vortex_metrics::VortexMetrics;
+    use vortex_session::VortexSession;
 
     use crate::OpenOptionsSessionExt;
     use crate::WriteOptionsSessionExt;
-    use crate::tests::SESSION;
+
+    static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        let mut session = VortexSession::empty()
+            .with::<VortexMetrics>()
+            .with::<ArraySession>()
+            .with::<LayoutSession>()
+            .with::<ExprSession>()
+            .with::<RuntimeSession>()
+            .with::<CudaSession>();
+
+        vortex_cuda::initialize_cuda(&*session.cuda_session());
+        crate::register_default_encodings(&mut session);
+
+        session
+    });
 
     #[tokio::test]
     async fn gpu_scan() -> VortexResult<()> {
