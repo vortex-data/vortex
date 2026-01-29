@@ -3,7 +3,7 @@
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::datetime::TemporalOptions;
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::datetime::TimestampOptions;
@@ -161,7 +161,7 @@ fn test_timestamp() {
             );
             assert_eq!(
                 temporal_array.temporal_metadata(),
-                TemporalOptions::Timestamp(&TimestampOptions { unit, tz })
+                TemporalMetadata::Timestamp(&TimestampOptions { unit, tz })
             );
         }
     }

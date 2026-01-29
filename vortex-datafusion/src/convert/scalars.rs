@@ -10,7 +10,7 @@ use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::datetime::AnyTemporal;
-use vortex::dtype::datetime::TemporalOptions;
+use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::datetime::TimestampOptions;
 use vortex::dtype::half::f16;
@@ -116,7 +116,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().storage();
 
-                let Some(temporal) = ext.try_options::<AnyTemporal>() else {
+                let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
                     // Unknown extension type: perform scalar conversion using the canonical
                     // scalar DType.
                     return storage_scalar.try_to_df();
@@ -126,7 +126,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 // temporal physical types.
                 let pv = storage_scalar.as_primitive();
                 match temporal {
-                    TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => match unit {
+                    TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => match unit {
                         TimeUnit::Nanoseconds => {
                             ScalarValue::TimestampNanosecond(pv.as_::<i64>(), tz.clone())
                         }
@@ -143,12 +143,12 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                             unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
                         }
                     },
-                    TemporalOptions::Date(unit) => match unit {
+                    TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Milliseconds => ScalarValue::Date64(pv.as_::<i64>()),
                         TimeUnit::Days => ScalarValue::Date32(pv.as_::<i32>()),
                         _ => unreachable!("Unsupported TimeUnit {unit} for {}", ext.id()),
                     },
-                    TemporalOptions::Time(unit) => match unit {
+                    TemporalMetadata::Time(unit) => match unit {
                         TimeUnit::Nanoseconds => ScalarValue::Time64Nanosecond(pv.as_::<i64>()),
                         TimeUnit::Microseconds => ScalarValue::Time64Microsecond(pv.as_::<i64>()),
                         TimeUnit::Milliseconds => ScalarValue::Time32Millisecond(pv.as_::<i32>()),

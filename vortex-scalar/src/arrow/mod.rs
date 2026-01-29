@@ -8,7 +8,7 @@ use arrow_array::*;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::TemporalOptions;
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexError;
@@ -124,7 +124,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 todo!("fixed-size list scalar conversion")
             }
             DType::Extension(ext) => {
-                let Some(temporal) = ext.try_options::<AnyTemporal>() else {
+                let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
@@ -134,7 +134,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
 
                 match temporal {
-                    TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => {
+                    TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
                         let value = primitive.as_::<i64>();
                         match unit {
                             TimeUnit::Nanoseconds => {
@@ -166,7 +166,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                             }
                         }
                     }
-                    TemporalOptions::Date(unit) => match unit {
+                    TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Milliseconds => {
                             value_to_arrow_scalar!(primitive.as_::<i64>(), Date64Array)
                         }
@@ -177,7 +177,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                             vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())
                         }
                     },
-                    TemporalOptions::Time(unit) => match unit {
+                    TemporalMetadata::Time(unit) => match unit {
                         TimeUnit::Nanoseconds => {
                             value_to_arrow_scalar!(primitive.as_::<i64>(), Time64NanosecondArray)
                         }

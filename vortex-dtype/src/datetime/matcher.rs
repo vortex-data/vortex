@@ -17,55 +17,55 @@ use crate::extension::Matcher;
 pub struct AnyTemporal;
 
 impl Matcher for AnyTemporal {
-    type Match<'a> = TemporalOptions<'a>;
+    type Match<'a> = TemporalMetadata<'a>;
 
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
-        if let Some(opts) = item.try_options::<Timestamp>() {
-            return Some(TemporalOptions::Timestamp(opts));
+        if let Some(opts) = item.metadata_opt::<Timestamp>() {
+            return Some(TemporalMetadata::Timestamp(opts));
         }
-        if let Some(opts) = item.try_options::<Date>() {
-            return Some(TemporalOptions::Date(opts));
+        if let Some(opts) = item.metadata_opt::<Date>() {
+            return Some(TemporalMetadata::Date(opts));
         }
-        if let Some(opts) = item.try_options::<Time>() {
-            return Some(TemporalOptions::Time(opts));
+        if let Some(opts) = item.metadata_opt::<Time>() {
+            return Some(TemporalMetadata::Time(opts));
         }
         None
     }
 }
 
-/// Options for temporal extension data types.
+/// Metadata for temporal extension data types.
 #[derive(Debug, PartialEq, Eq)]
-pub enum TemporalOptions<'a> {
-    /// Options for Timestamp dtypes
-    Timestamp(&'a <Timestamp as ExtDTypeVTable>::Options),
-    /// Options for Date dtypes
-    Date(&'a <Date as ExtDTypeVTable>::Options),
-    /// Options for Time dtypes
-    Time(&'a <Time as ExtDTypeVTable>::Options),
+pub enum TemporalMetadata<'a> {
+    /// Metadata for Timestamp dtypes
+    Timestamp(&'a <Timestamp as ExtDTypeVTable>::Metadata),
+    /// Metadata for Date dtypes
+    Date(&'a <Date as ExtDTypeVTable>::Metadata),
+    /// Metadata for Time dtypes
+    Time(&'a <Time as ExtDTypeVTable>::Metadata),
 }
 
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex-scalar.
 //  Currently this is used largely to implement scalar display hacks.
-impl TemporalOptions<'_> {
+impl TemporalMetadata<'_> {
     /// Get the time unit of the temporal dtype.
     pub fn time_unit(&self) -> crate::datetime::TimeUnit {
         match self {
-            TemporalOptions::Time(unit) => **unit,
-            TemporalOptions::Date(unit) => **unit,
-            TemporalOptions::Timestamp(opts) => opts.unit,
+            TemporalMetadata::Time(unit) => **unit,
+            TemporalMetadata::Date(unit) => **unit,
+            TemporalMetadata::Timestamp(opts) => opts.unit,
         }
     }
 
     /// Convert a timestamp value to a Jiff value.
     pub fn to_jiff(&self, v: i64) -> VortexResult<TemporalJiff> {
         match self {
-            TemporalOptions::Time(unit) => Ok(TemporalJiff::Time(
+            TemporalMetadata::Time(unit) => Ok(TemporalJiff::Time(
                 jiff::civil::Time::MIN.checked_add(unit.to_jiff_span(v)?)?,
             )),
-            TemporalOptions::Date(unit) => Ok(TemporalJiff::Date(
+            TemporalMetadata::Date(unit) => Ok(TemporalJiff::Date(
                 jiff::civil::Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
             )),
-            TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => match tz {
+            TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => match tz {
                 None => Ok(TemporalJiff::Unzoned(
                     jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?
                         .checked_add(unit.to_jiff_span(v)?)?,

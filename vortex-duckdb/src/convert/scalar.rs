@@ -27,7 +27,7 @@ use vortex::dtype::PType::I32;
 use vortex::dtype::PType::I64;
 use vortex::dtype::datetime::AnyTemporal;
 use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::TemporalOptions;
+use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::Time;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::datetime::Timestamp;
@@ -167,7 +167,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
     /// Converts an extension scalar (primarily temporal types) to a DuckDB value.
     fn try_to_duckdb_scalar(&self) -> VortexResult<Value> {
         let logical_type = LogicalType::try_from(&DType::Extension(self.ext_dtype().clone()))?;
-        let Some(temporal) = self.ext_dtype().try_options::<AnyTemporal>() else {
+        let Some(temporal) = self.ext_dtype().metadata_opt::<AnyTemporal>() else {
             vortex_bail!("Cannot convert non-temporal extension scalar to duckdb value");
         };
 
@@ -182,7 +182,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
 
         Ok(match temporal {
-            TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => {
+            TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
                 if let Some(tz) = tz.as_ref() {
                     if tz.as_ref() != "UTC" {
                         // TODO(ngates): we should convert into UTC as DuckDB does internally.
@@ -203,7 +203,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     }
                 }
             }
-            TemporalOptions::Date(unit) => match unit {
+            TemporalMetadata::Date(unit) => match unit {
                 TimeUnit::Days => self
                     .storage()
                     .as_primitive_opt()
@@ -215,7 +215,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
                     .unwrap_or_else(|| Value::null(&logical_type)),
                 _ => vortex_bail!("cannot have TimeUnit {unit}, so represent a day"),
             },
-            TemporalOptions::Time(unit) => match unit {
+            TemporalMetadata::Time(unit) => match unit {
                 TimeUnit::Microseconds => Value::new_time(value()?),
                 TimeUnit::Milliseconds => Value::new_time(value()? * 1000),
                 TimeUnit::Seconds => Value::new_time(value()? * 1000 * 1000),

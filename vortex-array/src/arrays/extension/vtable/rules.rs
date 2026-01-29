@@ -54,7 +54,7 @@ mod tests {
     use vortex_dtype::ExtID;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
-    use vortex_dtype::extension::EmptyOptions;
+    use vortex_dtype::extension::EmptyMetadata;
     use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
@@ -76,20 +76,20 @@ mod tests {
     #[derive(Clone, Debug, Default)]
     struct TestExt;
     impl ExtDTypeVTable for TestExt {
-        type Options = EmptyOptions;
+        type Metadata = EmptyMetadata;
 
         fn id(&self) -> ExtID {
             ExtID::new_ref("test_ext")
         }
 
-        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
             Ok(())
         }
     }
 
     fn test_ext_dtype() -> ExtDTypeRef {
         ExtDType::<TestExt>::try_new(
-            EmptyOptions,
+            EmptyMetadata,
             DType::Primitive(PType::I64, Nullability::NonNullable),
         )
         .unwrap()
@@ -128,7 +128,7 @@ mod tests {
     #[test]
     fn test_filter_pushdown_nullable() {
         let ext_dtype = ExtDType::<TestExt>::try_new(
-            EmptyOptions,
+            EmptyMetadata,
             DType::Primitive(PType::I64, Nullability::Nullable),
         )
         .unwrap()
@@ -156,7 +156,7 @@ mod tests {
         #[derive(Clone, Debug, Default)]
         struct TestExt2;
         impl ExtDTypeVTable for TestExt2 {
-            type Options = EmptyOptions;
+            type Metadata = EmptyMetadata;
 
             fn id(&self) -> ExtID {
                 ExtID::new_ref("test_ext_2")
@@ -164,7 +164,7 @@ mod tests {
 
             fn validate(
                 &self,
-                _options: &Self::Options,
+                _options: &Self::Metadata,
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
@@ -172,7 +172,7 @@ mod tests {
         }
 
         let ext_dtype1 = ExtDType::<TestExt>::try_new(
-            EmptyOptions,
+            EmptyMetadata,
             DType::Primitive(PType::I64, Nullability::NonNullable),
         )
         .unwrap()
@@ -182,7 +182,7 @@ mod tests {
         let ext_array = ExtensionArray::new(ext_dtype1, storage).into_array();
 
         // Create constant with different extension type
-        let const_scalar = Scalar::extension::<TestExt2>(EmptyOptions, Scalar::from(25i64));
+        let const_scalar = Scalar::extension::<TestExt2>(EmptyMetadata, Scalar::from(25i64));
         let const_array = ConstantArray::new(const_scalar, 3).into_array();
 
         let scalar_fn_array = Binary

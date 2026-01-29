@@ -266,7 +266,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        let Some(opts) = ext_dtype.try_options::<AnyTemporal>() else {
+        let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
             throw_runtime!("DType should be a temporal type, was {dtype}");
         };
 
@@ -293,7 +293,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        let Some(opts) = ext_dtype.try_options::<Timestamp>() else {
+        let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
             throw_runtime!("DType should be a TIMESTAMP, was {dtype}");
         };
 

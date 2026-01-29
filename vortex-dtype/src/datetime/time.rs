@@ -35,29 +35,29 @@ impl Time {
 }
 
 impl ExtDTypeVTable for Time {
-    type Options = TimeUnit;
+    type Metadata = TimeUnit;
 
     fn id(&self) -> ExtID {
         ExtID::new_ref("vortex.time")
     }
 
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>> {
-        Ok(vec![u8::from(*options)])
+    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        Ok(vec![u8::from(*metadata)])
     }
 
-    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
         let tag = data[0];
         TimeUnit::try_from(tag)
     }
 
-    fn validate(&self, options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
-        let ptype = time_ptype(options)
-            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", options))?;
+    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+        let ptype = time_ptype(metadata)
+            .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 
         vortex_ensure!(
             storage_dtype.as_ptype() == ptype,
             "Time storage dtype for {} must be {}",
-            options,
+            metadata,
             ptype
         );
 

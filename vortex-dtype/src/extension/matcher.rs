@@ -20,7 +20,7 @@ pub trait Matcher {
 }
 
 impl<V: ExtDTypeVTable> Matcher for V {
-    type Match<'a> = &'a V::Options;
+    type Match<'a> = &'a V::Metadata;
 
     fn matches(item: &ExtDTypeRef) -> bool {
         item.0.as_any().is::<ExtDTypeAdapter<V>>()
@@ -30,6 +30,6 @@ impl<V: ExtDTypeVTable> Matcher for V {
         item.0
             .as_any()
             .downcast_ref::<ExtDTypeAdapter<V>>()
-            .map(|adapter| &adapter.options)
+            .map(|adapter| &adapter.metadata)
     }
 }

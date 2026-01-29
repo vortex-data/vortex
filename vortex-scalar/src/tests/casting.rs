@@ -27,13 +27,13 @@ mod tests {
     #[derive(Clone, Debug, Default)]
     struct Apples;
     impl ExtDTypeVTable for Apples {
-        type Options = usize;
+        type Metadata = usize;
 
         fn id(&self) -> ExtID {
             ExtID::new_ref("apples")
         }
 
-        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -314,7 +314,7 @@ mod tests {
         #[derive(Debug, Clone, Default)]
         struct F16Ext;
         impl ExtDTypeVTable for F16Ext {
-            type Options = usize;
+            type Metadata = usize;
 
             fn id(&self) -> ExtID {
                 ExtID::new_ref("f16_ext")
@@ -322,7 +322,7 @@ mod tests {
 
             fn validate(
                 &self,
-                _options: &Self::Options,
+                _options: &Self::Metadata,
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
@@ -359,7 +359,7 @@ mod tests {
         #[derive(Debug, Clone, Default)]
         struct StructExt;
         impl ExtDTypeVTable for StructExt {
-            type Options = usize;
+            type Metadata = usize;
 
             fn id(&self) -> ExtID {
                 ExtID::new_ref("struct_ext")
@@ -367,7 +367,7 @@ mod tests {
 
             fn validate(
                 &self,
-                _options: &Self::Options,
+                _options: &Self::Metadata,
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())

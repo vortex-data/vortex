@@ -34,23 +34,23 @@ pub struct ExtDType<V: ExtDTypeVTable>(Arc<ExtDTypeAdapter<V>>);
 
 // Convenience impls for zero-sized VTables
 impl<V: ExtDTypeVTable + Default> ExtDType<V> {
-    /// Creates a new extension dtype with the given options and storage dtype.
-    pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
-        Self::try_with_vtable(V::default(), options, storage_dtype)
+    /// Creates a new extension dtype with the given metadata and storage dtype.
+    pub fn try_new(metadata: V::Metadata, storage_dtype: DType) -> VortexResult<Self> {
+        Self::try_with_vtable(V::default(), metadata, storage_dtype)
     }
 }
 
 impl<V: ExtDTypeVTable> ExtDType<V> {
-    /// Creates a new extension dtype with the given options and storage dtype.
+    /// Creates a new extension dtype with the given metadata and storage dtype.
     pub fn try_with_vtable(
         vtable: V,
-        options: V::Options,
+        metadata: V::Metadata,
         storage_dtype: DType,
     ) -> VortexResult<Self> {
-        vtable.validate(&options, &storage_dtype)?;
+        vtable.validate(&metadata, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             vtable,
-            options,
+            metadata,
             storage_dtype,
         })))
     }
@@ -60,9 +60,9 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         self.0.id()
     }
 
-    /// Returns the options of the extension type.
-    pub fn options(&self) -> &V::Options {
-        &self.0.options
+    /// Returns the metadata of the extension type.
+    pub fn metadata(&self) -> &V::Metadata {
+        &self.0.metadata
     }
 
     /// Returns the storage dtype of the extension type.
@@ -82,11 +82,11 @@ pub struct ExtDTypeRef(Arc<dyn ExtDTypeImpl>);
 
 impl Display for ExtDTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let options = format!("{}", self.options_erased());
-        if options.is_empty() {
+        let metadata = format!("{}", self.metadata_erased());
+        if metadata.is_empty() {
             write!(f, "{}", self.id())?;
         } else {
-            write!(f, "{}[{}]", self.id(), options)?;
+            write!(f, "{}[{}]", self.id(), metadata)?;
         }
         write!(f, "({})", self.storage_dtype())
     }
@@ -96,7 +96,7 @@ impl Debug for ExtDTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExtDType")
             .field("id", &self.id())
-            .field("options", &self.options_erased())
+            .field("metadata", &self.metadata_erased())
             .field("storage_dtype", &self.storage_dtype())
             .finish()
     }
@@ -105,7 +105,7 @@ impl Debug for ExtDTypeRef {
 impl PartialEq for ExtDTypeRef {
     fn eq(&self, other: &Self) -> bool {
         self.id() == other.id()
-            && self.options_erased() == other.options_erased()
+            && self.metadata_erased() == other.metadata_erased()
             && self.storage_dtype() == other.storage_dtype()
     }
 }
@@ -114,7 +114,7 @@ impl Eq for ExtDTypeRef {}
 impl Hash for ExtDTypeRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.id().hash(state);
-        self.options_erased().hash(state);
+        self.metadata_erased().hash(state);
         self.storage_dtype().hash(state);
     }
 }
@@ -125,9 +125,9 @@ impl ExtDTypeRef {
         self.0.id()
     }
 
-    /// Returns the untyped options of the extension type.
-    pub fn options_erased(&self) -> ExtDTypeOptions<'_> {
-        ExtDTypeOptions { ext_dtype: self }
+    /// Returns the type-erased metadata of the extension type.
+    pub fn metadata_erased(&self) -> ExtDTypeMetadata<'_> {
+        ExtDTypeMetadata { ext_dtype: self }
     }
 
     /// Returns the storage dtype of the extension type.
@@ -147,7 +147,7 @@ impl ExtDTypeRef {
     /// Compute equality ignoring nullability.
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         self.id() == other.id()
-            && self.options_erased() == other.options_erased()
+            && self.metadata_erased() == other.metadata_erased()
             && self
                 .storage_dtype()
                 .eq_ignore_nullability(other.storage_dtype())
@@ -161,18 +161,22 @@ impl ExtDTypeRef {
         M::matches(self)
     }
 
-    /// Downcast to the concrete options type.
-    pub fn try_options<M: Matcher>(&self) -> Option<M::Match<'_>> {
+    /// Extract the metadata of the ExtDType per the given [`Matcher`].
+    pub fn metadata_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
 
-    /// Downcast to the concrete options type.
-    pub fn options<M: Matcher>(&self) -> M::Match<'_> {
-        self.try_options::<M>()
+    /// Extract the metadata of the ExtDType per the given [`Matcher`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the match fails.
+    pub fn metadata<M: Matcher>(&self) -> M::Match<'_> {
+        self.metadata_opt::<M>()
             .vortex_expect("Failed to downcast DynExtDType")
     }
 
-    /// Downcast to the concrete options type.
+    /// Downcast to the concrete [`ExtDType`].
     ///
     /// Returns `Err(self)` if the downcast fails.
     pub fn try_downcast<V: ExtDTypeVTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
@@ -187,7 +191,7 @@ impl ExtDTypeRef {
         }
     }
 
-    /// Downcast to the concrete options type.
+    /// Downcast to the concrete [`ExtDType`].
     ///
     /// # Panics
     ///
@@ -205,40 +209,42 @@ impl ExtDTypeRef {
     }
 }
 
-/// Wrapper for type-erased extension dtype options.
-pub struct ExtDTypeOptions<'a> {
+/// Wrapper for type-erased extension dtype metadata.
+pub struct ExtDTypeMetadata<'a> {
     pub(super) ext_dtype: &'a ExtDTypeRef,
 }
 
-impl ExtDTypeOptions<'_> {
-    /// Serialize the options into a byte vector.
+impl ExtDTypeMetadata<'_> {
+    /// Serialize the metadata into a byte vector.
     pub fn serialize(&self) -> VortexResult<Vec<u8>> {
-        self.ext_dtype.0.options_serialize()
+        self.ext_dtype.0.metadata_serialize()
     }
 }
 
-impl Display for ExtDTypeOptions<'_> {
+impl Display for ExtDTypeMetadata<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.ext_dtype.0.options_display(f)
+        self.ext_dtype.0.metadata_display(f)
     }
 }
 
-impl Debug for ExtDTypeOptions<'_> {
+impl Debug for ExtDTypeMetadata<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        self.ext_dtype.0.options_debug(f)
+        self.ext_dtype.0.metadata_debug(f)
     }
 }
 
-impl PartialEq for ExtDTypeOptions<'_> {
+impl PartialEq for ExtDTypeMetadata<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.ext_dtype.0.options_eq(other.ext_dtype.0.options_any())
+        self.ext_dtype
+            .0
+            .metadata_eq(other.ext_dtype.0.metadata_any())
     }
 }
-impl Eq for ExtDTypeOptions<'_> {}
+impl Eq for ExtDTypeMetadata<'_> {}
 
-impl Hash for ExtDTypeOptions<'_> {
+impl Hash for ExtDTypeMetadata<'_> {
     fn hash<H: Hasher>(&self, mut state: &mut H) {
-        self.ext_dtype.0.options_hash(&mut state);
+        self.ext_dtype.0.metadata_hash(&mut state);
     }
 }
 
@@ -247,18 +253,18 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtID;
     fn storage_dtype(&self) -> &DType;
-    fn options_any(&self) -> &dyn Any;
-    fn options_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
-    fn options_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
-    fn options_eq(&self, other: &dyn Any) -> bool;
-    fn options_hash(&self, state: &mut dyn Hasher);
-    fn options_serialize(&self) -> VortexResult<Vec<u8>>;
+    fn metadata_any(&self) -> &dyn Any;
+    fn metadata_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn metadata_eq(&self, other: &dyn Any) -> bool;
+    fn metadata_hash(&self, state: &mut dyn Hasher);
+    fn metadata_serialize(&self) -> VortexResult<Vec<u8>>;
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
 }
 
 struct ExtDTypeAdapter<V: ExtDTypeVTable> {
     vtable: V,
-    options: V::Options,
+    metadata: V::Metadata,
     storage_dtype: DType,
 }
 
@@ -275,36 +281,36 @@ impl<V: ExtDTypeVTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
         &self.storage_dtype
     }
 
-    fn options_any(&self) -> &dyn Any {
-        &self.options
+    fn metadata_any(&self) -> &dyn Any {
+        &self.metadata
     }
 
-    fn options_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <V::Options as Debug>::fmt(&self.options, f)
+    fn metadata_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <V::Metadata as Debug>::fmt(&self.metadata, f)
     }
 
-    fn options_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        <V::Options as Display>::fmt(&self.options, f)
+    fn metadata_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        <V::Metadata as Display>::fmt(&self.metadata, f)
     }
 
-    fn options_eq(&self, other: &dyn Any) -> bool {
-        let Some(other) = other.downcast_ref::<V::Options>() else {
+    fn metadata_eq(&self, other: &dyn Any) -> bool {
+        let Some(other) = other.downcast_ref::<V::Metadata>() else {
             return false;
         };
-        <V::Options as PartialEq>::eq(&self.options, other)
+        <V::Metadata as PartialEq>::eq(&self.metadata, other)
     }
 
-    fn options_hash(&self, mut state: &mut dyn Hasher) {
-        <V::Options as Hash>::hash(&self.options, &mut state);
+    fn metadata_hash(&self, mut state: &mut dyn Hasher) {
+        <V::Metadata as Hash>::hash(&self.metadata, &mut state);
     }
 
-    fn options_serialize(&self) -> VortexResult<Vec<u8>> {
-        V::serialize(&self.vtable, &self.options)
+    fn metadata_serialize(&self) -> VortexResult<Vec<u8>> {
+        V::serialize(&self.vtable, &self.metadata)
     }
 
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef {
         let storage_dtype = self.storage_dtype.with_nullability(nullability);
-        ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.options.clone(), storage_dtype)
+        ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.metadata.clone(), storage_dtype)
             .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erased()
     }
 }

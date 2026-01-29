@@ -50,7 +50,7 @@ impl CompareKernel for DateTimePartsVTable {
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-        let Some(options) = ext_dtype.try_options::<Timestamp>() else {
+        let Some(options) = ext_dtype.metadata_opt::<Timestamp>() else {
             return Ok(None);
         };
         let ts_parts = timestamp::split(timestamp, options.unit)?;

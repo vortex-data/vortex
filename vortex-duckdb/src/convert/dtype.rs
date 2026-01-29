@@ -49,7 +49,7 @@ use vortex::dtype::PType::U64;
 use vortex::dtype::StructFields;
 use vortex::dtype::datetime::AnyTemporal;
 use vortex::dtype::datetime::Date;
-use vortex::dtype::datetime::TemporalOptions;
+use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::Time;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::datetime::Timestamp;
@@ -230,12 +230,12 @@ impl TryFrom<&DType> for LogicalType {
                 return LogicalType::array_type(element_logical_type, *list_size);
             }
             DType::Extension(ext_dtype) => {
-                let Some(temporal) = ext_dtype.try_options::<AnyTemporal>() else {
+                let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() else {
                     vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id());
                 };
 
                 match temporal {
-                    TemporalOptions::Timestamp(ts) => match &ts.tz {
+                    TemporalMetadata::Timestamp(ts) => match &ts.tz {
                         None => match ts.unit {
                             TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
                             TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
@@ -256,11 +256,11 @@ impl TryFrom<&DType> for LogicalType {
                             DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
                         }
                     },
-                    TemporalOptions::Date(unit) => match unit {
+                    TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
                         _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
                     },
-                    TemporalOptions::Time(unit) => match unit {
+                    TemporalMetadata::Time(unit) => match unit {
                         TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME,
                         TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIME_NS,
                         _ => vortex_bail!("Invalid TimeUnit {} for time", unit),
@@ -337,7 +337,7 @@ mod tests {
     use vortex::dtype::datetime::Date;
     use vortex::dtype::datetime::Time;
     use vortex::dtype::datetime::Timestamp;
-    use vortex::dtype::extension::EmptyOptions;
+    use vortex::dtype::extension::EmptyMetadata;
     use vortex::dtype::extension::ExtDTypeVTable;
     use vortex::error::VortexResult;
 
@@ -572,7 +572,7 @@ mod tests {
         #[derive(Clone, Debug, Default)]
         struct TestExt;
         impl ExtDTypeVTable for TestExt {
-            type Options = EmptyOptions;
+            type Metadata = EmptyMetadata;
 
             fn id(&self) -> ExtID {
                 ExtID::new_ref("unknown.extension")
@@ -580,7 +580,7 @@ mod tests {
 
             fn validate(
                 &self,
-                _options: &Self::Options,
+                _options: &Self::Metadata,
                 _storage_dtype: &DType,
             ) -> VortexResult<()> {
                 Ok(())
@@ -588,7 +588,7 @@ mod tests {
         }
 
         let ext_dtype = ExtDType::<TestExt>::try_new(
-            EmptyOptions,
+            EmptyMetadata,
             DType::Primitive(PType::I32, Nullability::NonNullable),
         )
         .unwrap()

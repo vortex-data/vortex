@@ -31,7 +31,7 @@ pub fn decode_to_temporal(
         vortex_panic!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 
-    let Some(options) = ext.try_options::<Timestamp>() else {
+    let Some(options) = ext.metadata_opt::<Timestamp>() else {
         vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
     };
 

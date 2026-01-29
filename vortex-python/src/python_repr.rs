@@ -96,7 +96,7 @@ impl Display for DTypePythonRepr<'_> {
                     ext.id().python_repr(),
                     ext.storage_dtype().python_repr()
                 )?;
-                let opts = format!("{}", ext.options_erased());
+                let opts = format!("{}", ext.metadata_erased());
                 if !opts.is_empty() {
                     write!(f, ", {}", opts)?
                 }

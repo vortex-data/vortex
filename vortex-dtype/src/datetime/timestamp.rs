@@ -67,7 +67,7 @@ impl Display for TimestampOptions {
 }
 
 impl ExtDTypeVTable for Timestamp {
-    type Options = TimestampOptions;
+    type Metadata = TimestampOptions;
 
     fn id(&self) -> ExtID {
         ExtID::new_ref("vortex.timestamp")
@@ -75,28 +75,28 @@ impl ExtDTypeVTable for Timestamp {
 
     // NOTE(ngates): unfortunately we're stuck with this hand-rolled serialization format for
     //  backwards compatibility.
-    fn serialize(&self, options: &Self::Options) -> VortexResult<Vec<u8>> {
-        let mut meta = Vec::with_capacity(4);
-        let unit_tag: u8 = options.unit.into();
+    fn serialize(&self, metadata: &Self::Metadata) -> VortexResult<Vec<u8>> {
+        let mut bytes = Vec::with_capacity(4);
+        let unit_tag: u8 = metadata.unit.into();
 
-        meta.push(unit_tag);
+        bytes.push(unit_tag);
 
         // Encode time_zone as u16 length followed by utf8 bytes.
-        match &options.tz {
-            None => meta.extend_from_slice(0u16.to_le_bytes().as_slice()),
+        match &metadata.tz {
+            None => bytes.extend_from_slice(0u16.to_le_bytes().as_slice()),
             Some(tz) => {
                 let tz_bytes = tz.as_bytes();
                 let tz_len = u16::try_from(tz_bytes.len())
                     .unwrap_or_else(|err| vortex_panic!("tz did not fit in u16: {}", err));
-                meta.extend_from_slice(tz_len.to_le_bytes().as_slice());
-                meta.extend_from_slice(tz_bytes);
+                bytes.extend_from_slice(tz_len.to_le_bytes().as_slice());
+                bytes.extend_from_slice(tz_bytes);
             }
         }
 
-        Ok(meta)
+        Ok(bytes)
     }
 
-    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Metadata> {
         let tag = data[0];
         let time_unit = TimeUnit::try_from(tag)?;
         let tz_len_bytes = &data[1..3];
@@ -120,7 +120,7 @@ impl ExtDTypeVTable for Timestamp {
         })
     }
 
-    fn validate(&self, _options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate(&self, _metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(
             matches!(storage_dtype, DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"

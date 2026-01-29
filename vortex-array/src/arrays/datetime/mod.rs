@@ -9,7 +9,7 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::datetime::Date;
-use vortex_dtype::datetime::TemporalOptions;
+use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
@@ -132,8 +132,8 @@ impl TemporalArray {
     ///
     /// The metadata is used to provide semantic meaning to the temporal values Array, for example
     /// to understand the granularity of the samples and if they have an associated timezone.
-    pub fn temporal_metadata(&self) -> TemporalOptions<'_> {
-        self.ext.dtype().as_extension().options::<AnyTemporal>()
+    pub fn temporal_metadata(&self) -> TemporalMetadata<'_> {
+        self.ext.dtype().as_extension().metadata::<AnyTemporal>()
     }
 
     /// Retrieve the extension DType associated with the underlying array.

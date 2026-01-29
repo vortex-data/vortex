@@ -161,7 +161,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
         return None;
     };
 
-    let options = ext_dtype.options::<Timestamp>();
+    let options = ext_dtype.metadata::<Timestamp>();
     let ts_parts = timestamp::split(timestamp, options.unit).ok()?;
 
     // Only allow pushdown if seconds and subseconds are zero

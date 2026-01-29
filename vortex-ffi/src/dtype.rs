@@ -296,7 +296,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
         vortex_panic!("DType_time_unit: not a time dtype")
     };
 
-    let Some(opts) = ext_dtype.try_options::<AnyTemporal>() else {
+    let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
         // TODO(ngates): propagate this error up instead of expecting
         vortex_panic!("DType_time_unit: not a temporal metadata: {ext_dtype:?}")
     };
@@ -313,7 +313,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *cons
         vortex_panic!("vx_dtype_time_unit: not a time dtype")
     };
 
-    let Some(opts) = ext_dtype.try_options::<Timestamp>() else {
+    let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
         // TODO(joe): propagate this error up instead of expecting
         vortex_panic!("DType_time_zone: not a timestamp: {ext_dtype:?}")
     };

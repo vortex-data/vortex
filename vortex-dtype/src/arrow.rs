@@ -38,7 +38,7 @@ use crate::PType;
 use crate::StructFields;
 use crate::datetime::AnyTemporal;
 use crate::datetime::Date;
-use crate::datetime::TemporalOptions;
+use crate::datetime::TemporalMetadata;
 use crate::datetime::Time;
 use crate::datetime::TimeUnit;
 use crate::datetime::Timestamp;
@@ -300,19 +300,19 @@ impl DType {
             }
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
-                if let Some(temporal) = ext_dtype.try_options::<AnyTemporal>() {
+                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
                     return Ok(match temporal {
-                        TemporalOptions::Timestamp(TimestampOptions { unit, tz }) => {
+                        TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
                             DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
                         }
-                        TemporalOptions::Date(unit) => match unit {
+                        TemporalMetadata::Date(unit) => match unit {
                             TimeUnit::Days => DataType::Date32,
                             TimeUnit::Milliseconds => DataType::Date64,
                             TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                                 vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
                             }
                         },
-                        TemporalOptions::Time(unit) => match unit {
+                        TemporalMetadata::Time(unit) => match unit {
                             TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
                             TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
                             TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),

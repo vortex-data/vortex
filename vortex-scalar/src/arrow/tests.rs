@@ -265,21 +265,21 @@ fn test_non_temporal_extension_to_arrow_todo() {
     #[derive(Debug, Clone, Default)]
     struct SomeExt;
     impl ExtDTypeVTable for SomeExt {
-        type Options = String;
+        type Metadata = String;
 
         fn id(&self) -> ExtID {
             ExtID::new_ref("some_ext")
         }
 
-        fn serialize(&self, _options: &Self::Options) -> VortexResult<Vec<u8>> {
+        fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
             vortex_bail!("not implemented")
         }
 
-        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Options> {
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
             vortex_bail!("not implemented")
         }
 
-        fn validate(&self, _options: &Self::Options, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
             Ok(())
         }
     }
