@@ -83,6 +83,8 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
+    ///
+    /// Note that slice indices are in byte units.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
 
     /// Return a buffer with the given alignment. Where possible, this will be zero-copy.

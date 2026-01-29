@@ -89,7 +89,7 @@ where
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(len.next_multiple_of(1024))?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view();
+    let output_view = output_buf.as_view::<A>();
 
     // Load kernel function
     // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
@@ -116,7 +116,9 @@ where
         launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
 
     // Build result with newly allocated buffer
-    let output_handle = BufferHandle::new_device(output_buf.slice(offset..offset + len));
+    let output_handle = BufferHandle::new_device(
+        output_buf.slice((offset * size_of::<A>())..(offset + len) * size_of::<A>()),
+    );
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,

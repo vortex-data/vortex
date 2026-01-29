@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -14,7 +13,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -172,21 +170,6 @@ impl VTable for ALPVTable {
             array.clone(),
             ctx,
         )?))
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ALPArray::new(
-                array.encoded().slice(range.clone())?,
-                array.exponents(),
-                array
-                    .patches()
-                    .map(|p| p.slice(range))
-                    .transpose()?
-                    .flatten(),
-            )
-            .into_array(),
-        ))
     }
 }
 
