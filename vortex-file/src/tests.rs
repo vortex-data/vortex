@@ -50,6 +50,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+#[cfg(all(unix, not(target_family = "wasm")))]
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
@@ -1641,9 +1642,9 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+#[cfg(all(unix, not(target_family = "wasm")))]
 #[cuda_tests]
-#[cfg(not(target_arch = "wasm32"))]
-mod tests {
+mod cuda_tests {
     use std::sync::Arc;
 
     use futures::StreamExt;
