@@ -549,7 +549,6 @@ mod tests {
     use std::sync::Arc;
 
     use crate::DType;
-    use crate::Nullability;
     use crate::Nullability::NonNullable;
     use crate::Nullability::Nullable;
     use crate::PType;
