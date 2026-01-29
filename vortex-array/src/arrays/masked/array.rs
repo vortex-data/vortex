@@ -4,7 +4,6 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
@@ -48,10 +47,5 @@ impl MaskedArray {
 
     pub fn child(&self) -> &ArrayRef {
         &self.child
-    }
-
-    /// Get the validity mask for this array.
-    pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
     }
 }

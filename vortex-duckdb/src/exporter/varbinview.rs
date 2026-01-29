@@ -46,12 +46,21 @@ pub(crate) fn new_exporter(
             &LogicalType::try_from(dtype)?,
         ));
     }
+
+    let buffers = buffers
+        .iter()
+        .cloned()
+        .map(|b| b.unwrap_host())
+        .collect_vec();
+
+    let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);
+
     Ok(validity::new_exporter(
         validity,
         Box::new(VarBinViewExporter {
-            views,
-            buffers: buffers.clone(),
+            views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
             vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
+            buffers,
         }),
     ))
 }

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
@@ -71,7 +72,7 @@ pub trait VortexReadAt: Send + Sync + 'static {
     /// Asynchronously get the number of bytes of the underlying source.
     fn size(&self) -> BoxFuture<'static, VortexResult<u64>>;
 
-    /// Request an asynchronous positional read. Results will be returned as a [`ByteBuffer`].
+    /// Request an asynchronous positional read. Results will be returned as a [`BufferHandle`].
     ///
     /// If the reader does not have the requested number of bytes, the returned Future will complete
     /// with an [`UnexpectedEof`][std::io::ErrorKind::UnexpectedEof] error.
@@ -80,7 +81,7 @@ pub trait VortexReadAt: Send + Sync + 'static {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>>;
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>>;
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
@@ -105,7 +106,7 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
     }
 }
@@ -132,7 +133,7 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
     }
 
@@ -158,7 +159,7 @@ impl VortexReadAt for ByteBuffer {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let buffer = self.clone();
         async move {
             let start = usize::try_from(offset).vortex_expect("start too big for usize");
@@ -172,7 +173,9 @@ impl VortexReadAt for ByteBuffer {
                     buffer.len()
                 );
             }
-            Ok(buffer.slice_unaligned(start..end).aligned(alignment))
+            Ok(BufferHandle::new_host(
+                buffer.slice_unaligned(start..end).aligned(alignment),
+            ))
         }
         .boxed()
     }
@@ -247,7 +250,7 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let durations = self.durations.clone();
         let sizes = self.sizes.clone();
         let total_size = self.total_size.clone();
@@ -291,7 +294,7 @@ mod tests {
         let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
 
         let result = data.read_at(1, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.as_ref(), &[2, 3, 4]);
+        assert_eq!(result.to_host().await.as_ref(), &[2, 3, 4]);
     }
 
     #[tokio::test]
@@ -307,7 +310,7 @@ mod tests {
         let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
 
         let result = data.read_at(2, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.as_ref(), &[3, 4, 5]);
+        assert_eq!(result.to_host().await.as_ref(), &[3, 4, 5]);
 
         let size = data.size().await.unwrap();
         assert_eq!(size, 5);

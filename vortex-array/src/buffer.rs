@@ -50,6 +50,9 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Returns the length of the buffer in bytes.
     fn len(&self) -> usize;
 
+    /// Returns the alignment of the buffer.
+    fn alignment(&self) -> Alignment;
+
     /// Returns true if the buffer is empty.
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -81,6 +84,13 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+
+    /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
 }
 
 impl Hash for dyn DeviceBuffer {
@@ -127,6 +137,29 @@ impl BufferHandle {
         match &self.0 {
             Inner::Host(bytes) => bytes.len(),
             Inner::Device(device) => device.len(),
+        }
+    }
+
+    /// Returns the alignment of the buffer.
+    pub fn alignment(&self) -> Alignment {
+        match &self.0 {
+            Inner::Host(bytes) => bytes.alignment(),
+            Inner::Device(device) => device.alignment(),
+        }
+    }
+
+    /// Returns true if the buffer is aligned to the given alignment.
+    pub fn is_aligned_to(&self, alignment: Alignment) -> bool {
+        self.alignment().is_aligned_to(alignment)
+    }
+
+    /// Ensure the buffer satisfies the requested alignment.
+    ///
+    /// Both host and device buffers will be copied if necessary to satisfy the alignment.
+    pub fn ensure_aligned(self, alignment: Alignment) -> VortexResult<Self> {
+        match self.0 {
+            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.aligned(alignment))),
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.aligned(alignment)?)),
         }
     }
 

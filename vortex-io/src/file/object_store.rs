@@ -13,8 +13,8 @@ use object_store::GetRange;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -108,7 +108,7 @@ impl VortexReadAt for ObjectStoreSource {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let store = self.store.clone();
         let path = self.path.clone();
         let handle = self.handle.clone();
@@ -161,7 +161,7 @@ impl VortexReadAt for ObjectStoreSource {
                 }
             };
 
-            Ok(buffer.freeze())
+            Ok(BufferHandle::new_host(buffer.freeze()))
         })
         .boxed()
     }

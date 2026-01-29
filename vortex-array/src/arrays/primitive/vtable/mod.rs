@@ -101,16 +101,12 @@ impl VTable for PrimitiveVTable {
             );
         }
 
-        // For host buffers, we eagerly check alignment on construction.
-        // TODO(aduffy): check for device buffers. CUDA buffers are generally 256-byte aligned,
-        //  but not sure about other devices.
-        if let Some(host_buf) = buffer.as_host_opt() {
-            vortex_ensure!(
-                host_buf.is_aligned(Alignment::new(ptype.byte_width())),
-                "PrimitiveArray::build: Buffer must be aligned to {}",
-                ptype.byte_width()
-            );
-        }
+        vortex_ensure!(
+            buffer.is_aligned_to(Alignment::new(ptype.byte_width())),
+            "PrimitiveArray::build: Buffer (align={}) must be aligned to {}",
+            buffer.alignment(),
+            ptype.byte_width()
+        );
 
         // SAFETY: checked ahead of time
         unsafe {

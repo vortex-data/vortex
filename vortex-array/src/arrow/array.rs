@@ -12,7 +12,6 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::ArrayBufferVisitor;
@@ -170,14 +169,6 @@ impl ValidityVTable<ArrowVTable> for ArrowVTable {
                 ),
             },
         })
-    }
-
-    fn validity_mask(array: &ArrowArray) -> VortexResult<Mask> {
-        Ok(array
-            .inner
-            .logical_nulls()
-            .map(|null_buffer| Mask::from_buffer(null_buffer.inner().clone().into()))
-            .unwrap_or_else(|| Mask::new_true(array.inner.len())))
     }
 }
 

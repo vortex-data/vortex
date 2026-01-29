@@ -107,13 +107,11 @@ impl VTable for DecimalVTable {
 
         match_each_decimal_value_type!(metadata.values_type(), |D| {
             // Check and reinterpret-cast the buffer
-            if let Some(buffer) = values.as_host_opt() {
-                vortex_ensure!(
-                    buffer.is_aligned(Alignment::of::<D>()),
-                    "DecimalArray buffer not aligned for values type {:?}",
-                    D::DECIMAL_TYPE
-                );
-            }
+            vortex_ensure!(
+                values.is_aligned_to(Alignment::of::<D>()),
+                "DecimalArray buffer not aligned for values type {:?}",
+                D::DECIMAL_TYPE
+            );
             DecimalArray::try_new_handle(values, metadata.values_type(), *decimal_dtype, validity)
         })
     }

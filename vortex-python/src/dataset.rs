@@ -32,7 +32,8 @@ use crate::arrow::ToPyArrow;
 use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
-use crate::object_store_urls::object_store_from_url;
+use crate::object_store::resolve::ResolvedStore;
+use crate::object_store::resolve::resolve_store;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "dataset")?;
@@ -110,14 +111,20 @@ impl PyVortexDataset {
         Ok(Self { vxf, schema })
     }
 
-    pub async fn from_url(url: &str) -> VortexResult<Self> {
-        let (object_store, path) = object_store_from_url(url)?;
-        PyVortexDataset::try_new(
-            SESSION
-                .open_options()
-                .open_object_store(&object_store, path.as_ref())
-                .await?,
-        )
+    pub async fn from_url(
+        url: &str,
+        store: Option<Arc<dyn object_store::ObjectStore>>,
+    ) -> VortexResult<Self> {
+        let vxf = match resolve_store(url, store)? {
+            ResolvedStore::ObjectStore(store, path) => {
+                SESSION
+                    .open_options()
+                    .open_object_store(&store, path.as_ref())
+                    .await?
+            }
+            ResolvedStore::Path(path) => SESSION.open_options().open_path(path).await?,
+        };
+        PyVortexDataset::try_new(vxf)
     }
 }
 
@@ -221,6 +228,18 @@ impl PyVortexDataset {
 }
 
 #[pyfunction]
-pub fn dataset_from_url(py: Python, url: &str) -> PyVortexResult<PyVortexDataset> {
-    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?)
+#[pyo3(signature = (url, *, store = None))]
+pub fn dataset_from_url(
+    py: Python,
+    url: &str,
+    store: Option<Bound<PyAny>>,
+) -> PyVortexResult<PyVortexDataset> {
+    let store_arc = if let Some(store_obj) = store {
+        let py_store: pyo3_object_store::PyObjectStore = store_obj.extract()?;
+        Some(py_store.into_inner())
+    } else {
+        None
+    };
+
+    Ok(py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?)
 }

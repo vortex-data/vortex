@@ -97,5 +97,5 @@ fn test_masked_child_preserves_length(#[case] validity: Validity) {
     let array = MaskedArray::try_new(child, validity.clone()).unwrap();
 
     assert_eq!(array.len(), len);
-    assert_eq!(array.validity_mask(), validity.to_mask(len));
+    assert_eq!(array.validity_mask().unwrap(), validity.to_mask(len));
 }

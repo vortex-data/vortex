@@ -7552,6 +7552,8 @@ version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab53c047fcd1a1d2a8820fe84f05d6be69e9526be40cb03b73f86b6b03e6d87d"
 dependencies = [
+ "chrono",
+ "indexmap",
  "indoc",
  "libc",
  "memoffset",
@@ -7561,6 +7563,19 @@ dependencies = [
  "pyo3-ffi",
  "pyo3-macros",
  "unindent",
+]
+
+[[package]]
+name = "pyo3-async-runtimes"
+version = "0.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "57ddb5b570751e93cc6777e81fee8087e59cd53b5043292f2a6d59d5bd80fdfd"
+dependencies = [
+ "futures",
+ "once_cell",
+ "pin-project-lite",
+ "pyo3",
+ "tokio",
 ]
 
 [[package]]
@@ -7626,6 +7641,29 @@ dependencies = [
  "pyo3-build-config",
  "quote",
  "syn 2.0.114",
+]
+
+[[package]]
+name = "pyo3-object_store"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ef5552f108a4d65b78c924b27513471a9ba425341ada4be5ea0ca53806ae316"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "http 1.4.0",
+ "humantime",
+ "itertools 0.14.0",
+ "object_store",
+ "percent-encoding",
+ "pyo3",
+ "pyo3-async-runtimes",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "url",
 ]
 
 [[package]]
@@ -10339,12 +10377,14 @@ dependencies = [
  "libloading 0.8.9",
  "paste",
  "vortex-cuda-macros",
+ "vortex-dtype",
 ]
 
 [[package]]
 name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
+ "arc-swap",
  "async-trait",
  "codspeed-criterion-compat-walltime",
  "cudarc",
@@ -10365,6 +10405,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-fastlanes",
+ "vortex-io",
  "vortex-mask",
  "vortex-nvcomp",
  "vortex-scalar",
@@ -10612,6 +10653,8 @@ dependencies = [
  "vortex-array",
  "vortex-buffer",
  "vortex-bytebool",
+ "vortex-cuda",
+ "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10712,6 +10755,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "tracing",
+ "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
@@ -10875,6 +10919,7 @@ dependencies = [
  "pyo3",
  "pyo3-bytes",
  "pyo3-log",
+ "pyo3-object_store",
  "tokio",
  "tracing",
  "url",

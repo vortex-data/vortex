@@ -196,8 +196,8 @@ fn fill_varbinview_array(
                     let string_refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
                     let result = VarBinViewArray::from_iter_str(string_refs).into_array();
                     if result_nullability == Nullability::Nullable {
-                        VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
+                        VarBinViewArray::new_handle(
+                            result.to_varbinview().views_handle().clone(),
                             result.to_varbinview().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
@@ -230,8 +230,8 @@ fn fill_varbinview_array(
                     let binary_refs: Vec<&[u8]> = binaries.iter().map(|b| b.as_slice()).collect();
                     let result = VarBinViewArray::from_iter_bin(binary_refs).into_array();
                     if result_nullability == Nullability::Nullable {
-                        VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
+                        VarBinViewArray::new_handle(
+                            result.to_varbinview().views_handle().clone(),
                             result.to_varbinview().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),

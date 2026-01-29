@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -176,10 +175,6 @@ impl OperationsVTable<FilterVTable> for FilterVTable {
 impl ValidityVTable<FilterVTable> for FilterVTable {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
-    }
-
-    fn validity_mask(array: &FilterArray) -> VortexResult<Mask> {
-        Ok(Filter::filter(&array.child.validity_mask()?, &array.mask))
     }
 }
 

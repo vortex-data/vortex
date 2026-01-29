@@ -5,8 +5,6 @@ use std::fmt::Debug;
 use std::hash::Hash;
 use std::ops::Range;
 
-use itertools::Itertools as _;
-use num_traits::AsPrimitive;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -40,13 +38,10 @@ use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
-use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
-use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
-use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -423,62 +418,6 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
             unsafe { SparseArray::new_unchecked(patches, array.fill_value.is_valid().into()) }
                 .into_array(),
         ))
-    }
-
-    fn validity_mask(array: &SparseArray) -> VortexResult<Mask> {
-        let fill_is_valid = array.fill_scalar().is_valid();
-        let values_validity = array.patches().values().validity_mask()?;
-        let len = array.len();
-
-        if matches!(values_validity, Mask::AllTrue(_)) && fill_is_valid {
-            return Ok(Mask::AllTrue(len));
-        }
-        if matches!(values_validity, Mask::AllFalse(_)) && !fill_is_valid {
-            return Ok(Mask::AllFalse(len));
-        }
-
-        let mut is_valid_buffer = if fill_is_valid {
-            BitBufferMut::new_set(len)
-        } else {
-            BitBufferMut::new_unset(len)
-        };
-
-        let indices = array.patches().indices().to_primitive();
-        let index_offset = array.patches().offset();
-
-        match_each_integer_ptype!(indices.ptype(), |I| {
-            let indices = indices.as_slice::<I>();
-            patch_validity(&mut is_valid_buffer, indices, index_offset, values_validity);
-        });
-
-        Ok(Mask::from_buffer(is_valid_buffer.freeze()))
-    }
-}
-
-fn patch_validity<I: NativePType + AsPrimitive<usize>>(
-    is_valid_buffer: &mut BitBufferMut,
-    indices: &[I],
-    index_offset: usize,
-    values_validity: Mask,
-) {
-    let indices = indices.iter().map(|index| index.as_() - index_offset);
-    match values_validity {
-        Mask::AllTrue(_) => {
-            for index in indices {
-                is_valid_buffer.set(index);
-            }
-        }
-        Mask::AllFalse(_) => {
-            for index in indices {
-                is_valid_buffer.unset(index);
-            }
-        }
-        Mask::Values(mask_values) => {
-            let is_valid = mask_values.bit_buffer().iter();
-            for (index, is_valid) in indices.zip_eq(is_valid) {
-                is_valid_buffer.set_to(index, is_valid);
-            }
-        }
     }
 }
 

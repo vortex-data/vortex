@@ -123,9 +123,11 @@ impl VTable for VarBinViewVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            VarBinViewArray::new(
-                array.views().slice(range.clone()),
-                array.buffers().clone(),
+            VarBinViewArray::new_handle(
+                array
+                    .views_handle()
+                    .slice_typed::<BinaryView>(range.clone()),
+                Arc::clone(array.buffers()),
                 array.dtype().clone(),
                 array.validity().slice(range)?,
             )

@@ -7,7 +7,6 @@ use std::ops::Range;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::ArrayBufferVisitor;
@@ -177,9 +176,5 @@ impl OperationsVTable<NullVTable> for NullVTable {
 impl ValidityVTable<NullVTable> for NullVTable {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
-    }
-
-    fn validity_mask(array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len))
     }
 }

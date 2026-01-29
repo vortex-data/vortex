@@ -43,7 +43,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -398,10 +397,6 @@ impl OperationsVTable<SequenceVTable> for SequenceVTable {
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
-    }
-
-    fn validity_mask(array: &SequenceArray) -> VortexResult<Mask> {
-        Ok(Mask::AllTrue(array.len()))
     }
 }
 

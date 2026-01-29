@@ -521,12 +521,16 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
+        env:
+          # Outline flat layouts for cuda scan.
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked -p vortex-cuda -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked -p vortex-cuda -p vortex-file -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
+            -p vortex-file \
             -p vortex-cuda \
             -p vortex-test-e2e-cuda \
             --all-features \

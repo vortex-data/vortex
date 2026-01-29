@@ -3,7 +3,6 @@
 
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -18,10 +17,6 @@ pub trait ValidityVTable<V: VTable> {
     ///
     /// - The array DType is nullable.
     fn validity(array: &V::Array) -> VortexResult<Validity>;
-
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        Ok(Self::validity(array)?.to_mask(array.len()))
-    }
 }
 
 impl<V: VTable> ValidityVTable<V> for NotSupported {
@@ -86,10 +81,6 @@ where
 {
     fn validity(array: &V::Array) -> VortexResult<Validity> {
         V::validity_child(array).validity()
-    }
-
-    fn validity_mask(array: &V::Array) -> VortexResult<Mask> {
-        V::validity_child(array).validity_mask()
     }
 }
 
