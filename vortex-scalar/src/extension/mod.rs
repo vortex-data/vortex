@@ -3,142 +3,227 @@
 
 mod vtable;
 
+use std::any::Any;
 use std::any::type_name;
+use std::fmt::Debug;
+use std::fmt::Display;
+use std::fmt::Formatter;
+use std::hash::Hash;
+use std::hash::Hasher;
+use std::mem::discriminant;
+use std::sync::Arc;
 
 use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
 use vortex_dtype::ExtDTypeRef;
+use vortex_dtype::ExtID;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 pub use vtable::*;
 
 use crate::Scalar;
-use crate::ScalarValue;
 
 /// A typed extension scalar.
 #[derive(Debug, Clone)]
-pub struct ExtScalar<V: ExtScalarVTable> {
-    ext_dtype: ExtDType<V>,
-    value: Option<V::Value>,
-}
+pub struct ExtScalar<V: ExtScalarVTable>(Arc<ExtScalarAdapter<V>>);
 
 impl<V: ExtScalarVTable + Default> ExtScalar<V> {
-    /// Creates a new extension scalar from a data type and scalar value.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data type is not an extension type.
-    pub fn try_from_scalar(dtype: &ExtDTypeRef, value: &ScalarValue) -> VortexResult<Self> {
-        let ext_dtype = dtype.clone().try_downcast::<V>().map_err(|_| {
-            vortex_err!(
-                "Expected extension dtype of type {}, got {}",
-                type_name::<V>(),
-                dtype.id()
-            )
-        })?;
-        let vtable = V::default();
-
-        if value.is_null() {
-            vortex_ensure!(
-                ext_dtype.storage_dtype().is_nullable(),
-                "Cannot create non-nullable extension scalar of type {} with null value",
-                ext_dtype.id()
-            );
-            return Ok(Self {
-                ext_dtype,
-                value: None,
-            });
-        }
-
-        let value = vtable.unpack(&ext_dtype, value)?;
-        Ok(Self {
-            ext_dtype,
-            value: Some(value),
-        })
+    /// Creates a new extension scalar from a scalar value.
+    pub fn try_new(
+        metadata: V::Metadata,
+        value: Option<V::Value>,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
+        Self::try_with_vtable(V::default(), metadata, value, nullability)
     }
 }
 
 impl<V: ExtScalarVTable> ExtScalar<V> {
-    /// Get a reference to the extension DType.
-    pub fn ext_dtype(&self) -> &ExtDType<V> {
-        &self.ext_dtype
+    /// Creates a new extension scalar from a vtable, metadata, and scalar value.
+    pub fn try_with_vtable(
+        vtable: V,
+        metadata: V::Metadata,
+        value: Option<V::Value>,
+        nullability: Nullability,
+    ) -> VortexResult<Self> {
+        let storage_dtype = vtable.storage_dtype(&metadata, nullability)?;
+        let dtype = ExtDType::<V>::try_with_vtable(vtable, metadata, storage_dtype)?;
+        Ok(Self(Arc::new(ExtScalarAdapter::<V> { dtype, value })))
     }
 
-    /// Get a reference to the scalar value.
+    /// Returns the identifier of the extension scalar.
+    pub fn id(&self) -> ExtID {
+        self.0.dtype.id()
+    }
+
+    /// Returns the vtable of this extension scalar.
+    pub fn vtable(&self) -> &V {
+        self.0.dtype.vtable()
+    }
+
+    /// Returns the value of this extension scalar.
     pub fn value(&self) -> Option<&V::Value> {
-        self.value.as_ref()
+        self.0.value.as_ref()
     }
 
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if self.value.is_none() && !dtype.is_nullable() {
-            vortex_bail!(
-                "cannot cast extension dtype with id {} and storage type {} to {}",
-                self.ext_dtype.id(),
-                self.ext_dtype.storage_dtype(),
-                dtype
-            );
-        }
-
-        if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
-            // Casting from an extension type to the underlying storage type is OK.
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-        }
-
-        if let DType::Extension(ext_dtype) = dtype
-            && self.ext_dtype.eq_ignore_nullability(ext_dtype)
-        {
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-        }
-
-        vortex_bail!(
-            "cannot cast extension dtype with id {} and storage type {} to {}",
-            self.ext_dtype.id(),
-            self.ext_dtype.storage_dtype(),
-            dtype
-        );
+    /// Erase the concrete type information, returning a type-erased extension scalar.
+    pub fn erased(self) -> ExtScalarRef {
+        ExtScalarRef(self.0)
     }
+
+    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    //     if self.value.is_none() && !dtype.is_nullable() {
+    //         vortex_bail!(
+    //             "cannot cast extension dtype with id {} and storage type {} to {}",
+    //             self.ext_dtype.id(),
+    //             self.ext_dtype.storage_dtype(),
+    //             dtype
+    //         );
+    //     }
+    //
+    //     if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
+    //         // Casting from an extension type to the underlying storage type is OK.
+    //         return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+    //     }
+    //
+    //     if let DType::Extension(ext_dtype) = dtype
+    //         && self.ext_dtype.eq_ignore_nullability(ext_dtype)
+    //     {
+    //         return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+    //     }
+    //
+    //     vortex_bail!(
+    //         "cannot cast extension dtype with id {} and storage type {} to {}",
+    //         self.ext_dtype.id(),
+    //         self.ext_dtype.storage_dtype(),
+    //         dtype
+    //     );
+    // }
 }
 
 /// A type-erased extension scalar.
-#[derive(Debug, Clone)]
-pub struct ExtScalarRef<'a> {
-    ext_dtype: &'a ExtDTypeRef,
-    value: &'a ScalarValue,
+#[derive(Clone)]
+pub struct ExtScalarRef(Arc<dyn ExtScalarImpl>);
+
+impl Display for ExtScalarRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.0.value_display(f)
+    }
 }
 
-impl ExtScalarRef<'_> {
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if self.value.is_null() && !dtype.is_nullable() {
-            vortex_bail!(
-                "cannot cast extension dtype with id {} and storage type {} to {}",
-                self.ext_dtype.id(),
-                self.ext_dtype.storage_dtype(),
-                dtype
-            );
-        }
+impl ExtScalarRef {
+    /// Returns the identifier of the extension scalar.
+    pub fn id(&self) -> ExtID {
+        self.0.id()
+    }
 
-        if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
-            // Casting from an extension type to the underlying storage type is OK.
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-        }
+    /// Returns the type-erased dtype of this extension scalar.
+    pub fn dtype_erased(&self) -> ExtDTypeRef {
+        self.0.dtype_erased()
+    }
 
-        if let DType::Extension(ext_dtype) = dtype
-            && self.ext_dtype.eq_ignore_nullability(ext_dtype)
-        {
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
-        }
+    /// Returns the type-erased value of this extension scalar.
+    pub fn value_erased(&self) -> ExtScalarValue<'_> {
+        ExtScalarValue { scalar: self }
+    }
+}
 
-        vortex_bail!(
-            "cannot cast extension dtype with id {} and storage type {} to {}",
-            self.ext_dtype.id(),
-            self.ext_dtype.storage_dtype(),
-            dtype
-        );
+/// A type-erased reference to an extension scalar value.
+pub struct ExtScalarValue<'a> {
+    scalar: &'a ExtScalarRef,
+}
+
+impl Display for ExtScalarValue<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.scalar.0.value_display(f)
+    }
+}
+
+impl Debug for ExtScalarValue<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.scalar.0.value_debug(f)
+    }
+}
+
+impl PartialEq for ExtScalarValue<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        if self.scalar.dtype_erased() != other.scalar.dtype_erased() {
+            return false;
+        }
+        self.scalar.0.value_eq(other.scalar.0.value_any())
+    }
+}
+impl Eq for ExtScalarValue<'_> {}
+
+trait ExtScalarImpl: 'static + Send + Sync {
+    fn as_any(&self) -> &dyn Any;
+    fn id(&self) -> ExtID;
+    fn dtype_erased(&self) -> ExtDTypeRef;
+    fn value_any(&self) -> Option<&dyn Any>;
+    fn value_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+    fn value_eq(&self, other: Option<&dyn Any>) -> bool;
+    fn value_hash(&self, state: &mut dyn Hasher);
+}
+
+#[derive(Debug)]
+struct ExtScalarAdapter<V: ExtScalarVTable> {
+    dtype: ExtDType<V>,
+    value: Option<V::Value>,
+}
+
+impl<V: ExtScalarVTable> ExtScalarImpl for ExtScalarAdapter<V> {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn id(&self) -> ExtID {
+        self.dtype.id()
+    }
+
+    fn dtype_erased(&self) -> ExtDTypeRef {
+        self.dtype.clone().erased()
+    }
+
+    fn value_any(&self) -> Option<&dyn Any> {
+        self.value.as_ref().map(|v| v as &dyn Any)
+    }
+
+    fn value_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            None => return write!(f, "null"),
+            Some(value) => <V::Value as Debug>::fmt(value, f),
+        }
+    }
+
+    fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.value {
+            None => write!(f, "null"),
+            Some(value) => <V::Value as Display>::fmt(value, f),
+        }
+    }
+
+    fn value_eq(&self, other: Option<&dyn Any>) -> bool {
+        match (&self.value, other) {
+            (None, None) => true,
+            (Some(_), None) | (None, Some(_)) => false,
+            (Some(value), Some(other)) => {
+                let Some(other) = other.downcast_ref::<V::Value>() else {
+                    return false;
+                };
+                <V::Value as PartialEq>::eq(value, other)
+            }
+        }
+    }
+
+    fn value_hash(&self, mut state: &mut dyn Hasher) {
+        self.dtype.hash(&mut state);
+        discriminant(&self.value).hash(&mut state);
+        if let Some(value) = self.value.as_ref() {
+            <V::Value as Hash>::hash(value, &mut state);
+        }
     }
 }
 

@@ -41,5 +41,6 @@ pub use struct_::*;
 pub use utf8::*;
 
 mod datetime;
+
 #[cfg(test)]
 mod tests;

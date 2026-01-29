@@ -22,7 +22,7 @@ use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
 
 /// Timestamp DType.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Timestamp;
 
 impl Timestamp {

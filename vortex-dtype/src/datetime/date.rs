@@ -15,7 +15,7 @@ use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
 
 /// Date DType.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Date;
 
 impl Date {

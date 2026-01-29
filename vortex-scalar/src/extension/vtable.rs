@@ -5,6 +5,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
 
+use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::extension::ExtDTypeVTable;
@@ -22,6 +23,13 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
 
     /// Return the `zero` value for this extension scalar.
     fn zero(&self, metadata: &Self::Metadata) -> Self::Value;
+
+    /// Returns the storage dtype for this extension scalar.
+    fn storage_dtype(
+        &self,
+        metadata: &Self::Metadata,
+        nullability: Nullability,
+    ) -> VortexResult<DType>;
 
     /// Unpack the native value from the given scalar.
     ///

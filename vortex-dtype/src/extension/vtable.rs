@@ -14,7 +14,7 @@ use crate::ExtID;
 use crate::extension::ExtDTypeRef;
 
 /// The public API for defining new extension DTypes.
-pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug {
+pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + Hash {
     /// Associated type containing the deserialized metadata for this extension type
     type Metadata: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 

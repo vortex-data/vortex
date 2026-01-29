@@ -482,13 +482,15 @@ impl Scalar {
     /// # Panics
     ///
     /// Panics if the scalar is not an extension type.
-    pub fn as_extension_ref(&self) -> ExtScalarRef<'_> {
-        ExtScalarRef::try_from(self).vortex_expect("Failed to convert scalar to extension")
+    pub fn as_extension_ref(&self) -> ExtScalarRef {
+        // ExtScalarRef::try_from(self).vortex_expect("Failed to convert scalar to extension")
+        todo!()
     }
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.
-    pub fn as_extension_ref_opt(&self) -> Option<ExtScalarRef<'_>> {
-        matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension_ref())
+    pub fn as_extension_ref_opt(&self) -> Option<ExtScalarRef> {
+        todo!()
+        // matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension_ref())
     }
 }
 
