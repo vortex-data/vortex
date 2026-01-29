@@ -2,8 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod driver;
+mod events;
 mod request;
 
 pub(crate) use driver::IoRequestStream;
+pub(crate) use events::{EventsChannel, EventsReceiver, EventsSender};
 pub(crate) use request::ReadRequest;
 pub(crate) use request::RequestId;
