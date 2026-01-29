@@ -3,6 +3,8 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
+#[cfg(all(test, feature = "arbitrary"))]
+mod deep_arb_test;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;

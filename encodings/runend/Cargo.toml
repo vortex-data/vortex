@@ -36,6 +36,7 @@ itertools = { workspace = true }
 rand = { workspace = true }
 rstest = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-sequence = { workspace = true, features = ["arbitrary"] }
 
 [features]
 arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
