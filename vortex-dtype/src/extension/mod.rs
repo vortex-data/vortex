@@ -82,12 +82,13 @@ pub struct ExtDTypeRef(Arc<dyn ExtDTypeImpl>);
 
 impl Display for ExtDTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let options = format!("{}", self.options_ref());
+        let options = format!("{}", self.options_erased());
         if options.is_empty() {
-            write!(f, "{}", self.id())
+            write!(f, "{}", self.id())?;
         } else {
-            write!(f, "{}[{}]", self.id(), options)
+            write!(f, "{}[{}]", self.id(), options)?;
         }
+        write!(f, "({})", self.storage_dtype())
     }
 }
 
@@ -95,22 +96,26 @@ impl Debug for ExtDTypeRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExtDType")
             .field("id", &self.id())
-            .field("options", &self.options_ref())
+            .field("options", &self.options_erased())
+            .field("storage_dtype", &self.storage_dtype())
             .finish()
     }
 }
 
 impl PartialEq for ExtDTypeRef {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id() && self.options_ref() == other.options_ref()
+        self.id() == other.id()
+            && self.options_erased() == other.options_erased()
+            && self.storage_dtype() == other.storage_dtype()
     }
 }
 impl Eq for ExtDTypeRef {}
 
 impl Hash for ExtDTypeRef {
-    fn hash<H: Hasher>(&self, mut state: &mut H) {
-        self.id().hash(&mut state);
-        self.options_ref().hash(&mut state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+        self.options_erased().hash(state);
+        self.storage_dtype().hash(state);
     }
 }
 
@@ -121,7 +126,7 @@ impl ExtDTypeRef {
     }
 
     /// Returns the untyped options of the extension type.
-    pub fn options_ref(&self) -> ExtDTypeOptions<'_> {
+    pub fn options_erased(&self) -> ExtDTypeOptions<'_> {
         ExtDTypeOptions { ext_dtype: self }
     }
 
@@ -133,18 +138,19 @@ impl ExtDTypeRef {
     /// Returns a new ExtDTypeRef with the given nullability.
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
         if self.storage_dtype().nullability() == nullability {
-            return self.clone();
+            self.clone()
+        } else {
+            self.0.with_nullability(nullability)
         }
-        self.0.with_nullability(nullability)
     }
 
     /// Compute equality ignoring nullability.
     pub fn eq_ignore_nullability(&self, other: &Self) -> bool {
         self.id() == other.id()
+            && self.options_erased() == other.options_erased()
             && self
                 .storage_dtype()
                 .eq_ignore_nullability(other.storage_dtype())
-            && self.options_ref() == other.options_ref()
     }
 }
 

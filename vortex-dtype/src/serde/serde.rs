@@ -620,7 +620,7 @@ impl Serialize for ExtDTypeRef {
         state.serialize_field(
             "metadata",
             &self
-                .options_ref()
+                .options_erased()
                 .serialize()
                 .map_err(|e| serde::ser::Error::custom(e.to_string()))?,
         )?;

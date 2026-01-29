@@ -46,44 +46,6 @@ use crate::stats::ArrayStats;
 /// - Validity is inherited from the underlying storage
 /// - Slicing preserves the extension type
 /// - Scalar access wraps storage scalars with extension metadata
-///
-/// # Examples
-///
-/// ```
-/// use std::sync::Arc;
-/// use vortex_array::arrays::{ExtensionArray, PrimitiveArray};
-/// use vortex_dtype::{ExtDType, ExtID, DType, Nullability, PType};
-/// use vortex_array::validity::Validity;
-/// use vortex_array::IntoArray;
-/// use vortex_buffer::buffer;
-///
-/// // Define a custom extension type for representing currency values
-/// let currency_id = ExtID::from("example.currency");
-/// let currency_dtype = Arc::new(ExtDType::new(
-///     currency_id,
-///     Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)), // Storage as i64 cents
-///     None, // No additional metadata needed
-/// ));
-///
-/// // Create storage array with currency values in cents
-/// let cents_storage = PrimitiveArray::new(
-///     buffer![12345i64, 67890, 99999], // $123.45, $678.90, $999.99
-///     Validity::NonNullable
-/// );
-///
-/// // Wrap with extension type
-/// let currency_array = ExtensionArray::new(
-///     currency_dtype.clone(),
-///     cents_storage.into_array()
-/// );
-///
-/// assert_eq!(currency_array.len(), 3);
-/// assert_eq!(currency_array.id().as_ref(), "example.currency");
-///
-/// // Access maintains extension type information
-/// let first_value = currency_array.scalar_at(0).unwrap();
-/// assert!(first_value.as_extension_opt().is_some());
-/// ```
 #[derive(Clone, Debug)]
 pub struct ExtensionArray {
     pub(super) dtype: DType,

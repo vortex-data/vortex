@@ -31,13 +31,13 @@ mod test {
         let ext_dtype = Date::new(TimeUnit::Days, Nullability::NonNullable).erased();
 
         // Create storage array
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
+        let storage = buffer![1i32, 2, 3, 4, 5].into_array();
         let array = ExtensionArray::new(ext_dtype.clone(), storage);
         test_filter_conformance(array.as_ref());
 
         // Test with nullable extension type
         let ext_dtype_nullable = ext_dtype.with_nullability(Nullability::Nullable);
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_option_iter([Some(1i32), None, Some(3), Some(4), None])
             .into_array();
         let array = ExtensionArray::new(ext_dtype_nullable, storage);
         test_filter_conformance(array.as_ref());
@@ -45,14 +45,14 @@ mod test {
 
     #[rstest]
     #[case({
-        // Simple extension type (non-nullable u64)
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
+        // Simple extension type (non-nullable i64)
+        let storage = buffer![1i64, 2, 3, 4, 5].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         ExtensionArray::new(ext_dtype, storage)
     })]
     #[case({
         // Nullable extension type
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype_nullable = Timestamp::new(
             TimeUnit::Milliseconds,
@@ -62,7 +62,7 @@ mod test {
     })]
     #[case({
         // Single element
-        let storage = buffer![42u64].into_array();
+        let storage = buffer![42i64].into_array();
         let ext_dtype_single = Timestamp::new(
             TimeUnit::Milliseconds,
             Nullability::NonNullable,
@@ -71,7 +71,7 @@ mod test {
     })]
     #[case({
         // Larger array for edge cases
-        let storage = buffer![0u64..100].into_array();
+        let storage = buffer![0i64..100].into_array();
         let ext_dtype_large = Timestamp::new(
             TimeUnit::Milliseconds,
             Nullability::NonNullable,
@@ -100,20 +100,20 @@ mod tests {
     // Note: The original test_all_consistency cases for extension arrays caused errors
     // because of unsupported extension type "uuid". We'll use simpler test cases.
     #[case::extension_simple({
-        let storage = buffer![1u64, 2, 3, 4, 5].into_array();
+        let storage = buffer![1i64, 2, 3, 4, 5].into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::NonNullable).erased();
         ExtensionArray::new(ext_dtype, storage)
     })]
     #[case::extension_nullable({
-        let storage = PrimitiveArray::from_option_iter([Some(1u64), None, Some(3), Some(4), None])
+        let storage = PrimitiveArray::from_option_iter([Some(1i64), None, Some(3), Some(4), None])
             .into_array();
         let ext_dtype = Timestamp::new(TimeUnit::Milliseconds, Nullability::Nullable).erased();
         ExtensionArray::new(ext_dtype, storage)
     })]
     // Additional test cases
     #[case::extension_single({
-        let storage = buffer![42i32].into_array();
-        let ext_dtype = Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased();
+        let storage = buffer![42i64].into_array();
+        let ext_dtype = Timestamp::new(TimeUnit::Days, Nullability::NonNullable).erased();
         ExtensionArray::new(ext_dtype, storage)
     })]
     #[case::extension_large({

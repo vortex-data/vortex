@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
@@ -23,17 +24,14 @@ impl MaskKernel for DateTimePartsVTable {
         // through the days component.
 
         let masked_days = mask(array.days(), mask_array)?;
+        assert!(masked_days.dtype().is_nullable());
 
         // Keep seconds and subseconds unchanged since they must remain non-nullable
         let seconds = array.seconds().clone();
         let subseconds = array.subseconds().clone();
 
         // Update the dtype to reflect the new nullability of days
-        let new_dtype = if masked_days.dtype().is_nullable() {
-            array.dtype().as_nullable()
-        } else {
-            array.dtype().clone()
-        };
+        let new_dtype = array.dtype().as_nullable();
 
         DateTimePartsArray::try_new(new_dtype, masked_days, seconds, subseconds)
             .map(|a| a.to_array())

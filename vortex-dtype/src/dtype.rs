@@ -526,20 +526,7 @@ impl Display for DType {
             ),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
-            Extension(ext) => {
-                write!(
-                    f,
-                    "ext({}, {}",
-                    ext.id(),
-                    ext.storage_dtype()
-                        .with_nullability(Nullability::NonNullable)
-                )?;
-                let options = format!("{}", ext.options_ref());
-                if !options.is_empty() {
-                    write!(f, ", {}", options)?;
-                }
-                write!(f, "){}", ext.storage_dtype().nullability())
-            }
+            Extension(ext) => write!(f, "{}", ext),
         }
     }
 }
@@ -560,8 +547,8 @@ mod tests {
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {
-        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullable).erased());
-        let d2 = DType::Extension(Time::new(TimeUnit::Days, NonNullable).erased());
+        let d1 = DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased());
+        let d2 = DType::Extension(Time::new(TimeUnit::Seconds, NonNullable).erased());
         assert!(d1.eq_ignore_nullability(&d2));
 
         let t1 = DType::Extension(

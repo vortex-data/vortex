@@ -18,6 +18,8 @@ impl MaskKernel for ExtensionVTable {
     fn mask(&self, array: &ExtensionArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
         // Use compute::mask directly since mask_array has compute::mask semantics (true=null)
         let masked_storage = mask(array.storage(), mask_array)?;
+        assert!(masked_storage.dtype().is_nullable());
+
         Ok(ExtensionArray::new(
             array
                 .ext_dtype()
