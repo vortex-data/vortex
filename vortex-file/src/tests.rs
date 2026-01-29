@@ -1667,6 +1667,7 @@ mod cuda_tests {
     use vortex_io::file::std_file::FileReadAdapter;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
     use vortex_metrics::VortexMetrics;
     use vortex_session::VortexSession;
@@ -1707,11 +1708,15 @@ mod cuda_tests {
             Validity::NonNullable,
         );
 
+        let flat_strategy= Arc::new(FlatLayoutStrategy::default());
+
         // Write to a buffer, then to a temp file
         let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
         let mut buf = Vec::new();
         SESSION
             .write_options()
+            // write with flat strategy, don't try and compress
+            .with_strategy(flat_strategy)
             .write(&mut buf, array.to_array_stream())
             .await?;
         std::fs::write(&temp_path, &buf)?;
