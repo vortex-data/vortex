@@ -78,8 +78,9 @@ mod tests {
         .vortex_expect("level7 ends");
 
         // Level 6: RunEndArray wrapping level 7
-        let level6_runend = RunEndArray::try_new(level7_ends.into_array(), level7_dict.into_array())
-            .vortex_expect("level6 runend");
+        let level6_runend =
+            RunEndArray::try_new(level7_ends.into_array(), level7_dict.into_array())
+                .vortex_expect("level6 runend");
 
         // Level 6: SequenceArray for codes [0, 1, 2, 3]
         let level6_codes = SequenceArray::new(
@@ -92,9 +93,8 @@ mod tests {
         .vortex_expect("level6 codes");
 
         // Level 5: DictArray wrapping level 6
-        let level5_dict =
-            DictArray::try_new(level6_codes.into_array(), level6_runend.into_array())
-                .vortex_expect("level5 dict");
+        let level5_dict = DictArray::try_new(level6_codes.into_array(), level6_runend.into_array())
+            .vortex_expect("level5 dict");
 
         // Level 5: SequenceArray for ends [1, 2, 3, 4]
         let level5_ends = SequenceArray::new(
@@ -107,8 +107,9 @@ mod tests {
         .vortex_expect("level5 ends");
 
         // Level 4: RunEndArray wrapping level 5
-        let level4_runend = RunEndArray::try_new(level5_ends.into_array(), level5_dict.into_array())
-            .vortex_expect("level4 runend");
+        let level4_runend =
+            RunEndArray::try_new(level5_ends.into_array(), level5_dict.into_array())
+                .vortex_expect("level4 runend");
 
         // Level 3: Need unsigned codes for DictArray, create a sequence
         let level3_codes = SequenceArray::new(
@@ -121,9 +122,8 @@ mod tests {
         .vortex_expect("level3 codes");
 
         // Level 3: DictArray with sequence codes and level4_runend as values (to keep nesting)
-        let level3_dict =
-            DictArray::try_new(level3_codes.into_array(), level4_runend.into_array())
-                .vortex_expect("level3 dict");
+        let level3_dict = DictArray::try_new(level3_codes.into_array(), level4_runend.into_array())
+            .vortex_expect("level3 dict");
 
         // Level 3: SequenceArray for ends [1, 2, 3, 4]
         let level3_ends = SequenceArray::new(
@@ -136,8 +136,9 @@ mod tests {
         .vortex_expect("level3 ends");
 
         // Level 2: RunEndArray wrapping level 3
-        let level2_runend = RunEndArray::try_new(level3_ends.into_array(), level3_dict.into_array())
-            .vortex_expect("level2 runend");
+        let level2_runend =
+            RunEndArray::try_new(level3_ends.into_array(), level3_dict.into_array())
+                .vortex_expect("level2 runend");
 
         // Level 2: SequenceArray for outer ends [1, 2, 3, 4]
         let level2_ends = SequenceArray::new(
@@ -150,8 +151,9 @@ mod tests {
         .vortex_expect("level2 ends");
 
         // Level 1: Outer RunEndArray
-        let level1_runend = RunEndArray::try_new(level2_ends.into_array(), level2_runend.into_array())
-            .vortex_expect("level1 runend");
+        let level1_runend =
+            RunEndArray::try_new(level2_ends.into_array(), level2_runend.into_array())
+                .vortex_expect("level1 runend");
 
         // ========================================
         // Display the deeply nested structure
@@ -176,7 +178,11 @@ mod tests {
         println!("\nMaximum nesting depth: {}", depth);
         println!("Total length: {}", level1_runend.len());
 
-        assert!(depth >= 8, "Should have at least 8 levels of nesting, got {}", depth);
+        assert!(
+            depth >= 8,
+            "Should have at least 8 levels of nesting, got {}",
+            depth
+        );
     }
 
     /// Simpler test: 8 levels using alternating RunEndArray and DictArray
@@ -279,10 +285,7 @@ mod tests {
         println!("Level 1 (Dict): len={}", level1.len());
 
         println!("\n=== 8-Level Alternating Pattern ===");
-        println!(
-            "Tree:\n{}",
-            level1.display_as(DisplayOptions::TreeDisplay)
-        );
+        println!("Tree:\n{}", level1.display_as(DisplayOptions::TreeDisplay));
 
         // Count depth
         fn count_depth(array: &dyn Array, current: usize) -> usize {
@@ -296,6 +299,10 @@ mod tests {
 
         let depth = count_depth(level1.as_ref(), 1);
         println!("\nMaximum nesting depth: {}", depth);
-        assert!(depth >= 8, "Should have at least 8 levels of nesting, got {}", depth);
+        assert!(
+            depth >= 8,
+            "Should have at least 8 levels of nesting, got {}",
+            depth
+        );
     }
 }
