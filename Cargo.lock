@@ -10630,6 +10630,7 @@ dependencies = [
  "vortex-dtype",
  "vortex-error",
  "vortex-flatbuffers",
+ "vortex-session",
 ]
 
 [[package]]

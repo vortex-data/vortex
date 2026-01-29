@@ -10,10 +10,12 @@ use itertools::Itertools;
 use vortex_array::ArrayRef;
 use vortex_array::iter::ArrayIterator;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::session::ArraySessionExt;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::messages::DecoderMessage;
 use crate::messages::EncoderMessage;
@@ -28,15 +30,18 @@ pub struct SyncIPCReader<R: Read> {
 }
 
 impl<R: Read> SyncIPCReader<R> {
-    pub fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
+    pub fn try_new(read: R, session: &VortexSession) -> VortexResult<Self> {
         let mut reader = SyncMessageReader::new(read);
         match reader.next().transpose()? {
             Some(msg) => match msg {
-                DecoderMessage::DType(dtype) => Ok(SyncIPCReader {
-                    reader,
-                    dtype,
-                    registry,
-                }),
+                DecoderMessage::DType(fb_dtype) => {
+                    let dtype = DType::from_flatbuffer(fb_dtype, session)?;
+                    Ok(SyncIPCReader {
+                        reader,
+                        dtype,
+                        registry: session.arrays().registry().clone(),
+                    })
+                }
                 msg => {
                     vortex_bail!("Expected DType message, got {:?}", msg);
                 }
@@ -172,15 +177,13 @@ mod test {
     use vortex_array::ToCanonical;
     use vortex_array::iter::ArrayIterator;
     use vortex_array::iter::ArrayIteratorExt;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::test::SESSION;
 
     #[test]
     fn test_sync_stream() {
-        let session = ArraySession::default();
-
         let array = buffer![1i32, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_iterator()
@@ -189,8 +192,7 @@ mod test {
             .collect_to_buffer()
             .unwrap();
 
-        let reader =
-            SyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone()).unwrap();
+        let reader = SyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION).unwrap();
 
         assert_eq!(reader.dtype(), array.dtype());
         let result = reader.read_all().unwrap().to_primitive();

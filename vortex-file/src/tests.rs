@@ -53,14 +53,13 @@ use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::PType::I32;
 use vortex_dtype::StructFields;
-use vortex_dtype::datetime::TIMESTAMP_ID;
-use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
@@ -1609,15 +1608,13 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Read with SECONDS filter scalar
-    let seconds_ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-        Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
-    ));
     let filter_expr = gt(
         root(),
-        lit(Scalar::extension(
-            seconds_ext_dtype,
+        lit(Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            },
             Scalar::from(1704153600i64),
         )),
     );

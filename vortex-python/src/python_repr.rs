@@ -8,7 +8,6 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex::dtype::DType;
 use vortex::dtype::ExtID;
-use vortex::dtype::ExtMetadata;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 
@@ -93,14 +92,14 @@ impl Display for DTypePythonRepr<'_> {
             DType::Extension(ext) => {
                 write!(
                     f,
-                    "ext(\"{}\", {}, ",
+                    "ext(\"{}\", {}",
                     ext.id().python_repr(),
                     ext.storage_dtype().python_repr()
                 )?;
-                match ext.metadata() {
-                    None => write!(f, "None")?,
-                    Some(metadata) => write!(f, "{}", metadata.python_repr())?,
-                };
+                let opts = format!("{}", ext.options_ref());
+                if !opts.is_empty() {
+                    write!(f, ", {}", opts)?
+                }
                 write!(f, ")")
             }
         }
@@ -122,21 +121,6 @@ impl Display for NullabilityPythonRepr<'_> {
             Nullability::NonNullable => write!(f, "False"),
             Nullability::Nullable => write!(f, "True"),
         }
-    }
-}
-
-struct ExtMetadataPythonRepr<'a>(&'a ExtMetadata);
-
-impl PythonRepr for ExtMetadata {
-    fn python_repr(&self) -> impl Display {
-        ExtMetadataPythonRepr(self)
-    }
-}
-
-impl Display for ExtMetadataPythonRepr<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let ExtMetadataPythonRepr(metadata) = self;
-        write!(f, "\"{}\"", metadata.as_ref().escape_ascii())
     }
 }
 

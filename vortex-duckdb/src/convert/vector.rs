@@ -232,7 +232,7 @@ pub fn flat_vector_to_vortex(vector: &mut Vector, len: usize) -> VortexResult<Ar
         DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ => {
             let arr = vector_mapped(vector, len, |duckdb_timestamp { micros }| *micros);
             Ok(
-                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".to_string()))
+                TemporalArray::new_timestamp(arr, TimeUnit::Microseconds, Some("UTC".into()))
                     .into_array(),
             )
         }

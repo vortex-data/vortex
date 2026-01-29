@@ -6,6 +6,7 @@ use std::sync::Arc;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
+use flatbuffers::root;
 use itertools::Itertools;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -89,14 +90,14 @@ impl StructFields {
 }
 
 impl DType {
-    /// Create a new
-    pub fn try_from_view(
-        fb: fbd::DType,
-        buffer: FlatBuffer,
-        session: &VortexSession,
-    ) -> VortexResult<Self> {
-        let vdt = ViewedDType::from_fb_loc(fb._tab.loc(), buffer, session.clone());
-        Self::try_from(vdt)
+    /// Create a [`DType`] from a flatbuffer buffer.
+    pub fn from_flatbuffer(buffer: FlatBuffer, session: &VortexSession) -> VortexResult<Self> {
+        let fb_loc = {
+            let fb_dtype = root::<fbd::DType>(&buffer)?;
+            fb_dtype._tab.loc()
+        };
+        let view = ViewedDType::from_fb_loc(fb_loc, buffer, session.clone());
+        Self::try_from(view)
     }
 }
 

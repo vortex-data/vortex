@@ -52,7 +52,6 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
