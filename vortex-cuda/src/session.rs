@@ -15,6 +15,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
+use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
 
 /// Default maximum number of streams in the pool.
@@ -59,11 +60,18 @@ impl CudaSession {
     pub fn create_execution_ctx(
         vortex_session: &vortex_session::VortexSession,
     ) -> VortexResult<CudaExecutionCtx> {
-        let stream = vortex_session.cuda_session().stream_pool.get_stream()?;
+        let stream = vortex_session.cuda_session().new_stream()?;
         Ok(CudaExecutionCtx::new(
             stream,
             vortex_session.create_execution_ctx(),
         ))
+    }
+
+    /// Gets a CUDA stream from the pool.
+    ///
+    /// The pool reuses existing streams in round-robin fashion.
+    pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
+        self.stream_pool.get_stream()
     }
 
     /// Registers CUDA support for an array encoding.
