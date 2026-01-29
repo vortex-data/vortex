@@ -16,16 +16,16 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::accessor::ArrayAccessor;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -236,9 +236,16 @@ fn choose_max_dict_size(uncompressed_size: usize) -> usize {
     (uncompressed_size / 100).clamp(256, 100 * 1024)
 }
 
-fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
+fn collect_valid_primitive(
+    parray: &PrimitiveArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    Ok(parray
+        .to_array()
+        .filter(mask)?
+        .execute::<Canonical>(ctx)?
+        .into_primitive())
 }
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
@@ -409,8 +416,9 @@ impl ZstdArray {
         parray: &PrimitiveArray,
         level: i32,
         values_per_frame: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_impl(parray, level, values_per_frame, false)
+        Self::from_primitive_impl(parray, level, values_per_frame, false, ctx)
     }
 
     fn from_primitive_impl(
@@ -418,12 +426,13 @@ impl ZstdArray {
         level: i32,
         values_per_frame: usize,
         use_dictionary: bool,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let dtype = parray.dtype().clone();
         let byte_width = parray.ptype().byte_width();
 
         // We compress only the valid elements.
-        let values = collect_valid_primitive(parray)?;
+        let values = collect_valid_primitive(parray, ctx)?;
         let n_values = values.len();
         let values_per_frame = if values_per_frame > 0 {
             values_per_frame

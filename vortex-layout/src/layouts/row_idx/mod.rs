@@ -15,10 +15,10 @@ pub use expr::*;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
-use vortex_array::compute::filter;
 use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::is_root;
@@ -279,7 +279,7 @@ fn row_idx_array_future(
     let expr = expr.clone();
     async move {
         let array = idx_array(row_offset, &row_range).into_array();
-        let array = filter(&array, &mask.await?)?;
+        let array = array.filter(mask.await?)?;
         array.apply(&expr)
     }
     .boxed()

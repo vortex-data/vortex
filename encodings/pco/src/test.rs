@@ -2,10 +2,9 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
-use std::sync::LazyLock;
-
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
 use vortex_array::ToCanonical;
 use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
@@ -25,10 +24,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_session::VortexSession;
-
-static LEGACY_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 use crate::PcoArray;
 use crate::PcoVTable;
@@ -37,7 +32,8 @@ use crate::PcoVTable;
 fn test_compress_decompress() {
     let data: Vec<i32> = (0..200).collect();
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    let compressed =
+        PcoArray::from_primitive(&array, 3, 0, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     // this data should be compressible
     assert!(compressed.pages.len() < array.nbytes() as usize);
 
@@ -59,7 +55,8 @@ fn test_compress_decompress() {
 #[test]
 fn test_compress_decompress_small() {
     let array = PrimitiveArray::from_option_iter([None, Some(1)]);
-    let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    let compressed =
+        PcoArray::from_primitive(&array, 3, 0, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
 
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
@@ -72,7 +69,9 @@ fn test_compress_decompress_small() {
 fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
-    let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
+    let compressed =
+        PcoArray::from_primitive(&array, 3, 100, &mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     let primitive = compressed.decompress().unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
@@ -95,6 +94,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
         compression_level,
         values_per_chunk,
         values_per_page,
+        &mut LEGACY_SESSION.create_execution_ctx(),
     )
     .unwrap();
 
@@ -127,7 +127,8 @@ fn test_validity_vtable() {
         data.iter().cloned().collect::<Buffer<_>>(),
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
-    let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
+    let compressed =
+        PcoArray::from_primitive(&array, 3, 0, &mut LEGACY_SESSION.create_execution_ctx()).unwrap();
     assert_eq!(
         compressed.validity_mask().unwrap(),
         Mask::from_iter(mask_bools)
@@ -141,7 +142,8 @@ fn test_validity_vtable() {
 #[test]
 fn test_serde() -> VortexResult<()> {
     let data: PrimitiveArray = (0i32..1_000_000).collect();
-    let pco = PcoArray::from_primitive(&data, 3, 100)?.to_array();
+    let pco = PcoArray::from_primitive(&data, 3, 100, &mut LEGACY_SESSION.create_execution_ctx())?
+        .to_array();
 
     let session = ArraySession::default();
     session.registry().register(PcoVTable::ID, PcoVTable);

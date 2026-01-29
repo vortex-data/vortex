@@ -510,6 +510,7 @@ impl Scheme for SparseScheme {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
@@ -533,6 +534,7 @@ impl Scheme for SparseScheme {
                 top_pvalue.ptype(),
                 stats.src.dtype().nullability(),
             )),
+            ctx,
         )?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {

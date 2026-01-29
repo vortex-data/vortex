@@ -23,7 +23,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
 use vortex_array::compute::fill_null;
-use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -285,7 +284,14 @@ impl SparseArray {
     /// Encode given array as a SparseArray.
     ///
     /// Optionally provided fill value will be respected if the array is less than 90% null.
-    pub fn encode(array: &dyn Array, fill_value: Option<Scalar>) -> VortexResult<ArrayRef> {
+    ///
+    /// Since we must perform a filter over the array to remove some values before we compress, this
+    /// function takes an [`ExecutionCtx`].
+    pub fn encode(
+        array: &dyn Array,
+        fill_value: Option<Scalar>,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ArrayRef> {
         if let Some(fill_value) = fill_value.as_ref()
             && array.dtype() != fill_value.dtype()
         {
@@ -304,7 +310,10 @@ impl SparseArray {
             );
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
-            let non_null_values = filter(array, &mask)?;
+            let non_null_values = array
+                .filter(mask.clone())?
+                .execute::<Canonical>(ctx)?
+                .into_array();
             let non_null_indices = match mask.indices() {
                 AllOr::All => {
                     // We already know that the mask is 90%+ false
@@ -355,7 +364,10 @@ impl SparseArray {
             .to_bit_buffer(),
         );
 
-        let non_top_values = filter(array, &non_top_mask)?;
+        let non_top_values = array
+            .filter(non_top_mask.clone())?
+            .execute::<Canonical>(ctx)?
+            .into_array();
 
         let indices: Buffer<u64> = match non_top_mask {
             Mask::AllTrue(count) => {
@@ -440,6 +452,8 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
 mod test {
     use itertools::Itertools;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -608,8 +622,12 @@ mod test {
                 true, true, false, true, false, true, false, true, true, false, true, false,
             ]),
         );
-        let sparse = SparseArray::encode(&original.clone().into_array(), None)
-            .vortex_expect("SparseArray::encode should succeed for test data");
+        let sparse = SparseArray::encode(
+            &original.clone().into_array(),
+            None,
+            &mut LEGACY_SESSION.create_execution_ctx(),
+        )
+        .vortex_expect("SparseArray::encode should succeed for test data");
         assert_eq!(
             sparse.validity_mask().unwrap(),
             Mask::from_iter(vec![

@@ -26,11 +26,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::compute::filter;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -198,9 +196,13 @@ pub(crate) fn number_type_from_dtype(dtype: &DType) -> NumberType {
     }
 }
 
-fn collect_valid(parray: &PrimitiveArray) -> VortexResult<PrimitiveArray> {
+fn collect_valid(parray: &PrimitiveArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let mask = parray.validity_mask()?;
-    Ok(filter(&parray.to_array(), &mask)?.to_primitive())
+    Ok(parray
+        .to_array()
+        .filter(mask)?
+        .execute::<Canonical>(ctx)?
+        .into_primitive())
 }
 
 pub(crate) fn vortex_err_from_pco(err: PcoError) -> VortexError {
@@ -258,8 +260,15 @@ impl PcoArray {
         parray: &PrimitiveArray,
         level: usize,
         values_per_page: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
-        Self::from_primitive_with_values_per_chunk(parray, level, VALUES_PER_CHUNK, values_per_page)
+        Self::from_primitive_with_values_per_chunk(
+            parray,
+            level,
+            VALUES_PER_CHUNK,
+            values_per_page,
+            ctx,
+        )
     }
 
     pub(crate) fn from_primitive_with_values_per_chunk(
@@ -267,6 +276,7 @@ impl PcoArray {
         level: usize,
         values_per_chunk: usize,
         values_per_page: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Self> {
         let number_type = number_type_from_dtype(parray.dtype());
         let values_per_page = if values_per_page == 0 {
@@ -280,7 +290,7 @@ impl PcoArray {
             .with_compression_level(level)
             .with_paging_spec(PagingSpec::EqualPagesUpTo(values_per_page));
 
-        let values = collect_valid(parray)?;
+        let values = collect_valid(parray, ctx)?;
         let n_values = values.len();
 
         let fc = FileCompressor::default();
@@ -335,9 +345,14 @@ impl PcoArray {
         ))
     }
 
-    pub fn from_array(array: ArrayRef, level: usize, nums_per_page: usize) -> VortexResult<Self> {
+    pub fn from_array(
+        array: ArrayRef,
+        level: usize,
+        nums_per_page: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Self> {
         if let Some(parray) = array.as_opt::<PrimitiveVTable>() {
-            Self::from_primitive(parray, level, nums_per_page)
+            Self::from_primitive(parray, level, nums_per_page, ctx)
         } else {
             Err(vortex_err!("Pco can only encode primitive arrays"))
         }
@@ -555,6 +570,8 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
 #[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::validity::Validity;
@@ -569,7 +586,9 @@ mod tests {
             Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
             Validity::from_iter([false, true, true, true, true, false]),
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         assert_arrays_eq!(
             pco,
             PrimitiveArray::from_option_iter([

@@ -22,13 +22,16 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::compute::fill_null;
 use crate::compute::sum;
 use crate::compute::take;
+use crate::executor::VortexSessionExecute;
 use crate::patches::Patches;
 
 /// Validity information for an array
@@ -196,10 +199,11 @@ impl Validity {
                 Ok(v.clone())
             }
             Validity::Array(arr) => Ok(Validity::Array(
+                // TODO(connor): This is wrong!!! We should not be eagerly decompressing the
+                // validity array.
+                // We need to fix this in the compressor and then we can revert this.
                 arr.filter(mask.clone())?
-                    // TODO(connor): This is wrong!!! We should not be eagerly decompressing the
-                    // validity array.
-                    .to_canonical()?
+                    .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
                     .into_array(),
             )),
         }

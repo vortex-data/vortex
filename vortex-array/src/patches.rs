@@ -36,13 +36,15 @@ use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
 use crate::compute::cast;
-use crate::compute::filter;
 use crate::compute::is_sorted;
 use crate::compute::take;
+use crate::executor::VortexSessionExecute;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
@@ -626,9 +628,19 @@ impl Patches {
             return Ok(None);
         }
 
+        // TODO(connor): This goes away when we get a `PatchesArray`.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
         // SAFETY: filtering indices/values with same mask maintains their 1:1 relationship
-        let filtered_indices = filter(&self.indices, &filter_mask)?;
-        let filtered_values = filter(&self.values, &filter_mask)?;
+        let filtered_indices = self
+            .indices
+            .filter(filter_mask.clone())?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
+        let filtered_values = self
+            .values
+            .filter(filter_mask)?
+            .execute::<Canonical>(&mut ctx)?
+            .into_array();
 
         Ok(Some(Self {
             array_len: self.array_len,
@@ -1149,10 +1161,11 @@ fn filter_patches_with_mask<T: IntegerPType>(
     }
 
     let new_patch_indices = new_patch_indices.into_array();
-    let new_patch_values = filter(
-        patch_values,
-        &Mask::from_indices(patch_values.len(), new_mask_indices),
-    )?;
+    let new_patch_values = patch_values
+        .filter(Mask::from_indices(patch_values.len(), new_mask_indices))?
+        // TODO(connor): This goes away when we get a `PatchesArray`.
+        .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())?
+        .into_array();
 
     Ok(Some(Patches::new(
         true_count,

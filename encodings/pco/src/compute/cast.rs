@@ -55,6 +55,8 @@ register_kernel!(CastKernelAdapter(PcoVTable).lift());
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
@@ -73,7 +75,9 @@ mod tests {
             Buffer::copy_from(vec![1.0f32, 2.0, 3.0, 4.0, 5.0]),
             Validity::NonNullable,
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
 
         let casted = cast(
             pco.as_ref(),
@@ -98,7 +102,9 @@ mod tests {
             Buffer::copy_from(vec![10u32, 20, 30, 40]),
             Validity::NonNullable,
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
 
         let casted = cast(
             pco.as_ref(),
@@ -117,7 +123,9 @@ mod tests {
             Buffer::copy_from(vec![10u32, 20, 30, 40, 50, 60]),
             Validity::from_iter([true, true, true, true, true, true]),
         );
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         let sliced = pco.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
@@ -142,7 +150,9 @@ mod tests {
             Some(50),
             Some(60),
         ]);
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         let sliced = pco.slice(1..5).unwrap();
         let casted = cast(
             sliced.as_ref(),
@@ -178,7 +188,9 @@ mod tests {
         Validity::NonNullable,
     ))]
     fn test_cast_pco_conformance(#[case] values: PrimitiveArray) {
-        let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
+        let pco =
+            PcoArray::from_primitive(&values, 0, 128, &mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap();
         test_cast_conformance(pco.as_ref());
     }
 }

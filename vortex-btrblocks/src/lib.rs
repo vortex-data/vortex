@@ -36,6 +36,7 @@ use std::hash::Hash;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -178,6 +179,7 @@ pub trait Scheme: Debug {
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[Self::CodeType],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef>;
 }
 

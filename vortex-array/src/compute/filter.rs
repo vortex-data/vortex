@@ -45,40 +45,6 @@ pub(crate) fn warm_up_vtable() -> usize {
     FILTER_FN.kernels().len()
 }
 
-/// Keep only the elements for which the corresponding mask value is true.
-///
-/// # Examples
-///
-/// ```
-/// use vortex_array::{Array, IntoArray};
-/// use vortex_array::arrays::{BoolArray, PrimitiveArray};
-/// use vortex_array::compute::{ filter, mask};
-/// use vortex_error::VortexResult;
-/// use vortex_mask::Mask;
-/// use vortex_scalar::Scalar;
-///
-/// # fn main() -> VortexResult<()> {
-/// let array =
-///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
-/// let mask = Mask::from_iter([true, false, false, false, true]);
-///
-/// let filtered = filter(array.as_ref(), &mask)?;
-/// assert_eq!(filtered.len(), 2);
-/// assert_eq!(filtered.scalar_at(0)?, Scalar::from(Some(0_i32)));
-/// assert_eq!(filtered.scalar_at(1)?, Scalar::from(Some(2_i32)));
-/// # Ok(())
-/// # }
-/// ```
-///
-/// # Panics
-///
-/// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
-/// not the case.
-pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    // TODO(connor): Remove this function completely!!!
-    Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
-}
-
 struct Filter;
 
 impl ComputeFnVTable for Filter {

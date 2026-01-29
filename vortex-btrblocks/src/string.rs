@@ -417,11 +417,12 @@ impl Scheme for NullDominated {
         is_sample: bool,
         allowed_cascading: usize,
         _excludes: &[Self::CodeType],
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<ArrayRef> {
         assert!(allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
-        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
+        let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None, ctx)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
