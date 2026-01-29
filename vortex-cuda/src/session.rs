@@ -15,7 +15,6 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
-use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
 
 /// Default maximum number of streams in the pool.

@@ -66,13 +66,14 @@ impl VortexCudaStreamPool {
     pub fn get_stream(&self) -> VortexResult<VortexCudaStream> {
         let len = self.slots.len();
         // Atomically increment and wrap the index to stay in bounds.
-        // SAFETY: The closure always returns Some, so fetch_update always succeeds.
+        // The closure always returns Some, so fetch_update always succeeds.
         let slot_idx = self
             .next_index
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
                 Some((x + 1) % len)
             })
-            .vortex_expect("can never fail");
+            .ok()
+            .vortex_expect("cannot fail");
         let slot = &self.slots[slot_idx];
 
         // Fast path: stream already exists in slot.
