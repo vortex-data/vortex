@@ -1,0 +1,24 @@
+[package]
+name = "vortex-test-e2e-cuda"
+authors = { workspace = true }
+description = "End-to-end CUDA tests for Vortex"
+edition = { workspace = true }
+homepage = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+cudarc = { workspace = true }
+rstest = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-cuda = { workspace = true, features = ["_test-harness"] }
+vortex-error = { workspace = true }

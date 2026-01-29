@@ -34,6 +34,8 @@ members = [
     "vortex-jni",
     "vortex-python",
     "vortex-tui",
+    "vortex-test-e2e",
+    "vortex-test-e2e-cuda",
     "xtask",
     # Encodings
     "encodings/fastlanes",
