@@ -80,3 +80,9 @@ message SelectOpts {
     FieldNames exclude = 2;
   }
 }
+
+// Options for `vortex.case_when`
+message CaseWhenOpts {
+  uint32 num_when_then_pairs = 1;
+  bool has_else = 2;
+}

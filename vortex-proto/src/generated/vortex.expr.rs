@@ -145,3 +145,11 @@ pub mod select_opts {
         Exclude(super::FieldNames),
     }
 }
+/// Options for `vortex.case_when`
+#[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct CaseWhenOpts {
+    #[prost(uint32, tag = "1")]
+    pub num_when_then_pairs: u32,
+    #[prost(bool, tag = "2")]
+    pub has_else: bool,
+}
