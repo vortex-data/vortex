@@ -192,17 +192,16 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let new_len = range.end - range.start;
         let byte_offset = new_offset * size_of::<T>();
 
-        let req_align = Alignment::from_exponent(
+        let slice_align = Alignment::from_exponent(
             u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
                 .vortex_expect("impossible"),
         );
-
         let alignment = Alignment::of::<T>();
 
         assert!(
-            req_align.is_aligned_to(alignment),
+            slice_align.is_aligned_to(alignment),
             "slice must respect minimum alignment byte {}, min {}",
-            req_align,
+            slice_align,
             alignment
         );
 
