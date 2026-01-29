@@ -12,6 +12,7 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVisitor;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedVTable;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
@@ -38,8 +39,13 @@ impl<'a> Arbitrary<'a> for FuzzCompressor {
     }
 }
 
-/// Recursively checks if an array or any of its children contains a Slice or Filter encoding.
-fn contains_slice_or_filter(array: &ArrayRef) -> Option<&'static str> {
+/// Recursively checks if an array or any of its children contains a forbidden encoding.
+///
+/// Forbidden encodings are those that should not appear in compressor output:
+/// - Slice: lazy view encoding, not serializable
+/// - Filter: lazy view encoding, not serializable
+/// - Chunked: in-memory batching encoding, compressor should produce flat arrays
+fn contains_forbidden_encoding(array: &ArrayRef) -> Option<&'static str> {
     let encoding_id = array.encoding_id();
 
     if encoding_id == SliceVTable::ID {
@@ -48,10 +54,13 @@ fn contains_slice_or_filter(array: &ArrayRef) -> Option<&'static str> {
     if encoding_id == FilterVTable::ID {
         return Some("vortex.filter");
     }
+    if encoding_id == ChunkedVTable::ID {
+        return Some("vortex.chunked");
+    }
 
     // Recursively check children
     for child in array.children() {
-        if let Some(found) = contains_slice_or_filter(&child) {
+        if let Some(found) = contains_forbidden_encoding(&child) {
             return Some(found);
         }
     }
@@ -82,8 +91,8 @@ pub fn run_compressor_fuzzer(fuzz: FuzzCompressor) -> VortexFuzzResult<bool> {
     // Compress the canonical array
     let compressed = compress_array(&canonical_array, strategy);
 
-    // Check that compressed array doesn't contain Slice or Filter encodings
-    if let Some(forbidden_encoding) = contains_slice_or_filter(&compressed) {
+    // Check that compressed array doesn't contain forbidden encodings (Slice, Filter, Chunked)
+    if let Some(forbidden_encoding) = contains_forbidden_encoding(&compressed) {
         return Err(VortexFuzzError::ForbiddenEncoding(
             forbidden_encoding.to_string(),
             compressed,
@@ -137,6 +146,14 @@ pub fn run_compressor_fuzzer(fuzz: FuzzCompressor) -> VortexFuzzResult<bool> {
             canonical_array,
             decompressed_array,
             1,
+            Backtrace::capture(),
+        ));
+    }
+
+    // Verify decompressed array is canonical
+    if !decompressed_array.is_canonical() {
+        return Err(VortexFuzzError::NotCanonical(
+            decompressed_array,
             Backtrace::capture(),
         ));
     }
