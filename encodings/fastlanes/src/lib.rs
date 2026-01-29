@@ -13,4 +13,7 @@ mod delta;
 mod r#for;
 mod rle;
 
+#[cfg(test)]
+mod test_order;
+
 pub(crate) const FL_CHUNK_SIZE: usize = 1024;
