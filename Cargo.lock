@@ -10637,7 +10637,6 @@ dependencies = [
 name = "vortex-file"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "bytes",
  "flatbuffers",
