@@ -327,11 +327,9 @@ impl LayoutReader for ListReader {
                 // The offsets array has length = rows + 1, so a split at offset index `i`
                 // corresponds to a split in rows at `i - 1`.
                 for offsets_split in offsets_splits {
-                    if offsets_split <= row_range.start {
+                    let Some(row_split) = offsets_split.checked_sub(1) else {
                         continue;
-                    }
-
-                    let row_split = offsets_split - 1;
+                    };
                     if row_split > row_range.start && row_split < row_range.end {
                         splits.insert(row_split);
                     }
