@@ -453,30 +453,6 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             }),
         })
     }
-<<<<<<< HEAD
-
-    fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
-        Ok(match array.values().validity_mask()? {
-            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
-            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
-            Mask::Values(values) => {
-                // SAFETY: we preserve ends from an existing validated RunEndArray.
-                //  Validity is checked on construction to have the correct len.
-                let ree_validity = unsafe {
-                    RunEndArray::new_unchecked(
-                        array.ends().clone(),
-                        values.into_array(),
-                        array.offset(),
-                        array.len(),
-                    )
-                    .into_array()
-                };
-                Mask::from_buffer(ree_validity.to_bool().to_bit_buffer())
-            }
-        })
-    }
-=======
->>>>>>> 3bbdd0070 (Make flatbuffer writer fallible)
 }
 
 pub(super) fn run_end_canonicalize(
