@@ -19,7 +19,6 @@ mod test {
     use vortex_dtype::datetime::Date;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
-    use vortex_dtype::extension::VTable;
 
     use crate::IntoArray;
     use crate::arrays::ExtensionArray;

@@ -34,7 +34,6 @@ use vortex::array::arrays::TemporalArray;
 use vortex::array::vtable::ValidityHelper;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 

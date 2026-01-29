@@ -220,7 +220,6 @@ mod test {
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
     use vortex_array::ToCanonical;
-    use vortex_array::session::ArraySession;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;

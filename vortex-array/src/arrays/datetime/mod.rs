@@ -112,8 +112,7 @@ impl TemporalArray {
     ) -> Self {
         Self {
             ext: ExtensionArray::new(
-                Timestamp::new_with_tz(time_unit, time_zone, array.dtype().nullability())
-                    .erased(),
+                Timestamp::new_with_tz(time_unit, time_zone, array.dtype().nullability()).erased(),
                 array,
             ),
         }

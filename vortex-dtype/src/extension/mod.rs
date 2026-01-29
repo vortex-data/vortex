@@ -152,12 +152,12 @@ impl ExtDTypeRef {
 impl ExtDTypeRef {
     /// Check if the extension dtype is of the concrete type.
     pub fn is<M: Matcher>(&self) -> bool {
-        M::matches(&self)
+        M::matches(self)
     }
 
     /// Downcast to the concrete options type.
     pub fn try_options<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match(&self)
+        M::try_match(self)
     }
 
     /// Downcast to the concrete options type.

@@ -51,7 +51,7 @@ impl VTable for Date {
 
     fn deserialize(&self, data: &[u8]) -> VortexResult<Self::Options> {
         let tag = data[0];
-        Ok(TimeUnit::try_from(tag)?)
+        TimeUnit::try_from(tag)
     }
 
     fn validate(&self, options: &Self::Options, storage_dtype: &DType) -> VortexResult<()> {
