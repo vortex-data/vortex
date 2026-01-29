@@ -10960,6 +10960,7 @@ dependencies = [
  "arrow-array 57.2.0",
  "bytes",
  "itertools 0.14.0",
+ "jiff",
  "num-traits",
  "paste",
  "prost 0.14.3",

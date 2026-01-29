@@ -16,7 +16,7 @@ mod binary;
 mod bool;
 mod decimal;
 mod display;
-mod extension;
+pub mod extension;
 mod list;
 mod null;
 mod primitive;
@@ -30,7 +30,8 @@ mod utf8;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;
-pub use extension::*;
+pub use extension::ExtScalar;
+pub use extension::ExtScalarRef;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
@@ -39,5 +40,6 @@ pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
 
+mod datetime;
 #[cfg(test)]
 mod tests;

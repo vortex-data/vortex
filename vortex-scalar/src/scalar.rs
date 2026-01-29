@@ -18,6 +18,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use super::*;
+use crate::extension::ExtScalarVTable;
 
 /// A single logical item, composed of both a [`ScalarValue`] and a logical [`DType`].
 ///
@@ -41,6 +42,8 @@ pub struct Scalar {
 
 impl Scalar {
     /// Creates a new scalar with the given data type and value.
+    ///
+    // TODO(ngates): make this unsafe. There's no guarantee that the value matches the dtype.
     pub fn new(dtype: DType, value: ScalarValue) -> Self {
         if !dtype.is_nullable() {
             assert!(
@@ -455,13 +458,37 @@ impl Scalar {
     /// # Panics
     ///
     /// Panics if the scalar is not an extension type.
-    pub fn as_extension(&self) -> ExtScalar<'_> {
-        ExtScalar::try_from(self).vortex_expect("Failed to convert scalar to extension")
+    pub fn as_extension<V: ExtScalarVTable + Default>(&self) -> ExtScalar<V> {
+        self.as_extension_opt::<V>()
+            .vortex_expect("Failed to convert scalar to extension")
     }
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.
-    pub fn as_extension_opt(&self) -> Option<ExtScalar<'_>> {
-        matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension())
+    pub fn as_extension_opt<V: ExtScalarVTable + Default>(&self) -> Option<ExtScalar<V>> {
+        let DType::Extension(ext_dtype) = &self.dtype else {
+            return None;
+        };
+        if !ext_dtype.is::<V>() {
+            return None;
+        }
+        Some(
+            ExtScalar::try_from_scalar(ext_dtype, &self.value)
+                .vortex_expect("Failed to convert scalar to extension"),
+        )
+    }
+
+    /// Returns a view of the scalar as an extension scalar.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the scalar is not an extension type.
+    pub fn as_extension_ref(&self) -> ExtScalarRef<'_> {
+        ExtScalarRef::try_from(self).vortex_expect("Failed to convert scalar to extension")
+    }
+
+    /// Returns a view of the scalar as an extension scalar if it has an extension type.
+    pub fn as_extension_ref_opt(&self) -> Option<ExtScalarRef<'_>> {
+        matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension_ref())
     }
 }
 

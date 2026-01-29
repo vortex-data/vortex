@@ -29,7 +29,7 @@ use crate::Nullability;
 pub type ExtID = ArcRef<str>;
 
 /// An extension data type.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ExtDType<V: ExtDTypeVTable>(Arc<ExtDTypeAdapter<V>>);
 
 // Convenience impls for zero-sized VTables
@@ -262,6 +262,7 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
 }
 
+#[derive(Debug)]
 struct ExtDTypeAdapter<V: ExtDTypeVTable> {
     vtable: V,
     metadata: V::Metadata,
