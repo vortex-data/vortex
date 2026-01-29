@@ -1732,7 +1732,6 @@ mod cuda_tests {
             .into_array_stream()?;
         while let Some(a) = stream.next().await {
             let a = a?;
-            // println!("arr {}", a.display_tree());
             let array = a
                 .execute_cuda(&mut cuda_ctx)
                 .await?

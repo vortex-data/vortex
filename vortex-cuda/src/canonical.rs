@@ -6,7 +6,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::future::try_join_all;
 use vortex_array::Array;
-use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BinaryView;
@@ -49,7 +48,6 @@ impl CanonicalCudaExt for Canonical {
 
                 let futures = fields
                     .iter()
-                    .cloned()
                     .map(|field| field.to_canonical().map(|c| c.into_host()))
                     .collect::<VortexResult<Vec<_>>>()?;
                 let host_fields = try_join_all(futures).await?;
