@@ -1,18 +1,21 @@
-use std::{
-    pin::Pin,
-    sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    },
-    task::ready,
-    task::{Context, Poll},
-};
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use futures::{
-    Stream, StreamExt,
-    channel::mpsc::{TrySendError, UnboundedReceiver, UnboundedSender, unbounded},
-    stream::FusedStream,
-};
+use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
+use std::task::Context;
+use std::task::Poll;
+
+use futures::Stream;
+use futures::StreamExt;
+use futures::channel::mpsc::TrySendError;
+use futures::channel::mpsc::UnboundedReceiver;
+use futures::channel::mpsc::UnboundedSender;
+use futures::channel::mpsc::unbounded;
+use futures::stream::FusedStream;
+use vortex_error::vortex_panic;
 
 use crate::segments::ReadEvent;
 
@@ -87,14 +90,14 @@ impl Stream for EventsReceiver {
 
         if self.num_senders.load(Ordering::SeqCst) == 0 {
             if std::env::var("PANIC_EVENTS").is_ok() {
-                panic!("Oops");
+                vortex_panic!("Oops");
             }
 
             self.is_done = true;
             return Poll::Ready(None);
         }
 
-        return self.inner.poll_next_unpin(cx);
+        self.inner.poll_next_unpin(cx)
     }
 }
 

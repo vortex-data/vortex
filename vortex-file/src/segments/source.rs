@@ -11,7 +11,6 @@ use std::task::Poll;
 
 use futures::FutureExt;
 use futures::StreamExt;
-use futures::channel::mpsc;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
