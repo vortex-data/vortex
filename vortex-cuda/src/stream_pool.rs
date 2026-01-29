@@ -10,7 +10,6 @@ use std::sync::atomic::Ordering;
 use arc_swap::ArcSwapOption;
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaStream;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
