@@ -14,9 +14,7 @@ use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use vortex_array::buffer::BufferHandle;
-use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
