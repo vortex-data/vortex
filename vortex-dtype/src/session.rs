@@ -13,7 +13,7 @@ use crate::datetime::Date;
 use crate::datetime::Time;
 use crate::datetime::Timestamp;
 use crate::extension::DynVTable;
-use crate::extension::VTable;
+use crate::extension::ExtDTypeVTable;
 
 /// Registry for extension dtypes.
 pub type ExtDTypeRegistry = Registry<Arc<dyn DynVTable>>;
@@ -41,7 +41,7 @@ impl Default for DTypeSession {
 
 impl DTypeSession {
     /// Register an extension DType with the Vortex session.
-    pub fn register<V: VTable>(&self, vtable: V) {
+    pub fn register<V: ExtDTypeVTable>(&self, vtable: V) {
         self.registry
             .register(vtable.id(), Arc::new(vtable) as Arc<dyn DynVTable>);
     }

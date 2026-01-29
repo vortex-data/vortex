@@ -10,8 +10,8 @@ use crate::datetime::Time;
 use crate::datetime::Timestamp;
 use crate::datetime::TimestampOptions;
 use crate::extension::ExtDTypeRef;
+use crate::extension::ExtDTypeVTable;
 use crate::extension::Matcher;
-use crate::extension::VTable;
 
 /// Matcher for temporal extension data types.
 pub struct AnyTemporal;
@@ -37,11 +37,11 @@ impl Matcher for AnyTemporal {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TemporalOptions<'a> {
     /// Options for Timestamp dtypes
-    Timestamp(&'a <Timestamp as VTable>::Options),
+    Timestamp(&'a <Timestamp as ExtDTypeVTable>::Options),
     /// Options for Date dtypes
-    Date(&'a <Date as VTable>::Options),
+    Date(&'a <Date as ExtDTypeVTable>::Options),
     /// Options for Time dtypes
-    Time(&'a <Time as VTable>::Options),
+    Time(&'a <Time as ExtDTypeVTable>::Options),
 }
 
 // TODO(ngates): remove this logic in favor of having an ExtScalarVTable in vortex-scalar.

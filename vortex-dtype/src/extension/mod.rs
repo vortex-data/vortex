@@ -30,17 +30,17 @@ pub type ExtID = ArcRef<str>;
 
 /// An extension data type.
 #[derive(Clone)]
-pub struct ExtDType<V: VTable>(Arc<ExtDTypeAdapter<V>>);
+pub struct ExtDType<V: ExtDTypeVTable>(Arc<ExtDTypeAdapter<V>>);
 
 // Convenience impls for zero-sized VTables
-impl<V: VTable + Default> ExtDType<V> {
+impl<V: ExtDTypeVTable + Default> ExtDType<V> {
     /// Creates a new extension dtype with the given options and storage dtype.
     pub fn try_new(options: V::Options, storage_dtype: DType) -> VortexResult<Self> {
         Self::try_with_vtable(V::default(), options, storage_dtype)
     }
 }
 
-impl<V: VTable> ExtDType<V> {
+impl<V: ExtDTypeVTable> ExtDType<V> {
     /// Creates a new extension dtype with the given options and storage dtype.
     pub fn try_with_vtable(
         vtable: V,
@@ -175,7 +175,7 @@ impl ExtDTypeRef {
     /// Downcast to the concrete options type.
     ///
     /// Returns `Err(self)` if the downcast fails.
-    pub fn try_downcast<V: VTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
+    pub fn try_downcast<V: ExtDTypeVTable>(self) -> Result<ExtDType<V>, ExtDTypeRef> {
         // Check if the concrete type matches
         if self.0.as_any().is::<ExtDTypeAdapter<V>>() {
             // SAFETY: type matches and ExtDTypeImpl<V> is the only implementor
@@ -192,7 +192,7 @@ impl ExtDTypeRef {
     /// # Panics
     ///
     /// Panics if the downcast fails.
-    pub fn downcast<V: VTable>(self) -> ExtDType<V> {
+    pub fn downcast<V: ExtDTypeVTable>(self) -> ExtDType<V> {
         self.try_downcast::<V>()
             .map_err(|this| {
                 vortex_err!(
@@ -256,13 +256,13 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
 }
 
-struct ExtDTypeAdapter<V: VTable> {
+struct ExtDTypeAdapter<V: ExtDTypeVTable> {
     vtable: V,
     options: V::Options,
     storage_dtype: DType,
 }
 
-impl<V: VTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
+impl<V: ExtDTypeVTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -313,5 +313,5 @@ mod private {
     use super::ExtDTypeAdapter;
 
     pub trait Sealed {}
-    impl<V: super::VTable> Sealed for ExtDTypeAdapter<V> {}
+    impl<V: super::ExtDTypeVTable> Sealed for ExtDTypeAdapter<V> {}
 }

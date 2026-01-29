@@ -13,7 +13,7 @@ use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::datetime::TimestampOptions;
-use vortex_dtype::extension::VTable;
+use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -266,7 +266,7 @@ fn test_non_temporal_extension_to_arrow_todo() {
 
     #[derive(Debug, Clone, Default)]
     struct SomeExt;
-    impl VTable for SomeExt {
+    impl ExtDTypeVTable for SomeExt {
         type Options = String;
 
         fn id(&self) -> ExtID {

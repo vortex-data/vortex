@@ -11,8 +11,8 @@ use crate::ExtDType;
 use crate::Nullability;
 use crate::PType;
 use crate::datetime::TimeUnit;
+use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
-use crate::extension::VTable;
 
 /// Date DType.
 #[derive(Clone, Debug, Default)]
@@ -38,7 +38,7 @@ impl Date {
     }
 }
 
-impl VTable for Date {
+impl ExtDTypeVTable for Date {
     type Options = TimeUnit;
 
     fn id(&self) -> ExtID {

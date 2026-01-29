@@ -14,7 +14,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_dtype::extension::VTable;
+    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_dtype::half::f16;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
@@ -26,7 +26,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default)]
     struct Apples;
-    impl VTable for Apples {
+    impl ExtDTypeVTable for Apples {
         type Options = usize;
 
         fn id(&self) -> ExtID {
@@ -313,7 +313,7 @@ mod tests {
         // Create an extension type with f16 storage
         #[derive(Debug, Clone, Default)]
         struct F16Ext;
-        impl VTable for F16Ext {
+        impl ExtDTypeVTable for F16Ext {
             type Options = usize;
 
             fn id(&self) -> ExtID {
@@ -358,7 +358,7 @@ mod tests {
         // Create an extension type with struct storage that contains f16 field
         #[derive(Debug, Clone, Default)]
         struct StructExt;
-        impl VTable for StructExt {
+        impl ExtDTypeVTable for StructExt {
             type Options = usize;
 
             fn id(&self) -> ExtID {

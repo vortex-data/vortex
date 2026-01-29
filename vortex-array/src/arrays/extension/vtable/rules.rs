@@ -55,7 +55,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::extension::EmptyOptions;
-    use vortex_dtype::extension::VTable;
+    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -75,7 +75,7 @@ mod tests {
 
     #[derive(Clone, Debug, Default)]
     struct TestExt;
-    impl VTable for TestExt {
+    impl ExtDTypeVTable for TestExt {
         type Options = EmptyOptions;
 
         fn id(&self) -> ExtID {
@@ -155,7 +155,7 @@ mod tests {
     fn test_scalar_fn_no_pushdown_different_ext_types() {
         #[derive(Clone, Debug, Default)]
         struct TestExt2;
-        impl VTable for TestExt2 {
+        impl ExtDTypeVTable for TestExt2 {
             type Options = EmptyOptions;
 
             fn id(&self) -> ExtID {

@@ -338,7 +338,7 @@ mod tests {
     use vortex::dtype::datetime::Time;
     use vortex::dtype::datetime::Timestamp;
     use vortex::dtype::extension::EmptyOptions;
-    use vortex::dtype::extension::VTable;
+    use vortex::dtype::extension::ExtDTypeVTable;
     use vortex::error::VortexResult;
 
     use crate::cpp;
@@ -571,7 +571,7 @@ mod tests {
 
         #[derive(Clone, Debug, Default)]
         struct TestExt;
-        impl VTable for TestExt {
+        impl ExtDTypeVTable for TestExt {
             type Options = EmptyOptions;
 
             fn id(&self) -> ExtID {

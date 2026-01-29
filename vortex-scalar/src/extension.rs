@@ -9,7 +9,7 @@ use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::extension::ExtDTypeRef;
-use vortex_dtype::extension::VTable;
+use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -138,7 +138,7 @@ impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
 
 impl Scalar {
     /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: VTable + Default>(options: V::Options, value: Scalar) -> Self {
+    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Options, value: Scalar) -> Self {
         let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
             .vortex_expect("Failed to create extension dtype");
         Self::new(DType::Extension(ext_dtype.erased()), value.value().clone())
@@ -159,7 +159,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::extension::EmptyOptions;
-    use vortex_dtype::extension::VTable;
+    use vortex_dtype::extension::ExtDTypeVTable;
     use vortex_error::VortexResult;
 
     use crate::ExtScalar;
@@ -169,7 +169,7 @@ mod tests {
 
     #[derive(Debug, Clone, Default)]
     struct TestExt;
-    impl VTable for TestExt {
+    impl ExtDTypeVTable for TestExt {
         type Options = EmptyOptions;
 
         fn id(&self) -> ExtID {
@@ -236,7 +236,7 @@ mod tests {
     fn test_ext_scalar_partial_ord_different_types() {
         #[derive(Clone, Debug, Default)]
         struct TestExt2;
-        impl VTable for TestExt2 {
+        impl ExtDTypeVTable for TestExt2 {
             type Options = EmptyOptions;
 
             fn id(&self) -> ExtID {
@@ -415,7 +415,7 @@ mod tests {
     fn test_ext_scalar_with_metadata() {
         #[derive(Clone, Debug, Default)]
         struct TestExtMetadata;
-        impl VTable for TestExtMetadata {
+        impl ExtDTypeVTable for TestExtMetadata {
             type Options = usize;
 
             fn id(&self) -> ExtID {

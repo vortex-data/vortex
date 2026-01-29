@@ -18,8 +18,8 @@ use crate::ExtDType;
 use crate::Nullability;
 use crate::PType;
 use crate::datetime::TimeUnit;
+use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
-use crate::extension::VTable;
 
 /// Timestamp DType.
 #[derive(Clone, Debug, Default)]
@@ -66,7 +66,7 @@ impl Display for TimestampOptions {
     }
 }
 
-impl VTable for Timestamp {
+impl ExtDTypeVTable for Timestamp {
     type Options = TimestampOptions;
 
     fn id(&self) -> ExtID {

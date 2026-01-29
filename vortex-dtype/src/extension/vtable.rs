@@ -22,7 +22,7 @@ use crate::extension::ExtDTypeRef;
 // deserialize function).
 
 /// The public API for defining new extension DTypes.
-pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
+pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug {
     /// Associated type containing the deserialized metadata for this extension type
     type Options: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 
@@ -55,7 +55,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Clone + Debug {
 }
 
 /// A dynamic vtable for extension types, used for type-erased deserialization.
-// FIXME(ngates): consider renaming this to ExtDTypePlugin or similar?
+// TODO(ngates): consider renaming this to ExtDTypePlugin or similar?
 pub trait DynVTable: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtID;
@@ -67,13 +67,13 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
     fn clone_box(&self) -> Box<dyn DynVTable>;
 }
 
-impl<V: VTable> DynVTable for V {
+impl<V: ExtDTypeVTable> DynVTable for V {
     fn id(&self) -> ExtID {
-        VTable::id(self)
+        ExtDTypeVTable::id(self)
     }
 
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef> {
-        let options = VTable::deserialize(self, data)?;
+        let options = ExtDTypeVTable::deserialize(self, data)?;
         Ok(ExtDType::try_with_vtable(self.clone(), options, storage_dtype)?.erased())
     }
 
