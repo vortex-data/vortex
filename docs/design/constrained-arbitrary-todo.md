@@ -12,10 +12,8 @@
 - [x] Implement ArbitraryConstrained for BitPackedArray
 - [x] Implement ArbitrarySparseArray with constrained indices
 - [x] Update ArbitraryRunEndArray to use constrained generation
-
-## In Progress
-
-- [ ] Update ArbitraryDictArray to use constrained generation
+- [x] Update ArbitraryDictArray to use constrained generation
+- [x] Implement ArbitraryRLEArray (fastlanes)
 
 ## Pending
 
@@ -23,7 +21,6 @@
 - [ ] Implement ArbitraryByteBoolArray
 - [ ] Implement ArbitraryFSSTArray
 - [ ] Implement ArbitraryDateTimePartsArray
-- [ ] Implement ArbitraryRLEArray (fastlanes)
 - [ ] Implement ArbitraryALPArray
 - [ ] Implement ArbitraryALPRDArray
 - [ ] Implement ArbitraryPcoArray
