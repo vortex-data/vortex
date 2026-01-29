@@ -13,6 +13,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::ListViewArray;
@@ -27,6 +28,15 @@ use crate::expr::Expression;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::vtable::ValidityHelper;
+
+fn project_field(struct_elems: &StructArray, field_name: &FieldName) -> VortexResult<ArrayRef> {
+    let field = struct_elems.unmasked_field_by_name(field_name)?.clone();
+
+    match struct_elems.dtype().nullability() {
+        Nullability::NonNullable => Ok(field),
+        Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not()),
+    }
+}
 
 /// UNSTABLE: project a struct field from each element of a list.
 ///
@@ -137,11 +147,7 @@ impl VTable for GetItemList {
                 let list = input.execute::<ListViewArray>(args.ctx)?;
                 let struct_elems = list.elements().clone().execute::<StructArray>(args.ctx)?;
 
-                let field = struct_elems.unmasked_field_by_name(field_name)?.clone();
-                let field = match struct_elems.dtype().nullability() {
-                    Nullability::NonNullable => field,
-                    Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not())?,
-                };
+                let field = project_field(&struct_elems, field_name)?;
 
                 ListViewArray::try_new(
                     field,
@@ -156,11 +162,7 @@ impl VTable for GetItemList {
                 let list = input.execute::<FixedSizeListArray>(args.ctx)?;
                 let struct_elems = list.elements().clone().execute::<StructArray>(args.ctx)?;
 
-                let field = struct_elems.unmasked_field_by_name(field_name)?.clone();
-                let field = match struct_elems.dtype().nullability() {
-                    Nullability::NonNullable => field,
-                    Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not())?,
-                };
+                let field = project_field(&struct_elems, field_name)?;
 
                 FixedSizeListArray::try_new(
                     field,
