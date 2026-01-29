@@ -34,6 +34,8 @@ members = [
     "vortex-jni",
     "vortex-python",
     "vortex-tui",
+    "vortex-test/e2e",
+    "vortex-test/e2e-cuda",
     "xtask",
     # Encodings
     "encodings/fastlanes",
@@ -281,6 +283,8 @@ vortex-bench = { path = "./vortex-bench", default-features = false }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
+vortex-test-e2e = { path = "./vortex-test/e2e", default-features = false }
+vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]

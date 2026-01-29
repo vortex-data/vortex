@@ -11041,6 +11041,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-test-e2e"
+version = "0.1.0"
+dependencies = [
+ "rstest",
+ "tokio",
+ "vortex",
+ "vortex-array",
+ "vortex-error",
+ "vortex-file",
+]
+
+[[package]]
+name = "vortex-test-e2e-cuda"
+version = "0.1.0"
+dependencies = [
+ "cudarc",
+ "rstest",
+ "tokio",
+ "vortex-array",
+ "vortex-cuda",
+ "vortex-error",
+]
+
+[[package]]
 name = "vortex-tui"
 version = "0.1.0"
 dependencies = [
