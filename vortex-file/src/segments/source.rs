@@ -72,7 +72,6 @@ impl FileSegmentSource {
         handle: Handle,
         metrics: VortexMetrics,
     ) -> Self {
-        // let (send, recv) = mpsc::unbounded();
         let (send, recv) = EventsChannel::unbounded();
 
         let max_alignment = segments
