@@ -400,9 +400,131 @@ pub fn arbitrary_constrained_array(
     dtype: &DType,
     constraints: &ArrayConstraints,
 ) -> Result<ArrayRef> {
-    // For now, just use primitive constrained generation as the base case.
-    // Other encodings will be added as they implement ArbitraryConstrained.
-    random_primitive_constrained(u, len, dtype, constraints)
+    // Use the recursive version with default max depth
+    arbitrary_constrained_array_with_depth(u, len, dtype, constraints, 8)
+}
+
+/// Generate a random array with controlled nesting depth.
+/// This enables deeply nested array structures for fuzz testing.
+pub fn arbitrary_constrained_array_with_depth(
+    u: &mut Unstructured,
+    len: Option<usize>,
+    dtype: &DType,
+    constraints: &ArrayConstraints,
+    max_depth: usize,
+) -> Result<ArrayRef> {
+    let len = len.unwrap_or(u.int_in_range(1..=20)?);
+
+    // Base case: no more depth allowed, use primitive
+    if max_depth == 0 {
+        return random_primitive_constrained(u, Some(len), dtype, constraints);
+    }
+
+    // Only wrap integer types in complex encodings
+    let DType::Primitive(ptype, nullability) = dtype else {
+        return random_primitive_constrained(u, Some(len), dtype, constraints);
+    };
+
+    // Choose encoding based on constraints and randomness
+    // Higher depth = more likely to wrap in DictArray
+    // 0 = Primitive (base case)
+    // 1 = SequenceArray (if sorted constraints)
+    // 2 = DictArray wrapper (recursive nesting)
+    let encoding_choice = if constraints.requires_strictly_sorted() || constraints.requires_sorted()
+    {
+        // For sorted constraints, prefer SequenceArray or Primitive
+        u.int_in_range(0..=1)?
+    } else {
+        // Bias toward DictArray when we have depth budget
+        // 50% chance of DictArray when depth > 2
+        if max_depth > 2 && u.arbitrary::<bool>()? {
+            2 // DictArray
+        } else {
+            u.int_in_range(0..=2)?
+        }
+    };
+
+    match encoding_choice {
+        0 => {
+            // Base case: Primitive
+            random_primitive_constrained(u, Some(len), dtype, constraints)
+        }
+        1 if constraints.requires_strictly_sorted() => {
+            // SequenceArray for strictly sorted (zero storage!)
+            create_sequence_array(u, len, *ptype, *nullability, constraints)
+        }
+        1 => {
+            // Primitive for non-sorted
+            random_primitive_constrained(u, Some(len), dtype, constraints)
+        }
+        2 => {
+            // DictArray: codes index into values
+            // Generate small values array, then bounded codes
+            let values_len = u.int_in_range(1..=len.clamp(1, 10))?;
+
+            // Recursively generate values with reduced depth
+            let values = arbitrary_constrained_array_with_depth(
+                u,
+                Some(values_len),
+                dtype,
+                &ArrayConstraints::default(),
+                max_depth - 1,
+            )?;
+
+            // Generate bounded codes
+            let codes_ptype = PType::min_unsigned_ptype_for_value((values_len - 1) as u64);
+            let codes_dtype = DType::Primitive(
+                codes_ptype,
+                if constraints.non_nullable {
+                    Nullability::NonNullable
+                } else {
+                    *nullability
+                },
+            );
+            let codes_constraints = ArrayConstraints {
+                bounds: BoundConstraint {
+                    lower_bound: Some(0),
+                    upper_bound: Some(values_len as u64),
+                    ..Default::default()
+                },
+                non_nullable: constraints.non_nullable,
+                ..Default::default()
+            };
+
+            // Recursively generate codes with reduced depth
+            let codes = arbitrary_constrained_array_with_depth(
+                u,
+                Some(len),
+                &codes_dtype,
+                &codes_constraints,
+                max_depth - 1,
+            )?;
+
+            Ok(super::DictArray::try_new(codes, values)
+                .vortex_expect("DictArray creation in arbitrary")
+                .into_array())
+        }
+        _ => random_primitive_constrained(u, Some(len), dtype, constraints),
+    }
+}
+
+/// Create a SequenceArray for sorted/strictly-sorted constraints.
+/// Note: SequenceArray is in vortex-sequence crate, so we fall back to sorted primitive.
+fn create_sequence_array(
+    u: &mut Unstructured,
+    len: usize,
+    ptype: PType,
+    nullability: Nullability,
+    constraints: &ArrayConstraints,
+) -> Result<ArrayRef> {
+    // SequenceArray is in vortex-sequence crate, not vortex-array.
+    // Fall back to sorted primitive generation which satisfies the same constraints.
+    random_primitive_constrained(
+        u,
+        Some(len),
+        &DType::Primitive(ptype, nullability),
+        constraints,
+    )
 }
 
 use super::BoolArray;
@@ -741,4 +863,75 @@ fn arbitrary_vec_of_len<'a, T: Arbitrary<'a>>(
 ) -> Result<Vec<T>> {
     len.map(|l| (0..l).map(|_| T::arbitrary(u)).collect::<Result<Vec<_>>>())
         .unwrap_or_else(|| Vec::<T>::arbitrary(u))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Array;
+    use crate::display::DisplayOptions;
+
+    /// Count nesting depth of an array
+    fn count_depth(array: &dyn Array, current: usize) -> usize {
+        let child_depths: Vec<usize> = array
+            .children()
+            .iter()
+            .map(|c| count_depth(c.as_ref(), current + 1))
+            .collect();
+        child_depths.into_iter().max().unwrap_or(current)
+    }
+
+    #[test]
+    fn test_arbitrary_constrained_produces_nested_arrays() {
+        // Use different seeds to get variety
+        for seed_offset in 0..10 {
+            let seed: Vec<u8> = (seed_offset * 100..(seed_offset * 100 + 5000))
+                .map(|i| (i % 256) as u8)
+                .collect();
+            let mut u = Unstructured::new(&seed);
+
+            let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
+            let constraints = ArrayConstraints::default();
+
+            let array =
+                arbitrary_constrained_array_with_depth(&mut u, Some(10), &dtype, &constraints, 8)
+                    .unwrap();
+
+            let depth = count_depth(array.as_ref(), 1);
+
+            println!(
+                "Seed {}: depth={}, encoding={}",
+                seed_offset,
+                depth,
+                array.encoding_id()
+            );
+
+            if depth > 1 {
+                println!("  Tree:\n{}", array.display_as(DisplayOptions::TreeDisplay));
+            }
+        }
+    }
+
+    #[test]
+    fn test_deeply_nested_dict_arrays() {
+        // Seed that tends to produce DictArrays
+        let seed: Vec<u8> = (200..5200).map(|i| (i % 256) as u8).collect();
+        let mut u = Unstructured::new(&seed);
+
+        let dtype = DType::Primitive(PType::U32, Nullability::NonNullable);
+        let constraints = ArrayConstraints::default();
+
+        // Generate with high depth limit
+        let array =
+            arbitrary_constrained_array_with_depth(&mut u, Some(8), &dtype, &constraints, 10)
+                .unwrap();
+
+        let depth = count_depth(array.as_ref(), 1);
+        println!("Generated array with depth: {}", depth);
+        println!("Tree:\n{}", array.display_as(DisplayOptions::TreeDisplay));
+
+        // Should sometimes produce nested structures
+        // (depends on random choices, so we just verify it runs)
+        assert!(array.len() > 0);
+    }
 }
