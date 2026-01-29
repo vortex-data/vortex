@@ -294,7 +294,7 @@ mod tests {
         let data = ByteBuffer::from(vec![1, 2, 3, 4, 5]);
 
         let result = data.read_at(1, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.to_host_sync().as_ref(), &[2, 3, 4]);
+        assert_eq!(result.to_host().await.as_ref(), &[2, 3, 4]);
     }
 
     #[tokio::test]
@@ -310,7 +310,7 @@ mod tests {
         let data = Arc::new(ByteBuffer::from(vec![1, 2, 3, 4, 5]));
 
         let result = data.read_at(2, 3, Alignment::none()).await.unwrap();
-        assert_eq!(result.to_host_sync().as_ref(), &[3, 4, 5]);
+        assert_eq!(result.to_host().await.as_ref(), &[3, 4, 5]);
 
         let size = data.size().await.unwrap();
         assert_eq!(size, 5);

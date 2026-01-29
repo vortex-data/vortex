@@ -28,7 +28,6 @@ pub struct CudaDeviceBuffer<T> {
     offset: usize,
     len: usize,
     device_ptr: u64,
-    alignment: Alignment,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
@@ -36,14 +35,12 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     pub fn new(cuda_slice: CudaSlice<T>) -> Self {
         let len = cuda_slice.len();
         let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
-        let alignment = Alignment::of::<T>();
 
         Self {
             inner: Arc::new(cuda_slice),
             offset: 0,
             len,
             device_ptr,
-            alignment,
         }
     }
 
@@ -114,7 +111,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     }
 
     fn alignment(&self) -> Alignment {
-        self.alignment
+        Alignment::of::<T>()
     }
 
     /// Synchronous copy of CUDA device to host memory.
@@ -200,11 +197,13 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
                 .vortex_expect("impossible"),
         );
 
+        let alignment = Alignment::of::<T>();
+
         assert!(
-            req_align.is_aligned_to(self.alignment),
+            req_align.is_aligned_to(alignment),
             "slice must respect minimum alignment byte {}, min {}",
             req_align,
-            self.alignment
+            alignment
         );
 
         assert!(
@@ -219,7 +218,6 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
-            alignment: self.alignment,
         })
     }
 

@@ -210,7 +210,8 @@ impl VortexOpenOptions {
         let initial_read: ByteBuffer = read
             .read_at(initial_offset, initial_read_size, Alignment::none())
             .await?
-            .try_into_host_sync()?;
+            .try_into_host()?
+            .await?;
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
             .with_size(file_size)
@@ -222,7 +223,8 @@ impl VortexOpenOptions {
                     let more_data = read
                         .read_at(offset, len, Alignment::none())
                         .await?
-                        .try_into_host_sync()?;
+                        .try_into_host()?
+                        .await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),

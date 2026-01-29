@@ -71,7 +71,7 @@ async fn test_file_read_with_tokio_runtime() {
         .await
         .unwrap();
     assert_eq!(
-        result.to_host_sync().as_slice(),
+        result.to_host()?.as_slice(),
         &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
     );
 
@@ -145,7 +145,7 @@ async fn test_file_read_with_real_file_tokio() {
         .await
         .unwrap();
     assert_eq!(
-        result.to_host_sync().as_slice(),
+        result.to_host().await.as_slice(),
         &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
     );
 
