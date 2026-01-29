@@ -34,7 +34,6 @@ use crate::executor::CudaExecutionCtx;
 use crate::kernel::filter::decimal::filter_decimal;
 use crate::kernel::filter::primitive::filter_primitive;
 use crate::kernel::filter::varbinview::filter_varbinview;
-use crate::stream::await_stream_callback;
 
 /// CUDA executor for FilterArray using CUB DeviceSelect::Flagged.
 #[derive(Debug)]
@@ -153,9 +152,6 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Send + Sync + 'static>(
         )
         .map_err(|e| vortex_err!("CUB filter_bitmask failed: {}", e))?;
     }
-
-    // Wait for completion
-    await_stream_callback(stream).await?;
 
     // Wrap the device buffer of outputs back up into a BufferHandle.
     Ok(BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(
