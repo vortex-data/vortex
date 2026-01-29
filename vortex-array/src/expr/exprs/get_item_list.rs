@@ -137,7 +137,7 @@ impl VTable for GetItemList {
                 let list = input.execute::<ListViewArray>(args.ctx)?;
                 let struct_elems = list.elements().clone().execute::<StructArray>(args.ctx)?;
 
-                let field = struct_elems.field_by_name(field_name).cloned()?;
+                let field = struct_elems.unmasked_field_by_name(field_name)?.clone();
                 let field = match struct_elems.dtype().nullability() {
                     Nullability::NonNullable => field,
                     Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not())?,
@@ -156,7 +156,7 @@ impl VTable for GetItemList {
                 let list = input.execute::<FixedSizeListArray>(args.ctx)?;
                 let struct_elems = list.elements().clone().execute::<StructArray>(args.ctx)?;
 
-                let field = struct_elems.field_by_name(field_name).cloned()?;
+                let field = struct_elems.unmasked_field_by_name(field_name)?.clone();
                 let field = match struct_elems.dtype().nullability() {
                     Nullability::NonNullable => field,
                     Nullability::Nullable => mask(&field, &struct_elems.validity_mask()?.not())?,
