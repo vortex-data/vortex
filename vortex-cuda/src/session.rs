@@ -51,6 +51,7 @@ impl CudaSession {
     }
 
     /// Create a new CUDA stream.
+    // TODO(joe): add a stream pool.
     pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
         Ok(VortexCudaStream(self.context.new_stream().map_err(
             |e| vortex_err!("Failed to create CUDA stream: {}", e),

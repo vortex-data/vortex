@@ -74,10 +74,6 @@ impl VortexCudaStream {
                 .map_err(|e| vortex_err!("Failed to schedule async copy to device: {}", e))?;
         }
 
-        println!(
-            "dev {}",
-            u8::try_from(device_ptr.trailing_zeros()).vortex_expect("aligment over 2^2^8??")
-        );
         let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
         let stream = Arc::clone(&self.0);
 

@@ -72,11 +72,6 @@ impl FlatReader {
         let array_tree = self.layout.array_tree().cloned();
         async move {
             let segment = segment_fut.await?;
-            println!(
-                "segment host {}, device {}",
-                segment.is_on_host(),
-                segment.is_on_device()
-            );
             let parts = if let Some(array_tree) = array_tree {
                 // Use the pre-stored flatbuffer from layout metadata combined with segment buffers.
                 ArrayParts::from_flatbuffer_and_segment(array_tree, segment)?
@@ -218,8 +213,6 @@ impl LayoutReader for FlatReader {
 
             // Evaluate the projection expression.
             array = array.apply(&expr)?;
-
-            println!("array {}", array.display_tree());
 
             Ok(array)
         }

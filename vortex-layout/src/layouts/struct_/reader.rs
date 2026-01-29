@@ -368,9 +368,7 @@ impl LayoutReader for StructReader {
                 };
                 res
             } else {
-                projected
-                    .await
-                    .inspect(|a| println!("ret array {}", a.display_tree()))
+                projected.await
             }
         }))
     }
