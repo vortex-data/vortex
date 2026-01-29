@@ -5,6 +5,7 @@
 
 mod array;
 pub mod compress;
+pub mod compressor;
 pub mod error;
 
 // File module only available for native builds (requires vortex-file which uses tokio)
@@ -22,6 +23,8 @@ pub use array::run_fuzz_action;
 pub use array::sort_canonical_array;
 pub use compress::FuzzCompressRoundtrip;
 pub use compress::run_compress_roundtrip;
+pub use compressor::FuzzCompressor;
+pub use compressor::run_compressor_fuzzer;
 #[cfg(not(target_arch = "wasm32"))]
 pub use file::FuzzFileAction;
 #[cfg(feature = "cuda")]

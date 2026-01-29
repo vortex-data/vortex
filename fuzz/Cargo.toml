@@ -91,6 +91,14 @@ required-features = ["native"]
 [[bin]]
 bench = false
 doc = false
+name = "compressor"
+path = "fuzz_targets/compressor.rs"
+test = false
+required-features = ["native"]
+
+[[bin]]
+bench = false
+doc = false
 name = "compress_gpu"
 path = "fuzz_targets/compress_gpu.rs"
 test = false

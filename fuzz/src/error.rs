@@ -58,6 +58,9 @@ pub enum VortexFuzzError {
 
     LengthMismatch(usize, usize, ArrayRef, ArrayRef, usize, Backtrace),
 
+    /// The compressed array contains a forbidden encoding (e.g., Slice or Filter).
+    ForbiddenEncoding(String, ArrayRef, Backtrace),
+
     VortexError(VortexError, Backtrace),
 }
 
@@ -121,6 +124,13 @@ impl Display for VortexFuzzError {
                     rhs.display_tree(),
                 )
             }
+            VortexFuzzError::ForbiddenEncoding(encoding, array, backtrace) => {
+                write!(
+                    f,
+                    "Compressed array contains forbidden encoding '{encoding}':\n{}\nBacktrace:\n{backtrace}",
+                    array.display_tree(),
+                )
+            }
             VortexFuzzError::VortexError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
@@ -137,7 +147,8 @@ impl Error for VortexFuzzError {
             | VortexFuzzError::LengthMismatch(..)
             | VortexFuzzError::ScalarMismatch(..)
             | VortexFuzzError::MinMaxMismatch(..)
-            | VortexFuzzError::DTypeMismatch(..) => None,
+            | VortexFuzzError::DTypeMismatch(..)
+            | VortexFuzzError::ForbiddenEncoding(..) => None,
         }
     }
 }
