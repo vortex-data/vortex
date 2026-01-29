@@ -12,6 +12,7 @@ mod host_to_device_allocator;
 mod kernel;
 mod session;
 mod stream;
+mod stream_pool;
 
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
@@ -32,6 +33,7 @@ pub use kernel::launch_cuda_kernel_impl;
 pub use kernel::zstd_kernel_prepare;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
+pub use stream_pool::VortexCudaStreamPool;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::DictVTable;
 use vortex_array::arrays::FilterVTable;

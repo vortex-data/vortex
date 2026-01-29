@@ -21,6 +21,7 @@ default = []
 _test-harness = []
 
 [dependencies]
+arc-swap = { workspace = true }
 async-trait = { workspace = true }
 cudarc = { workspace = true }
 fastlanes = { workspace = true }
