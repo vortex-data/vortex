@@ -64,16 +64,7 @@ impl VortexCudaStreamPool {
     /// it is reused. Otherwise, a new stream is created for that slot.
     /// All operations are lock-free.
     pub fn get_stream(&self) -> VortexResult<VortexCudaStream> {
-        let len = self.slots.len();
-        // Atomically increment and wrap the index to stay in bounds.
-        // The closure always returns Some, so fetch_update always succeeds.
-        let slot_idx = self
-            .next_index
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-                Some((x + 1) % len)
-            })
-            .ok()
-            .vortex_expect("cannot fail");
+        let slot_idx = self.next_index.fetch_add(1, Ordering::Relaxed) % self.slots.len();
         let slot = &self.slots[slot_idx];
 
         // Fast path: stream already exists in slot.
