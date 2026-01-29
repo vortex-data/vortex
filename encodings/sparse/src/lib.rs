@@ -53,12 +53,17 @@ use vortex_session::VortexSession;
 use crate::canonical::execute_sparse;
 use crate::rules::RULES;
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
 mod canonical;
 mod compute;
 mod kernel;
 mod ops;
 mod rules;
 mod slice;
+
+#[cfg(feature = "arbitrary")]
+pub use arbitrary::ArbitrarySparseArray;
 
 vtable!(Sparse);
 

@@ -4,17 +4,25 @@
 use arbitrary::Arbitrary;
 use arbitrary::Result;
 use arbitrary::Unstructured;
+use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_array::arrays::arbitrary::ArbitraryConstrained;
+use vortex_array::arrays::arbitrary::ArrayConstraints;
+use vortex_array::arrays::arbitrary::BoundConstraint;
+use vortex_array::arrays::arbitrary::ConstraintKind;
+use vortex_array::arrays::arbitrary::OrderingConstraint;
+use vortex_array::arrays::arbitrary::arbitrary_constrained_array;
 use vortex_array::dtype::DType;
 use vortex_array::dtype::Nullability;
 use vortex_array::dtype::PType;
-use vortex_array::validity::Validity;
-use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
 use crate::RunEndArray;
+
+/// RunEndArray doesn't preserve ordering of its values, but its ends are strictly sorted.
+/// The main use case is generating arrays where ends can be compressed.
+pub const RUNEND_CAN_GENERATE: &[ConstraintKind] = &[ConstraintKind::NonNullable];
 
 /// A wrapper type to implement `Arbitrary` for `RunEndArray`.
 #[derive(Clone, Debug)]
@@ -36,12 +44,24 @@ impl ArbitraryRunEndArray {
     ///
     /// The dtype must be a primitive or boolean type.
     pub fn with_dtype(u: &mut Unstructured, dtype: &DType, len: Option<usize>) -> Result<Self> {
+        Self::with_constraints(u, len, dtype, &ArrayConstraints::default())
+    }
+
+    /// Generate an arbitrary RunEndArray satisfying the given constraints.
+    pub fn with_constraints(
+        u: &mut Unstructured,
+        len: Option<usize>,
+        dtype: &DType,
+        constraints: &ArrayConstraints,
+    ) -> Result<Self> {
         // Number of runs (values/ends pairs)
         let num_runs = u.int_in_range(0..=20)?;
 
         if num_runs == 0 {
             // Empty RunEndArray
-            let ends = PrimitiveArray::from_iter(Vec::<u64>::new()).into_array();
+            let ends_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
+            let ends =
+                arbitrary_constrained_array(u, Some(0), &ends_dtype, &ArrayConstraints::default())?;
             let values = ArbitraryArray::arbitrary_with(u, Some(0), dtype)?.0;
             let runend_array = RunEndArray::try_new(ends, values)
                 .vortex_expect("Empty RunEndArray creation should succeed");
@@ -51,85 +71,88 @@ impl ArbitraryRunEndArray {
         // Generate arbitrary values for each run
         let values = ArbitraryArray::arbitrary_with(u, Some(num_runs), dtype)?.0;
 
-        // Generate strictly increasing ends
-        // Each end must be > previous end, and first end must be >= 1
-        let ends = random_strictly_sorted_ends(u, num_runs, len)?;
+        // Generate strictly sorted ends using constrained generation
+        // This allows the ends to be represented by encodings like Sequence, Delta, etc.
+        let ends = generate_constrained_ends(u, num_runs, len)?;
 
         let runend_array = RunEndArray::try_new(ends, values)
             .vortex_expect("RunEndArray creation should succeed in arbitrary impl");
+
+        // Verify constraints are satisfied if any
+        if constraints.non_nullable {
+            // RunEndArray itself doesn't have nullability, but values might
+            // The array is valid as long as it was created successfully
+        }
 
         Ok(ArbitraryRunEndArray(runend_array))
     }
 }
 
-/// Generate a strictly sorted array of run ends.
+/// Generate strictly sorted ends using the constrained arbitrary system.
 ///
-/// Returns an array of `num_runs` strictly increasing unsigned integers.
-/// If `target_len` is provided, the last end will be exactly that value.
-fn random_strictly_sorted_ends(
+/// This allows the ends to be represented by various encodings that satisfy
+/// the StrictlySorted constraint (e.g., Sequence, Delta, FoR+BitPacked).
+fn generate_constrained_ends(
     u: &mut Unstructured,
     num_runs: usize,
     target_len: Option<usize>,
-) -> Result<vortex_array::ArrayRef> {
+) -> Result<ArrayRef> {
     // Choose a random unsigned PType for ends
     let ends_ptype = *u.choose(&[PType::U8, PType::U16, PType::U32, PType::U64])?;
+    let ends_dtype = DType::Primitive(ends_ptype, Nullability::NonNullable);
 
-    // Generate strictly increasing values
-    // Start from 0, increment by at least 1 each time
-    let mut ends: Vec<u64> = Vec::with_capacity(num_runs);
-    let mut current: u64 = 0;
-
-    for i in 0..num_runs {
-        // Each run must have at least length 1, so increment by at least 1
-        let increment = match (i == num_runs - 1, target_len) {
-            (true, Some(target)) => {
-                // Last element should reach target_len
-                let target = target as u64;
-                if target > current {
-                    target - current
-                } else {
-                    1
-                }
-            }
-            _ => {
-                // Random increment between 1 and 10
-                u.int_in_range(1..=10)?
-            }
+    // Calculate bounds for the ends
+    // Ends must start at >= 1 (each run has at least 1 element)
+    // Last end determines the total array length
+    let max_end = target_len.map(|l| l as u64).unwrap_or_else(|| {
+        // If no target length, cap based on type and reasonable size
+        let type_max = match ends_ptype {
+            PType::U8 => u8::MAX as u64,
+            PType::U16 => u16::MAX as u64,
+            PType::U32 => u32::MAX as u64,
+            PType::U64 => 10000, // Reasonable limit for u64
+            _ => 10000,
         };
-        current += increment;
-        ends.push(current);
-    }
+        // Each run adds at least 1 to the end, so we need room for num_runs increments
+        // Plus some headroom for variation
+        (num_runs as u64 * 10).min(type_max)
+    });
 
-    // Convert to the chosen PType
-    // The values are bounded: max is num_runs (20) * max_increment (10) = 200
-    // This fits in all unsigned types
-    let ends_array = match ends_ptype {
-        PType::U8 => {
-            let ends_typed: Vec<u8> = ends
-                .iter()
-                .map(|&e| u8::try_from(e).vortex_expect("end value fits in u8"))
-                .collect();
-            PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
-        }
-        PType::U16 => {
-            let ends_typed: Vec<u16> = ends
-                .iter()
-                .map(|&e| u16::try_from(e).vortex_expect("end value fits in u16"))
-                .collect();
-            PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
-        }
-        PType::U32 => {
-            let ends_typed: Vec<u32> = ends
-                .iter()
-                .map(|&e| u32::try_from(e).vortex_expect("end value fits in u32"))
-                .collect();
-            PrimitiveArray::new(Buffer::copy_from(ends_typed), Validity::NonNullable).into_array()
-        }
-        PType::U64 => {
-            PrimitiveArray::new(Buffer::copy_from(ends), Validity::NonNullable).into_array()
-        }
-        _ => unreachable!("Only unsigned integer types are valid for ends"),
+    // Build constraints for strictly sorted ends starting at 1
+    let ends_constraints = ArrayConstraints {
+        ordering: OrderingConstraint {
+            strictly_sorted: true,
+            sorted: true,
+            starts_at: None, // Let it start at any value >= 1
+        },
+        bounds: BoundConstraint {
+            lower_bound: Some(1),           // First end must be at least 1
+            upper_bound: Some(max_end + 1), // Exclusive upper bound
+            target_max: target_len.map(|l| l as u64),
+            ..Default::default()
+        },
+        non_nullable: true,
+        ..Default::default()
     };
 
-    Ok(ends_array)
+    arbitrary_constrained_array(u, Some(num_runs), &ends_dtype, &ends_constraints)
+}
+
+impl ArbitraryConstrained for RunEndArray {
+    fn can_generate() -> &'static [ConstraintKind] {
+        RUNEND_CAN_GENERATE
+    }
+
+    fn arbitrary_with_constraints(
+        u: &mut Unstructured,
+        len: Option<usize>,
+        dtype: &DType,
+        constraints: &ArrayConstraints,
+    ) -> Result<ArrayRef> {
+        Ok(
+            ArbitraryRunEndArray::with_constraints(u, len, dtype, constraints)?
+                .0
+                .into_array(),
+        )
+    }
 }

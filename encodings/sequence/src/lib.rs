@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#[cfg(feature = "arbitrary")]
+mod arbitrary;
 mod array;
 mod compress;
 mod compute;
 mod kernel;
 mod rules;
 
+#[cfg(feature = "arbitrary")]
+pub use arbitrary::ArbitrarySequenceArray;
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::SequenceArray;

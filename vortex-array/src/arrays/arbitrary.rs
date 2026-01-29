@@ -11,6 +11,400 @@ use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_error::VortexExpect;
 
+// ============================================================================
+// Constraint Types
+// ============================================================================
+
+/// Kinds of constraints that can be applied to arbitrary array generation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ConstraintKind {
+    /// Values must be strictly increasing (each > previous)
+    StrictlySorted,
+    /// Values must be monotonically increasing (each >= previous)
+    Sorted,
+    /// First value must be zero
+    StartsAtZero,
+    /// Values must be < some upper bound
+    BoundedAbove,
+    /// Values must be >= some lower bound
+    BoundedBelow,
+    /// Values must fit in a specific bit width
+    BitWidthBounded,
+    /// Array must be non-nullable
+    NonNullable,
+    /// Must be unsigned integer type
+    Unsigned,
+    /// Must be integer type (not float)
+    IntegerOnly,
+}
+
+/// Ordering constraints for array values.
+#[derive(Clone, Debug, Default)]
+pub struct OrderingConstraint {
+    /// Values must be strictly increasing (each > previous)
+    pub strictly_sorted: bool,
+    /// Values must be monotonically increasing (each >= previous)
+    pub sorted: bool,
+    /// First value must equal this
+    pub starts_at: Option<u64>,
+}
+
+/// Value range constraints.
+#[derive(Clone, Debug, Default)]
+pub struct BoundConstraint {
+    /// All values must be < upper_bound
+    pub upper_bound: Option<u64>,
+    /// All values must be >= lower_bound
+    pub lower_bound: Option<u64>,
+    /// Soft target for maximum value (used for sorted arrays)
+    pub target_max: Option<u64>,
+    /// Values must fit in this many bits
+    pub bit_width: Option<u8>,
+}
+
+/// Type constraints.
+#[derive(Clone, Debug, Default)]
+pub struct TypeConstraint {
+    /// Must be unsigned integer
+    pub unsigned: bool,
+    /// Must be integer (not float)
+    pub integer_only: bool,
+    /// If Some, must be one of these ptypes
+    pub allowed_ptypes: Option<Vec<PType>>,
+}
+
+/// Combined constraints for arbitrary array generation.
+#[derive(Clone, Debug, Default)]
+pub struct ArrayConstraints {
+    /// Ordering constraints (sorted, strictly sorted, etc.)
+    pub ordering: OrderingConstraint,
+    /// Value range constraints (bounds, bit width, etc.)
+    pub bounds: BoundConstraint,
+    /// Type constraints (unsigned, integer only, etc.)
+    pub type_constraint: TypeConstraint,
+    /// Must be non-nullable
+    pub non_nullable: bool,
+    /// Must be valid UTF-8 (for binary data)
+    pub valid_utf8: bool,
+}
+
+impl ArrayConstraints {
+    /// Check if these constraints require sorted values.
+    pub fn requires_sorted(&self) -> bool {
+        self.ordering.sorted || self.ordering.strictly_sorted
+    }
+
+    /// Check if these constraints require strictly sorted values.
+    pub fn requires_strictly_sorted(&self) -> bool {
+        self.ordering.strictly_sorted
+    }
+
+    /// Check if these constraints are satisfied by an encoding's capabilities.
+    pub fn is_satisfied_by(&self, capabilities: &[ConstraintKind]) -> bool {
+        // Check ordering constraints
+        if self.ordering.strictly_sorted && !capabilities.contains(&ConstraintKind::StrictlySorted)
+        {
+            return false;
+        }
+        if self.ordering.sorted
+            && !capabilities.contains(&ConstraintKind::Sorted)
+            && !capabilities.contains(&ConstraintKind::StrictlySorted)
+        {
+            return false;
+        }
+        if self.ordering.starts_at.is_some()
+            && !capabilities.contains(&ConstraintKind::StartsAtZero)
+        {
+            return false;
+        }
+
+        // Check bound constraints
+        if self.bounds.upper_bound.is_some()
+            && !capabilities.contains(&ConstraintKind::BoundedAbove)
+        {
+            return false;
+        }
+        if self.bounds.lower_bound.is_some()
+            && !capabilities.contains(&ConstraintKind::BoundedBelow)
+        {
+            return false;
+        }
+        if self.bounds.bit_width.is_some()
+            && !capabilities.contains(&ConstraintKind::BitWidthBounded)
+        {
+            return false;
+        }
+
+        // Check type constraints
+        if self.type_constraint.unsigned && !capabilities.contains(&ConstraintKind::Unsigned) {
+            return false;
+        }
+        if self.type_constraint.integer_only && !capabilities.contains(&ConstraintKind::IntegerOnly)
+        {
+            return false;
+        }
+
+        // Check nullability
+        if self.non_nullable && !capabilities.contains(&ConstraintKind::NonNullable) {
+            return false;
+        }
+
+        true
+    }
+}
+
+// ============================================================================
+// Constrained Generation Trait
+// ============================================================================
+
+/// Generator function type for constrained array generation.
+pub type ConstrainedGenerator =
+    fn(&mut Unstructured, Option<usize>, &DType, &ArrayConstraints) -> Result<ArrayRef>;
+
+/// Trait for encodings that support constrained arbitrary generation.
+pub trait ArbitraryConstrained {
+    /// Constraints this encoding can satisfy.
+    ///
+    /// For leaf encodings: constraints it can generate directly.
+    /// For wrapping encodings: constraints it can satisfy by wrapping a constrained child.
+    fn can_generate() -> &'static [ConstraintKind];
+
+    /// Generate an arbitrary array satisfying the given constraints.
+    fn arbitrary_with_constraints(
+        u: &mut Unstructured,
+        len: Option<usize>,
+        dtype: &DType,
+        constraints: &ArrayConstraints,
+    ) -> Result<ArrayRef>;
+}
+
+// ============================================================================
+// Constrained Primitive Generation
+// ============================================================================
+
+/// Primitive array can generate all constraint kinds (it's the base case).
+pub const PRIMITIVE_CAN_GENERATE: &[ConstraintKind] = &[
+    ConstraintKind::StrictlySorted,
+    ConstraintKind::Sorted,
+    ConstraintKind::StartsAtZero,
+    ConstraintKind::BoundedAbove,
+    ConstraintKind::BoundedBelow,
+    ConstraintKind::BitWidthBounded,
+    ConstraintKind::NonNullable,
+    ConstraintKind::Unsigned,
+    ConstraintKind::IntegerOnly,
+];
+
+/// Generate a constrained primitive array.
+pub fn random_primitive_constrained(
+    u: &mut Unstructured,
+    len: Option<usize>,
+    dtype: &DType,
+    constraints: &ArrayConstraints,
+) -> Result<ArrayRef> {
+    let DType::Primitive(ptype, nullability) = dtype else {
+        // Fall back to unconstrained for non-primitive types
+        return random_array(u, dtype, len);
+    };
+
+    let len = len.unwrap_or(u.int_in_range(0..=100)?);
+    let nullability = if constraints.non_nullable {
+        Nullability::NonNullable
+    } else {
+        *nullability
+    };
+
+    if constraints.requires_sorted() {
+        random_sorted_primitive(u, len, *ptype, nullability, constraints)
+    } else if constraints.bounds.upper_bound.is_some() || constraints.bounds.lower_bound.is_some() {
+        random_bounded_primitive(u, len, *ptype, nullability, constraints)
+    } else {
+        // Unconstrained
+        let dtype = DType::Primitive(*ptype, nullability);
+        random_array(u, &dtype, Some(len))
+    }
+}
+
+/// Generate a sorted primitive array using the increments approach.
+fn random_sorted_primitive(
+    u: &mut Unstructured,
+    len: usize,
+    ptype: PType,
+    nullability: Nullability,
+    constraints: &ArrayConstraints,
+) -> Result<ArrayRef> {
+    if len == 0 {
+        return Ok(PrimitiveArray::new(
+            Buffer::<u64>::empty(),
+            if nullability == Nullability::NonNullable {
+                Validity::NonNullable
+            } else {
+                Validity::AllValid
+            },
+        )
+        .reinterpret_cast(ptype)
+        .into_array());
+    }
+
+    // Determine bounds for increments
+    let min_increment: u64 = if constraints.ordering.strictly_sorted {
+        1
+    } else {
+        0
+    };
+
+    // Calculate max increment based on target_max and upper_bound
+    let effective_max = constraints
+        .bounds
+        .target_max
+        .or(constraints.bounds.upper_bound)
+        .unwrap_or(1000);
+
+    let start_value = constraints.ordering.starts_at.unwrap_or(0);
+
+    // Calculate max possible increment to stay within bounds
+    // If we have len values starting at start_value, and each increment is at least min_increment,
+    // the final value would be: start_value + sum(increments)
+    // We want: start_value + sum(increments) <= effective_max
+    // With len increments averaging max_increment: start_value + len * max_increment <= effective_max
+    let available_range = effective_max.saturating_sub(start_value);
+    let max_increment = if len > 0 {
+        (available_range / len as u64).max(min_increment)
+    } else {
+        min_increment
+    };
+
+    // Generate increments and compute cumulative sum
+    let mut values: Vec<u64> = Vec::with_capacity(len);
+    let mut current = start_value;
+
+    for _ in 0..len {
+        values.push(current);
+        let increment = u.int_in_range(min_increment..=max_increment)?;
+        current = current.saturating_add(increment);
+    }
+
+    // Convert to target ptype
+    let validity = random_validity(u, nullability, len)?;
+    let array = convert_u64_vec_to_ptype(values, ptype, validity);
+    Ok(array)
+}
+
+/// Generate a bounded primitive array.
+fn random_bounded_primitive(
+    u: &mut Unstructured,
+    len: usize,
+    ptype: PType,
+    nullability: Nullability,
+    constraints: &ArrayConstraints,
+) -> Result<ArrayRef> {
+    let lower = constraints.bounds.lower_bound.unwrap_or(0);
+    let upper = constraints
+        .bounds
+        .upper_bound
+        .unwrap_or_else(|| ptype_max_value(ptype));
+
+    // Generate values within bounds
+    let values: Vec<u64> = (0..len)
+        .map(|_| u.int_in_range(lower..=upper.saturating_sub(1).max(lower)))
+        .collect::<Result<Vec<_>>>()?;
+
+    let validity = random_validity(u, nullability, len)?;
+    let array = convert_u64_vec_to_ptype(values, ptype, validity);
+    Ok(array)
+}
+
+/// Convert a Vec<u64> to a PrimitiveArray of the given ptype.
+#[allow(clippy::cast_possible_truncation)]
+fn convert_u64_vec_to_ptype(values: Vec<u64>, ptype: PType, validity: Validity) -> ArrayRef {
+    match ptype {
+        PType::U8 => {
+            let v: Vec<u8> = values.into_iter().map(|x| x as u8).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::U16 => {
+            let v: Vec<u16> = values.into_iter().map(|x| x as u16).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::U32 => {
+            let v: Vec<u32> = values.into_iter().map(|x| x as u32).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::U64 => PrimitiveArray::new(Buffer::copy_from(values), validity).into_array(),
+        PType::I8 => {
+            let v: Vec<i8> = values.into_iter().map(|x| x as i8).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::I16 => {
+            let v: Vec<i16> = values.into_iter().map(|x| x as i16).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::I32 => {
+            let v: Vec<i32> = values.into_iter().map(|x| x as i32).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::I64 => {
+            let v: Vec<i64> = values.into_iter().map(|x| x as i64).collect();
+            PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+        }
+        PType::F16 | PType::F32 | PType::F64 => {
+            // For floats, just cast - sorted property preserved
+            let v: Vec<f64> = values.into_iter().map(|x| x as f64).collect();
+            match ptype {
+                PType::F32 => {
+                    let v: Vec<f32> = v.into_iter().map(|x| x as f32).collect();
+                    PrimitiveArray::new(Buffer::copy_from(v), validity).into_array()
+                }
+                PType::F64 => PrimitiveArray::new(Buffer::copy_from(v), validity).into_array(),
+                PType::F16 => {
+                    let v: Vec<u16> = v
+                        .into_iter()
+                        .map(|x| vortex_dtype::half::f16::from_f64(x).to_bits())
+                        .collect();
+                    PrimitiveArray::new(Buffer::copy_from(v), validity)
+                        .reinterpret_cast(PType::F16)
+                        .into_array()
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+/// Get the maximum value for a ptype (for bounding).
+fn ptype_max_value(ptype: PType) -> u64 {
+    match ptype {
+        PType::U8 => u8::MAX as u64,
+        PType::U16 => u16::MAX as u64,
+        PType::U32 => u32::MAX as u64,
+        PType::U64 => u64::MAX,
+        PType::I8 => i8::MAX as u64,
+        PType::I16 => i16::MAX as u64,
+        PType::I32 => i32::MAX as u64,
+        PType::I64 => i64::MAX as u64,
+        PType::F16 => u16::MAX as u64,
+        PType::F32 => u32::MAX as u64,
+        PType::F64 => u64::MAX,
+    }
+}
+
+// ============================================================================
+// Dispatcher
+// ============================================================================
+
+/// Generate a random array satisfying the given constraints.
+/// May choose any compatible encoding randomly.
+pub fn arbitrary_constrained_array(
+    u: &mut Unstructured,
+    len: Option<usize>,
+    dtype: &DType,
+    constraints: &ArrayConstraints,
+) -> Result<ArrayRef> {
+    // For now, just use primitive constrained generation as the base case.
+    // Other encodings will be added as they implement ArbitraryConstrained.
+    random_primitive_constrained(u, len, dtype, constraints)
+}
+
 use super::BoolArray;
 use super::ChunkedArray;
 use super::NullArray;

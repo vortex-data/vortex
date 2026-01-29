@@ -10320,6 +10320,7 @@ dependencies = [
 name = "vortex-fastlanes"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "arrayref",
  "codspeed-divan-compat",
  "fastlanes",
@@ -10688,6 +10689,7 @@ dependencies = [
 name = "vortex-sequence"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
@@ -10718,6 +10720,7 @@ dependencies = [
 name = "vortex-sparse"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "itertools 0.14.0",
  "num-traits",
  "prost 0.14.3",
