@@ -1,0 +1,30 @@
+name: Publish Benchmarks Website
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'benchmarks-website-v2/**'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ./benchmarks-website-v2
+          push: true
+          tags: ghcr.io/${{ github.repository }}/benchmarks-website:latest
