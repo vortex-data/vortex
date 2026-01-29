@@ -13,7 +13,11 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
+[features]
+arbitrary = ["dep:arbitrary", "vortex-array/arbitrary"]
+
 [dependencies]
+arbitrary = { workspace = true, optional = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }

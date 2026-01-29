@@ -15,16 +15,17 @@
 - [x] Update ArbitraryDictArray to use constrained generation
 - [x] Implement ArbitraryRLEArray (fastlanes)
 
-## Pending
+- [x] Implement ArbitraryZigZagArray
+- [x] Implement ArbitraryByteBoolArray
+- [x] Implement ArbitraryMaskedArray
 
-- [ ] Implement ArbitraryZigZagArray
-- [ ] Implement ArbitraryByteBoolArray
-- [ ] Implement ArbitraryFSSTArray
-- [ ] Implement ArbitraryDateTimePartsArray
-- [ ] Implement ArbitraryALPArray
-- [ ] Implement ArbitraryALPRDArray
-- [ ] Implement ArbitraryPcoArray
-- [ ] Implement ArbitraryZstdArray
-- [ ] Implement ArbitraryMaskedArray
-- [ ] Implement ArbitraryExtensionArray
+## Pending (complex compression encodings - require valid compression parameters)
+
+- [ ] Implement ArbitraryFSSTArray (string compression, needs valid symbol table)
+- [ ] Implement ArbitraryDateTimePartsArray (datetime specific)
+- [ ] Implement ArbitraryALPArray (floating-point compression, needs valid exponents)
+- [ ] Implement ArbitraryALPRDArray (ALP real doubles)
+- [ ] Implement ArbitraryPcoArray (Pcoletto compression)
+- [ ] Implement ArbitraryZstdArray (Zstd compression)
+- [ ] Implement ArbitraryExtensionArray (requires ExtDType)
 - [ ] Implement ArbitraryDecimalBytePartsArray
