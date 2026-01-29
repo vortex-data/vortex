@@ -12,7 +12,7 @@ impl BoolArray {
             .vortex_expect("Failed to get validity mask")
             .to_bit_buffer()
             .iter()
-            .zip(self.bit_buffer().iter())
+            .zip(self.to_bit_buffer().iter())
             .map(|(valid, value)| valid.then_some(value))
             .collect()
     }
@@ -22,7 +22,7 @@ impl BoolArray {
             .vortex_expect("Failed to get validity mask")
             .to_bit_buffer()
             .iter()
-            .zip(self.bit_buffer().iter())
+            .zip(self.to_bit_buffer().iter())
             .map(|(valid, value)| {
                 if !valid {
                     vortex_panic!("trying to get bool values from an array with null elements")

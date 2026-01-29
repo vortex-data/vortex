@@ -32,7 +32,6 @@ vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -48,10 +47,6 @@ _test-harness = ["dep:rand"]
 
 [[bench]]
 name = "bitpacking_take"
-harness = false
-
-[[bench]]
-name = "bitpacking_decompress_selection"
 harness = false
 
 [[bench]]

@@ -17,7 +17,7 @@ impl IsConstantKernel for BoolVTable {
             return Ok(None);
         }
 
-        let true_count = array.bit_buffer().true_count();
+        let true_count = array.to_bit_buffer().true_count();
         Ok(Some(true_count == array.len() || true_count == 0))
     }
 }

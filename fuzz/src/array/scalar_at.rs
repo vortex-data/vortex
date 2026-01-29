@@ -23,9 +23,10 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
     }
     Ok(match canonical {
         Canonical::Null(_array) => Scalar::null(DType::Null),
-        Canonical::Bool(array) => {
-            Scalar::bool(array.bit_buffer().value(index), array.dtype().nullability())
-        }
+        Canonical::Bool(array) => Scalar::bool(
+            array.to_bit_buffer().value(index),
+            array.dtype().nullability(),
+        ),
         Canonical::Primitive(array) => {
             match_each_native_ptype!(array.ptype(), |T| {
                 Scalar::primitive(array.as_slice::<T>()[index], array.dtype().nullability())
@@ -42,7 +43,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::VarBinView(array) => varbin_scalar(array.bytes_at(index), array.dtype()),
         Canonical::List(array) => {
-            let list = array.list_elements_at(index);
+            let list = array.list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     scalar_at_canonical_array(
@@ -60,7 +61,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
             )
         }
         Canonical::FixedSizeList(array) => {
-            let list = array.fixed_size_list_elements_at(index);
+            let list = array.fixed_size_list_elements_at(index)?;
             let children: Vec<Scalar> = (0..list.len())
                 .map(|i| {
                     scalar_at_canonical_array(
@@ -75,7 +76,7 @@ pub fn scalar_at_canonical_array(canonical: Canonical, index: usize) -> VortexRe
         }
         Canonical::Struct(array) => {
             let field_scalars: Vec<Scalar> = array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|field| {
                     scalar_at_canonical_array(

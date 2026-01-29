@@ -54,7 +54,7 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
 
         for (target_name, target_dtype) in target_fields.names().iter().zip(target_fields.fields())
         {
-            match array.field_by_name(target_name).ok() {
+            match array.unmasked_field_by_name(target_name).ok() {
                 Some(field) => {
                     new_fields.push(field.cast(target_dtype)?);
                 }
@@ -108,7 +108,7 @@ impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
         _child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         let field_name = parent.options;
-        let Some(field) = child.field_by_name_opt(field_name) else {
+        let Some(field) = child.unmasked_field_by_name_opt(field_name) else {
             return Ok(None);
         };
 
@@ -179,15 +179,15 @@ mod tests {
         // Use ArrayBuiltins::cast which goes through the optimizer and applies StructCastPushDownRule
         let result = source.into_array().cast(target).unwrap().to_struct();
         assert_arrays_eq!(
-            result.field_by_name("a").unwrap(),
+            result.unmasked_field_by_name("a").unwrap(),
             VarBinViewArray::from_iter_nullable_str([Some("A")])
         );
         assert_arrays_eq!(
-            result.field_by_name("b").unwrap(),
+            result.unmasked_field_by_name("b").unwrap(),
             VarBinViewArray::from_iter_nullable_str([Some("B")])
         );
         assert_arrays_eq!(
-            result.field_by_name("c").unwrap(),
+            result.unmasked_field_by_name("c").unwrap(),
             ConstantArray::new(Scalar::null(utf8_null), 1)
         );
     }

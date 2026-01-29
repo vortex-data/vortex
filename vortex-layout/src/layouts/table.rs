@@ -257,7 +257,7 @@ impl LayoutStrategy for TableStrategy {
 
             columns.extend(
                 struct_chunk
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),
             );

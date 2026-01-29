@@ -137,7 +137,7 @@ fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
         && let Some(patches) = patches.take(indices.as_ref())?
     {
         let cast_patches = patches.cast_values(unpatched_taken.dtype())?;
-        return Ok(unpatched_taken.patch(&cast_patches));
+        return unpatched_taken.patch(&cast_patches);
     }
 
     Ok(unpatched_taken)
@@ -196,7 +196,7 @@ mod test {
         // Create a u8 array modulo 63.
         let unpacked = PrimitiveArray::from_iter((0..4096).map(|i| (i % 63) as u8));
         let bitpacked = BitPackedArray::encode(unpacked.as_ref(), 6).unwrap();
-        let sliced = bitpacked.slice(128..2050);
+        let sliced = bitpacked.slice(128..2050).unwrap();
 
         let primitive_result = take(&sliced, &indices).unwrap();
         assert_arrays_eq!(primitive_result, PrimitiveArray::from_iter([31u8, 33]));

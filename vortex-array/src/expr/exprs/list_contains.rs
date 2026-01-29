@@ -220,7 +220,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(1));
-        let item = expr.evaluate(&arr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -237,7 +237,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&arr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -254,7 +254,7 @@ mod tests {
         let arr = test_array();
 
         let expr = list_contains(root(), lit(4));
-        let item = expr.evaluate(&arr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -277,7 +277,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&arr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),
@@ -300,7 +300,7 @@ mod tests {
         .into_array();
 
         let expr = list_contains(root(), lit(2));
-        let item = expr.evaluate(&arr).unwrap();
+        let item = arr.apply(&expr).unwrap();
 
         assert_eq!(
             item.scalar_at(0).unwrap(),

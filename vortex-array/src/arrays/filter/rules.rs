@@ -15,7 +15,8 @@ use crate::optimizer::rules::ParentRuleSet;
 pub(super) const PARENT_RULES: ParentRuleSet<FilterVTable> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
 
-/// Reduce rule that simplifies a Filter array whose child is also a Filter array
+/// A simple redecution rule that simplifies a [`FilterArray`] whose child is also a
+/// [`FilterArray`].
 #[derive(Debug)]
 struct FilterFilterRule;
 
@@ -34,6 +35,7 @@ impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
     ) -> VortexResult<Option<ArrayRef>> {
         let combined_mask = child.mask.intersect_by_rank(&parent.mask);
         let new_array = child.child.filter(combined_mask)?;
+
         Ok(Some(new_array.into_array()))
     }
 }

@@ -28,7 +28,7 @@ pub(crate) fn varbin_to_canonical(
 
     // offsets_to_lengths
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
-    let bytes = bytes.into_mut();
+    let bytes = bytes.unwrap_host().into_mut();
 
     match_each_integer_ptype!(offsets.ptype(), |P| {
         let lens = offsets_to_lengths(offsets.as_slice::<P>());
@@ -65,7 +65,7 @@ mod tests {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let varbin = varbin.slice(1..4);
+        let varbin = varbin.slice(1..4).unwrap();
 
         let canonical = varbin.to_varbinview();
         assert_eq!(canonical.dtype(), &dtype);

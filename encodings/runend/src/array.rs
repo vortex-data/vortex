@@ -15,7 +15,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::search_sorted::SearchSorted;
@@ -38,7 +37,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 use vortex_scalar::PValue;
 
 use crate::compress::runend_decode_bools;
@@ -455,27 +453,6 @@ impl ValidityVTable<RunEndVTable> for RunEndVTable {
             }),
         })
     }
-
-    fn validity_mask(array: &RunEndArray) -> VortexResult<Mask> {
-        Ok(match array.values().validity_mask()? {
-            Mask::AllTrue(_) => Mask::AllTrue(array.len()),
-            Mask::AllFalse(_) => Mask::AllFalse(array.len()),
-            Mask::Values(values) => {
-                // SAFETY: we preserve ends from an existing validated RunEndArray.
-                //  Validity is checked on construction to have the correct len.
-                let ree_validity = unsafe {
-                    RunEndArray::new_unchecked(
-                        array.ends().clone(),
-                        values.into_array(),
-                        array.offset(),
-                        array.len(),
-                    )
-                    .into_array()
-                };
-                Mask::from_buffer(ree_validity.to_bool().bit_buffer().clone())
-            }
-        })
-    }
 }
 
 pub(super) fn run_end_canonicalize(
@@ -491,7 +468,7 @@ pub(super) fn run_end_canonicalize(
                 bools,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         DType::Primitive(..) => {
             let pvalues = array.values().clone().execute(ctx)?;
@@ -500,7 +477,7 @@ pub(super) fn run_end_canonicalize(
                 pvalues,
                 array.offset(),
                 array.len(),
-            ))
+            )?)
         }
         _ => vortex_panic!("Only Primitive and Bool values are supported"),
     })

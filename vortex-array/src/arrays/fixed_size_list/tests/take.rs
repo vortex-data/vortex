@@ -51,7 +51,7 @@ fn test_take_basic_smoke_test() {
     assert_eq!(result_fsl.list_size(), 2, "list_size should be preserved");
 
     // First list should be the original third list [5, 6].
-    let first = result_fsl.fixed_size_list_elements_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(
         first.scalar_at(0).unwrap(),
         5i32.into(),
@@ -64,12 +64,12 @@ fn test_take_basic_smoke_test() {
     );
 
     // Second list should be the original first list [1, 2].
-    let second = result_fsl.fixed_size_list_elements_at(1);
+    let second = result_fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(second.scalar_at(0).unwrap(), 1i32.into());
     assert_eq!(second.scalar_at(1).unwrap(), 2i32.into());
 
     // Third list should be the original second list [3, 4].
-    let third = result_fsl.fixed_size_list_elements_at(2);
+    let third = result_fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(third.scalar_at(0).unwrap(), 3i32.into());
     assert_eq!(third.scalar_at(1).unwrap(), 4i32.into());
 }
@@ -137,13 +137,13 @@ fn test_take_large_list_size() {
     assert_eq!(result_fsl.list_size(), 100);
 
     // First list should be [200..300].
-    let first = result_fsl.fixed_size_list_elements_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
     for i in 0..100i32 {
         assert_eq!(first.scalar_at(i as usize).unwrap(), (200 + i).into());
     }
 
     // Second list should be [0..100].
-    let second = result_fsl.fixed_size_list_elements_at(1);
+    let second = result_fsl.fixed_size_list_elements_at(1).unwrap();
     for i in 0..100i32 {
         assert_eq!(second.scalar_at(i as usize).unwrap(), i.into());
     }
@@ -165,7 +165,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
 
     // First list should be [3, 4].
     assert!(!result_fsl.scalar_at(0).unwrap().is_null());
-    let first = result_fsl.fixed_size_list_elements_at(0);
+    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(first.scalar_at(0).unwrap(), 3i32.into());
     assert_eq!(first.scalar_at(1).unwrap(), 4i32.into());
 
@@ -174,7 +174,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
 
     // Third list should be [1, 2].
     assert!(!result_fsl.scalar_at(2).unwrap().is_null());
-    let third = result_fsl.fixed_size_list_elements_at(2);
+    let third = result_fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(third.scalar_at(0).unwrap(), 1i32.into());
     assert_eq!(third.scalar_at(1).unwrap(), 2i32.into());
 }

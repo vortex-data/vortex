@@ -10,7 +10,6 @@ use bytes::Bytes;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::pin_mut;
-use itertools::Itertools;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -51,6 +50,7 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
+use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::Nullability;
@@ -305,7 +305,7 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().fields()[0].clone();
+    let actual = array.to_struct().unmasked_fields()[0].clone();
     let expected = VarBinArray::from(strings_expected.to_vec()).into_array();
     assert_arrays_eq!(actual.as_ref(), expected.as_ref());
 
@@ -327,7 +327,7 @@ async fn test_read_projection() {
         )
     );
 
-    let actual = array.to_struct().fields()[0].clone();
+    let actual = array.to_struct().unmasked_fields()[0].clone();
     let expected = Buffer::copy_from(numbers_expected).into_array();
     assert_arrays_eq!(actual.as_ref(), expected.as_ref());
 }
@@ -373,7 +373,7 @@ async fn unequal_batches() {
 
         let numbers = array
             .to_struct()
-            .field_by_name("numbers")
+            .unmasked_field_by_name("numbers")
             .unwrap()
             .to_primitive();
         assert_eq!(numbers.ptype(), PType::U32);
@@ -539,13 +539,13 @@ async fn filter_string() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
-    let ages_actual = result[0].to_struct().fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
@@ -594,20 +594,17 @@ async fn filter_or() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names = result[0].to_struct().fields()[0].clone();
-    assert_eq!(
-        names.to_varbinview().with_iterator(|iter| iter
-            .flatten()
-            .map(|s| unsafe { String::from_utf8_unchecked(s.to_vec()) })
-            .collect::<Vec<_>>()),
-        vec!["Joseph".to_string(), "Angela".to_string()]
-    );
-    let ages = result[0].to_struct().fields()[1].clone();
-    assert_eq!(
-        ages.to_primitive()
-            .with_iterator(|iter| iter.map(|x| x.cloned()).collect::<Vec<_>>()),
-        vec![Some(25), None]
-    );
+    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
+    let names_expected = VarBinArray::from_iter(
+        vec![Some("Joseph"), Some("Angela")],
+        DType::Utf8(Nullability::Nullable),
+    )
+    .into_array();
+    assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
+
+    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
+    let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), None]).into_array();
+    assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
 
 #[tokio::test]
@@ -651,7 +648,7 @@ async fn filter_and() {
         .unwrap();
 
     assert_eq!(result.len(), 1);
-    let names_actual = result[0].to_struct().fields()[0].clone();
+    let names_actual = result[0].to_struct().unmasked_fields()[0].clone();
     let names_expected = VarBinArray::from_iter(
         vec![Some("Joseph"), None],
         DType::Utf8(Nullability::Nullable),
@@ -659,7 +656,7 @@ async fn filter_and() {
     .into_array();
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
-    let ages_actual = result[0].to_struct().fields()[1].clone();
+    let ages_actual = result[0].to_struct().unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32), Some(31i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
@@ -717,7 +714,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
 
     let expected_kept_numbers: Vec<i16> = kept_indices
         .iter()
@@ -737,7 +734,7 @@ async fn test_with_indices_simple() {
         .await
         .unwrap()
         .to_struct();
-    let actual_numbers_array = actual_array.fields()[0].clone();
+    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
     let expected_array = Buffer::copy_from(&expected_numbers).into_array();
     assert_arrays_eq!(actual_numbers_array.as_ref(), expected_array.as_ref());
 }
@@ -782,7 +779,7 @@ async fn test_with_indices_on_two_columns() {
         .to_struct()
         .to_struct();
 
-    let strings_actual = array.fields()[0].clone();
+    let strings_actual = array.unmasked_fields()[0].clone();
     let strings_expected_vec: Vec<&str> = kept_indices
         .iter()
         .map(|&x| strings_expected[x as usize])
@@ -790,7 +787,7 @@ async fn test_with_indices_on_two_columns() {
     let strings_expected_array = VarBinArray::from(strings_expected_vec).into_array();
     assert_arrays_eq!(strings_actual.as_ref(), strings_expected_array.as_ref());
 
-    let numbers_actual = array.fields()[1].clone();
+    let numbers_actual = array.unmasked_fields()[1].clone();
     let numbers_expected_vec: Vec<u32> = kept_indices
         .iter()
         .map(|&x| numbers_expected[x as usize])
@@ -854,7 +851,7 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_kept_numbers_array = actual_kept_array.fields()[0].to_primitive();
+    let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
 
     let expected_kept_numbers: Buffer<i16> = kept_indices
         .iter()
@@ -877,16 +874,16 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .unwrap()
         .to_struct();
 
-    let actual_numbers_array = actual_array.fields()[0].to_primitive();
-    let actual_numbers = actual_numbers_array.as_slice::<i16>();
-
-    assert_eq!(
-        expected_numbers
-            .iter()
-            .filter(|&&x| x > 50)
-            .cloned()
-            .collect::<Vec<_>>(),
-        actual_numbers
+    let actual_numbers_array = actual_array.unmasked_fields()[0].clone();
+    let expected_filtered: Buffer<i16> = expected_numbers
+        .iter()
+        .filter(|&&x| x > 50)
+        .cloned()
+        .collect();
+    let expected_numbers_array = expected_filtered.into_array();
+    assert_arrays_eq!(
+        actual_numbers_array.as_ref(),
+        expected_numbers_array.as_ref()
     );
 }
 
@@ -940,13 +937,13 @@ async fn filter_string_chunked() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 1);
-    let names_actual = actual_array.fields()[0].clone();
+    let names_actual = actual_array.unmasked_fields()[0].clone();
     let names_expected =
         VarBinArray::from_iter(vec![Some("Joseph")], DType::Utf8(Nullability::Nullable))
             .into_array();
     assert_arrays_eq!(names_actual.as_ref(), names_expected.as_ref());
 
-    let ages_actual = actual_array.fields()[1].clone();
+    let ages_actual = actual_array.unmasked_fields()[1].clone();
     let ages_expected = PrimitiveArray::from_option_iter([Some(25i32)]).into_array();
     assert_arrays_eq!(ages_actual.as_ref(), ages_expected.as_ref());
 }
@@ -1031,7 +1028,7 @@ async fn test_pruning_with_or() {
         .to_struct();
 
     assert_eq!(actual_array.len(), 10);
-    let letters_actual = actual_array.fields()[0].clone();
+    let letters_actual = actual_array.unmasked_fields()[0].clone();
     let letters_expected = VarBinViewArray::from_iter_nullable_str([
         Some("A".to_owned()),
         Some("B".to_owned()),
@@ -1047,7 +1044,7 @@ async fn test_pruning_with_or() {
     .into_array();
     assert_arrays_eq!(letters_actual.as_ref(), letters_expected.as_ref());
 
-    let numbers_actual = actual_array.fields()[1].clone();
+    let numbers_actual = actual_array.unmasked_fields()[1].clone();
     let numbers_expected = PrimitiveArray::from_option_iter([
         Some(25_i32),
         Some(31),
@@ -1100,14 +1097,7 @@ async fn test_repeated_projection() {
         .unwrap()
         .to_struct();
 
-    assert_eq!(
-        (0..actual.len())
-            .map(|index| actual.scalar_at(index).unwrap())
-            .collect_vec(),
-        (0..expected.len())
-            .map(|index| expected.scalar_at(index).unwrap())
-            .collect_vec()
-    );
+    assert_arrays_eq!(actual, expected);
 }
 
 async fn chunked_file() -> VortexResult<VortexFile> {
@@ -1255,10 +1245,10 @@ async fn write_nullable_nested_struct() -> VortexResult<()> {
     let result = round_trip(&array, Ok).await?.to_struct();
 
     assert_eq!(result.len(), 3);
-    assert_eq!(result.fields().len(), 1);
+    assert_eq!(result.unmasked_fields().len(), 1);
     assert!(result.all_valid()?);
 
-    let nested_struct = result.field_by_name("struct")?.to_struct();
+    let nested_struct = result.unmasked_field_by_name("struct")?.to_struct();
     assert_eq!(nested_struct.dtype(), &nested_dtype);
     assert_eq!(nested_struct.len(), 3);
     assert!(nested_struct.all_invalid()?);
@@ -1391,7 +1381,10 @@ async fn test_writer_multiple_pushes() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 9);
-    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let numbers = result
+        .to_struct()
+        .unmasked_field_by_name("numbers")?
+        .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
     assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
@@ -1422,7 +1415,10 @@ async fn test_writer_push_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let numbers = result
+        .to_struct()
+        .unmasked_field_by_name("numbers")?
+        .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
     assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
@@ -1483,7 +1479,10 @@ async fn test_writer_empty_chunks() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 2);
-    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let numbers = result
+        .to_struct()
+        .unmasked_field_by_name("numbers")?
+        .clone();
     let expected = buffer![1u32, 2].into_array();
     assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
@@ -1518,7 +1517,10 @@ async fn test_writer_mixed_push_and_stream() -> VortexResult<()> {
     let result = file.scan()?.into_array_stream()?.read_all().await?;
 
     assert_eq!(result.len(), 6);
-    let numbers = result.to_struct().field_by_name("numbers")?.clone();
+    let numbers = result
+        .to_struct()
+        .unmasked_field_by_name("numbers")?
+        .clone();
     let expected = buffer![1u32, 2, 3, 4, 5, 6].into_array();
     assert_arrays_eq!(numbers.as_ref(), expected.as_ref());
 
@@ -1557,7 +1559,10 @@ async fn test_writer_with_complex_types() -> VortexResult<()> {
     assert_eq!(result.len(), 3);
     assert_eq!(result.dtype(), &dtype);
 
-    let strings_field = result.to_struct().field_by_name("strings").cloned()?;
+    let strings_field = result
+        .to_struct()
+        .unmasked_field_by_name("strings")
+        .cloned()?;
     let strings = strings_field.to_varbinview().with_iterator(|iter| {
         iter.map(|s| s.map(|st| unsafe { String::from_utf8_unchecked(st.to_vec()) }))
             .collect::<Vec<_>>()
@@ -1628,8 +1633,86 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
 
     let results = stream.try_collect::<Vec<_>>().await;
 
-    let err = results.err().unwrap();
-    println!("Expected error: {}", err);
+    assert!(results.is_err());
 
     Ok(())
+}
+
+#[cuda_tests]
+#[cfg(not(target_arch = "wasm32"))]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::StreamExt;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_cuda::CanonicalCudaExt;
+    use vortex_cuda::CopyDeviceReadAt;
+    use vortex_cuda::CudaSession;
+    use vortex_cuda::CudaSessionExt;
+    use vortex_cuda::executor::CudaArrayExt;
+    use vortex_error::VortexResult;
+    use vortex_io::file::std_file::FileReadAdapter;
+    use vortex_io::session::RuntimeSessionExt;
+
+    use crate::OpenOptionsSessionExt;
+    use crate::WriteOptionsSessionExt;
+    use crate::tests::SESSION;
+
+    #[tokio::test]
+    async fn gpu_scan() -> VortexResult<()> {
+        use vortex_alp::alp_encode;
+
+        // Create an ALP-encoded array from primitive f64 values
+        let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
+        let alp_array = alp_encode(&primitive, None)?;
+
+        // Write to a buffer, then to a temp file
+        let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
+        let mut buf = Vec::new();
+        SESSION
+            .write_options()
+            .write(&mut buf, alp_array.to_array_stream())
+            .await?;
+        std::fs::write(&temp_path, &buf)?;
+
+        // Read back via GPU
+        let handle = SESSION.handle();
+        let source = Arc::new(FileReadAdapter::open(&temp_path, handle)?);
+        let gpu_reader =
+            CopyDeviceReadAt::new(source.clone(), SESSION.cuda_session().new_stream()?);
+        let cpu_reader = source;
+
+        let cpu_file = SESSION.open_options().open_read(cpu_reader).await?;
+
+        let gpu_file = SESSION
+            .open_options()
+            .with_footer(cpu_file.footer)
+            .open_read(gpu_reader)
+            .await?;
+
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
+
+        let mut res = Vec::new();
+        let mut stream = gpu_file.scan()?.into_array_stream()?;
+        while let Some(a) = stream.next().await {
+            let a = a?;
+            let array = a
+                .execute_cuda(&mut cuda_ctx)
+                .await?
+                .into_host()
+                .await?
+                .into_array();
+            res.push(array);
+        }
+
+        for a in res {
+            println!("a {} ", a.display_tree())
+        }
+
+        // Cleanup
+        std::fs::remove_file(&temp_path)?;
+
+        Ok(())
+    }
 }

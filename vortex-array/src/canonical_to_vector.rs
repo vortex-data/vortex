@@ -51,7 +51,7 @@ impl Canonical {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
             Canonical::Bool(a) => {
-                Vector::Bool(BoolVector::new(a.bit_buffer().clone(), a.validity_mask()?))
+                Vector::Bool(BoolVector::new(a.to_bit_buffer(), a.validity_mask()?))
             }
             Canonical::Primitive(a) => {
                 let ptype = a.ptype();
@@ -165,8 +165,8 @@ impl Canonical {
             }
             Canonical::Struct(a) => {
                 let validity = a.validity_mask()?;
-                let mut fields = Vec::with_capacity(a.fields().len());
-                for f in a.fields().iter().cloned() {
+                let mut fields = Vec::with_capacity(a.unmasked_fields().len());
+                for f in a.unmasked_fields().iter().cloned() {
                     fields.push(f.execute::<Vector>(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();

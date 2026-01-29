@@ -237,6 +237,6 @@ mod tests {
         .to_array();
 
         let expr = is_null(root());
-        expr.evaluate(&array).vortex_expect("expr evaluation");
+        array.apply(&expr).vortex_expect("expr evaluation");
     }
 }

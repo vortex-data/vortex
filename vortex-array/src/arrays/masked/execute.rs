@@ -67,7 +67,7 @@ fn mask_validity_null(array: NullArray, _mask: &Mask) -> NullArray {
 fn mask_validity_bool(array: BoolArray, mask: &Mask) -> BoolArray {
     let len = array.len();
     let new_validity = combine_validity(array.validity(), mask, len);
-    BoolArray::new(array.bit_buffer().clone(), new_validity)
+    BoolArray::new(array.to_bit_buffer(), new_validity)
 }
 
 fn mask_validity_primitive(array: PrimitiveArray, mask: &Mask) -> PrimitiveArray {
@@ -139,7 +139,7 @@ fn mask_validity_fixed_size_list(array: FixedSizeListArray, mask: &Mask) -> Fixe
 fn mask_validity_struct(array: StructArray, mask: &Mask) -> StructArray {
     let len = array.len();
     let new_validity = combine_validity(array.validity(), mask, len);
-    let fields = array.fields().clone();
+    let fields = array.unmasked_fields().clone();
     let struct_fields = array.struct_fields().clone();
     // SAFETY: We're only changing validity, not the data structure
     unsafe { StructArray::new_unchecked(fields, struct_fields, len, new_validity) }

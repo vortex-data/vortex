@@ -6,9 +6,6 @@
 //! This crate defines error & result types for Vortex.
 //! It also contains a variety of useful macros for error handling.
 
-#[cfg(feature = "python")]
-pub mod python;
-
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
@@ -407,6 +404,20 @@ macro_rules! vortex_ensure {
     };
     ($cond:expr, $($tt:tt)*) => {
         if !$cond {
+            $crate::vortex_bail!($($tt)*);
+        }
+    };
+}
+
+/// A macro that mirrors `assert_eq!` but instead of panicking when left != right,
+/// it will immediately return an erroneous `VortexResult` to the calling context.
+#[macro_export]
+macro_rules! vortex_ensure_eq {
+    ($left:expr, $right:expr) => {
+        $crate::vortex_ensure_eq!($left, $right, AssertionFailed: "{} != {}: {:?} != {:?}", stringify!($left), stringify!($right), $left, $right);
+    };
+    ($left:expr, $right:expr, $($tt:tt)*) => {
+        if $left != $right {
             $crate::vortex_bail!($($tt)*);
         }
     };

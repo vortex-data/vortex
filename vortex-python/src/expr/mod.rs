@@ -22,6 +22,7 @@ use vortex::expr::not;
 use crate::arrays::PyArrayRef;
 use crate::arrays::into_array::PyIntoArray;
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::scalar::factory::scalar_helper;
 
@@ -213,8 +214,8 @@ impl PyExpr {
     /// vortex.open : Open an on-disk Vortex array for scanning with an expression.
     /// vortex.VortexFile : An on-disk Vortex array ready to scan with an expression.
     /// vortex.VortexFile.scan : Scan an on-disk Vortex array with an expression.
-    fn evaluate(self_: PyRef<'_, Self>, array: PyIntoArray) -> PyResult<PyArrayRef> {
-        Ok(PyArrayRef::from(self_.evaluate(array.inner())?))
+    fn evaluate(self_: PyRef<'_, Self>, array: PyIntoArray) -> PyVortexResult<PyArrayRef> {
+        Ok(PyArrayRef::from(array.inner().apply(&self_.inner)?))
     }
 }
 

@@ -164,7 +164,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<ArrayRef> = struct_array.fields().to_vec();
+        let field_arrays: Vec<ArrayRef> = struct_array.unmasked_fields().to_vec();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {

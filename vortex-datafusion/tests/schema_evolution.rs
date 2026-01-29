@@ -80,7 +80,7 @@ fn make_session_ctx() -> (SessionContext, Arc<dyn ObjectStore>) {
 }
 
 async fn write_file(store: &Arc<dyn ObjectStore>, path: &str, records: &RecordBatch) {
-    let array = ArrayRef::from_arrow(records, false);
+    let array = ArrayRef::from_arrow(records, false).unwrap();
     let path = Path::from_url_path(path).unwrap();
     let mut write = ObjectStoreWriter::new(store.clone(), &path).await.unwrap();
     SESSION

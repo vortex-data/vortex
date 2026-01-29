@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::hash::Hasher;
 
-use vortex_compute::filter::Filter;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -14,7 +13,6 @@ use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
-use super::execute::filter_canonical;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -22,10 +20,10 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
-use crate::arrays::ConstantArray;
 use crate::arrays::filter::array::FilterArray;
+use crate::arrays::filter::execute::execute_filter;
+use crate::arrays::filter::execute::execute_filter_fast_paths;
 use crate::arrays::filter::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -68,7 +66,8 @@ impl VTable for FilterVTable {
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
+        // TODO(joe): make this configurable
+        vortex_bail!("Filter array is not serializable")
     }
 
     fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
@@ -105,24 +104,30 @@ impl VTable for FilterVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        if let Some(canonical) = execute_fast_path(array, ctx)? {
+        if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
             return Ok(canonical);
         }
+        let Mask::Values(mask_values) = &array.mask else {
+            unreachable!("`execute_filter_fast_paths` handles AllTrue and AllFalse")
+        };
 
-        let canonical = filter_canonical(array.child.clone().execute(ctx)?, &array.mask);
+        // We rely on the optimization pass that runs prior to this execution for filter pushdown,
+        // so now we can just execute the filter without worrying.
+        let canonical = execute_filter(array.child.clone().execute(ctx)?, mask_values);
 
+        // Verify the resulting length and type.
         let result_len = array.mask.true_count();
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Filter result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
         vortex_ensure!(
             canonical.as_ref().len() == result_len,
             "Filter result length mismatch: expected {}, got {}",
             result_len,
             canonical.as_ref().len()
+        );
+        vortex_ensure!(
+            canonical.as_ref().dtype() == array.dtype(),
+            "Filter result dtype mismatch: expected {:?}, got {:?}",
+            array.dtype(),
+            canonical.as_ref().dtype()
         );
 
         Ok(canonical)
@@ -135,35 +140,6 @@ impl VTable for FilterVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-}
-
-/// Check for fast-path execution conditions.
-pub(super) fn execute_fast_path(
-    array: &FilterArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
-    let true_count = array.mask.true_count();
-
-    // Empty result - mask selects nothing
-    if true_count == 0 {
-        return Ok(Some(Canonical::empty(array.dtype())));
-    }
-
-    // Full pass-through - mask selects everything
-    if true_count == array.mask.len() {
-        return Ok(Some(array.child.clone().execute(ctx)?));
-    }
-
-    // All null - child has no valid values
-    if array.validity_mask()?.true_count() == 0 {
-        return Ok(Some(
-            ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
-                .into_array()
-                .execute(ctx)?,
-        ));
-    }
-
-    Ok(None)
 }
 
 impl BaseArrayVTable<FilterVTable> for FilterVTable {
@@ -199,10 +175,6 @@ impl OperationsVTable<FilterVTable> for FilterVTable {
 impl ValidityVTable<FilterVTable> for FilterVTable {
     fn validity(array: &FilterArray) -> VortexResult<Validity> {
         array.child.validity()?.filter(&array.mask)
-    }
-
-    fn validity_mask(array: &FilterArray) -> VortexResult<Mask> {
-        Ok(Filter::filter(&array.child.validity_mask()?, &array.mask))
     }
 }
 

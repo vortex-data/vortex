@@ -4,7 +4,6 @@
 use vortex_array::ArrayRef;
 use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -23,7 +22,7 @@ impl FilterKernel for ALPVTable {
         // SAFETY: filtering the values does not change correctness
         unsafe {
             Ok(ALPArray::new_unchecked(
-                filter(array.encoded(), mask)?,
+                array.encoded().filter(mask.clone())?,
                 array.exponents(),
                 patches,
                 array.dtype().clone(),

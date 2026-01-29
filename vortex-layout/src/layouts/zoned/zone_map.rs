@@ -138,7 +138,7 @@ impl ZoneMap {
 
     /// Returns the array for a given stat.
     pub fn get_stat(&self, stat: Stat) -> VortexResult<Option<ArrayRef>> {
-        Ok(self.array.field_by_name_opt(stat.name()).cloned())
+        Ok(self.array.unmasked_field_by_name_opt(stat.name()).cloned())
     }
 
     /// Apply a pruning predicate against the ZoneMap, yielding a mask indicating which zones can
@@ -257,13 +257,13 @@ impl StatsAccumulator {
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
     use vortex_array::expr::gt;
@@ -319,12 +319,16 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
-            &BitBuffer::from(vec![false, true])
+            stats_table.array.unmasked_fields()[1]
+                .to_bool()
+                .to_bit_buffer(),
+            BitBuffer::from(vec![false, true])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
-            &BitBuffer::from(vec![true, false])
+            stats_table.array.unmasked_fields()[3]
+                .to_bool()
+                .to_bit_buffer(),
+            BitBuffer::from(vec![true, false])
         );
     }
 
@@ -349,12 +353,16 @@ mod tests {
             ]
         );
         assert_eq!(
-            stats_table.array.fields()[1].to_bool().bit_buffer(),
-            &BitBuffer::from(vec![false])
+            stats_table.array.unmasked_fields()[1]
+                .to_bool()
+                .to_bit_buffer(),
+            BitBuffer::from(vec![false])
         );
         assert_eq!(
-            stats_table.array.fields()[3].to_bool().bit_buffer(),
-            &BitBuffer::from(vec![false])
+            stats_table.array.unmasked_fields()[3]
+                .to_bool()
+                .to_bit_buffer(),
+            BitBuffer::from(vec![false])
         );
     }
 
@@ -407,9 +415,9 @@ mod tests {
         let expr = gt_eq(root(), lit(6i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_eq!(
-            mask.to_bit_buffer().into_iter().collect_vec(),
-            vec![true, false, false]
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, false])
         );
 
         // A > 5
@@ -417,9 +425,9 @@ mod tests {
         let expr = gt(root(), lit(5i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_eq!(
-            mask.to_bit_buffer().into_iter().collect_vec(),
-            vec![true, false, false]
+        assert_arrays_eq!(
+            mask.into_array(),
+            BoolArray::from_iter([true, false, false])
         );
 
         // A < 2
@@ -427,9 +435,6 @@ mod tests {
         let expr = lt(root(), lit(2i32));
         let (pruning_expr, _) = checked_pruning_expr(&expr, &stats).unwrap();
         let mask = zone_map.prune(&pruning_expr, &SESSION).unwrap();
-        assert_eq!(
-            mask.to_bit_buffer().into_iter().collect_vec(),
-            vec![false, true, true]
-        );
+        assert_arrays_eq!(mask.into_array(), BoolArray::from_iter([false, true, true]));
     }
 }

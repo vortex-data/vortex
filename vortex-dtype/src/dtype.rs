@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use DType::*;
 use itertools::Itertools;
+use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
 use crate::FieldDType;
@@ -16,6 +17,7 @@ use crate::FieldName;
 use crate::PType;
 use crate::StructFields;
 use crate::decimal::DecimalDType;
+use crate::decimal::DecimalType;
 use crate::extension::ExtDTypeRef;
 use crate::nullability::Nullability;
 
@@ -331,6 +333,37 @@ impl DType {
         }
     }
 
+    /// Returns the number of bytes occupied by a single scalar of this fixed-width type.
+    ///
+    /// For non-fixed-width types, return None.
+    ///
+    /// [`Bool`] is defined as 1 even though a Vortex array may pack Booleans to one bit per element.
+    pub fn element_size(&self) -> Option<usize> {
+        match self {
+            Null => Some(0),
+            Bool(_) => Some(1),
+            Primitive(ptype, _) => Some(ptype.byte_width()),
+            Decimal(decimal, _) => {
+                Some(DecimalType::smallest_decimal_value_type(decimal).byte_width())
+            }
+            Utf8(_) | Binary(_) | List(..) => None,
+            FixedSizeList(elem_dtype, list_size, _) => {
+                elem_dtype.element_size().map(|s| s * *list_size as usize)
+            }
+            Struct(fields, ..) => {
+                let mut sum = 0_usize;
+                for f in fields.fields() {
+                    let element_size = f.element_size()?;
+                    sum = sum
+                        .checked_add(element_size)
+                        .vortex_expect("sum of field sizes is bigger than usize");
+                }
+                Some(sum)
+            }
+            Extension(ext) => ext.storage_dtype().element_size(),
+        }
+    }
+
     /// Check returns the inner decimal type if the dtype is a [`DType::Decimal`].
     pub fn as_decimal_opt(&self) -> Option<&DecimalDType> {
         if let Decimal(decimal, _) = self {
@@ -512,27 +545,119 @@ impl Display for DType {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
+    use std::sync::Arc;
+
     use crate::DType;
     use crate::Nullability;
+    use crate::Nullability::NonNullable;
+    use crate::Nullability::Nullable;
+    use crate::PType;
+    use crate::datetime::Date;
     use crate::datetime::Time;
     use crate::datetime::TimeUnit;
     use crate::datetime::Timestamp;
+    use crate::decimal::DecimalDType;
 
     #[test]
     fn test_ext_dtype_eq_ignore_nullability() {
-        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullability::Nullable).erased());
-        let d2 = DType::Extension(Time::new(TimeUnit::Days, Nullability::NonNullable).erased());
+        let d1 = DType::Extension(Time::new(TimeUnit::Days, Nullable).erased());
+        let d2 = DType::Extension(Time::new(TimeUnit::Days, NonNullable).erased());
         assert!(d1.eq_ignore_nullability(&d2));
 
         let t1 = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullability::Nullable)
-                .erased(),
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullable).erased(),
         );
         let t2 = DType::Extension(
-            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullability::Nullable)
-                .erased(),
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
         );
         assert!(!t1.eq_ignore_nullability(&t2));
+    }
+
+    #[test]
+    fn element_size_null() {
+        assert_eq!(DType::Null.element_size(), Some(0));
+    }
+
+    #[test]
+    fn element_size_bool() {
+        assert_eq!(DType::Bool(NonNullable).element_size(), Some(1));
+    }
+
+    #[test]
+    fn element_size_primitives() {
+        assert_eq!(
+            DType::Primitive(PType::U8, NonNullable).element_size(),
+            Some(1)
+        );
+        assert_eq!(
+            DType::Primitive(PType::I32, NonNullable).element_size(),
+            Some(4)
+        );
+        assert_eq!(
+            DType::Primitive(PType::F64, NonNullable).element_size(),
+            Some(8)
+        );
+    }
+
+    #[test]
+    fn element_size_decimal() {
+        let decimal = DecimalDType::new(10, 2);
+        // precision 10 -> DecimalType::I64 -> 8 bytes
+        assert_eq!(DType::Decimal(decimal, NonNullable).element_size(), Some(8));
+    }
+
+    #[test]
+    fn element_size_fixed_size_list() {
+        let elem = Arc::new(DType::Primitive(PType::F64, NonNullable));
+        assert_eq!(
+            DType::FixedSizeList(elem.clone(), 1000, NonNullable).element_size(),
+            Some(8000)
+        );
+
+        assert_eq!(
+            DType::FixedSizeList(
+                Arc::new(DType::FixedSizeList(elem, 20, NonNullable)),
+                1000,
+                NonNullable
+            )
+            .element_size(),
+            Some(160_000)
+        );
+    }
+
+    #[test]
+    fn element_size_nested_fixed_size_list() {
+        let inner = Arc::new(DType::FixedSizeList(
+            Arc::new(DType::Primitive(PType::F64, NonNullable)),
+            10,
+            NonNullable,
+        ));
+        assert_eq!(
+            DType::FixedSizeList(inner, 100, NonNullable).element_size(),
+            Some(8000)
+        );
+    }
+
+    #[test]
+    fn element_size_extension() {
+        assert_eq!(
+            DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased()).element_size(),
+            Some(4)
+        );
+    }
+
+    #[test]
+    fn element_size_variable_width() {
+        assert_eq!(DType::Utf8(NonNullable).element_size(), None);
+        assert_eq!(DType::Binary(NonNullable).element_size(), None);
+        assert_eq!(
+            DType::List(
+                Arc::new(DType::Primitive(PType::I32, NonNullable)),
+                NonNullable
+            )
+            .element_size(),
+            None
+        );
     }
 }

@@ -43,7 +43,7 @@ fn test_slice_comprehensive() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Test basic slice [1..3] - middle portion.
-    let sliced = listview.slice(1..3);
+    let sliced = listview.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
     assert_eq!(sliced_list.len(), 2, "Wrong slice length");
     assert_eq!(sliced_list.offset_at(0), 3, "Wrong offset for list[1]");
@@ -52,7 +52,7 @@ fn test_slice_comprehensive() {
     assert_eq!(sliced_list.size_at(1), 3, "Wrong size for list[2]");
 
     // Test full array slice [0..4].
-    let full = listview.slice(0..4);
+    let full = listview.slice(0..4).unwrap();
     let full_list = full.as_::<ListViewVTable>();
     assert_eq!(full_list.len(), 4, "Full slice should preserve length");
     for i in 0..4 {
@@ -66,7 +66,7 @@ fn test_slice_comprehensive() {
     }
 
     // Test single element slice [2..3].
-    let single = listview.slice(2..3);
+    let single = listview.slice(2..3).unwrap();
     let single_list = single.as_::<ListViewVTable>();
     assert_eq!(single_list.len(), 1, "Single element slice failed");
     assert_eq!(single_list.offset_at(0), 5, "Wrong offset for single slice");
@@ -84,7 +84,7 @@ fn test_slice_out_of_order() {
     let listview = ListViewArray::new(elements, offsets, sizes, Validity::NonNullable).to_array();
 
     // Slice [1..4] should maintain the out-of-order offsets.
-    let sliced = listview.slice(1..4);
+    let sliced = listview.slice(1..4).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(
@@ -113,15 +113,15 @@ fn test_slice_out_of_order() {
 
     // Verify the actual list contents are correct.
     assert_arrays_eq!(
-        sliced_list.list_elements_at(0),
+        sliced_list.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([10i32, 20, 30])
     );
     assert_arrays_eq!(
-        sliced_list.list_elements_at(1),
+        sliced_list.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter([40i32, 50, 60])
     );
     assert_arrays_eq!(
-        sliced_list.list_elements_at(2),
+        sliced_list.list_elements_at(2).unwrap(),
         PrimitiveArray::from_iter([90i32])
     );
 }
@@ -143,7 +143,7 @@ fn test_slice_with_nulls() {
     .into_array();
 
     // Slice [1..3] should preserve nulls.
-    let sliced = listview.slice(1..3);
+    let sliced = listview.slice(1..3).unwrap();
     let sliced_list = sliced.as_::<ListViewVTable>();
 
     assert_eq!(sliced_list.len(), 2);
@@ -179,13 +179,13 @@ fn test_slice_edge_cases(
 
     match expected_len {
         Some(len) => {
-            let sliced = listview.slice(start..stop);
+            let sliced = listview.slice(start..stop).unwrap();
             assert_eq!(sliced.len(), len);
         }
         None => {
             // slice will panic or return empty for invalid ranges
             if start < stop && stop <= listview.len() {
-                let sliced = listview.slice(start..stop);
+                let sliced = listview.slice(start..stop).unwrap();
                 assert_eq!(sliced.len(), 0);
             }
         }

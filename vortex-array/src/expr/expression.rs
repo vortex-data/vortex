@@ -14,7 +14,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
@@ -102,44 +101,6 @@ impl Expression {
             .map(|c| c.return_dtype(scope))
             .try_collect()?;
         self.scalar_fn.return_dtype(&dtypes)
-    }
-
-    /// Evaluates the expression in the given scope, returning an array.
-    ///
-    /// This is a convenience method that recursively evaluates child expressions
-    /// and calls the scalar function's execute method.
-    pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        use crate::IntoArray;
-        use crate::LEGACY_SESSION;
-        use crate::VortexSessionExecute;
-        use crate::arrays::ConstantArray;
-        use crate::expr::ExecutionArgs;
-        use crate::expr::Literal;
-
-        if self.is::<Root>() {
-            return Ok(scope.clone());
-        }
-
-        if self.is::<Literal>() {
-            let scalar = self.as_::<Literal>();
-            return Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array());
-        }
-
-        // Recursively evaluate child expressions to get input arrays
-        let inputs: Vec<ArrayRef> = self
-            .children
-            .iter()
-            .map(|child| child.evaluate(scope))
-            .try_collect()?;
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let args = ExecutionArgs {
-            inputs,
-            row_count: scope.len(),
-            ctx: &mut ctx,
-        };
-
-        Ok(self.scalar_fn.execute(args)?.into_array())
     }
 
     /// Returns a new expression representing the validity mask output of this expression.

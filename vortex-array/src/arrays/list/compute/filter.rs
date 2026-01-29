@@ -21,7 +21,6 @@ use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -132,7 +131,7 @@ fn compute_filtered_elements_and_offsets<O: IntegerPType>(
 
     // Allow the child array to filter themselves.
     // The `Mask` can determine the best representation based on the buffer's density in the future.
-    let new_elements = filter(elements, &Mask::from_buffer(new_mask_builder.freeze()))?;
+    let new_elements = elements.filter(Mask::from_buffer(new_mask_builder.freeze()))?;
 
     Ok((new_elements, new_offsets))
 }
@@ -173,7 +172,7 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
     }
 
     // Pad to full length if necessary.
-    mask_builder.append_n(false, last_offset - mask_builder.len());
+    mask_builder.append_n(false, len - mask_builder.len());
 
     Mask::from_buffer(mask_builder.freeze())
 }

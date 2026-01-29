@@ -5,13 +5,13 @@ use pyo3::IntoPyObject;
 use pyo3::Py;
 use pyo3::PyAny;
 use pyo3::PyRef;
-use pyo3::PyResult;
 use pyo3::pyclass;
 use pyo3::pymethods;
 use vortex::error::vortex_err;
 use vortex::scalar::StructScalar;
 
 use crate::PyVortex;
+use crate::error::PyVortexResult;
 use crate::scalar::AsScalarRef;
 use crate::scalar::PyScalar;
 use crate::scalar::ScalarSubclass;
@@ -27,11 +27,13 @@ impl ScalarSubclass for PyStructScalar {
 #[pymethods]
 impl PyStructScalar {
     /// Return the child scalar with the given field name.
-    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyResult<Py<PyAny>> {
+    pub fn field(self_: PyRef<'_, Self>, name: &str) -> PyVortexResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
         let child = scalar
             .field(name)
             .ok_or_else(|| vortex_err!("No field {name}"))?;
-        PyVortex(&child).into_pyobject(self_.py()).map(|v| v.into())
+        Ok(PyVortex(&child)
+            .into_pyobject(self_.py())
+            .map(|v| v.into())?)
     }
 }

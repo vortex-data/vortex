@@ -56,7 +56,10 @@ fn compact_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)
 fn compact_sliced_impl(bencher: Bencher, (output_size, utilization_pct): (usize, usize)) {
     let base_size = (output_size * 100) / utilization_pct;
     let base_array = build_varbinview_fixture(base_size);
-    let sliced = base_array.as_ref().slice(0..output_size);
+    let sliced = base_array
+        .as_ref()
+        .slice(0..output_size)
+        .vortex_expect("slice should succeed");
     let array = sliced.to_varbinview();
 
     bencher.with_inputs(|| &array).bench_refs(|array| {

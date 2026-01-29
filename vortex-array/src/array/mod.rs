@@ -46,6 +46,7 @@ use crate::arrays::SliceArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
+use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
 use crate::compute::ComputeFn;
@@ -99,7 +100,7 @@ pub trait Array:
     fn encoding_id(&self) -> ArrayId;
 
     /// Performs a constant-time slice of the array.
-    fn slice(&self, range: Range<usize>) -> ArrayRef;
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef>;
 
     /// Wraps the array in a [`FilterArray`] such that it is logically filtered by the given mask.
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef>;
@@ -216,7 +217,7 @@ impl Array for Arc<dyn Array> {
     }
 
     #[inline]
-    fn slice(&self, range: Range<usize>) -> ArrayRef {
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         self.as_ref().slice(range)
     }
 
@@ -458,12 +459,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         V::id(&self.0)
     }
 
-    fn slice(&self, range: Range<usize>) -> ArrayRef {
+    fn slice(&self, range: Range<usize>) -> VortexResult<ArrayRef> {
         let start = range.start;
         let stop = range.end;
 
         if start == 0 && stop == self.len() {
-            return self.to_array();
+            return Ok(self.to_array());
         }
 
         assert!(
@@ -480,14 +481,12 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         assert!(start <= stop, "start ({start}) must be <= stop ({stop})");
 
         if start == stop {
-            return Canonical::empty(self.dtype()).into_array();
+            return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = V::slice(&self.0, range.clone())
-            .vortex_expect("cannot fail")
+        let sliced = V::slice(&self.0, range.clone())?
             .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
-            .optimize()
-            .vortex_expect("cannot fail for now");
+            .optimize()?;
 
         assert_eq!(
             sliced.len(),
@@ -521,12 +520,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             });
         }
 
-        sliced
+        Ok(sliced)
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
-        vortex_ensure!(self.len() == mask.len(), "Filter mask length mismatch");
-        FilterArray::new(self.to_array(), mask)
+        FilterArray::try_new(self.to_array(), mask)?
             .into_array()
             .optimize()
     }
@@ -552,11 +550,11 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         match self.validity()? {
             Validity::NonNullable | Validity::AllValid => Ok(true),
             Validity::AllInvalid => Ok(false),
-            Validity::Array(a) => Ok(a
+            Validity::Array(a) => a
                 .scalar_at(index)?
                 .as_bool()
                 .value()
-                .vortex_expect("validity must be non-nullable")),
+                .ok_or_else(|| vortex_err!("validity value at index {} is null", index)),
         }
     }
 
@@ -594,7 +592,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                 let sum = compute::sum(&a)?;
                 sum.as_primitive()
                     .as_::<usize>()
-                    .vortex_expect("Sum must be non-nullable")
+                    .ok_or_else(|| vortex_err!("sum of validity array is null"))?
             }
         };
         vortex_ensure!(count <= self.len(), "Valid count exceeds array length");
@@ -781,12 +779,52 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         impl ArrayBufferVisitor for BufferCollector {
-            fn visit_buffer(&mut self, buffer: &ByteBuffer) {
-                self.buffers.push(buffer.clone());
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
+                self.buffers.push(handle.to_host_sync());
             }
         }
 
         let mut collector = BufferCollector {
+            buffers: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.buffers
+    }
+
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        struct BufferHandleCollector {
+            handles: Vec<BufferHandle>,
+        }
+
+        impl ArrayBufferVisitor for BufferHandleCollector {
+            fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle) {
+                self.handles.push(handle.clone());
+            }
+        }
+
+        let mut collector = BufferHandleCollector {
+            handles: Vec::new(),
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);
+        collector.handles
+    }
+
+    fn buffer_names(&self) -> Vec<String> {
+        <V::VisitorVTable as VisitorVTable<V>>::buffer_names(&self.0)
+    }
+
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        struct NamedBufferCollector {
+            buffers: Vec<(String, BufferHandle)>,
+        }
+
+        impl ArrayBufferVisitor for NamedBufferCollector {
+            fn visit_buffer_handle(&mut self, name: &str, handle: &BufferHandle) {
+                self.buffers.push((name.to_string(), handle.clone()));
+            }
+        }
+
+        let mut collector = NamedBufferCollector {
             buffers: Vec::new(),
         };
         <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(&self.0, &mut collector);

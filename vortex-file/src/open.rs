@@ -12,7 +12,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -22,7 +21,6 @@ use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_metrics::MetricsSessionExt;
 use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -54,12 +52,10 @@ pub struct VortexOpenOptions {
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
-    metrics: VortexMetrics,
+    metrics: Option<VortexMetrics>,
 }
 
-pub trait OpenOptionsSessionExt:
-    ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt
-{
+pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt {
     /// Create a new [`VortexOpenOptions`] using the provided session to open a file.
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
@@ -70,14 +66,11 @@ pub trait OpenOptionsSessionExt:
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
-            metrics: self.metrics(),
+            metrics: None,
         }
     }
 }
-impl<S: ArraySessionExt + LayoutSessionExt + MetricsSessionExt + RuntimeSessionExt>
-    OpenOptionsSessionExt for S
-{
-}
+impl<S: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt> OpenOptionsSessionExt for S {}
 
 impl VortexOpenOptions {
     /// Configure the initial read size for the Vortex file.
@@ -128,7 +121,7 @@ impl VortexOpenOptions {
 
     /// Configure a custom [`VortexMetrics`].
     pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = metrics;
+        self.metrics = Some(metrics);
         self
     }
 
@@ -162,15 +155,12 @@ impl VortexOpenOptions {
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
-    ///
-    /// This is a low-level API and we strongly recommend using [`VortexOpenOptions::open`].
-    async fn open_read<R: VortexReadAt>(self, read: R) -> VortexResult<VortexFile> {
-        let read = Arc::new(InstrumentedReadAt::new(Arc::new(read), &self.metrics));
-
+    pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
+        let metrics = self.metrics.clone().unwrap_or_default();
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
-            self.read_footer(read.clone()).await?
+            self.read_footer(&reader).await?
         };
 
         let segment_cache = Arc::new(SegmentCacheMetrics::new(
@@ -178,15 +168,15 @@ impl VortexOpenOptions {
                 initial: self.initial_read_segments,
                 fallback: self.segment_cache,
             },
-            self.metrics.clone(),
+            metrics.clone(),
         ));
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
-            read,
+            reader,
             self.session.handle(),
-            self.metrics.clone(),
+            metrics.clone(),
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -198,12 +188,11 @@ impl VortexOpenOptions {
         Ok(VortexFile {
             footer,
             segment_source,
-            metrics: self.metrics,
             session: self.session.clone(),
         })
     }
 
-    async fn read_footer(&self, read: Arc<dyn VortexReadAt>) -> VortexResult<Footer> {
+    async fn read_footer(&self, read: &dyn VortexReadAt) -> VortexResult<Footer> {
         // Fetch the file size and perform the initial read.
         let file_size = match self.file_size {
             None => read.size().await?,
@@ -219,8 +208,9 @@ impl VortexOpenOptions {
 
         let initial_offset = file_size - initial_read_size as u64;
         let initial_read: ByteBuffer = read
-            .clone()
             .read_at(initial_offset, initial_read_size, Alignment::none())
+            .await?
+            .try_into_host()?
             .await?;
 
         let mut deserializer = Footer::deserializer(initial_read, self.session.clone())
@@ -230,7 +220,11 @@ impl VortexOpenOptions {
         let footer = loop {
             match deserializer.deserialize()? {
                 DeserializeStep::NeedMoreData { offset, len } => {
-                    let more_data = read.clone().read_at(offset, len, Alignment::none()).await?;
+                    let more_data = read
+                        .read_at(offset, len, Alignment::none())
+                        .await?
+                        .try_into_host()?
+                        .await?;
                     deserializer.prefix_data(more_data);
                 }
                 DeserializeStep::NeedFileSize => unreachable!("We passed file_size above"),
@@ -299,6 +293,7 @@ mod tests {
 
     use futures::future::BoxFuture;
     use vortex_array::IntoArray;
+    use vortex_array::buffer::BufferHandle;
     use vortex_array::expr::session::ExprSession;
     use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
@@ -310,6 +305,7 @@ mod tests {
     use super::*;
     use crate::WriteOptionsSessionExt;
 
+    #[derive(Clone)]
     // Define CountingRead struct
     struct CountingRead<R> {
         inner: R,
@@ -317,7 +313,7 @@ mod tests {
         first_read_len: Arc<AtomicUsize>,
     }
 
-    impl<R: VortexReadAt> VortexReadAt for CountingRead<R> {
+    impl<R: VortexReadAt + Clone> VortexReadAt for CountingRead<R> {
         fn size(&self) -> BoxFuture<'static, VortexResult<u64>> {
             self.inner.size()
         }
@@ -327,7 +323,7 @@ mod tests {
             offset: u64,
             length: usize,
             alignment: Alignment,
-        ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
             self.total_read.fetch_add(length, Ordering::Relaxed);
             let _ = self.first_read_len.compare_exchange(
                 0,

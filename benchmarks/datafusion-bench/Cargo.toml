@@ -36,10 +36,14 @@ parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
 vortex-bench = { workspace = true }
+vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
 
 [build-dependencies]
 get_dir = { workspace = true }
+
+[features]
+cuda = ["dep:vortex-cuda"]
 
 [lints]
 workspace = true

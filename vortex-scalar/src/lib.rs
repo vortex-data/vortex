@@ -26,7 +26,6 @@ mod scalar;
 mod scalar_value;
 mod struct_;
 mod utf8;
-mod vectors;
 
 pub use binary::*;
 pub use bool::*;

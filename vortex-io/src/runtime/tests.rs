@@ -11,6 +11,7 @@ use std::sync::atomic::Ordering;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use tempfile::NamedTempFile;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -42,7 +43,7 @@ fn test_file_read_with_single_thread_runtime() {
                 .await
                 .unwrap();
             assert_eq!(
-                result.as_slice(),
+                result.to_host_sync().as_slice(),
                 &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
             );
 
@@ -51,7 +52,7 @@ fn test_file_read_with_single_thread_runtime() {
                 .read_at(0, TEST_DATA.len(), Alignment::new(1))
                 .await
                 .unwrap();
-            assert_eq!(full.as_slice(), TEST_DATA);
+            assert_eq!(full.to_host_sync().as_slice(), TEST_DATA);
 
             "success"
         }
@@ -70,7 +71,7 @@ async fn test_file_read_with_tokio_runtime() {
         .await
         .unwrap();
     assert_eq!(
-        result.as_slice(),
+        result.to_host().await.as_slice(),
         &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
     );
 
@@ -79,7 +80,7 @@ async fn test_file_read_with_tokio_runtime() {
         .read_at(0, TEST_DATA.len(), Alignment::new(1))
         .await
         .unwrap();
-    assert_eq!(full.as_slice(), TEST_DATA);
+    assert_eq!(full.to_host_sync().as_slice(), TEST_DATA);
 }
 
 // ============================================================================
@@ -107,7 +108,7 @@ fn test_file_read_with_real_file_single_thread() {
                 .await
                 .unwrap();
             assert_eq!(
-                result.as_slice(),
+                result.to_host_sync().as_slice(),
                 &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
             );
 
@@ -116,7 +117,7 @@ fn test_file_read_with_real_file_single_thread() {
                 .read_at(0, TEST_DATA.len(), Alignment::new(1))
                 .await
                 .unwrap();
-            assert_eq!(full.as_slice(), TEST_DATA);
+            assert_eq!(full.to_host_sync().as_slice(), TEST_DATA);
 
             "success"
         }
@@ -144,7 +145,7 @@ async fn test_file_read_with_real_file_tokio() {
         .await
         .unwrap();
     assert_eq!(
-        result.as_slice(),
+        result.to_host().await.as_slice(),
         &TEST_DATA[TEST_OFFSET as usize..][..TEST_LEN]
     );
 
@@ -153,7 +154,7 @@ async fn test_file_read_with_real_file_tokio() {
         .read_at(0, TEST_DATA.len(), Alignment::new(1))
         .await
         .unwrap();
-    assert_eq!(full.as_slice(), TEST_DATA);
+    assert_eq!(full.to_host_sync().as_slice(), TEST_DATA);
 }
 
 // ============================================================================
@@ -174,10 +175,22 @@ async fn test_concurrent_reads() {
 
     let results = futures::future::join_all(futures).await;
 
-    assert_eq!(results[0].as_ref().unwrap().as_slice(), &TEST_DATA[0..5]);
-    assert_eq!(results[1].as_ref().unwrap().as_slice(), &TEST_DATA[5..10]);
-    assert_eq!(results[2].as_ref().unwrap().as_slice(), &TEST_DATA[10..15]);
-    assert_eq!(results[3].as_ref().unwrap().as_slice(), &TEST_DATA[15..20]);
+    assert_eq!(
+        results[0].as_ref().unwrap().to_host_sync().as_slice(),
+        &TEST_DATA[0..5]
+    );
+    assert_eq!(
+        results[1].as_ref().unwrap().to_host_sync().as_slice(),
+        &TEST_DATA[5..10]
+    );
+    assert_eq!(
+        results[2].as_ref().unwrap().to_host_sync().as_slice(),
+        &TEST_DATA[10..15]
+    );
+    assert_eq!(
+        results[3].as_ref().unwrap().to_host_sync().as_slice(),
+        &TEST_DATA[15..20]
+    );
 }
 
 // ============================================================================
@@ -240,7 +253,7 @@ impl VortexReadAt for CountingReadAt {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.read_count.fetch_add(1, Ordering::SeqCst);
         let data = self.data.clone();
         async move {
@@ -253,7 +266,7 @@ impl VortexReadAt for CountingReadAt {
             buffer
                 .as_mut_slice()
                 .copy_from_slice(&data.as_slice()[start..start + length]);
-            Ok(buffer.freeze())
+            Ok(BufferHandle::new_host(buffer.freeze()))
         }
         .boxed()
     }

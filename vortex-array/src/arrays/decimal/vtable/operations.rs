@@ -44,7 +44,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1..3);
+        let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
 
         let decimal = sliced.as_::<DecimalVTable>();
@@ -60,7 +60,7 @@ mod tests {
         )
         .to_array();
 
-        let sliced = array.slice(1..3);
+        let sliced = array.slice(1..3).unwrap();
         assert_eq!(sliced.len(), 2);
     }
 

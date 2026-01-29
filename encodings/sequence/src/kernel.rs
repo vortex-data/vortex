@@ -345,7 +345,7 @@ mod tests {
         let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![false]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
 
         let compare_array = Binary.try_new_array(len, ExprOperator::Eq, [seq, constant])?;
 
@@ -353,7 +353,7 @@ mod tests {
         let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![true]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -397,7 +397,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, false, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -415,7 +415,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -433,7 +433,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -452,7 +452,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -469,7 +469,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, true, false, false, false, false,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -486,7 +486,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             true, true, true, true, true, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -501,7 +501,7 @@ mod tests {
         let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![true, true, true, true, true]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -516,7 +516,7 @@ mod tests {
         let bool_result = result.to_bool();
 
         let expected = BitBuffer::from(vec![false, false, false, false, false]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -535,7 +535,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, true, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -552,7 +552,7 @@ mod tests {
 
         // 14 is at index 3: (14 - 5) / 3 = 3
         let expected = BitBuffer::from(vec![false, false, false, true, false, false, false, false]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 
@@ -571,7 +571,7 @@ mod tests {
         let expected = BitBuffer::from(vec![
             false, false, false, false, false, false, true, true, true, true,
         ]);
-        assert_eq!(bool_result.bit_buffer(), &expected);
+        assert_eq!(bool_result.to_bit_buffer(), expected);
         Ok(())
     }
 }

@@ -9,6 +9,7 @@ use vortex::array::ArrayRef;
 use vortex::array::iter::ArrayIterator;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 
 use crate::arrays::PyArrayRef;
 
@@ -51,7 +52,7 @@ impl Iterator for PythonArrayIterator {
                             Ok(array)
                         }
                     })
-                    .map_err(|pyerr| pyerr.into())
+                    .map_err(|pyerr| vortex_err!("{}", pyerr))
             })
         })
     }

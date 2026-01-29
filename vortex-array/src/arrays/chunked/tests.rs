@@ -36,7 +36,7 @@ fn chunked_array() -> ChunkedArray {
 #[test]
 fn slice_middle() {
     assert_arrays_eq!(
-        chunked_array().slice(2..5),
+        chunked_array().slice(2..5).unwrap(),
         PrimitiveArray::from_iter([3u64, 4, 5])
     );
 }
@@ -44,7 +44,7 @@ fn slice_middle() {
 #[test]
 fn slice_begin() {
     assert_arrays_eq!(
-        chunked_array().slice(1..3),
+        chunked_array().slice(1..3).unwrap(),
         PrimitiveArray::from_iter([2u64, 3])
     );
 }
@@ -52,7 +52,7 @@ fn slice_begin() {
 #[test]
 fn slice_aligned() {
     assert_arrays_eq!(
-        chunked_array().slice(3..6),
+        chunked_array().slice(3..6).unwrap(),
         PrimitiveArray::from_iter([4u64, 5, 6])
     );
 }
@@ -60,7 +60,7 @@ fn slice_aligned() {
 #[test]
 fn slice_many_aligned() {
     assert_arrays_eq!(
-        chunked_array().slice(0..6),
+        chunked_array().slice(0..6).unwrap(),
         PrimitiveArray::from_iter([1u64, 2, 3, 4, 5, 6])
     );
 }
@@ -68,7 +68,7 @@ fn slice_many_aligned() {
 #[test]
 fn slice_end() {
     assert_arrays_eq!(
-        chunked_array().slice(7..8),
+        chunked_array().slice(7..8).unwrap(),
         PrimitiveArray::from_iter([8u64])
     );
 }
@@ -76,7 +76,7 @@ fn slice_end() {
 #[test]
 fn slice_exactly_end() {
     assert_arrays_eq!(
-        chunked_array().slice(6..9),
+        chunked_array().slice(6..9).unwrap(),
         PrimitiveArray::from_iter([7u64, 8, 9])
     );
 }
@@ -84,7 +84,7 @@ fn slice_exactly_end() {
 #[test]
 fn slice_empty() {
     let chunked = ChunkedArray::try_new(vec![], PType::U32.into()).unwrap();
-    let sliced = chunked.slice(0..0);
+    let sliced = chunked.slice(0..0).unwrap();
 
     assert!(sliced.is_empty());
 }
@@ -156,8 +156,8 @@ pub fn pack_nested_structs() {
     .unwrap()
     .into_array();
     let canonical_struct = chunked.to_struct();
-    let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-    let original_varbin = struct_array.fields()[0].to_varbinview();
+    let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
+    let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
     let orig_values =
         original_varbin.with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
     let canon_values =

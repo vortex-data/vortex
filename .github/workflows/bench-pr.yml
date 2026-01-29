@@ -1,4 +1,4 @@
-# Runs once when we add the `benchmark` tag to a pull request.
+# Runs all benchmarks once when we add the `action/benchmark` tag to a pull request.
 
 name: PR Benchmarks
 
@@ -129,6 +129,16 @@ jobs:
         with:
           file-path: comment.md
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
+          comment-tag: bench-pr-failure-${{ matrix.benchmark.id }}
 
   sql:
     needs: label_trigger

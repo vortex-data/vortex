@@ -23,7 +23,7 @@ pub type RequiredStats = Relation<FieldPath, Stat>;
 // A catalog that return a stat column whenever it is required, tracking all accessed
 // stats and returning them later.
 #[derive(Default)]
-struct TrackingStatsCatalog {
+pub(crate) struct TrackingStatsCatalog {
     usage: RefCell<HashMap<(FieldPath, Stat), Expression>>,
 }
 
@@ -37,7 +37,7 @@ impl TrackingStatsCatalog {
 
 // A catalog that return a stat column if it exists in the given scope.
 struct ScopeStatsCatalog<'a> {
-    any_catalog: TrackingStatsCatalog,
+    inner: TrackingStatsCatalog,
     available_stats: &'a FieldPathSet,
 }
 
@@ -46,7 +46,7 @@ impl StatsCatalog for ScopeStatsCatalog<'_> {
         let stat_path = field_path.clone().push(stat.name());
 
         if self.available_stats.contains(&stat_path) {
-            self.any_catalog.stats_ref(field_path, stat)
+            self.inner.stats_ref(field_path, stat)
         } else {
             None
         }
@@ -93,7 +93,7 @@ pub fn checked_pruning_expr(
     available_stats: &FieldPathSet,
 ) -> Option<(Expression, RequiredStats)> {
     let catalog = ScopeStatsCatalog {
-        any_catalog: Default::default(),
+        inner: Default::default(),
         available_stats,
     };
 
@@ -101,7 +101,7 @@ pub fn checked_pruning_expr(
 
     // TODO(joe): filter access by used exprs
     let mut relation: Relation<FieldPath, Stat> = Relation::new();
-    for ((field_path, stat), _) in catalog.any_catalog.into_usages() {
+    for ((field_path, stat), _) in catalog.inner.into_usages() {
         relation.insert(field_path, stat)
     }
 

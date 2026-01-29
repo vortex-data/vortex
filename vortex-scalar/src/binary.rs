@@ -95,7 +95,8 @@ impl<'a> BinaryScalar<'a> {
         self.value.as_ref().map(|v| v.as_ref())
     }
 
-    /// Constructs a value at most `max_length` in size that's greater than this value.
+    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
+    /// this.
     ///
     /// Returns None if constructing a greater value would overflow.
     pub fn upper_bound(self, max_length: usize) -> Option<Self> {

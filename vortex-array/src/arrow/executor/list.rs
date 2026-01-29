@@ -7,6 +7,7 @@ use std::sync::Arc;
 use arrow_array::ArrayRef as ArrowArrayRef;
 use arrow_array::GenericListArray;
 use arrow_array::OffsetSizeTrait;
+use arrow_buffer::OffsetBuffer;
 use arrow_schema::FieldRef;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
@@ -116,6 +117,19 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
 ) -> VortexResult<ArrowArrayRef> {
     assert!(array.is_zero_copy_to_list());
 
+    if array.is_empty() {
+        let elements = array
+            .elements()
+            .clone()
+            .execute_arrow(Some(elements_field.data_type()), ctx)?;
+        return Ok(Arc::new(GenericListArray::<O>::new(
+            elements_field.clone(),
+            OffsetBuffer::new_empty(),
+            elements,
+            None,
+        )));
+    }
+
     let ListViewArrayParts {
         elements,
         offsets,
@@ -125,6 +139,7 @@ fn list_view_zctl<O: OffsetSizeTrait + NativePType>(
     } = array.into_parts();
 
     // For ZCTL, we know that we only care about the final size.
+    assert!(!sizes.is_empty());
     let final_size = sizes
         .scalar_at(sizes.len() - 1)?
         .cast(&DType::Primitive(O::PTYPE, Nullability::NonNullable))?;
@@ -237,13 +252,18 @@ fn list_view_to_list<O: OffsetSizeTrait + NativePType>(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use arrow_array::Array;
     use arrow_array::GenericListArray;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
@@ -342,6 +362,27 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert!(!list.is_null(0));
         assert!(!list.is_null(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
+        let dtype = DType::List(
+            Arc::new(DType::Primitive(
+                vortex_dtype::PType::I32,
+                Nullability::NonNullable,
+            )),
+            Nullability::NonNullable,
+        );
+        let list_array = unsafe {
+            Canonical::empty(&dtype)
+                .into_listview()
+                .with_zero_copy_to_list(true)
+        };
+
+        let arrow_dt = DataType::List(Field::new("item", DataType::Int32, false).into());
+        let arrow_array = list_array.into_array().into_arrow(&arrow_dt)?;
+        assert_eq!(arrow_array.len(), 0);
         Ok(())
     }
 }

@@ -53,7 +53,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
 
     Ok(match array.dtype() {
         DType::Null => Canonical::Null(NullArray::new(array.len())),
-        DType::Bool(..) => Canonical::Bool(BoolArray::from_bit_buffer(
+        DType::Bool(..) => Canonical::Bool(BoolArray::new(
             if BoolScalar::try_from(scalar)
                 .vortex_expect("must be bool")
                 .value()
@@ -140,7 +140,7 @@ pub(super) fn constant_canonicalize(array: &ConstantArray) -> VortexResult<Canon
                     .map(|s| ConstantArray::new(s, array.len()).into_array())
                     .collect(),
                 None => {
-                    assert!(validity.all_invalid(array.len()));
+                    assert!(validity.all_invalid(array.len())?);
                     struct_dtype
                         .fields()
                         .map(|dt| {
@@ -335,6 +335,7 @@ mod tests {
     use crate::arrays::ConstantArray;
     use crate::arrays::ListViewRebuildMode;
     use crate::arrays::PrimitiveArray;
+    use crate::arrays::VarBinArray;
     use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::expr::stats::Stat;
@@ -354,14 +355,8 @@ mod tests {
     fn test_canonicalize_const_str() {
         let const_array = ConstantArray::new("four".to_string(), 4);
 
-        // Check all values correct.
-        let canonical = const_array.to_varbinview();
-
-        assert_eq!(canonical.len(), 4);
-
-        for i in 0..=3 {
-            assert_eq!(canonical.scalar_at(i).unwrap(), "four".into());
-        }
+        let expected = VarBinArray::from(vec!["four", "four", "four", "four"]);
+        assert_arrays_eq!(const_array, expected);
     }
 
     #[test]
@@ -484,7 +479,9 @@ mod tests {
         assert_eq!(struct_array.len(), 3);
         assert_eq!(struct_array.valid_count().unwrap(), 0);
 
-        let field = struct_array.field_by_name("non_null_field").unwrap();
+        let field = struct_array
+            .unmasked_field_by_name("non_null_field")
+            .unwrap();
 
         assert_eq!(
             field.dtype(),
@@ -514,7 +511,7 @@ mod tests {
 
         // Check that each list is [10, 20, 30].
         for i in 0..4 {
-            let list = canonical.fixed_size_list_elements_at(i);
+            let list = canonical.fixed_size_list_elements_at(i).unwrap();
             let list_primitive = list.to_primitive();
             assert_arrays_eq!(list_primitive, PrimitiveArray::from_iter([10i32, 20, 30]));
         }
@@ -662,14 +659,14 @@ mod tests {
 
         // Check element validity.
         let element_validity = elements.validity();
-        assert!(element_validity.is_valid(0));
-        assert!(!element_validity.is_valid(1));
-        assert!(element_validity.is_valid(2));
+        assert!(element_validity.is_valid(0).unwrap());
+        assert!(!element_validity.is_valid(1).unwrap());
+        assert!(element_validity.is_valid(2).unwrap());
 
         // Pattern should repeat.
-        assert!(element_validity.is_valid(3));
-        assert!(!element_validity.is_valid(4));
-        assert!(element_validity.is_valid(5));
+        assert!(element_validity.is_valid(3).unwrap());
+        assert!(!element_validity.is_valid(4).unwrap());
+        assert!(element_validity.is_valid(5).unwrap());
     }
 
     #[test]

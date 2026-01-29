@@ -76,7 +76,7 @@ fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
 //         Ok(match (first_match, second_match) {
 //             // Couldn't find a value match, so the result is all false.
 //             (None, _) => match result_validity {
-//                 Mask::AllTrue(_) => BoolArray::from_bit_buffer(
+//                 Mask::AllTrue(_) => BoolArray::new(
 //                     BitBuffer::new_unset(codes.len()),
 //                     Validity::copy_from_array(codes).union_nullability(result_nullability),
 //                 )
@@ -86,7 +86,7 @@ fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
 //                     codes.len(),
 //                 )
 //                     .to_canonical()?,
-//                 Mask::Values(_) => BoolArray::from_bit_buffer(
+//                 Mask::Values(_) => BoolArray::new(
 //                     BitBuffer::new_unset(codes.len()),
 //                     Validity::from_mask(result_validity, result_nullability).take(codes)?,
 //                 )

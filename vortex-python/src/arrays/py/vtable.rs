@@ -35,7 +35,6 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::mask::Mask;
 use vortex::scalar::Scalar;
 
 use crate::arrays::py::PythonArray;
@@ -65,13 +64,17 @@ impl VTable for PythonVTable {
     fn metadata(array: &PythonArray) -> VortexResult<Self::Metadata> {
         Python::attach(|py| {
             let obj = array.object.bind(py);
-            if !obj.hasattr(intern!(py, "metadata"))? {
+            if !obj
+                .hasattr(intern!(py, "metadata"))
+                .map_err(|e| vortex_err!("{}", e))?
+            {
                 // The class does not have a metadata attribute so does not support serialization.
                 return Ok(RawMetadata(vec![]));
             }
 
             let bytes = obj
-                .call_method("__vx_metadata__", (), None)?
+                .call_method("__vx_metadata__", (), None)
+                .map_err(|e| vortex_err!("{}", e))?
                 .cast::<PyBytes>()
                 .map_err(|_| vortex_err!("Expected array metadata to be Python bytes"))?
                 .as_bytes()
@@ -149,10 +152,6 @@ impl OperationsVTable<PythonVTable> for PythonVTable {
 
 impl ValidityVTable<PythonVTable> for PythonVTable {
     fn validity(_array: &PythonArray) -> VortexResult<Validity> {
-        todo!()
-    }
-
-    fn validity_mask(_array: &PythonArray) -> VortexResult<Mask> {
         todo!()
     }
 }

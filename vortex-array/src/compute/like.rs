@@ -230,5 +230,5 @@ pub(crate) fn arrow_like(
         (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
     };
 
-    Ok(from_arrow_array_with_len(&result, len, nullable))
+    from_arrow_array_with_len(&result, len, nullable)
 }

@@ -42,7 +42,7 @@ mod test {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArray;
-    use crate::canonical::ToCanonical;
+    use crate::assert_arrays_eq;
     use crate::compute::cast;
     use crate::compute::conformance::cast::test_cast_conformance;
 
@@ -66,16 +66,12 @@ mod test {
         .unwrap()
         .into_array();
 
-        assert_eq!(
-            cast(
-                &root,
-                &DType::Primitive(PType::U64, Nullability::NonNullable)
-            )
-            .unwrap()
-            .to_primitive()
-            .as_slice::<u64>(),
-            &[0u64, 1, 2, 3],
-        );
+        let result = cast(
+            &root,
+            &DType::Primitive(PType::U64, Nullability::NonNullable),
+        )
+        .unwrap();
+        assert_arrays_eq!(result, PrimitiveArray::from_iter([0u64, 1, 2, 3]));
     }
 
     #[rstest]

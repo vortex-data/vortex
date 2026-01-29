@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -14,7 +13,6 @@ use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::executor::CanonicalOutput;
 use crate::expr::ExecutionArgs;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -75,14 +73,5 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
 
         // Execute the validity expression. All leaves are ArrayExpr nodes.
         Ok(Validity::Array(execute_expr(&validity_expr, array.len())?))
-    }
-
-    fn validity_mask(array: &ScalarFnArray) -> VortexResult<Mask> {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let output = array.to_array().execute::<CanonicalOutput>(&mut ctx)?;
-        Ok(match output {
-            CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
-            CanonicalOutput::Array(a) => a.into_array().validity()?.to_mask(array.len()),
-        })
     }
 }

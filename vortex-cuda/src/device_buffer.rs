@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
@@ -16,8 +17,10 @@ use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::stream::await_stream_callback;
 
@@ -27,6 +30,8 @@ pub struct CudaDeviceBuffer<T> {
     offset: usize,
     len: usize,
     device_ptr: u64,
+    // This is the min required alignment of the buffer.
+    alignment: Alignment,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
@@ -40,6 +45,7 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
             offset: 0,
             len,
             device_ptr,
+            alignment: Alignment::of::<T>(),
         }
     }
 
@@ -106,10 +112,19 @@ impl<T: DeviceRepr> PartialEq for CudaDeviceBuffer<T> {
 impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T> {
     /// Returns the number of elements in the buffer of type T.
     fn len(&self) -> usize {
-        self.len
+        self.len * size_of::<T>()
+    }
+
+    fn alignment(&self) -> Alignment {
+        self.alignment
     }
 
     /// Synchronous copy of CUDA device to host memory.
+    ///
+    /// The copy is not started before other operations on the streams are completed.
+    /// This is synonymous to doing a synchronize on the stream before the copy.
+    ///
+    /// The asynchronous `copy_to_host` function should be preferred whenever possible.
     ///
     /// # Arguments
     ///
@@ -119,29 +134,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     ///
     /// Returns an error if the CUDA memory copy operation fails.
     fn copy_to_host_sync(&self, alignment: Alignment) -> VortexResult<ByteBuffer> {
-        let mut host_buffer = BufferMut::<T>::with_capacity_aligned(self.len, alignment);
-
-        // Add offset to device pointer to account for any previous slicing operations.
-        let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
-
-        // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
-        // `cuMemcpyDtoHAsync_v2` fully initializes the memory.
-        unsafe {
-            sys::cuMemcpyDtoH_v2(
-                host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
-                src_ptr,
-                self.len * size_of::<T>(),
-            )
-            .result()
-            .map_err(|e| vortex_err!("Failed to copy from device to host: {}", e))?;
-        }
-
-        // SAFETY: `cuMemcpyDtoHAsync_v2` fully initialized the buffer.
-        unsafe {
-            host_buffer.set_len(self.len);
-        }
-
-        Ok(host_buffer.freeze().into_byte_buffer())
+        futures::executor::block_on(self.copy_to_host(alignment)?)
     }
 
     /// Copies a device buffer to host memory asynchronously.
@@ -202,6 +195,20 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
         let new_offset = self.offset + range.start;
         let new_len = range.end - range.start;
+        let byte_offset = new_offset * size_of::<T>();
+
+        let trailing = (self.device_ptr + byte_offset as u64).trailing_zeros();
+        let exponent =
+            u8::try_from(min(15, trailing)).vortex_expect("min(15, x) always fits in u8");
+        let slice_align = Alignment::from_exponent(exponent);
+        let alignment = Alignment::of::<T>();
+
+        assert!(
+            slice_align.is_aligned_to(alignment),
+            "slice must respect minimum alignment byte {}, min {}",
+            slice_align,
+            alignment
+        );
 
         assert!(
             range.end <= self.len,
@@ -215,10 +222,28 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
+            alignment: self.alignment,
         })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        let effective_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+        if effective_ptr % (*alignment as u64) == 0 {
+            Ok(Arc::new(CudaDeviceBuffer {
+                inner: self.inner.clone(),
+                offset: self.offset,
+                len: self.len,
+                device_ptr: self.device_ptr,
+                alignment,
+            }))
+        } else if alignment > Alignment::new(256) {
+            vortex_panic!("we do not support alignment greater than 256")
+        } else {
+            vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
+        }
     }
 }

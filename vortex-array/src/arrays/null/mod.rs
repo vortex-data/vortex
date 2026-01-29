@@ -7,7 +7,6 @@ use std::ops::Range;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::ArrayBufferVisitor;
@@ -101,6 +100,7 @@ impl VTable for NullVTable {
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// use vortex_array::arrays::NullArray;
 /// use vortex_array::IntoArray;
 ///
@@ -108,12 +108,14 @@ impl VTable for NullVTable {
 /// let array = NullArray::new(5);
 ///
 /// // Slice the array - still contains nulls
-/// let sliced = array.slice(1..3);
+/// let sliced = array.slice(1..3)?;
 /// assert_eq!(sliced.len(), 2);
 ///
 /// // All elements are null
 /// let scalar = array.scalar_at(0).unwrap();
 /// assert!(scalar.is_null());
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Clone, Debug)]
 pub struct NullArray {
@@ -174,9 +176,5 @@ impl OperationsVTable<NullVTable> for NullVTable {
 impl ValidityVTable<NullVTable> for NullVTable {
     fn validity(_array: &NullArray) -> VortexResult<Validity> {
         Ok(Validity::AllInvalid)
-    }
-
-    fn validity_mask(array: &NullArray) -> VortexResult<Mask> {
-        Ok(Mask::AllFalse(array.len))
     }
 }

@@ -21,7 +21,8 @@ pub fn varbin_view() {
 pub fn slice_array() {
     let binary_arr =
         VarBinViewArray::from_iter_str(["hello world", "hello world this is a long string"])
-            .slice(1..2);
+            .slice(1..2)
+            .unwrap();
     assert_arrays_eq!(
         binary_arr,
         VarBinViewArray::from_iter_str(["hello world this is a long string"])

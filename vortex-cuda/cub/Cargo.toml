@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+[package]
+name = "vortex-cub"
+authors.workspace = true
+description = "Rust bindings to NVIDIA CUB library for Vortex GPU operations"
+edition = { workspace = true }
+homepage = { workspace = true }
+categories = { workspace = true }
+include = { workspace = true }
+keywords = { workspace = true }
+license = { workspace = true }
+readme = { workspace = true }
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lints]
+workspace = true
+
+[dependencies]
+libloading = { workspace = true }
+paste = { workspace = true }
+vortex-cuda-macros = { workspace = true }
+
+[build-dependencies]
+bindgen = { workspace = true }

@@ -25,9 +25,9 @@ impl IsConstantKernel for ListVTable {
 
         // We can first quickly check if all of the list lengths are equal. If not, then we know the
         // array cannot be constant.
-        let first_list_len = array.offset_at(1) - array.offset_at(0);
+        let first_list_len = array.offset_at(1)? - array.offset_at(0)?;
         for i in 1..manual_check_until {
-            let current_list_len = array.offset_at(i + 1) - array.offset_at(i);
+            let current_list_len = array.offset_at(i + 1)? - array.offset_at(i)?;
             if current_list_len != first_list_len {
                 return Ok(Some(false));
             }
@@ -42,10 +42,10 @@ impl IsConstantKernel for ListVTable {
         // If the array is long, do an optimistic check on the remainder of the list lengths.
         if array.len() > SMALL_ARRAY_THRESHOLD {
             // check the rest of the element lengths
-            let start_offsets = array.offsets().slice(SMALL_ARRAY_THRESHOLD..array.len());
+            let start_offsets = array.offsets().slice(SMALL_ARRAY_THRESHOLD..array.len())?;
             let end_offsets = array
                 .offsets()
-                .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1);
+                .slice(SMALL_ARRAY_THRESHOLD + 1..array.len() + 1)?;
             let list_lengths = numeric(&end_offsets, &start_offsets, NumericOperator::Sub)?;
 
             if !is_constant(&list_lengths)?.unwrap_or_default() {

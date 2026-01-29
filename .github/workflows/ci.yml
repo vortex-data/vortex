@@ -219,7 +219,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -414,7 +414,7 @@ jobs:
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
-            --ignore 'vortex-gpu/*' --ignore benchmarks/* \
+            --ignore benchmarks/* \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@v5
@@ -487,6 +487,56 @@ jobs:
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
 
+  cuda-test:
+    name: "CUDA tests"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5+g4dn+g6
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=cuda-tests
+    env:
+      # Keep frame pointers for better stack traces
+      CARGO_PROFILE_DEV_DEBUG: "true"
+      CARGO_PROFILE_TEST_DEBUG: "true"
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+          nvidia-smi -q -d Memory
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Rust Tests
+        env:
+          # Outline flat layouts for cuda scan.
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
+        run: |
+          # Build with full debug info first (helps with caching)
+          cargo +nightly build --locked -p vortex-cuda -p vortex-file --all-features --target x86_64-unknown-linux-gnu
+          # Run tests with sanitizers and debug output
+          cargo +nightly nextest run \
+            --locked \
+            -p vortex-file \
+            -p vortex-cuda \
+            --all-features \
+            --no-fail-fast \
+            --target x86_64-unknown-linux-gnu \
+            --verbose
+
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
     timeout-minutes: 120
@@ -533,7 +583,7 @@ jobs:
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp --exclude vortex-cub --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
@@ -603,6 +653,43 @@ jobs:
           run: cargo codspeed run
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
+
+  bench-codspeed-gpu:
+    name: "Benchmark with Codspeed (GPU)"
+    timeout-minutes: 120
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=g5
+      - cpu=8
+      - image=ubuntu24-gpu-x64
+      - extras=s3-cache
+      - tag=bench-codspeed-gpu
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+      - name: Display NVIDIA SMI details
+        run: |
+          nvidia-smi
+          nvidia-smi -L
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
+      - name: Install Codspeed
+        run: cargo install --force cargo-codspeed --locked
+      - name: Build benchmarks
+        run: cargo codspeed -m walltime build -p vortex-cuda --profile bench
+      - name: Run benchmarks
+        uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
+        env:
+          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
+        with:
+          run: cargo codspeed run
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          mode: "walltime"
 
   license-check-and-audit-check:
     name: License Check and Audit Check

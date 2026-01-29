@@ -35,22 +35,22 @@ fn test_basic_fixed_size_list() {
     ));
 
     // Check the actual values in each list.
-    let first_list = fsl.fixed_size_list_elements_at(0);
+    let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(first_list.scalar_at(0).unwrap(), 1i32.into());
     assert_eq!(first_list.scalar_at(1).unwrap(), 2i32.into());
     assert_eq!(first_list.scalar_at(2).unwrap(), 3i32.into());
 
-    let second_list = fsl.fixed_size_list_elements_at(1);
+    let second_list = fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(second_list.scalar_at(0).unwrap(), 4i32.into());
     assert_eq!(second_list.scalar_at(1).unwrap(), 5i32.into());
     assert_eq!(second_list.scalar_at(2).unwrap(), 6i32.into());
 
-    let third_list = fsl.fixed_size_list_elements_at(2);
+    let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(third_list.scalar_at(0).unwrap(), 7i32.into());
     assert_eq!(third_list.scalar_at(1).unwrap(), 8i32.into());
     assert_eq!(third_list.scalar_at(2).unwrap(), 9i32.into());
 
-    let fourth_list = fsl.fixed_size_list_elements_at(3);
+    let fourth_list = fsl.fixed_size_list_elements_at(3).unwrap();
     assert_eq!(fourth_list.scalar_at(0).unwrap(), 10i32.into());
     assert_eq!(fourth_list.scalar_at(1).unwrap(), 11i32.into());
     assert_eq!(fourth_list.scalar_at(2).unwrap(), 12i32.into());
@@ -76,7 +76,7 @@ fn test_scalar_at() {
     );
 
     // Additionally check individual elements via fixed_size_list_at.
-    let first_list = fsl.fixed_size_list_elements_at(0);
+    let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(first_list.scalar_at(0).unwrap(), 1i32.into());
     assert_eq!(first_list.scalar_at(1).unwrap(), 2i32.into());
     assert_eq!(first_list.scalar_at(2).unwrap(), 3i32.into());
@@ -93,7 +93,7 @@ fn test_scalar_at() {
     );
 
     // Additionally check individual elements via fixed_size_list_at.
-    let second_list = fsl.fixed_size_list_elements_at(1);
+    let second_list = fsl.fixed_size_list_elements_at(1).unwrap();
     assert_eq!(second_list.scalar_at(0).unwrap(), 4i32.into());
     assert_eq!(second_list.scalar_at(1).unwrap(), 5i32.into());
     assert_eq!(second_list.scalar_at(2).unwrap(), 6i32.into());
@@ -108,13 +108,13 @@ fn test_fixed_size_list_at() {
     let fsl = FixedSizeListArray::new(elements, list_size, Validity::AllValid, len);
 
     // Get the first list [1.0, 2.0].
-    let first_list = fsl.fixed_size_list_elements_at(0);
+    let first_list = fsl.fixed_size_list_elements_at(0).unwrap();
     assert_eq!(first_list.len(), list_size as usize);
     assert_eq!(first_list.scalar_at(0).unwrap(), 1.0f64.into());
     assert_eq!(first_list.scalar_at(1).unwrap(), 2.0f64.into());
 
     // Get the third list [5.0, 6.0].
-    let third_list = fsl.fixed_size_list_elements_at(2);
+    let third_list = fsl.fixed_size_list_elements_at(2).unwrap();
     assert_eq!(third_list.len(), list_size as usize);
     assert_eq!(third_list.scalar_at(0).unwrap(), 5.0f64.into());
     assert_eq!(third_list.scalar_at(1).unwrap(), 6.0f64.into());

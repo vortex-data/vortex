@@ -11,9 +11,9 @@ use pyo3::prelude::*;
 use vortex::array::stats::ArrayStats;
 use vortex::array::vtable::ArrayId;
 use vortex::dtype::DType;
-use vortex::error::VortexError;
 
 use crate::arrays::py::PyPythonArray;
+use crate::error::PyVortexError;
 
 /// Wrapper struct encapsulating a Vortex array implemented using a Python object.
 ///
@@ -48,7 +48,7 @@ impl<'py> FromPyObject<'_, 'py> for PythonArray {
 impl<'py> IntoPyObject<'py> for PythonArray {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
-    type Error = VortexError;
+    type Error = PyVortexError;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         Ok(self.object.bind(py).to_owned())

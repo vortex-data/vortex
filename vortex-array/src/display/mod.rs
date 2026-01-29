@@ -55,7 +55,7 @@ pub enum DisplayOptions {
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
     ///   metadata: EmptyMetadata
-    ///   buffer (align=2): 10 B (100.00%)
+    ///   buffer: values host 10 B (align=2) (100.00%)
     /// ";
     /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay)), expected);
     /// ```
@@ -179,7 +179,7 @@ impl dyn Array + '_ {
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
     ///   metadata: EmptyMetadata
-    ///   buffer (align=2): 10 B (100.00%)
+    ///   buffer: values host 10 B (align=2) (100.00%)
     /// ";
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
@@ -280,7 +280,7 @@ impl dyn Array + '_ {
                         builder.push_record(null_row);
                     } else {
                         let mut row = Vec::new();
-                        for field_array in struct_.fields().iter() {
+                        for field_array in struct_.unmasked_fields().iter() {
                             let value = field_array
                                 .scalar_at(row_idx)
                                 .map_or_else(|e| format!("<error: {e}>"), |s| s.to_string());

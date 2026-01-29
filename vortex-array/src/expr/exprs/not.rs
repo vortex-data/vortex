@@ -123,11 +123,12 @@ mod tests {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
-            not_expr
-                .evaluate(&bools.to_array())
+            bools
+                .to_array()
+                .apply(&not_expr)
                 .unwrap()
                 .to_bool()
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]
