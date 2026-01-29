@@ -522,6 +522,7 @@ jobs:
           tool: nextest
       - name: Rust Tests
         env:
+          # Outline flat layouts for cuda scan.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           # Build with full debug info first (helps with caching)
