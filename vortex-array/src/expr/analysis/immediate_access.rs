@@ -11,7 +11,6 @@ use crate::expr::analysis::AnnotationFn;
 use crate::expr::analysis::Annotations;
 use crate::expr::descendent_annotations;
 use crate::expr::exprs::get_item::GetItem;
-use crate::expr::exprs::get_item_list::GetItemList;
 use crate::expr::exprs::root::Root;
 use crate::expr::exprs::select::Select;
 
@@ -27,13 +26,6 @@ pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotati
 
         if let Some(field_name) = expr.as_opt::<GetItem>()
             && expr.child(0).is::<Root>()
-        {
-            return vec![field_name.clone()];
-        }
-
-        if expr.is::<GetItemList>()
-            && let Some(field_name) = expr.child(0).as_opt::<GetItem>()
-            && expr.child(0).child(0).is::<Root>()
         {
             return vec![field_name.clone()];
         }
