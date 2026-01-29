@@ -5,6 +5,8 @@
 mod arbitrary;
 #[cfg(all(test, feature = "arbitrary"))]
 mod deep_arb_test;
+#[cfg(test)]
+mod deep_nesting_test;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::ArbitraryRunEndArray;
 pub use array::*;
