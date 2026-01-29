@@ -287,6 +287,106 @@ fn test_composition_problem() {
     println!("  Without transpose - deltas[128]: {}", deltas_linear[128]);
 }
 
+/// Test fused vs unfused delta+bitpacking kernels
+#[test]
+fn test_fused_vs_unfused_kernels() {
+    use fastlanes::FL_ORDER;
+
+    const LANES: usize = 64;
+    const W: usize = 10;
+    const B: usize = 1024 * W / 16; // = 640
+
+    // Create linear input
+    let linear: [u16; 1024] = std::array::from_fn(|i| i as u16);
+
+    println!("\n=== Fused vs Unfused Kernels ===");
+
+    // === Compression path ===
+    // Step 1: Transpose (same for both)
+    let mut transposed = [0u16; 1024];
+    Transpose::transpose(&linear, &mut transposed);
+
+    // Step 2: Delta (same for both)
+    let bases: [u16; LANES] = std::array::from_fn(|lane| transposed[lane]);
+    let mut deltas = [0u16; 1024];
+    Delta::delta::<LANES>(&transposed, &bases, &mut deltas);
+
+    // Step 3: BitPack (same for both)
+    let mut packed = [0u16; B];
+    BitPacking::pack::<W, B>(&deltas, &mut packed);
+
+    println!("Compressed {} u16 values into {} packed values", 1024, B);
+    println!("Compression ratio: {:.2}x", 1024.0 / B as f64);
+
+    // === Decompression: UNFUSED path ===
+    println!("\n--- Unfused decompression ---");
+    let mut intermediate_unpacked = [0u16; 1024]; // EXTRA ALLOCATION
+    BitPacking::unpack::<W, B>(&packed, &mut intermediate_unpacked);
+
+    let mut unfused_transposed = [0u16; 1024];
+    Delta::undelta::<LANES>(&intermediate_unpacked, &bases, &mut unfused_transposed);
+
+    let mut unfused_result = [0u16; 1024];
+    Transpose::untranspose(&unfused_transposed, &mut unfused_result);
+
+    println!("Operations: unpack → undelta → untranspose");
+    println!("Memory: needs TWO intermediate 1024-element buffers");
+
+    // === Decompression: FUSED path ===
+    println!("\n--- Fused decompression ---");
+    let mut fused_result = [0u16; 1024]; // NO intermediate allocation
+    Delta::undelta_pack::<LANES, W, B>(&packed, &bases, &mut fused_result);
+
+    // Note: fused result is in transposed layout, needs untranspose
+    let mut fused_final = [0u16; 1024];
+    Transpose::untranspose(&fused_result, &mut fused_final);
+
+    println!("Operations: undelta_pack (fused) → untranspose");
+    println!("Memory: NO intermediate buffer needed");
+
+    // Verify both produce same result
+    assert_eq!(
+        unfused_result, fused_final,
+        "Fused and unfused should match"
+    );
+    assert_eq!(linear, fused_final, "Should recover original");
+    println!("\n✓ Both paths produce identical results");
+
+    // === What the fused kernel saves ===
+    println!("\n--- Savings Analysis ---");
+    println!("Unfused decompression on 1024 elements:");
+    println!("  1. BitPacking::unpack: 640 reads, 1024 writes (to intermediate buffer 1)");
+    println!("  2. Delta::undelta: 1024 reads, 1024 writes (to intermediate buffer 2)");
+    println!("  3. Transpose::untranspose: 1024 reads, 1024 writes");
+    println!("  Memory: needs 2 intermediate 1024-element buffers");
+    println!("\nFused decompression:");
+    println!("  1. Delta::undelta_pack: 640 reads, 1024 writes");
+    println!("  2. Transpose::untranspose: 1024 reads, 1024 writes");
+    println!("  Memory: needs 1 intermediate 1024-element buffer");
+    println!("\nSavings: ~33% reduction in memory ops, 50% less intermediate memory!");
+
+    // The real benefit is cache efficiency
+    println!("\n--- Cache Efficiency ---");
+    println!("Unfused: Each unpacked value may be evicted from cache before undelta reads it");
+    println!("Fused: Each value is processed immediately after unpacking, while in registers");
+
+    // Show how iterate! pattern affects this
+    println!("\n--- Why FL_ORDER Iteration Order Matters ---");
+    println!("FL_ORDER = {:?}", FL_ORDER);
+    println!("For lane 0, the iteration visits indices:");
+    fn index(row: usize, lane: usize) -> usize {
+        let o = row / 8;
+        let s = row % 8;
+        (FL_ORDER[o] * 16) + (s * 128) + lane
+    }
+    for row in 0..4 {
+        println!("  row {}: index {}", row, index(row, 0));
+    }
+    println!("  ...");
+    println!("This non-sequential access pattern means intermediate buffer");
+    println!("causes cache misses in unfused path.");
+}
+
 /// Compare Vortex's delta compress with raw fastlanes
 #[test]
 fn test_vortex_delta_compress() {
