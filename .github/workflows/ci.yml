@@ -219,7 +219,7 @@ jobs:
             target: wasm32-unknown-unknown
             env:
               rustflags: "RUSTFLAGS='-A warnings --cfg getrandom_backend=\"wasm_js\"'"
-            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd"
+            args: "--target wasm32-unknown-unknown --exclude vortex --exclude vortex-cuda --exclude vortex-cub --exclude vortex-nvcomp --exclude vortex-datafusion --exclude vortex-duckdb --exclude vortex-tui --exclude vortex-zstd --exclude vortex-test-e2e-cuda"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -414,7 +414,7 @@ jobs:
             --ignore 'vortex-python/*' --ignore 'vortex-jni/*' --ignore 'vortex-flatbuffers/*' \
             --ignore 'vortex-proto/*' --ignore 'vortex-tui/*' --ignore 'vortex-datafusion/examples/*' \
             --ignore 'vortex-ffi/examples/*' --ignore '*/arbitrary/*' --ignore '*/arbitrary.rs' --ignore 'vortex-cxx/*' \
-            --ignore benchmarks/* \
+            --ignore benchmarks/* --ignore 'vortex-test-e2e-cuda/*' \
             -o ${{ env.GRCOV_OUTPUT_FILE }}
       - name: Codecov
         uses: codecov/codecov-action@v5
@@ -523,11 +523,12 @@ jobs:
       - name: Rust Tests
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked -p vortex-cuda -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
             -p vortex-cuda \
+            -p vortex-test-e2e-cuda \
             --all-features \
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
@@ -579,7 +580,7 @@ jobs:
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp --exclude vortex-cub --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
+          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
