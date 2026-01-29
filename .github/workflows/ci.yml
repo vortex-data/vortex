@@ -523,10 +523,11 @@ jobs:
       - name: Rust Tests
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked -p vortex-cuda --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly build --locked -p vortex-cuda -p vortex-file --all-features --target x86_64-unknown-linux-gnu
           # Run tests with sanitizers and debug output
           cargo +nightly nextest run \
             --locked \
+            -p vortex-file \
             -p vortex-cuda \
             --all-features \
             --no-fail-fast \
