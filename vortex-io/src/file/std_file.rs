@@ -39,8 +39,8 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::
         while bytes_read < buffer.len() {
             let read = file.seek_read(&mut buffer[bytes_read..], offset + bytes_read as u64)?;
             if read == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
                     "failed to fill whole buffer",
                 ));
             }
