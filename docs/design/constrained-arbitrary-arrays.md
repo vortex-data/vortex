@@ -128,20 +128,19 @@ pub struct ArrayConstraints {
 
 ### Capability Advertisement
 
-Each encoding declares two types of capabilities:
-
-1. **Can Generate**: Constraints the encoding can satisfy when generating from scratch
-2. **Preserves**: Constraints preserved when wrapping another array
+Each encoding declares which constraints it can satisfy via `can_generate()`. This is a unified
+interface - the encoding may generate values directly (leaf encodings like Primitive, Sequence)
+or by wrapping a constrained child (wrapping encodings like Delta, FOR). From the caller's
+perspective, they simply ask "can you give me a sorted array?" and the encoding handles the details.
 
 ```rust
 /// Trait for encodings that support constrained arbitrary generation
 pub trait ArbitraryConstrained {
-    /// Constraints this encoding can generate directly (leaf capability)
+    /// Constraints this encoding can satisfy.
+    ///
+    /// For leaf encodings: constraints it can generate directly.
+    /// For wrapping encodings: constraints it can satisfy by wrapping a constrained child.
     fn can_generate() -> &'static [ConstraintKind];
-
-    /// Constraints this encoding preserves when wrapping a child
-    /// (if child satisfies constraint, so does the wrapped array)
-    fn preserves() -> &'static [ConstraintKind];
 
     /// Generate an arbitrary array satisfying the given constraints
     fn arbitrary_with_constraints(
@@ -168,20 +167,18 @@ pub enum ConstraintKind {
 
 ### Encoding Capabilities Matrix
 
-| Encoding | Can Generate | Preserves |
-|----------|--------------|-----------|
-| **Primitive** | All (base case) | N/A (leaf) |
-| **Constant** | All (trivially) | N/A (leaf) |
-| **Sequence** | StrictlySorted*, Sorted*, NonNullable | N/A (leaf) |
-| **Delta** | - | StrictlySorted*, Sorted*, BoundedAbove |
-| **FOR** | - | StrictlySorted, Sorted, BoundedAbove |
-| **BitPacked** | - | StrictlySorted, Sorted, BitWidthBounded |
-| **ZigZag** | - | (none - transforms value space) |
-| **Dict** | - | (none - reorders by code) |
-| **RunEnd** | - | (none - different structure) |
-| **Sparse** | - | StrictlySorted*, Sorted* (for patch values) |
-
-*Conditional on parameters (e.g., Sequence is sorted only if multiplier >= 0)
+| Encoding | Can Generate | Notes |
+|----------|--------------|-------|
+| **Primitive** | All | Base case, generates values directly |
+| **Constant** | All | Single value trivially satisfies all ordering constraints |
+| **Sequence** | StrictlySorted, Sorted, BoundedAbove, NonNullable | Generates arithmetic sequence (base + i * step) |
+| **Delta** | StrictlySorted, Sorted, BoundedAbove | Wraps constrained deltas, cumsum reconstructs values |
+| **FOR** | StrictlySorted, Sorted, BoundedAbove | Adds constant offset, preserves ordering |
+| **BitPacked** | StrictlySorted, Sorted, BitWidthBounded | Packs values, preserves ordering |
+| **ZigZag** | (none) | Transforms value space, doesn't preserve ordering |
+| **Dict** | BoundedAbove | Codes can be bounded, but reorders values |
+| **RunEnd** | (none) | Different structure, not suitable for constraint satisfaction |
+| **Sparse** | StrictlySorted, Sorted | For the patch indices, not values |
 
 ### Generation Strategy
 
@@ -242,17 +239,18 @@ pub fn arbitrary_constrained_array(
     // Always include primitive as fallback
     candidates.push(primitive_constrained_gen);
 
-    // Add encodings that can generate directly
+    // Add encodings that can generate these constraints
     if constraints.is_satisfied_by(SequenceArray::can_generate()) {
         candidates.push(sequence_constrained_gen);
     }
     if constraints.is_satisfied_by(ConstantArray::can_generate()) {
         candidates.push(constant_constrained_gen);
     }
-
-    // Add wrapping encodings (generate base + wrap)
-    if constraints.is_satisfied_by(DeltaArray::preserves()) {
+    if constraints.is_satisfied_by(DeltaArray::can_generate()) {
         candidates.push(delta_constrained_gen);
+    }
+    if constraints.is_satisfied_by(FORArray::can_generate()) {
+        candidates.push(for_constrained_gen);
     }
     // ... etc
 
@@ -436,14 +434,16 @@ and we need composability across Vortex's encoding system.
 
 ## Open Questions
 
-1. **Conditional preservation**: Some encodings preserve constraints only under certain
-   conditions (e.g., Delta preserves sortedness only if all deltas are non-negative).
-   Should we model this explicitly?
+1. **Conditional constraints**: Some encodings can only satisfy constraints under certain
+   parameter conditions (e.g., Sequence is strictly sorted only if multiplier > 0).
+   Should `can_generate()` return conditional capabilities, or should the generator
+   simply fail/fallback when parameters don't work out?
 
-2. **Constraint composition**: When an encoding wraps another, how do we compose their
-   constraints? E.g., FOR(Delta(x)) preserves what?
+2. **Constraint conflicts**: How do we handle impossible constraint combinations
+   (e.g., strictly_sorted with len > 1 + upper_bound = 1)? Should we detect and error,
+   or let the generator fail?
 
-3. **Performance**: Should we cache/memoize the capability checks, or is the overhead negligible?
+3. **Depth control**: Should we limit how deeply encodings can nest when satisfying
+   constraints? E.g., FOR(Delta(BitPacked(Primitive))) might be excessive.
 
-4. **Constraint conflicts**: How do we handle impossible constraint combinations
-   (e.g., strictly_sorted + all values equal)?
+4. **Performance**: Should we cache/memoize the capability checks, or is the overhead negligible?
