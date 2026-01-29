@@ -3,7 +3,6 @@
 
 mod binary;
 mod bool;
-mod datetime;
 mod decimal;
 mod extension;
 mod factory;
@@ -84,6 +83,9 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(factory::dtype_struct, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_list, &m)?)?;
     m.add_function(wrap_pyfunction!(factory::dtype_fixed_size_list, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_date, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_time, &m)?)?;
+    m.add_function(wrap_pyfunction!(factory::dtype_timestamp, &m)?)?;
 
     Ok(())
 }
