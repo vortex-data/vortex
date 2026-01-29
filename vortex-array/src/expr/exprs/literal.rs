@@ -162,6 +162,49 @@ pub fn lit(value: impl Into<Scalar>) -> Expression {
     Literal.new_expr(value.into(), [])
 }
 
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+    use vortex_scalar::arbitrary::random_scalar;
+
+    use super::Literal;
+    use super::lit;
+    use crate::expr::Expression;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+
+    impl ArbExpr for Literal {
+        fn arb_wrap(
+            &self,
+            _u: &mut Unstructured,
+            _scope: &DType,
+            _child: Expression,
+            _child_type: &DType,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // Literals cannot wrap anything - they're leaves
+            Ok(None)
+        }
+
+        fn arb_gen(
+            &self,
+            u: &mut Unstructured,
+            _scope: &DType,
+            target: &DType,
+            _depth: u8,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Can produce any type via literal (if scalar generation succeeds)
+            match random_scalar(u, target) {
+                Ok(scalar) => Ok(Some(lit(scalar))),
+                Err(_) => Ok(None),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;

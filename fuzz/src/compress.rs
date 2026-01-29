@@ -5,14 +5,21 @@
 //!
 //! This module generates arbitrary instances of compressed encodings (DictArray, etc.),
 //! then verifies that `to_canonical()` works and produces correct `len` and `dtype`.
+//!
+//! It also tests that applying arbitrary expressions to compressed arrays produces
+//! the same results as applying them to canonical arrays.
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ArbitraryConstantArray;
 use vortex_array::arrays::ArbitraryDictArray;
+use vortex_array::expr::Expression;
+use vortex_array::expr::arbitrary::arb_filter_expr;
 use vortex_runend::ArbitraryRunEndArray;
 
 /// Which compressed encoding to generate.
@@ -102,6 +109,160 @@ pub fn run_compress_roundtrip(fuzz: FuzzCompressRoundtrip) -> crate::error::Vort
             0,
             Backtrace::capture(),
         ));
+    }
+
+    Ok(true)
+}
+
+/// Input for the compressed encoding expression roundtrip fuzzer.
+///
+/// This tests that applying an arbitrary expression to a compressed array
+/// produces the same result as applying it to the canonical form.
+pub struct FuzzCompressExprRoundtrip {
+    pub array: ArrayRef,
+    pub expr: Expression,
+}
+
+impl std::fmt::Debug for FuzzCompressExprRoundtrip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FuzzCompressExprRoundtrip")
+            .field("array", &self.array)
+            .field("expr", &self.expr.to_string())
+            .finish()
+    }
+}
+
+impl<'a> Arbitrary<'a> for FuzzCompressExprRoundtrip {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        let kind: EncodingKind = u.arbitrary()?;
+
+        let array = match kind {
+            EncodingKind::Dict => ArbitraryDictArray::arbitrary(u)?.0.into_array(),
+            EncodingKind::Constant => ArbitraryConstantArray::arbitrary(u)?.0.into_array(),
+            EncodingKind::RunEnd => ArbitraryRunEndArray::arbitrary(u)?.0.into_array(),
+        };
+
+        // Generate an expression that returns Bool (filter expression)
+        // Use depth 3 for reasonable complexity
+        let expr = match arb_filter_expr(u, array.dtype(), 3)? {
+            Some(e) => e,
+            None => {
+                // If we couldn't generate a filter expr, just use is_null(root())
+                use vortex_array::expr::is_null;
+                use vortex_array::expr::root;
+                is_null(root())
+            }
+        };
+
+        Ok(FuzzCompressExprRoundtrip { array, expr })
+    }
+}
+
+/// Run the compressed encoding expression roundtrip fuzzer.
+///
+/// This tests that applying an expression to a compressed array produces
+/// the same results as applying it to the canonical form of that array.
+///
+/// Returns:
+/// - `Ok(true)` - keep in corpus
+/// - `Ok(false)` - reject from corpus (e.g., expression execution failed for expected reasons)
+/// - `Err(_)` - a bug was found (results differ between compressed and canonical)
+#[allow(clippy::result_large_err)]
+pub fn run_compress_expr_roundtrip(
+    fuzz: FuzzCompressExprRoundtrip,
+) -> crate::error::VortexFuzzResult<bool> {
+    use crate::error::Backtrace;
+    use crate::error::VortexFuzzError;
+
+    let FuzzCompressExprRoundtrip { array, expr } = fuzz;
+
+    // Skip empty arrays
+    if array.is_empty() {
+        return Ok(false);
+    }
+
+    // Canonicalize the array
+    let canonical = match array.to_canonical() {
+        Ok(c) => c,
+        Err(e) => {
+            return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));
+        }
+    };
+    let canonical_array: ArrayRef = canonical.into_array();
+
+    // Create execution context
+    let session = crate::SESSION.clone();
+    let mut ctx = ExecutionCtx::new(session);
+
+    // Apply expression to compressed array
+    let compressed_applied = match array.apply(&expr) {
+        Ok(a) => a,
+        Err(_e) => {
+            // Expression application failed - might be expected for some dtype/expr combos
+            // Return false to not keep in corpus
+            return Ok(false);
+        }
+    };
+
+    let compressed_result = match compressed_applied.execute::<Canonical>(&mut ctx) {
+        Ok(r) => r.into_array(),
+        Err(_e) => {
+            // Execution failed - might be expected
+            return Ok(false);
+        }
+    };
+
+    // Apply expression to canonical array
+    let canonical_applied = match canonical_array.apply(&expr) {
+        Ok(a) => a,
+        Err(e) => {
+            // If it worked on compressed but not canonical, that's a bug
+            return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));
+        }
+    };
+
+    let canonical_result = match canonical_applied.execute::<Canonical>(&mut ctx) {
+        Ok(r) => r.into_array(),
+        Err(e) => {
+            // If it worked on compressed but not canonical, that's a bug
+            return Err(VortexFuzzError::VortexError(e, Backtrace::capture()));
+        }
+    };
+
+    // Compare results
+    if compressed_result.len() != canonical_result.len() {
+        return Err(VortexFuzzError::LengthMismatch(
+            compressed_result.len(),
+            canonical_result.len(),
+            compressed_result,
+            canonical_result,
+            0,
+            Backtrace::capture(),
+        ));
+    }
+
+    // Compare element by element
+    for i in 0..compressed_result.len() {
+        let compressed_scalar = match compressed_result.scalar_at(i) {
+            Ok(s) => s,
+            Err(e) => return Err(VortexFuzzError::VortexError(e, Backtrace::capture())),
+        };
+        let canonical_scalar = match canonical_result.scalar_at(i) {
+            Ok(s) => s,
+            Err(e) => return Err(VortexFuzzError::VortexError(e, Backtrace::capture())),
+        };
+
+        if compressed_scalar != canonical_scalar {
+            return Err(VortexFuzzError::ArrayNotEqual(
+                compressed_scalar,
+                canonical_scalar,
+                i,
+                compressed_result,
+                canonical_result,
+                0,
+                Backtrace::capture(),
+            ));
+        }
     }
 
     Ok(true)

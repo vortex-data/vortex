@@ -522,6 +522,89 @@ pub fn checked_add(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Add binary expression")
 }
 
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+
+    use super::Binary;
+    use super::Operator;
+    use crate::expr::Expression;
+    use crate::expr::VTableExt;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+
+    fn arbitrary_comparison_operator(u: &mut Unstructured) -> AResult<Operator> {
+        Ok(match u.int_in_range(0..=5)? {
+            0 => Operator::Eq,
+            1 => Operator::NotEq,
+            2 => Operator::Gt,
+            3 => Operator::Gte,
+            4 => Operator::Lt,
+            5 => Operator::Lte,
+            _ => unreachable!("range 0..=5"),
+        })
+    }
+
+    impl ArbExpr for Binary {
+        fn arb_wrap(
+            &self,
+            u: &mut Unstructured,
+            scope: &DType,
+            child: Expression,
+            child_type: &DType,
+            ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // child becomes lhs, gen rhs of matching type
+            let Some(rhs) = ctx.generate(u, scope, child_type, 2)? else {
+                return Ok(None);
+            };
+
+            let op = arbitrary_comparison_operator(u)?;
+            let nullable = child_type.is_nullable();
+
+            Ok(Some((
+                Binary.new_expr(op, [child, rhs]),
+                DType::Bool(Nullability::from(nullable)),
+            )))
+        }
+
+        fn arb_gen(
+            &self,
+            u: &mut Unstructured,
+            scope: &DType,
+            target: &DType,
+            depth: u8,
+            ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Can only produce Bool (for comparisons)
+            if !matches!(target, DType::Bool(_)) {
+                return Ok(None);
+            }
+            if depth == 0 {
+                return Ok(None);
+            }
+
+            // Gen lhs of scope type, then gen rhs to match
+            let Some(lhs) = ctx.generate(u, scope, scope, depth - 1)? else {
+                return Ok(None);
+            };
+            let lhs_type = lhs
+                .return_dtype(scope)
+                .map_err(|_| arbitrary::Error::IncorrectFormat)?;
+
+            let Some(rhs) = ctx.generate(u, scope, &lhs_type, depth - 1)? else {
+                return Ok(None);
+            };
+
+            let op = arbitrary_comparison_operator(u)?;
+            Ok(Some(Binary.new_expr(op, [lhs, rhs])))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;

@@ -243,6 +243,79 @@ pub fn get_item(field: impl Into<FieldName>, child: Expression) -> Expression {
     GetItem.new_expr(field.into(), vec![child])
 }
 
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+
+    use super::GetItem;
+    use super::get_item;
+    use crate::expr::Expression;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+    use crate::expr::root;
+
+    impl ArbExpr for GetItem {
+        fn arb_wrap(
+            &self,
+            u: &mut Unstructured,
+            _scope: &DType,
+            child: Expression,
+            child_type: &DType,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // Child must be a struct
+            let Some(sdt) = child_type.as_struct_fields_opt() else {
+                return Ok(None);
+            };
+            if sdt.nfields() == 0 {
+                return Ok(None);
+            }
+
+            let idx = u.int_in_range(0..=sdt.nfields() - 1)?;
+            let Some(name) = sdt.field_name(idx) else {
+                return Ok(None);
+            };
+            let Some(field_type) = sdt.field_by_index(idx) else {
+                return Ok(None);
+            };
+
+            Ok(Some((get_item(name.clone(), child), field_type)))
+        }
+
+        fn arb_gen(
+            &self,
+            u: &mut Unstructured,
+            scope: &DType,
+            target: &DType,
+            _depth: u8,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Need to find a field in scope struct that matches target type
+            let Some(sdt) = scope.as_struct_fields_opt() else {
+                return Ok(None);
+            };
+
+            // Find fields matching target type
+            let matching: Vec<_> = sdt
+                .names()
+                .iter()
+                .zip(sdt.fields())
+                .filter(|(_, dt)| dt.eq_ignore_nullability(target))
+                .collect();
+
+            if matching.is_empty() {
+                return Ok(None);
+            }
+
+            let idx = u.int_in_range(0..=matching.len() - 1)?;
+            let (name, _) = matching[idx];
+            Ok(Some(get_item(name.clone(), root())))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

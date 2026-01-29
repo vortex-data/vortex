@@ -123,6 +123,57 @@ pub fn is_null(child: Expression) -> Expression {
     IsNull.new_expr(EmptyOptions, vec![child])
 }
 
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+
+    use super::IsNull;
+    use super::is_null;
+    use crate::expr::Expression;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+
+    impl ArbExpr for IsNull {
+        fn arb_wrap(
+            &self,
+            _u: &mut Unstructured,
+            _scope: &DType,
+            child: Expression,
+            _child_type: &DType,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // Can wrap any type
+            Ok(Some((
+                is_null(child),
+                DType::Bool(Nullability::NonNullable),
+            )))
+        }
+
+        fn arb_gen(
+            &self,
+            u: &mut Unstructured,
+            scope: &DType,
+            target: &DType,
+            depth: u8,
+            ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Can only produce Bool
+            if !matches!(target, DType::Bool(_)) {
+                return Ok(None);
+            }
+
+            // Gen any child
+            let Some(child) = ctx.generate(u, scope, scope, depth.saturating_sub(1))? else {
+                return Ok(None);
+            };
+            Ok(Some(is_null(child)))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

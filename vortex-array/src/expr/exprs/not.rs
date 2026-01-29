@@ -105,6 +105,61 @@ pub fn not(operand: Expression) -> Expression {
     Not.new_expr(EmptyOptions, vec![operand])
 }
 
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+
+    use super::Not;
+    use super::not;
+    use crate::expr::Expression;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+
+    impl ArbExpr for Not {
+        fn arb_wrap(
+            &self,
+            _u: &mut Unstructured,
+            _scope: &DType,
+            child: Expression,
+            child_type: &DType,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // Can only wrap Bool
+            if !matches!(child_type, DType::Bool(_)) {
+                return Ok(None);
+            }
+            Ok(Some((not(child), DType::Bool(child_type.nullability()))))
+        }
+
+        fn arb_gen(
+            &self,
+            u: &mut Unstructured,
+            scope: &DType,
+            target: &DType,
+            depth: u8,
+            ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Can only produce Bool
+            if !matches!(target, DType::Bool(_)) {
+                return Ok(None);
+            }
+            if depth == 0 {
+                return Ok(None);
+            }
+
+            let Some(child) =
+                ctx.generate(u, scope, &DType::Bool(Nullability::Nullable), depth - 1)?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(not(child)))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use vortex_dtype::DType;

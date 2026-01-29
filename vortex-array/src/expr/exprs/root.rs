@@ -109,3 +109,46 @@ pub fn root() -> Expression {
 pub fn is_root(expr: &Expression) -> bool {
     expr.is::<Root>()
 }
+
+#[cfg(feature = "arbitrary")]
+mod arb {
+    use arbitrary::Result as AResult;
+    use arbitrary::Unstructured;
+    use vortex_dtype::DType;
+
+    use super::Root;
+    use super::root;
+    use crate::expr::Expression;
+    use crate::expr::arbitrary::ArbExpr;
+    use crate::expr::arbitrary::ArbExprCtx;
+
+    impl ArbExpr for Root {
+        fn arb_wrap(
+            &self,
+            _u: &mut Unstructured,
+            _scope: &DType,
+            _child: Expression,
+            _child_type: &DType,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<(Expression, DType)>> {
+            // root() cannot wrap anything - it's a leaf
+            Ok(None)
+        }
+
+        fn arb_gen(
+            &self,
+            _u: &mut Unstructured,
+            scope: &DType,
+            target: &DType,
+            _depth: u8,
+            _ctx: &dyn ArbExprCtx,
+        ) -> AResult<Option<Expression>> {
+            // Can only produce scope type
+            if scope.eq_ignore_nullability(target) {
+                Ok(Some(root()))
+            } else {
+                Ok(None)
+            }
+        }
+    }
+}
