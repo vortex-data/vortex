@@ -103,8 +103,8 @@ fn mask_validity_varbinview(array: VarBinViewArray, mask: &Mask) -> VarBinViewAr
     let new_validity = combine_validity(array.validity(), mask, len);
     // SAFETY: We're only changing validity, not the data structure
     unsafe {
-        VarBinViewArray::new_unchecked(
-            array.views().clone(),
+        VarBinViewArray::new_handle_unchecked(
+            array.views_handle().clone(),
             array.buffers().clone(),
             dtype,
             new_validity,

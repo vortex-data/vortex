@@ -15,7 +15,7 @@ use crate::vtable::BaseArrayVTable;
 
 impl BaseArrayVTable<VarBinViewVTable> for VarBinViewVTable {
     fn len(array: &VarBinViewArray) -> usize {
-        array.views.len()
+        array.views().len()
     }
 
     fn dtype(array: &VarBinViewArray) -> &DType {

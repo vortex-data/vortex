@@ -10377,6 +10377,7 @@ dependencies = [
  "libloading 0.8.9",
  "paste",
  "vortex-cuda-macros",
+ "vortex-dtype",
 ]
 
 [[package]]
