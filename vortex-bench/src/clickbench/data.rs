@@ -14,6 +14,9 @@ use arrow_schema::Schema;
 use arrow_schema::TimeUnit;
 use bytes::Bytes;
 use clap::ValueEnum;
+use futures::StreamExt;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
 use reqwest::IntoUrl;
 use serde::Deserialize;
 use serde::Serialize;
@@ -196,16 +199,13 @@ impl Flavor {
         match self {
             Flavor::Single => {
                 let output_path = basepath.join(Format::Parquet.name()).join("hits.parquet");
-                idempotent_async(output_path.as_path(), |output_path| async {
+                idempotent_async(output_path.as_path(), |output_path| async move {
                     info!("Downloading single clickbench file");
                     let url = "https://pub-3ba949c0f0354ac18db1f0f14f0a2c52.r2.dev/clickbench/parquet_single/hits.parquet";
-                    let  body = retry_get(&client, url).await?;
-                    let mut file = File::create(output_path).await?;
-
-                    file.write_all(&body).await?;
-
+                    download_large_file(&client, url, &output_path).await?;
                     anyhow::Ok(())
-                }).await?;
+                })
+                .await?;
             }
             Flavor::Partitioned => {
                 // The clickbench-provided file is missing some higher-level type info, so we reprocess it
@@ -233,6 +233,37 @@ impl Flavor {
         }
         Ok(())
     }
+}
+
+/// Downloads a large file with streaming and progress indication.
+async fn download_large_file(
+    client: &reqwest::Client,
+    url: &str,
+    output_path: &Path,
+) -> anyhow::Result<()> {
+    let response = client.get(url).send().await?.error_for_status()?;
+
+    let total_size = response.content_length().unwrap_or(0);
+
+    let progress = ProgressBar::new(total_size);
+    progress.set_style(
+        ProgressStyle::with_template(
+            "[{elapsed_precise}] {bar:40.cyan/blue} {bytes}/{total_bytes} ({bytes_per_sec})",
+        )
+        .expect("valid template"),
+    );
+
+    let mut file = File::create(output_path).await?;
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        file.write_all(&chunk).await?;
+        progress.inc(chunk.len() as u64);
+    }
+
+    progress.finish();
+    Ok(())
 }
 
 async fn retry_get(client: &reqwest::Client, url: impl IntoUrl) -> anyhow::Result<Bytes> {
