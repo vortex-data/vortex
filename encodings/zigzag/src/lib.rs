@@ -3,6 +3,8 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
+#[cfg(all(test, feature = "arbitrary"))]
+mod arbitrary_test;
 #[cfg(feature = "arbitrary")]
 pub use arbitrary::ArbitraryZigZagArray;
 pub use array::*;
