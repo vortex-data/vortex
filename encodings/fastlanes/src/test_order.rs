@@ -1,5 +1,7 @@
 // Test to verify the order of elements through transpose -> delta -> bitpack pipeline
 
+#![allow(clippy::use_debug)]
+
 use fastlanes::{BitPacking, Delta, Transpose};
 
 /// Test the complete pipeline and print indices at each step
@@ -13,7 +15,10 @@ fn test_fastlanes_order() {
 
     println!("\n=== Step 0: Linear Input ===");
     println!("First 16 values: {:?}", &linear[0..16]);
-    println!("Values at 0, 64, 128, 192: {:?}", [linear[0], linear[64], linear[128], linear[192]]);
+    println!(
+        "Values at 0, 64, 128, 192: {:?}",
+        [linear[0], linear[64], linear[128], linear[192]]
+    );
 
     // Step 1: Transpose
     let mut transposed = [0u16; 1024];
@@ -30,9 +35,14 @@ fn test_fastlanes_order() {
     println!("\nLane 0 in transposed (positions where lane 0 data lives):");
     // According to iterate! macro, lane 0 visits indices: 0, 128, 256, ... for rows 0-7
     // then 64, 192, 320, ... for rows 8-15
-    let lane0_positions = [0, 128, 256, 384, 512, 640, 768, 896, 64, 192, 320, 448, 576, 704, 832, 960];
+    let lane0_positions = [
+        0, 128, 256, 384, 512, 640, 768, 896, 64, 192, 320, 448, 576, 704, 832, 960,
+    ];
     for (row, &pos) in lane0_positions.iter().enumerate() {
-        println!("  row {}: transposed[{}] = {} (came from linear[{}])", row, pos, transposed[pos], transposed[pos]);
+        println!(
+            "  row {}: transposed[{}] = {} (came from linear[{}])",
+            row, pos, transposed[pos], transposed[pos]
+        );
     }
 
     // Step 2: Delta on transposed data
@@ -75,7 +85,10 @@ fn test_fastlanes_order() {
 
     println!("\n=== Step 5: After Undelta ===");
     println!("First 16 values: {:?}", &undelta_result[0..16]);
-    assert_eq!(transposed, undelta_result, "Undelta should restore transposed exactly");
+    assert_eq!(
+        transposed, undelta_result,
+        "Undelta should restore transposed exactly"
+    );
     println!("✓ Undelta matches transposed");
 
     // Step 6: Untranspose
@@ -84,7 +97,10 @@ fn test_fastlanes_order() {
 
     println!("\n=== Step 6: After Untranspose ===");
     println!("First 16 values: {:?}", &final_linear[0..16]);
-    assert_eq!(linear, final_linear, "Full round-trip should restore original");
+    assert_eq!(
+        linear, final_linear,
+        "Full round-trip should restore original"
+    );
     println!("✓ Full round-trip successful!");
 }
 
@@ -107,9 +123,14 @@ fn test_without_transpose() {
     // The delta values will be wrong because Delta::delta uses iterate!
     // which expects transposed layout
     println!("\nLane 0 deltas (iterate! pattern on LINEAR data):");
-    let lane0_positions = [0, 128, 256, 384, 512, 640, 768, 896, 64, 192, 320, 448, 576, 704, 832, 960];
+    let lane0_positions = [
+        0, 128, 256, 384, 512, 640, 768, 896, 64, 192, 320, 448, 576, 704, 832, 960,
+    ];
     for (row, &pos) in lane0_positions.iter().enumerate() {
-        println!("  row {}: deltas[{}] = {} (linear[{}] was {})", row, pos, deltas[pos], pos, linear[pos]);
+        println!(
+            "  row {}: deltas[{}] = {} (linear[{}] was {})",
+            row, pos, deltas[pos], pos, linear[pos]
+        );
     }
 
     // Round trip
@@ -117,7 +138,10 @@ fn test_without_transpose() {
     Delta::undelta::<LANES>(&deltas, &bases, &mut undelta_result);
 
     // This should still work because delta/undelta use same pattern
-    assert_eq!(linear, undelta_result, "Round trip should work even without transpose");
+    assert_eq!(
+        linear, undelta_result,
+        "Round trip should work even without transpose"
+    );
     println!("\n✓ Round trip works (but deltas are not optimal for compression)");
 }
 
@@ -214,7 +238,10 @@ fn test_composition_problem() {
     let mut final_linear = [0u16; 1024];
     Transpose::untranspose(&undelta_result, &mut final_linear);
 
-    assert_eq!(linear, final_linear, "Full round-trip with bitpacking should work");
+    assert_eq!(
+        linear, final_linear,
+        "Full round-trip with bitpacking should work"
+    );
     println!("✓ Full round-trip with bitpacking works!");
 
     // === NOW TEST: What if we DON'T transpose before delta? ===
@@ -253,7 +280,10 @@ fn test_composition_problem() {
     }
 
     println!("\nDelta values comparison:");
-    println!("  With transpose - deltas[128] (lane 0, row 1): {}", deltas[128]);
+    println!(
+        "  With transpose - deltas[128] (lane 0, row 1): {}",
+        deltas[128]
+    );
     println!("  Without transpose - deltas[128]: {}", deltas_linear[128]);
 }
 
@@ -278,7 +308,10 @@ fn test_vortex_delta_compress() {
 
     println!("DeltaArray created successfully");
     println!("  bases dtype: {:?}", delta_array.bases().dtype());
-    println!("  deltas encoding: {:?}", delta_array.deltas().encoding_id());
+    println!(
+        "  deltas encoding: {:?}",
+        delta_array.deltas().encoding_id()
+    );
 
     // Decompress and verify
     let decompressed = delta_array.to_primitive();
