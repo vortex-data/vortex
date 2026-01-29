@@ -1695,19 +1695,6 @@ mod cuda_tests {
             .await?;
         std::fs::write(&temp_path, &buf)?;
 
-        // Create an ALP-encoded array from primitive f64 values
-        let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
-        let alp_array = alp_encode(&primitive, None)?;
-
-        // Write to a buffer, then to a temp file
-        let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
-        let mut buf = Vec::new();
-        SESSION
-            .write_options()
-            .write(&mut buf, alp_array.to_array_stream())
-            .await?;
-        std::fs::write(&temp_path, &buf)?;
-
         // Read back via GPU
         let handle = SESSION.handle();
         let source = Arc::new(FileReadAdapter::open(&temp_path, handle)?);
