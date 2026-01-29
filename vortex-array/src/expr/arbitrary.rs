@@ -261,3 +261,107 @@ fn arbitrary_comparison_operator(u: &mut Unstructured<'_>) -> AResult<Operator> 
         _ => unreachable!("range 0..=5"),
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::FieldNames;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
+
+    use super::*;
+
+    fn struct_scope() -> DType {
+        DType::Struct(
+            StructFields::new(
+                FieldNames::from(["a", "b", "c"]),
+                vec![
+                    DType::Primitive(PType::I32, Nullability::Nullable),
+                    DType::Primitive(PType::F64, Nullability::NonNullable),
+                    DType::Bool(Nullability::NonNullable),
+                ],
+            ),
+            Nullability::NonNullable,
+        )
+    }
+
+    #[test]
+    fn test_arb_expr_generates_valid_expression() {
+        let scope = struct_scope();
+        let data = vec![0u8; 256];
+        let mut u = Unstructured::new(&data);
+
+        let (expr, dtype) = arb_expr(&mut u, &scope, 3).expect("should generate expression");
+
+        // Expression should type-check against the scope
+        let result_dtype = expr.return_dtype(&scope);
+        assert!(result_dtype.is_ok(), "Expression should type-check: {expr}");
+        assert_eq!(
+            result_dtype.unwrap(),
+            dtype,
+            "Return dtype should match declared dtype"
+        );
+    }
+
+    #[test]
+    fn test_arb_filter_expr_returns_bool() {
+        let scope = struct_scope();
+        let data = vec![42u8; 512];
+        let mut u = Unstructured::new(&data);
+
+        if let Some(expr) = arb_filter_expr(&mut u, &scope, 5).expect("should not error") {
+            let dtype = expr
+                .return_dtype(&scope)
+                .expect("filter expr should type-check");
+            assert!(
+                matches!(dtype, DType::Bool(_)),
+                "Filter expression should return Bool, got: {dtype}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_arb_expr_contains_root() {
+        let scope = DType::Primitive(PType::I64, Nullability::NonNullable);
+        let data = vec![123u8; 256];
+        let mut u = Unstructured::new(&data);
+
+        let (expr, _) = arb_expr(&mut u, &scope, 2).expect("should generate expression");
+
+        // The expression string representation should contain "$" which represents root
+        let expr_str = expr.to_string();
+        assert!(
+            expr_str.contains('$'),
+            "Expression should contain root ($): {expr_str}"
+        );
+    }
+
+    #[test]
+    fn test_multiple_generations_produce_variety() {
+        let scope = struct_scope();
+        let mut expressions = Vec::new();
+
+        for seed in 0u8..20 {
+            let data = vec![seed; 256];
+            let mut u = Unstructured::new(&data);
+
+            if let Ok((expr, _)) = arb_expr(&mut u, &scope, 3) {
+                expressions.push(expr.to_string());
+            }
+        }
+
+        // We should have generated some expressions
+        assert!(!expressions.is_empty(), "Should generate some expressions");
+
+        // Count unique expressions - with different seeds we should get variety
+        let unique: std::collections::HashSet<_> = expressions.iter().collect();
+        // With 20 seeds, we expect at least a few different expressions
+        assert!(
+            unique.len() >= 2,
+            "Should generate variety of expressions, got {} unique out of {}",
+            unique.len(),
+            expressions.len()
+        );
+    }
+}

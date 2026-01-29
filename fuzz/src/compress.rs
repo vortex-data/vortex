@@ -267,3 +267,53 @@ pub fn run_compress_expr_roundtrip(
 
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use arbitrary::Unstructured;
+
+    use super::*;
+
+    #[test]
+    fn test_compress_expr_roundtrip_runs() {
+        // Test with several different random seeds
+        for seed in 0u8..10 {
+            let data = vec![seed; 1024];
+            let mut u = Unstructured::new(&data);
+
+            if let Ok(fuzz) = FuzzCompressExprRoundtrip::arbitrary(&mut u) {
+                // The fuzzer should not panic
+                let result = run_compress_expr_roundtrip(fuzz);
+                // Result can be Ok(true), Ok(false), or Err - all are valid
+                // We just want to make sure it doesn't panic
+                match result {
+                    Ok(true) => {}  // kept in corpus
+                    Ok(false) => {} // rejected from corpus (empty array or failed expr)
+                    Err(e) => {
+                        // This would indicate a potential bug - print it for debugging
+                        panic!("Fuzzer found potential bug: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_compress_roundtrip_runs() {
+        // Test the original roundtrip fuzzer too
+        for seed in 0u8..10 {
+            let data = vec![seed; 512];
+            let mut u = Unstructured::new(&data);
+
+            if let Ok(fuzz) = FuzzCompressRoundtrip::arbitrary(&mut u) {
+                let result = run_compress_roundtrip(fuzz);
+                match result {
+                    Ok(_) => {}
+                    Err(e) => {
+                        panic!("Compress roundtrip found potential bug: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+}
