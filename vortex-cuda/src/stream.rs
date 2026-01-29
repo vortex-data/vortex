@@ -78,7 +78,7 @@ impl VortexCudaStream {
             "dev {}",
             u8::try_from(device_ptr.trailing_zeros()).vortex_expect("aligment over 2^2^8??")
         );
-        let cuda_buf = CudaDeviceBuffer::new_aligned(cuda_slice, Alignment::new(256));
+        let cuda_buf = CudaDeviceBuffer::new(cuda_slice);
         let stream = Arc::clone(&self.0);
 
         Ok(Box::pin(async move {

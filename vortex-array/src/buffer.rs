@@ -143,7 +143,7 @@ impl BufferHandle {
     }
 
     /// Returns true if the buffer is aligned to the given alignment.
-    pub fn is_aligned(&self, alignment: Alignment) -> bool {
+    pub fn is_aligned_to(&self, alignment: Alignment) -> bool {
         self.alignment().is_aligned_to(alignment)
     }
 

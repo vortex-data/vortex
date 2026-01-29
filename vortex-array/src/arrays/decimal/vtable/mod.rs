@@ -108,7 +108,7 @@ impl VTable for DecimalVTable {
         match_each_decimal_value_type!(metadata.values_type(), |D| {
             // Check and reinterpret-cast the buffer
             vortex_ensure!(
-                values.alignment().is_aligned_to(Alignment::of::<D>()),
+                values.is_aligned_to(Alignment::of::<D>()),
                 "DecimalArray buffer not aligned for values type {:?}",
                 D::DECIMAL_TYPE
             );

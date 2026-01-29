@@ -35,13 +35,9 @@ pub struct CudaDeviceBuffer<T> {
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     /// Creates a new CUDA device buffer from a [`CudaSlice`].
     pub fn new(cuda_slice: CudaSlice<T>) -> Self {
-        Self::new_aligned(cuda_slice, Alignment::of::<T>())
-    }
-
-    pub fn new_aligned(cuda_slice: CudaSlice<T>, alignment: Alignment) -> Self {
-        assert!(alignment.is_aligned_to(Alignment::of::<T>()));
         let len = cuda_slice.len();
         let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
+        let alignment = Alignment::of::<T>();
 
         Self {
             inner: Arc::new(cuda_slice),
@@ -199,18 +195,18 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let new_offset = self.offset + range.start;
         let new_len = range.end - range.start;
         let byte_offset = new_offset * size_of::<T>();
-        let alignment = if byte_offset == 0 {
+
+        let req_align = Alignment::from_exponent(
+            u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
+                .vortex_expect("impossible"),
+        );
+
+        assert!(
+            req_align.is_aligned_to(self.alignment),
+            "slice must respect minimum alignment byte {}, min {}",
+            req_align,
             self.alignment
-        } else {
-            // TODO(joe): self.alignment is an under approx
-            min(
-                self.alignment,
-                Alignment::from_exponent(
-                    u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
-                        .vortex_expect("impossible"),
-                ),
-            )
-        };
+        );
 
         assert!(
             range.end <= self.len,
@@ -224,7 +220,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
-            alignment,
+            alignment: self.alignment,
         })
     }
 
