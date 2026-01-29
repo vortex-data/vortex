@@ -13,14 +13,6 @@ use crate::ExtDType;
 use crate::ExtID;
 use crate::extension::ExtDTypeRef;
 
-// FIXME(ngates): are VTables ZSTs or not?
-//  * If yes, then we can create &'static dyn DynVTable references easily.
-//  * If no, then we need to manage their lifetimes some other way. And we likely need to hold
-//    instances of them on the object itself.
-//
-// In theory, we could separate out the part that doesn't have an instance (e.g. the ID and the
-// deserialize function).
-
 /// The public API for defining new extension DTypes.
 pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug {
     /// Associated type containing the deserialized metadata for this extension type

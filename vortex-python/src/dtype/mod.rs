@@ -3,6 +3,7 @@
 
 mod binary;
 mod bool;
+mod datetime;
 mod decimal;
 mod extension;
 mod factory;

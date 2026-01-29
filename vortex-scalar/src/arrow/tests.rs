@@ -19,8 +19,6 @@ use vortex_error::vortex_bail;
 
 use crate::Scalar;
 
-// FIXME(ngates): add some tests for timestamp with timezone
-
 #[test]
 fn test_null_scalar_to_arrow() {
     let scalar = Scalar::null(DType::Null);
@@ -354,6 +352,28 @@ fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: 
         TimestampOptions {
             unit: time_unit,
             tz: None,
+        },
+        Scalar::primitive(value, Nullability::NonNullable),
+    );
+
+    let result = Arc::<dyn Datum>::try_from(&scalar);
+    assert!(result.is_ok());
+}
+
+#[rstest]
+#[case(TimeUnit::Nanoseconds, "UTC", 1234567890000000000i64)]
+#[case(TimeUnit::Microseconds, "EST", 1234567890000000i64)]
+#[case(TimeUnit::Milliseconds, "ABC", 1234567890000i64)]
+#[case(TimeUnit::Seconds, "UTC", 1234567890i64)]
+fn test_temporal_timestamp_tz_to_arrow(
+    #[case] time_unit: TimeUnit,
+    #[case] tz: &str,
+    #[case] value: i64,
+) {
+    let scalar = Scalar::extension::<Timestamp>(
+        TimestampOptions {
+            unit: time_unit,
+            tz: Some(tz.into()),
         },
         Scalar::primitive(value, Nullability::NonNullable),
     );
