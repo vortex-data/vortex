@@ -7,7 +7,6 @@ use vortex_error::vortex_bail;
 use crate::Array;
 use crate::ArrayEq;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -53,21 +52,17 @@ impl<'a> NormalizeOptions<'a> {
     }
 }
 
-pub trait Normalize {
+impl dyn Array + '_ {
     /// Normalize the array according to given options.
     ///
     /// This operation performs a recursive traversal of the array. Any non-allowed encoding is
     /// normalized per the configured operation.
-    fn normalize(&self, options: &mut NormalizeOptions) -> VortexResult<ArrayRef>;
-}
-
-impl Normalize for ArrayRef {
-    fn normalize(&self, options: &mut NormalizeOptions) -> VortexResult<ArrayRef> {
+    pub fn normalize(&self, options: &mut NormalizeOptions) -> VortexResult<ArrayRef> {
         if !self.is_canonical() && !options.is_allowed(&self.encoding_id()) {
             match &mut options.operation {
                 Operation::IntoCanonical(ctx) => {
                     return self
-                        .clone()
+                        .to_array()
                         .execute::<Canonical>(ctx)?
                         .into_array()
                         .normalize(options);
@@ -91,7 +86,7 @@ impl Normalize for ArrayRef {
             .all(|(a, b)| a.array_eq(b, Precision::Ptr))
         {
             // No children changed; clone self.
-            return Ok(self.clone());
+            return Ok(self.to_array());
         }
 
         self.with_children(new_children)
