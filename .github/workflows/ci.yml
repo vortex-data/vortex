@@ -521,6 +521,8 @@ jobs:
         with:
           tool: nextest
       - name: Rust Tests
+        env:
+          FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           # Build with full debug info first (helps with caching)
           cargo +nightly build --locked -p vortex-cuda -p vortex-file --all-features --target x86_64-unknown-linux-gnu
