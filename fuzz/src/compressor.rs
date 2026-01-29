@@ -4,19 +4,32 @@
 //! Fuzzer module for testing compressor roundtrip.
 //!
 //! This module generates arbitrary arrays, compresses them, decompresses them,
-//! and verifies that the result matches the original.
+//! and verifies that the result matches the original. It also tests serialization
+//! roundtrip by writing compressed arrays to a buffer and reading them back.
 
 use arbitrary::Arbitrary;
 use arbitrary::Unstructured;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ArrayVisitor;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::arrays::ChunkedArray;
 use vortex_array::arrays::ChunkedVTable;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::arrays::arbitrary::ArbitraryArray;
+use vortex_buffer::ByteBufferMut;
+use vortex_dtype::DType;
+use vortex_dtype::StructFields;
+use vortex_error::VortexExpect;
+use vortex_file::OpenOptionsSessionExt;
+use vortex_file::WriteOptionsSessionExt;
+use vortex_utils::aliases::DefaultHashBuilder;
+use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::RUNTIME;
+use crate::SESSION;
 use crate::array::CompressorStrategy;
 use crate::array::assert_array_eq;
 use crate::array::compress_array;
@@ -161,5 +174,99 @@ pub fn run_compressor_fuzzer(fuzz: FuzzCompressor) -> VortexFuzzResult<bool> {
     // Verify array contents are equal (element-by-element comparison)
     assert_array_eq(&canonical_array, &decompressed_array, 0)?;
 
+    // Skip file roundtrip for arrays that have known issues with file format
+    if has_nullable_struct(&original_dtype) || has_duplicate_field_names(&original_dtype) {
+        return Ok(true);
+    }
+
+    // Test file serialization roundtrip: write compressed array to buffer, read back, decompress
+    let mut buffer = ByteBufferMut::empty();
+    SESSION
+        .write_options()
+        .blocking(&*RUNTIME)
+        .write(&mut buffer, compressed.to_array_iterator())
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
+
+    // Read array back from buffer
+    let mut output = SESSION
+        .open_options()
+        .open_buffer(buffer)
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?
+        .scan()
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?
+        .into_array_iter(&*RUNTIME)
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
+
+    let from_file = match output.len() {
+        0 => Canonical::empty(&original_dtype).into_array(),
+        1 => output.pop().vortex_expect("one output"),
+        _ => ChunkedArray::from_iter(output).into_array(),
+    };
+
+    // Verify dtype is preserved after file roundtrip
+    if &original_dtype != from_file.dtype() {
+        return Err(VortexFuzzError::DTypeMismatch(
+            canonical_array,
+            from_file,
+            2,
+            Backtrace::capture(),
+        ));
+    }
+
+    // Verify len is preserved after file roundtrip
+    if original_len != from_file.len() {
+        return Err(VortexFuzzError::LengthMismatch(
+            original_len,
+            from_file.len(),
+            canonical_array,
+            from_file,
+            2,
+            Backtrace::capture(),
+        ));
+    }
+
+    // Decompress the array read from file
+    let from_file_decompressed = from_file
+        .to_canonical()
+        .map_err(|e| VortexFuzzError::VortexError(e, Backtrace::capture()))?;
+    let from_file_array = from_file_decompressed.into_array();
+
+    // Verify array contents are equal after file roundtrip
+    assert_array_eq(&canonical_array, &from_file_array, 2)?;
+
     Ok(true)
+}
+
+/// Checks if dtype contains a nullable struct (not supported by file format).
+fn has_nullable_struct(dtype: &DType) -> bool {
+    dtype.is_struct() && dtype.is_nullable()
+        || dtype
+            .as_struct_fields_opt()
+            .map(|sdt| sdt.fields().any(|dtype| has_nullable_struct(&dtype)))
+            .unwrap_or(false)
+        || dtype
+            .as_list_element_opt()
+            .map(|e| has_nullable_struct(e.as_ref()))
+            .unwrap_or(false)
+}
+
+/// Checks if dtype has duplicate field names in struct types.
+fn has_duplicate_field_names(dtype: &DType) -> bool {
+    if let Some(struct_dtype) = dtype.as_struct_fields_opt() {
+        struct_has_duplicate_names(struct_dtype)
+    } else if let Some(list_elem) = dtype.as_list_element_opt() {
+        has_duplicate_field_names(list_elem)
+    } else {
+        false
+    }
+}
+
+fn struct_has_duplicate_names(struct_dtype: &StructFields) -> bool {
+    HashSet::<_, DefaultHashBuilder>::from_iter(struct_dtype.names().iter()).len()
+        != struct_dtype.names().len()
+        || struct_dtype
+            .fields()
+            .any(|dtype| has_duplicate_field_names(&dtype))
 }
