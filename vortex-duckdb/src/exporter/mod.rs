@@ -32,10 +32,8 @@ use vortex::array::arrays::ListVTable;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::vtable::ValidityHelper;
-use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::encodings::runend::RunEndVTable;
 use vortex::encodings::sequence::SequenceVTable;
-use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 
@@ -162,9 +160,7 @@ fn new_array_exporter_with_flatten(
         Canonical::FixedSizeList(array) => fixed_size_list::new_exporter(array, cache, ctx),
         Canonical::Struct(array) => struct_::new_exporter(array, cache, ctx),
         Canonical::Extension(ext) => {
-            if is_temporal_ext_type(ext.id()) {
-                let temporal_array =
-                    TemporalArray::try_from(ext).vortex_expect("id is a temporal array");
+            if let Ok(temporal_array) = TemporalArray::try_from(ext) {
                 return temporal::new_exporter(temporal_array, ctx);
             }
             vortex_bail!("no non-temporal extension exporter")

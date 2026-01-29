@@ -151,7 +151,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "PrimitiveBuilder expected scalar with dtype {:?}, got {:?}",
+            "PrimitiveBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

@@ -7,6 +7,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
@@ -38,7 +39,11 @@ impl VTable for IsNull {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         Ok(EmptyOptions)
     }
 

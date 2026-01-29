@@ -25,8 +25,6 @@ mod pvalue;
 mod scalar;
 mod scalar_value;
 mod struct_;
-#[cfg(test)]
-mod tests;
 mod utf8;
 
 pub use binary::*;
@@ -40,3 +38,6 @@ pub use scalar::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
+
+#[cfg(test)]
+mod tests;

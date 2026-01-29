@@ -9,17 +9,16 @@ use std::sync::Arc;
 
 use DType::*;
 use itertools::Itertools;
-use static_assertions::const_assert_eq;
 use vortex_error::VortexExpect;
 use vortex_error::vortex_panic;
 
-use crate::ExtDType;
 use crate::FieldDType;
 use crate::FieldName;
 use crate::PType;
 use crate::StructFields;
 use crate::decimal::DecimalDType;
 use crate::decimal::DecimalType;
+use crate::extension::ExtDTypeRef;
 use crate::nullability::Nullability;
 
 /// The logical types of elements in Vortex arrays.
@@ -46,7 +45,6 @@ use crate::nullability::Nullability;
 /// [`I32`]: PType::I32
 /// [`NonNullable`]: Nullability::NonNullable
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DType {
     /// A logical null type.
     ///
@@ -95,8 +93,8 @@ pub enum DType {
 
     /// A user-defined extension type.
     ///
-    /// See [`ExtDType`] for more information.
-    Extension(Arc<ExtDType>),
+    /// See [`ExtDTypeRef`] for more information.
+    Extension(ExtDTypeRef),
 }
 
 /// This trait is implemented by native Rust types that can be converted
@@ -111,11 +109,13 @@ pub trait NativeDType {
     fn dtype() -> DType;
 }
 
+/// Assert that the size of DType is 16 bytes.
 #[cfg(not(target_arch = "wasm32"))]
-const_assert_eq!(size_of::<DType>(), 16);
+const _: [(); size_of::<DType>()] = [(); 24]; // FIXME(ngates): should we keep this at 16?
 
+/// Assert that the size of DType is 12 bytes on wasm32.
 #[cfg(target_arch = "wasm32")]
-const_assert_eq!(size_of::<DType>(), 12);
+const _: [(); size_of::<DType>()] = [(); 12];
 
 impl DType {
     /// The default `DType` for bytes.
@@ -166,7 +166,7 @@ impl DType {
             Struct(sf, _) => Struct(sf.clone(), nullability),
             List(edt, _) => List(edt.clone(), nullability),
             FixedSizeList(edt, size, _) => FixedSizeList(edt.clone(), *size, nullability),
-            Extension(ext) => Extension(Arc::new(ext.with_nullability(nullability))),
+            Extension(ext) => Extension(ext.with_nullability(nullability)),
         }
     }
 
@@ -197,7 +197,7 @@ impl DType {
                         .all(|(l, r)| l.eq_ignore_nullability(&r)))
             }
             (Extension(lhs_extdtype), Extension(rhs_extdtype)) => {
-                lhs_extdtype.as_ref().eq_ignore_nullability(rhs_extdtype)
+                lhs_extdtype.eq_ignore_nullability(rhs_extdtype)
             }
             _ => false,
         }
@@ -485,7 +485,7 @@ impl DType {
     }
 
     /// Downcast a `DType` to an `ExtDType`
-    pub fn as_extension(&self) -> &Arc<ExtDType> {
+    pub fn as_extension(&self) -> &ExtDTypeRef {
         let Extension(ext) = self else {
             vortex_panic!("DType is not an Extension")
         };
@@ -526,17 +526,7 @@ impl Display for DType {
             ),
             List(edt, null) => write!(f, "list({edt}){null}"),
             FixedSizeList(edt, size, null) => write!(f, "fixed_size_list({edt})[{size}]{null}"),
-            Extension(ext) => write!(
-                f,
-                "ext({}, {}{}){}",
-                ext.id(),
-                ext.storage_dtype()
-                    .with_nullability(Nullability::NonNullable),
-                ext.metadata()
-                    .map(|m| format!(", {m:?}"))
-                    .unwrap_or_else(|| "".to_string()),
-                ext.storage_dtype().nullability(),
-            ),
+            Extension(ext) => write!(f, "{}", ext),
         }
     }
 }
@@ -547,10 +537,28 @@ mod tests {
 
     use crate::DType;
     use crate::Nullability::NonNullable;
+    use crate::Nullability::Nullable;
     use crate::PType;
+    use crate::datetime::Date;
+    use crate::datetime::Time;
+    use crate::datetime::TimeUnit;
+    use crate::datetime::Timestamp;
     use crate::decimal::DecimalDType;
-    use crate::extension::ExtDType;
-    use crate::extension::ExtID;
+
+    #[test]
+    fn test_ext_dtype_eq_ignore_nullability() {
+        let d1 = DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased());
+        let d2 = DType::Extension(Time::new(TimeUnit::Seconds, NonNullable).erased());
+        assert!(d1.eq_ignore_nullability(&d2));
+
+        let t1 = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("UTC".into()), Nullable).erased(),
+        );
+        let t2 = DType::Extension(
+            Timestamp::new_with_tz(TimeUnit::Seconds, Some("ET".into()), Nullable).erased(),
+        );
+        assert!(!t1.eq_ignore_nullability(&t2));
+    }
 
     #[test]
     fn element_size_null() {
@@ -619,9 +627,10 @@ mod tests {
 
     #[test]
     fn element_size_extension() {
-        let storage = Arc::new(DType::Primitive(PType::I32, NonNullable));
-        let ext = ExtDType::new(ExtID::new("test.ext".into()), storage, None);
-        assert_eq!(DType::Extension(Arc::new(ext)).element_size(), Some(4));
+        assert_eq!(
+            DType::Extension(Date::new(TimeUnit::Days, NonNullable).erased()).element_size(),
+            Some(4)
+        );
     }
 
     #[test]

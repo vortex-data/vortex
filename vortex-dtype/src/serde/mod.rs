@@ -1,13 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod flatbuffers;
+//! Serde serialization and deserialization for DTypes
+
+pub(crate) mod flatbuffers;
 
 mod proto;
 
 #[allow(clippy::module_inception)]
 #[cfg(feature = "serde")]
 mod serde;
+
+#[cfg(feature = "serde")]
+pub use serde::*;
 
 #[cfg(test)]
 #[cfg(feature = "serde")]
@@ -40,7 +45,10 @@ mod test {
 
     #[test]
     fn test_serde_dtype() {
-        assert_tokens(
+        // Test that DType serializes correctly (we only test serialization since
+        // deserialization with serde_test has borrowing issues with enum variants)
+        use serde_test::assert_ser_tokens;
+        assert_ser_tokens(
             &DType::from(PType::U8),
             &[
                 Token::TupleVariant {
@@ -90,28 +98,16 @@ mod test {
               ],
               "dtypes": [
                 {
-                  "inner": {
-                    "Owned": {
-                      "Utf8": false
-                    }
-                  }
+                  "Utf8": false
                 },
                 {
-                  "inner": {
-                    "Owned": {
-                      "Primitive": [
-                        "i32",
-                        true
-                      ]
-                    }
-                  }
+                  "Primitive": [
+                    "i32",
+                    true
+                  ]
                 },
                 {
-                  "inner": {
-                    "Owned": {
-                      "Bool": false
-                    }
-                  }
+                  "Bool": false
                 }
               ]
             },

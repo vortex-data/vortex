@@ -9,10 +9,13 @@ use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::half::f16;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::scalar as pb;
 use vortex_proto::scalar::ListValue;
 use vortex_proto::scalar::scalar_value::Kind;
+use vortex_session::VortexSession;
 
 use crate::DecimalValue;
 use crate::InnerScalarValue;
@@ -23,7 +26,11 @@ use crate::pvalue::PValue;
 impl From<&Scalar> for pb::Scalar {
     fn from(value: &Scalar) -> Self {
         pb::Scalar {
-            dtype: Some((value.dtype()).into()),
+            dtype: Some(
+                (value.dtype())
+                    .try_into()
+                    .vortex_expect("Failed to convert DType to proto"),
+            ),
             value: Some((value.value()).into()),
         }
     }
@@ -112,15 +119,15 @@ impl From<&PValue> for pb::ScalarValue {
     }
 }
 
-impl TryFrom<&pb::Scalar> for Scalar {
-    type Error = VortexError;
-
-    fn try_from(value: &pb::Scalar) -> Result<Self, Self::Error> {
-        let dtype = DType::try_from(
+impl Scalar {
+    /// Creates a Scalar from its protobuf representation.
+    pub fn from_proto(value: &pb::Scalar, session: &VortexSession) -> VortexResult<Self> {
+        let dtype = DType::from_proto(
             value
                 .dtype
                 .as_ref()
                 .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing dtype"))?,
+            session,
         )?;
 
         let value = ScalarValue::try_from(
@@ -193,11 +200,12 @@ mod tests {
     use crate::InnerScalarValue;
     use crate::Scalar;
     use crate::ScalarValue;
+    use crate::tests::SESSION;
 
     fn round_trip(scalar: Scalar) {
         assert_eq!(
             scalar,
-            Scalar::try_from(&pb::Scalar::from(&scalar)).unwrap(),
+            Scalar::from_proto(&pb::Scalar::from(&scalar), &SESSION).unwrap(),
         );
     }
 

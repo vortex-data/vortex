@@ -172,7 +172,7 @@ impl ArrayBuilder for DecimalBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
+            "DecimalBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

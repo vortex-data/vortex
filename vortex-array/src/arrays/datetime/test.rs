@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributorsuse vortex_dtype::Nullability;
-use std::sync::Arc;
 
 use rstest::rstest;
 use vortex_buffer::buffer;
-use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
-use vortex_dtype::datetime::TIMESTAMP_ID;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -155,7 +151,7 @@ fn test_timestamp() {
         TimeUnit::Microseconds,
         TimeUnit::Nanoseconds,
     ] {
-        for tz in [Some("UTC".to_string()), None] {
+        for tz in [Some("UTC".into()), None] {
             let temporal_array =
                 TemporalArray::new_timestamp(ts_array.to_array(), unit, tz.clone());
 
@@ -165,7 +161,7 @@ fn test_timestamp() {
             );
             assert_eq!(
                 temporal_array.temporal_metadata(),
-                &TemporalMetadata::Timestamp(unit, tz)
+                TemporalMetadata::Timestamp(&TimestampOptions { unit, tz })
             );
         }
     }
@@ -195,11 +191,8 @@ fn test_validity_preservation(#[case] validity: Validity) {
         validity.clone(),
     )
     .into_array();
-    let temporal_array = TemporalArray::new_timestamp(
-        milliseconds,
-        TimeUnit::Milliseconds,
-        Some("UTC".to_string()),
-    );
+    let temporal_array =
+        TemporalArray::new_timestamp(milliseconds, TimeUnit::Milliseconds, Some("UTC".into()));
     assert_eq!(
         temporal_array.temporal_values().to_primitive().validity(),
         &validity
@@ -214,15 +207,13 @@ fn test222() -> VortexResult<()> {
     let temporal = TemporalArray::new_timestamp(ts_array, TimeUnit::Milliseconds, None);
 
     // Read with SECONDS filter scalar
-    let seconds_ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-        Some(TemporalMetadata::Timestamp(TimeUnit::Seconds, None).into()),
-    ));
     let filter_expr = gt(
         root(),
-        lit(Scalar::extension(
-            seconds_ext_dtype,
+        lit(Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            },
             Scalar::from(1704153600i64),
         )),
     );

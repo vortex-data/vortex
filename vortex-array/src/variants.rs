@@ -3,12 +3,11 @@
 
 //! This module defines extension functionality specific to each Vortex DType.
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::FieldNames;
 use vortex_dtype::PType;
+use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -189,7 +188,7 @@ pub struct ExtensionTyped<'a>(&'a dyn Array);
 
 impl ExtensionTyped<'_> {
     /// Returns the extension logical [`DType`].
-    pub fn ext_dtype(&self) -> &Arc<ExtDType> {
+    pub fn ext_dtype(&self) -> &ExtDTypeRef {
         let DType::Extension(ext_dtype) = self.0.dtype() else {
             vortex_panic!("Expected ExtDType")
         };

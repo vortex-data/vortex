@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::arrays::BoolArray;
@@ -46,7 +47,11 @@ impl VTable for Mask {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         Ok(EmptyOptions)
     }
 

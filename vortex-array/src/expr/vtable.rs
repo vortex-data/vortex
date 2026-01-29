@@ -16,6 +16,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -58,7 +59,11 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Deserialize the options of this expression.
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         vortex_bail!("Expression {} is not deserializable", self.id());
     }
 
@@ -406,7 +411,11 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
 
     fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
-    fn options_deserialize(&self, metadata: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>>;
+    fn options_deserialize(
+        &self,
+        metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Box<dyn Any + Send + Sync>>;
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync>;
     fn options_eq(&self, a: &dyn Any, b: &dyn Any) -> bool;
     fn options_hash(&self, options: &dyn Any, hasher: &mut dyn Hasher);
@@ -473,8 +482,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::serialize(&self.0, downcast::<V>(options))
     }
 
-    fn options_deserialize(&self, bytes: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>> {
-        Ok(Box::new(V::deserialize(&self.0, bytes)?))
+    fn options_deserialize(
+        &self,
+        bytes: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Box<dyn Any + Send + Sync>> {
+        Ok(Box::new(V::deserialize(&self.0, bytes, session)?))
     }
 
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync> {
@@ -681,9 +694,12 @@ impl ExprVTable {
     }
 
     /// Deserialize an options of this expression vtable from metadata.
-    pub fn deserialize(&self, metadata: &[u8]) -> VortexResult<ScalarFn> {
+    pub fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFn> {
         Ok(unsafe {
-            ScalarFn::new_unchecked(self.clone(), self.as_dyn().options_deserialize(metadata)?)
+            ScalarFn::new_unchecked(
+                self.clone(),
+                self.as_dyn().options_deserialize(metadata, session)?,
+            )
         })
     }
 }
@@ -715,10 +731,10 @@ impl Debug for ExprVTable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::fixture;
     use rstest::rstest;
 
     use super::*;
+    use crate::LEGACY_SESSION;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::checked_add;
@@ -742,15 +758,6 @@ mod tests {
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
     use crate::expr::proto::ExprSerializeProtoExt;
-    use crate::expr::proto::deserialize_expr_proto;
-    use crate::expr::session::ExprRegistry;
-    use crate::expr::session::ExprSession;
-
-    #[fixture]
-    #[once]
-    fn registry() -> ExprRegistry {
-        ExprSession::default().registry().clone()
-    }
 
     #[rstest]
     // Root and selection expressions
@@ -803,12 +810,9 @@ mod tests {
     #[case(and(gt(col("a"), lit(0)), lt(col("a"), lit(100))))]
     #[case(or(is_null(col("a")), eq(col("a"), lit(0))))]
     #[case(not(and(eq(col("status"), lit("active")), gt(col("age"), lit(18)))))]
-    fn text_expr_serde_round_trip(
-        registry: &ExprRegistry,
-        #[case] expr: Expression,
-    ) -> VortexResult<()> {
+    fn text_expr_serde_round_trip(#[case] expr: Expression) -> VortexResult<()> {
         let serialized_pb = expr.serialize_proto()?;
-        let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
+        let deserialized_expr = Expression::from_proto(&serialized_pb, &LEGACY_SESSION)?;
 
         assert_eq!(&expr, &deserialized_expr);
 

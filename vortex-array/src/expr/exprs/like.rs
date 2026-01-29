@@ -10,6 +10,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::StringLike;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::compute::LikeOptions;
@@ -51,8 +52,12 @@ impl VTable for Like {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let opts = pb::LikeOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let opts = pb::LikeOpts::decode(_metadata)?;
         Ok(LikeOptions {
             negated: opts.negated,
             case_insensitive: opts.case_insensitive,

@@ -24,10 +24,9 @@ use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_err;
-use vortex::expr::proto::deserialize_expr_proto;
+use vortex::expr::Expression;
 use vortex::expr::root;
 use vortex::expr::select;
-use vortex::expr::session::ExprSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::proto::expr as pb;
@@ -304,7 +303,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeFileMethods_scan(
         if !predicate.is_null() {
             let proto_vec = env.convert_byte_array(predicate)?;
             let expr_proto = pb::Expr::decode(proto_vec.as_slice()).map_err(VortexError::from)?;
-            let expr = deserialize_expr_proto(&expr_proto, SESSION.expressions().registry())?;
+            let expr = Expression::from_proto(&expr_proto, &SESSION)?;
             scan_builder = scan_builder.with_filter(expr);
         }
 

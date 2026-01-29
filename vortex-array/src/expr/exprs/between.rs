@@ -11,6 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -59,8 +60,12 @@ impl VTable for Between {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let opts = pb::BetweenOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let opts = pb::BetweenOpts::decode(_metadata)?;
         Ok(BetweenOptions {
             lower_strict: if opts.lower_strict {
                 crate::compute::StrictComparison::Strict

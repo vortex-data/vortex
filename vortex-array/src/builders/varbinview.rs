@@ -246,7 +246,7 @@ impl ArrayBuilder for VarBinViewBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "VarBinViewBuilder expected scalar with dtype {:?}, got {:?}",
+            "VarBinViewBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

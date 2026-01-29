@@ -223,7 +223,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "FixedSizeListBuilder expected scalar with dtype {:?}, got {:?}",
+            "FixedSizeListBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
