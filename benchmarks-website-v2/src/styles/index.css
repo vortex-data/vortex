@@ -981,9 +981,9 @@ code, pre {
   background: var(--bg-color);
   padding: 32px;
   border-radius: var(--radius-lg);
-  width: 90%;
-  max-width: 1200px;
-  height: 80vh;
+  width: 95%;
+  max-width: 1800px;
+  height: 90vh;
   position: relative;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
 }

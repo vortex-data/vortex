@@ -27,6 +27,10 @@ export default function App() {
       try {
         const data = await fetchMetadata();
         setMetadata(data);
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('expanded') === 'true' && data?.groups) {
+          setExpandedGroups(new Set(Object.keys(data.groups)));
+        }
       } catch (err) {
         setError(err.message);
       } finally {
@@ -124,12 +128,18 @@ export default function App() {
   const expandAll = useCallback(() => {
     if (metadata?.groups) {
       setExpandedGroups(new Set(Object.keys(metadata.groups)));
+      const url = new URL(window.location);
+      url.searchParams.set('expanded', 'true');
+      window.history.replaceState(null, '', url);
     }
   }, [metadata]);
 
   // Collapse all groups
   const collapseAll = useCallback(() => {
     setExpandedGroups(new Set());
+    const url = new URL(window.location);
+    url.searchParams.delete('expanded');
+    window.history.replaceState(null, '', url);
   }, []);
 
   // Scroll to group
