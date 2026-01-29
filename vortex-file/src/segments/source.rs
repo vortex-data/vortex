@@ -202,8 +202,6 @@ impl Future for ReadFuture {
 
 impl Drop for ReadFuture {
     fn drop(&mut self) {
-        // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
-        // If the I/O stream has already been dropped, this will fail silently.
         drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
     }
 }
