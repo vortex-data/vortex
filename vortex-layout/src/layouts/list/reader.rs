@@ -311,10 +311,32 @@ impl LayoutReader for ListReader {
                     }
                 }
             }
-            // TODO(a10y): Variable-size lists can only be split "naturally" based on elements,
-            // but mapping element splits back to row ranges requires offsets (or precomputed
-            // row->element boundary metadata) that we don't have at split-planning time.
-            DType::List(..) => {}
+            DType::List(..) => {
+                let offsets_end = row_range
+                    .end
+                    .checked_add(1)
+                    .ok_or_else(|| vortex_err!("List offsets end overflow"))?;
+                let offsets_range = row_range.start..offsets_end;
+
+                let mut offsets_splits = BTreeSet::new();
+                self.offsets()?
+                    .register_splits(field_mask, &offsets_range, &mut offsets_splits)?;
+
+                // Convert splits in the offsets array back to row splits.
+                //
+                // The offsets array has length = rows + 1, so a split at offset index `i`
+                // corresponds to a split in rows at `i - 1`.
+                for offsets_split in offsets_splits {
+                    if offsets_split <= row_range.start {
+                        continue;
+                    }
+
+                    let row_split = offsets_split - 1;
+                    if row_split > row_range.start && row_split < row_range.end {
+                        splits.insert(row_split);
+                    }
+                }
+            }
             _ => {}
         }
 
@@ -416,6 +438,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray;
     use vortex_array::arrays::FixedSizeListArray;
+    use vortex_array::arrays::ListArray;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType;
@@ -496,6 +519,79 @@ mod tests {
         assert_eq!(layout.dtype(), &list_dtype);
 
         // The elements child is chunked with a split at element index 4, which should map to row 2.
+        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+        let mut splits = BTreeSet::new();
+        reader
+            .register_splits(&[], &(0..layout.row_count()), &mut splits)
+            .unwrap();
+
+        assert!(splits.contains(&2), "splits = {splits:?}");
+        assert!(splits.contains(&layout.row_count()));
+    }
+
+    #[test]
+    fn register_splits_list_maps_offset_splits_to_rows() {
+        let ctx = ArrayContext::empty();
+
+        let segments = Arc::new(TestSegments::default());
+
+        let chunk1_elements = buffer![1i32, 2, 3, 4].into_array();
+        let chunk1_offsets = buffer![0u64, 2, 4].into_array();
+        let chunk1 = ListArray::try_new(
+            chunk1_elements,
+            chunk1_offsets,
+            vortex_array::validity::Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let chunk2_elements = buffer![5i32, 6, 7, 8].into_array();
+        let chunk2_offsets = buffer![0u64, 2, 4].into_array();
+        let chunk2 = ListArray::try_new(
+            chunk2_elements,
+            chunk2_offsets,
+            vortex_array::validity::Validity::NonNullable,
+        )
+        .unwrap()
+        .into_array();
+
+        let list_dtype = chunk1.dtype().clone();
+
+        let offsets_strategy = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+        let elements_strategy = Arc::new(ChunkedLayoutStrategy::new(FlatLayoutStrategy::default()));
+        let strategy = ListStrategy::new(
+            Arc::new(FlatLayoutStrategy::default()),
+            offsets_strategy,
+            elements_strategy,
+        );
+
+        let (mut sequence_id, eof) = SequenceId::root().split();
+        let layout = block_on(|handle| {
+            strategy.write_stream(
+                ctx,
+                segments.clone(),
+                SequentialStreamAdapter::new(
+                    vortex_dtype::DType::List(
+                        Arc::new(vortex_dtype::DType::Primitive(PType::I32, NonNullable)),
+                        NonNullable,
+                    ),
+                    stream::iter([
+                        Ok((sequence_id.advance(), chunk1)),
+                        Ok((sequence_id.advance(), chunk2)),
+                    ]),
+                )
+                .sendable(),
+                eof,
+                handle,
+            )
+        })
+        .unwrap();
+
+        // Sanity check we produced the expected list shape.
+        assert_eq!(layout.row_count(), 4);
+        assert_eq!(layout.dtype(), &list_dtype);
+
+        // The offsets child is chunked with a split at offsets index 3, which maps to row 2.
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let mut splits = BTreeSet::new();
         reader
