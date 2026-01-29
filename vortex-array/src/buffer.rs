@@ -14,7 +14,6 @@ use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_utils::dyn_traits::DynEq;
 use vortex_utils::dyn_traits::DynHash;
 
@@ -85,6 +84,13 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+
+    /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
 }
 
 impl Hash for dyn DeviceBuffer {
@@ -149,22 +155,11 @@ impl BufferHandle {
 
     /// Ensure the buffer satisfies the requested alignment.
     ///
-    /// Host buffers will be copied if necessary. Device buffers will error if the
-    /// alignment requirement is not met.
-    pub fn ensure_aligned(&self, alignment: Alignment) -> VortexResult<Self> {
-        match &self.0 {
-            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.clone().aligned(alignment))),
-            Inner::Device(device) => {
-                if device.alignment().is_aligned_to(alignment) {
-                    Ok(self.clone())
-                } else {
-                    vortex_bail!(
-                        "Device buffer alignment {} does not satisfy required alignment {}",
-                        device.alignment(),
-                        alignment
-                    );
-                }
-            }
+    /// Both host and device buffers will be copied if necessary to satisfy the alignment.
+    pub fn ensure_aligned(self, alignment: Alignment) -> VortexResult<Self> {
+        match self.0 {
+            Inner::Host(buffer) => Ok(BufferHandle::new_host(buffer.aligned(alignment))),
+            Inner::Device(device) => Ok(BufferHandle::new_device(device.aligned(alignment)?)),
         }
     }
 

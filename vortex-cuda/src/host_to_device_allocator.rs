@@ -49,7 +49,6 @@ impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
-        println!("read at cuda");
         let read = self.read.clone();
         let stream = self.stream.clone();
         async move {

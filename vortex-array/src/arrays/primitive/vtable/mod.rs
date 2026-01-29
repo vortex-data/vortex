@@ -103,7 +103,8 @@ impl VTable for PrimitiveVTable {
 
         vortex_ensure!(
             buffer.is_aligned_to(Alignment::new(ptype.byte_width())),
-            "PrimitiveArray::build: Buffer must be aligned to {}",
+            "PrimitiveArray::build: Buffer (align={}) must be aligned to {}",
+            buffer.alignment(),
             ptype.byte_width()
         );
 

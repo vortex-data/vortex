@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::min;
 use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::stream::await_stream_callback;
 
@@ -28,6 +30,8 @@ pub struct CudaDeviceBuffer<T> {
     offset: usize,
     len: usize,
     device_ptr: u64,
+    // This is the min required alignment of the buffer.
+    alignment: Alignment,
 }
 
 impl<T: DeviceRepr> CudaDeviceBuffer<T> {
@@ -41,6 +45,7 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
             offset: 0,
             len,
             device_ptr,
+            alignment: Alignment::of::<T>(),
         }
     }
 
@@ -111,7 +116,7 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     }
 
     fn alignment(&self) -> Alignment {
-        Alignment::of::<T>()
+        self.alignment
     }
 
     /// Synchronous copy of CUDA device to host memory.
@@ -192,10 +197,10 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         let new_len = range.end - range.start;
         let byte_offset = new_offset * size_of::<T>();
 
-        let slice_align = Alignment::from_exponent(
-            u8::try_from((self.device_ptr + byte_offset as u64).trailing_zeros())
-                .vortex_expect("impossible"),
-        );
+        let trailing = (self.device_ptr + byte_offset as u64).trailing_zeros();
+        let exponent =
+            u8::try_from(min(15, trailing)).vortex_expect("min(15, x) always fits in u8");
+        let slice_align = Alignment::from_exponent(exponent);
         let alignment = Alignment::of::<T>();
 
         assert!(
@@ -217,10 +222,28 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
+            alignment: self.alignment,
         })
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
         self
+    }
+
+    fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
+        let effective_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+        if effective_ptr % (*alignment as u64) == 0 {
+            Ok(Arc::new(CudaDeviceBuffer {
+                inner: self.inner.clone(),
+                offset: self.offset,
+                len: self.len,
+                device_ptr: self.device_ptr,
+                alignment,
+            }))
+        } else if alignment > Alignment::new(256) {
+            vortex_panic!("we do not support alignment greater than 256")
+        } else {
+            vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
+        }
     }
 }
