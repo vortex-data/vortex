@@ -1,12 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(
-    clippy::unwrap_in_result,
-    clippy::unwrap_used,
-    clippy::tests_outside_test_module
-)]
-
 //! Test that checks we can evolve schemas in a compatible way across files.
 
 use std::sync::Arc;
