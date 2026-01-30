@@ -53,27 +53,10 @@ fn create_random_indices(num_indices: usize, max_index: usize) -> Buffer<u64> {
         .collect()
 }
 
-/// Creates sequential indices for taking from the array.
-fn create_sequential_indices(num_indices: usize) -> Buffer<u64> {
-    (0..num_indices as u64).collect()
-}
-
 #[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
 fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
     let fsl = create_fsl(LIST_SIZE, NUM_LISTS);
     let indices = create_random_indices(num_indices, NUM_LISTS);
-    let indices_array = indices.into_array();
-
-    bencher
-        .with_inputs(|| (&fsl, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
-}
-
-#[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
-fn take_fsl_sequential<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize) {
-    let fsl = create_fsl(LIST_SIZE, NUM_LISTS);
-    let actual_indices = num_indices.min(NUM_LISTS);
-    let indices = create_sequential_indices(actual_indices);
     let indices_array = indices.into_array();
 
     bencher
