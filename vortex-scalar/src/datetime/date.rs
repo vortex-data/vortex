@@ -22,10 +22,6 @@ use crate::extension::ExtScalarVTable;
 impl ExtScalarVTable for Date {
     type Value = jiff::civil::Date;
 
-    fn zero(&self, _metadata: &Self::Metadata) -> Self::Value {
-        jiff::civil::Date::new(1970, 1, 1).vortex_expect("failed to create epoch date")
-    }
-
     fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
         let v = storage
             .as_pvalue()?

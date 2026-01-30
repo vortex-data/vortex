@@ -52,10 +52,6 @@ impl ExtDTypeVTable for Even {
 impl ExtScalarVTable for Even {
     type Value = i64;
 
-    fn zero(&self, _metadata: &Self::Metadata) -> Self::Value {
-        0
-    }
-
     fn unpack(&self, _dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
         let v = storage
             .as_pvalue()?

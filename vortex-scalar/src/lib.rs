@@ -14,6 +14,7 @@ pub mod arbitrary;
 mod arrow;
 mod binary;
 mod bool;
+pub mod datetime;
 mod decimal;
 mod display;
 pub mod extension;
@@ -24,6 +25,7 @@ mod proto;
 mod pvalue;
 mod scalar;
 mod scalar_value;
+pub mod session;
 mod struct_;
 mod utf8;
 pub mod v2;
@@ -40,8 +42,6 @@ pub use scalar::*;
 pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-
-mod datetime;
 
 #[cfg(test)]
 mod tests;

@@ -22,10 +22,6 @@ use crate::extension::ExtScalarVTable;
 impl ExtScalarVTable for Time {
     type Value = jiff::civil::Time;
 
-    fn zero(&self, _metadata: &Self::Metadata) -> Self::Value {
-        jiff::civil::Time::MIN
-    }
-
     fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
         let v = storage
             .as_pvalue()?

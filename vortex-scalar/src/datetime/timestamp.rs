@@ -37,17 +37,6 @@ impl Display for TimestampValue {
 impl ExtScalarVTable for Timestamp {
     type Value = TimestampValue;
 
-    fn zero(&self, metadata: &Self::Metadata) -> Self::Value {
-        match &metadata.tz {
-            None => TimestampValue::Unzoned(jiff::Timestamp::UNIX_EPOCH),
-            Some(tz) => TimestampValue::Zoned(
-                jiff::Timestamp::UNIX_EPOCH
-                    .in_tz(tz.as_ref())
-                    .vortex_expect("failed to create zoned epoch"),
-            ),
-        }
-    }
-
     fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
         let v = storage
             .as_pvalue()?

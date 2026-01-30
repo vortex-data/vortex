@@ -483,8 +483,9 @@ impl Scalar {
     ///
     /// Panics if the scalar is not an extension type.
     pub fn as_extension_ref(&self) -> ExtScalarRef {
-        ExtScalarRef::ExtScalarRef::try_from(self)
+        ExtScalarRef::try_from_scalar(self.dtype().as_extension().clone(), &self.value)
             .vortex_expect("Failed to convert scalar to extension")
+        ExtScalarRef::try_from(self).vortex_expect("Failed to convert scalar to extension")
     }
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.
@@ -537,7 +538,7 @@ where
 
 impl<T> TryFrom<Scalar> for Vec<T>
 where
-    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
+    T: for<'b> TryFrom<&'b Scalar, Error=VortexError>,
 {
     type Error = VortexError;
 
@@ -548,7 +549,7 @@ where
 
 impl<'a, T> TryFrom<&'a Scalar> for Vec<T>
 where
-    T: for<'b> TryFrom<&'b Scalar, Error = VortexError>,
+    T: for<'b> TryFrom<&'b Scalar, Error=VortexError>,
 {
     type Error = VortexError;
 

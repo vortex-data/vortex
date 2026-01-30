@@ -6,10 +6,15 @@ use std::fmt::Display;
 use std::hash::Hash;
 
 use vortex_dtype::ExtDType;
+use vortex_dtype::ExtDTypeRef;
+use vortex_dtype::ExtID;
 use vortex_dtype::Nullability;
 use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::ExtScalar;
+use crate::ExtScalarRef;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -32,4 +37,32 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
         value: Option<&Self::Value>,
         nullability: Nullability,
     ) -> VortexResult<Scalar>;
+}
+
+/// A dynamic vtable for extension scalars, used for type-erased deserialization.
+pub trait DynExtScalarVTable: 'static + Send + Sync + Debug {
+    /// Returns the ID for this extension type.
+    fn id(&self) -> ExtID;
+
+    /// Unpack an extension scalar from a scalar value.
+    fn unpack(&self, dtype: &ExtDTypeRef, storage: &ScalarValue) -> VortexResult<ExtScalarRef>;
+}
+
+impl<V: ExtScalarVTable> DynExtScalarVTable for V {
+    fn id(&self) -> ExtID {
+        ExtDTypeVTable::id(self)
+    }
+
+    fn unpack(&self, dtype: &ExtDTypeRef, storage: &ScalarValue) -> VortexResult<ExtScalarRef> {
+        let dtype = dtype
+            .clone()
+            .try_downcast::<V>()
+            .map_err(|_| vortex_err!("DTypeRef is not of expected extension type {}", self.id()))?;
+        let value = if storage.is_null() {
+            None
+        } else {
+            Some(ExtScalarVTable::unpack(self, &dtype, storage)?)
+        };
+        Ok(ExtScalar::try_with_vtable(self.clone(), dtype.clone(), value)?.erased())
+    }
 }

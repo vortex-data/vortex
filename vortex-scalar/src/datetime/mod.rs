@@ -8,12 +8,13 @@ use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 
 use crate::ExtScalarRef;
-use crate::datetime::timestamp::TimestampValue;
 use crate::extension::Matcher;
 
-pub mod date;
-pub mod time;
-pub mod timestamp;
+mod date;
+mod time;
+mod timestamp;
+
+pub use timestamp::*;
 
 pub enum TemporalValue<'a> {
     Time(&'a jiff::civil::Time),

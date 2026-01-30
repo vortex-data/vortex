@@ -24,10 +24,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 pub use vtable::*;
 
 use crate::Scalar;
 use crate::ScalarValue;
+use crate::session::ScalarSessionExt;
 
 /// A typed extension scalar.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -40,11 +42,15 @@ impl<V: ExtScalarVTable + Default> ExtScalar<V> {
         value: Option<V::Value>,
         nullability: Nullability,
     ) -> VortexResult<Self> {
-        Self::try_with_vtable(V::default(), metadata, value, nullability)
+        let vtable = V::default();
+        let storage_scalar = vtable.pack(&metadata, value.as_ref(), nullability)?;
+        let ext_dtype = ExtDType::try_new(metadata, storage_scalar.dtype().clone())?;
+        Self::try_with_vtable(V::default(), ext_dtype, value)
     }
 
     /// Creates a new extension scalar from a type-erased dtype and scalar value.
     pub fn try_from_scalar(dtype: ExtDTypeRef, value: &ScalarValue) -> VortexResult<Self> {
+        let vtable = V::default();
         let dtype = dtype
             .try_downcast::<V>()
             .map_err(|_| vortex_err!("Failed to downcast ExtDTypeRef to {}", type_name::<V>()))?;
@@ -55,7 +61,11 @@ impl<V: ExtScalarVTable + Default> ExtScalar<V> {
             Some(dtype.vtable().unpack(&dtype, value)?)
         };
 
-        Ok(Self(Arc::new(ExtScalarAdapter::<V> { dtype, value })))
+        Ok(Self(Arc::new(ExtScalarAdapter::<V> {
+            vtable,
+            dtype,
+            value,
+        })))
     }
 }
 
@@ -63,14 +73,20 @@ impl<V: ExtScalarVTable> ExtScalar<V> {
     /// Creates a new extension scalar from a vtable, metadata, and scalar value.
     pub fn try_with_vtable(
         vtable: V,
-        metadata: V::Metadata,
+        dtype: ExtDType<V>,
         value: Option<V::Value>,
-        nullability: Nullability,
     ) -> VortexResult<Self> {
-        let storage_scalar = vtable.pack(&metadata, value.as_ref(), nullability)?;
-        let dtype =
-            ExtDType::<V>::try_with_vtable(vtable, metadata, storage_scalar.dtype().clone())?;
-        Ok(Self(Arc::new(ExtScalarAdapter::<V> { dtype, value })))
+        // Ensure the value is permitted by the dtype's metadata and nullability
+        let _storage_scalar = vtable.pack(
+            dtype.metadata(),
+            value.as_ref(),
+            dtype.storage_dtype().nullability(),
+        )?;
+        Ok(Self(Arc::new(ExtScalarAdapter::<V> {
+            vtable,
+            dtype,
+            value,
+        })))
     }
 
     /// Returns the identifier of the extension scalar.
@@ -128,18 +144,22 @@ impl<V: ExtScalarVTable> ExtScalar<V> {
 pub struct ExtScalarRef(Arc<dyn ExtScalarImpl>);
 
 impl ExtScalarRef {
-    pub fn try_from_scalar(dtype: ExtDTypeRef, value: &ScalarValue) -> VortexResult<Self> {
-        let dtype = dtype
-            .try_downcast::<V>()
-            .map_err(|_| vortex_err!("Failed to downcast ExtDTypeRef to {}", type_name::<V>()))?;
-
-        let value = if value.is_null() {
-            None
-        } else {
-            Some(dtype.vtable().unpack(&dtype, value)?)
-        };
-
-        Ok(Self(Arc::new(ExtScalarAdapter::<V> { dtype, value })))
+    pub fn try_from_scalar(
+        dtype: ExtDTypeRef,
+        value: &ScalarValue,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let vtable = session
+            .scalars()
+            .registry()
+            .find(&dtype.id())
+            .ok_or_else(|| {
+                vortex_err!(
+                    "No registered vtable for extension scalar with id {}",
+                    dtype.id()
+                )
+            })?;
+        vtable.unpack(&dtype, value)
     }
 }
 
@@ -283,11 +303,11 @@ trait ExtScalarImpl: 'static + Send + Sync {
     fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
     fn value_eq(&self, other: Option<&dyn Any>) -> bool;
     fn value_hash(&self, state: &mut dyn Hasher);
-    fn value_is_zero(&self) -> bool;
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ExtScalarAdapter<V: ExtScalarVTable> {
+    vtable: V,
     dtype: ExtDType<V>,
     value: Option<V::Value>,
 }
