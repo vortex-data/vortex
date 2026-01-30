@@ -373,7 +373,6 @@ pub fn benchmark_dict_cuda(c: &mut Criterion) {
 
 criterion::criterion_group!(benches, benchmark_dict_cuda);
 
-#[cfg(not(codspeed))]
 #[cuda_available]
 criterion::criterion_main!(benches);
 
