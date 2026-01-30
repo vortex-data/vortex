@@ -4,7 +4,7 @@ on:
   push:
     branches: [develop]
     paths:
-      - 'benchmarks-website-v2/**'
+      - "benchmarks-website-v2/**"
 
 jobs:
   publish:
