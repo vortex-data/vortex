@@ -272,6 +272,7 @@ mod tests {
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
+    use vortex_scalar::Scalar;
 
     use crate::Array;
     use crate::IntoArray;

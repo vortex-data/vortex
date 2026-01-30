@@ -12,6 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -61,7 +62,11 @@ impl VTable for GetItemList {
         vortex_bail!("UNSTABLE expression {} must not be serialized", self.id())
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         _ = metadata;
         vortex_bail!("UNSTABLE expression {} must not be deserialized", self.id())
     }
