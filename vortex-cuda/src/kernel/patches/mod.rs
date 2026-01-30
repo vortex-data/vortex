@@ -5,12 +5,14 @@ use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::patches::Patches;
+use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
+use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::executor::CudaArrayExt;
@@ -31,6 +33,15 @@ pub(crate) async fn execute_patches<
 
     let indices = indices.execute_cuda(ctx).await?.into_primitive();
     let values = values.execute_cuda(ctx).await?.into_primitive();
+
+    let supported = matches!(
+        values.validity(),
+        Validity::NonNullable | Validity::AllValid
+    );
+    vortex_ensure!(
+        supported,
+        "Applying patches with null values not currently supported on the GPU"
+    );
 
     vortex_ensure!(
         indices.ptype() == IndicesT::PTYPE,
@@ -56,7 +67,6 @@ pub(crate) async fn execute_patches<
 
     let PrimitiveArrayParts {
         buffer: values_buffer,
-        validity: values_validity,
         ..
     } = values.into_parts();
 
@@ -72,21 +82,9 @@ pub(crate) async fn execute_patches<
         ctx.move_to_device::<ValuesT>(values_buffer)?.await?
     };
 
-    let d_patch_indices_buf = d_patch_indices
-        .as_device()
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("d_patch_indices must be CudaDeviceBuffer"))?;
-
-    let d_patch_values_buf = d_patch_values
-        .as_device()
-        .as_any()
-        .downcast_ref::<CudaDeviceBuffer>()
-        .ok_or_else(|| vortex_err!("d_patch_values must be CudaDeviceBuffer"))?;
-
     let d_target_view = target.as_view::<ValuesT>();
-    let d_patch_indices_view = d_patch_indices_buf.as_view::<IndicesT>();
-    let d_patch_values_view = d_patch_values_buf.as_view::<ValuesT>();
+    let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
+    let d_patch_values_view = d_patch_values.cuda_view::<ValuesT>()?;
 
     // kernel arg order for patches is values, patchIndices, patchValues, patchesLen
     let _events = launch_cuda_kernel!(
@@ -108,6 +106,112 @@ pub(crate) async fn execute_patches<
 
 #[cuda_tests]
 mod tests {
-    #[test]
-    fn test_impl() {}
+    use std::sync::Arc;
+
+    use cudarc::driver::DeviceRepr;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveArrayParts;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::buffer::BufferHandle;
+    use vortex_array::compute::cast;
+    use vortex_array::patches::Patches;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::NativePType;
+    use vortex_dtype::Nullability;
+    use vortex_session::VortexSession;
+
+    use crate::CanonicalCudaExt;
+    use crate::CudaDeviceBuffer;
+    use crate::CudaSession;
+    use crate::kernel::patches::execute_patches;
+
+    #[tokio::test]
+    async fn test_patches() {
+        test_case::<u8>().await;
+        test_case::<u16>().await;
+        test_case::<u32>().await;
+        test_case::<u64>().await;
+
+        test_case::<i8>().await;
+        test_case::<i16>().await;
+        test_case::<i32>().await;
+        test_case::<i64>().await;
+
+        test_case::<f32>().await;
+        test_case::<f64>().await;
+    }
+
+    async fn test_case<Values: NativePType + DeviceRepr>() {
+        full_test_case::<Values, u8>().await;
+        full_test_case::<Values, u16>().await;
+        full_test_case::<Values, u32>().await;
+        full_test_case::<Values, u64>().await;
+    }
+
+    async fn full_test_case<Values: NativePType + DeviceRepr, Indices: NativePType + DeviceRepr>() {
+        let mut ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+
+        let values = PrimitiveArray::from_iter(0..128);
+        let values = force_cast::<Values>(values);
+
+        let patch_idx = PrimitiveArray::new(buffer![0, 8, 16, 32], Validity::NonNullable);
+        let patch_idx = force_cast::<Indices>(patch_idx);
+
+        let patch_val = PrimitiveArray::new(buffer![99, 99, 99, 99], Validity::NonNullable);
+        let patch_val = force_cast::<Values>(patch_val);
+
+        // Copy all to GPU
+        let patches =
+            Patches::new(128, 0, patch_idx.into_array(), patch_val.into_array(), None).unwrap();
+
+        let cpu_result = values.clone().patch(&patches).unwrap();
+
+        let PrimitiveArrayParts {
+            buffer: cuda_buffer,
+            ..
+        } = values.into_parts();
+
+        let handle = ctx
+            .move_to_device::<Values>(cuda_buffer)
+            .unwrap()
+            .await
+            .unwrap();
+        let device_buf = handle
+            .as_device()
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .unwrap()
+            .clone();
+
+        let patched_buf = execute_patches::<Values, Indices>(patches, device_buf, &mut ctx)
+            .await
+            .unwrap();
+
+        let gpu_result = PrimitiveArray::from_buffer_handle(
+            BufferHandle::new_device(Arc::new(patched_buf)),
+            Values::PTYPE,
+            Validity::NonNullable,
+        )
+        .to_canonical()
+        .unwrap()
+        .into_host()
+        .await
+        .unwrap()
+        .into_primitive();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+    }
+
+    fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
+        cast(
+            array.as_ref(),
+            &DType::Primitive(T::PTYPE, Nullability::NonNullable),
+        )
+        .unwrap()
+        .to_primitive()
+    }
 }

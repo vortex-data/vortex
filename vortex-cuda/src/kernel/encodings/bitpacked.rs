@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
@@ -16,6 +17,8 @@ use vortex_array::buffer::DeviceBufferExt;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
+use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
@@ -29,6 +32,7 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::launch_cuda_kernel_with_config;
+use crate::kernel::patches::execute_patches;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
@@ -74,7 +78,6 @@ where
     } = array.into_parts();
 
     vortex_ensure!(len > 0, "Non empty array");
-    vortex_ensure!(patches.is_none(), "Patches not supported");
     let offset = offset as usize;
 
     let device_input: BufferHandle = if packed.is_on_device() {
@@ -97,27 +100,46 @@ where
     let thread_count = if bits == 64 { 16 } else { 32 };
     let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
     let cuda_function = ctx.load_function(&format!("bit_unpack_{}", bits), &suffixes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: input, output, f, e, length
-    launch_builder.arg(&input_view);
-    launch_builder.arg(&output_view);
+    {
+        let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    let num_blocks = u32::try_from(len.div_ceil(1024))?;
+        // Build launch args: input, output, f, e, length
+        launch_builder.arg(&input_view);
+        launch_builder.arg(&output_view);
 
-    let config = LaunchConfig {
-        grid_dim: (num_blocks, 1, 1),
-        block_dim: (thread_count, 1, 1),
-        shared_mem_bytes: 0,
+        let num_blocks = u32::try_from(len.div_ceil(1024))?;
+
+        let config = LaunchConfig {
+            grid_dim: (num_blocks, 1, 1),
+            block_dim: (thread_count, 1, 1),
+            shared_mem_bytes: 0,
+        };
+
+        // Launch kernel
+        let _cuda_events =
+            launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
+    }
+
+    let output_handle = match patches {
+        None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),
+        Some(p) => {
+            let output_buf = output_buf.slice_typed::<A>(offset..(offset + len));
+            let buf = output_buf
+                .as_any()
+                .downcast_ref::<CudaDeviceBuffer>()
+                .vortex_expect("we created this as CudaDeviceBuffer")
+                .clone();
+
+            let patched_buf = match_each_unsigned_integer_ptype!(p.indices_ptype()?, |I| {
+                execute_patches::<A, I>(p, buf, ctx).await?
+            });
+
+            BufferHandle::new_device(Arc::new(patched_buf))
+        }
     };
 
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
-
     // Build result with newly allocated buffer
-    let output_handle =
-        BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,
@@ -140,6 +162,34 @@ mod tests {
     use super::*;
     use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
+
+    #[test]
+    fn test_patches() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        let array = PrimitiveArray::new((0u16..=513).collect::<Buffer<_>>(), NonNullable);
+
+        // Last two items should be patched
+        let bp_with_patches = BitPackedArray::encode(array.as_ref(), 9)?;
+        assert!(bp_with_patches.patches().is_some());
+
+        let cpu_result = bp_with_patches.to_canonical()?.into_array();
+
+        let gpu_result = block_on(async {
+            BitPackedExecutor
+                .execute(bp_with_patches.to_array(), &mut cuda_ctx)
+                .await
+                .vortex_expect("GPU decompression failed")
+                .into_host()
+                .await
+                .map(|a| a.into_array())
+        })?;
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+
+        Ok(())
+    }
 
     #[rstest]
     #[case::bw_1(1)]
