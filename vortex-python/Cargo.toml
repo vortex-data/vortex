@@ -46,6 +46,7 @@ parking_lot = { workspace = true }
 pyo3 = { workspace = true, features = ["abi3", "abi3-py311"] }
 pyo3-bytes = { workspace = true }
 pyo3-log = { workspace = true }
+pyo3-object_store = { version = "0.7" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 # This feature makes the underlying tracing logs to be emitted as `log` events
 tracing = { workspace = true, features = ["std", "log"] }

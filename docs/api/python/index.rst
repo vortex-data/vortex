@@ -10,5 +10,6 @@ Python API
    expr
    compress
    io
+   store
    dataset
    type_aliases

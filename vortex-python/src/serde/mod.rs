@@ -11,6 +11,7 @@ use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::session::ArraySessionExt;
+use vortex::dtype::DType;
 use vortex::ipc::messages::DecoderMessage;
 use vortex::ipc::messages::MessageDecoder;
 use vortex::ipc::messages::PollRead;
@@ -66,6 +67,7 @@ fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyVortexResul
             return Err(PyValueError::new_err("Incomplete DType message").into());
         }
     };
+    let dtype = DType::from_flatbuffer(dtype, &SESSION)?;
 
     let mut array_buf = Bytes::from(array_bytes);
     let array = match decoder.read_next(&mut array_buf)? {
@@ -131,6 +133,7 @@ fn decode_ipc_array_buffers<'py>(
             return Err(PyValueError::new_err("Incomplete DType message").into());
         }
     };
+    let dtype = DType::from_flatbuffer(dtype, &SESSION)?;
 
     // Concatenate array buffers
     let mut array_bytes_vec = Vec::new();

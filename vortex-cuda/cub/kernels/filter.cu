@@ -9,6 +9,12 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
 
+// i256 type
+typedef struct {
+    __int128_t high;
+    __int128_t low;
+} __int256_t;
+
 // Bit extraction functor for TransformInputIterator
 struct BitExtractor {
     const uint8_t* packed;
@@ -60,6 +66,8 @@ DEFINE_TEMP_SIZE(u64, uint64_t)
 DEFINE_TEMP_SIZE(i64, int64_t)
 DEFINE_TEMP_SIZE(f32, float)
 DEFINE_TEMP_SIZE(f64, double)
+DEFINE_TEMP_SIZE(i128, __int128_t)
+DEFINE_TEMP_SIZE(i256, __int256_t)
 
 // CUB DeviceSelect::Flagged - Execute filter with byte mask (one byte per element)
 template<typename T>
@@ -100,6 +108,8 @@ DEFINE_FILTER_BYTEMASK(u64, uint64_t)
 DEFINE_FILTER_BYTEMASK(i64, int64_t)
 DEFINE_FILTER_BYTEMASK(f32, float)
 DEFINE_FILTER_BYTEMASK(f64, double)
+DEFINE_FILTER_BYTEMASK(i128, __int128_t)
+DEFINE_FILTER_BYTEMASK(i256, __int256_t)
 
 // CUB DeviceSelect::Flagged - Execute filter with bit mask (one bit per element)
 //
@@ -161,3 +171,5 @@ DEFINE_FILTER_BITMASK(u64, uint64_t)
 DEFINE_FILTER_BITMASK(i64, int64_t)
 DEFINE_FILTER_BITMASK(f32, float)
 DEFINE_FILTER_BITMASK(f64, double)
+DEFINE_FILTER_BITMASK(i128, __int128_t)
+DEFINE_FILTER_BITMASK(i256, __int256_t)

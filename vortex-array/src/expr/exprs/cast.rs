@@ -9,6 +9,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
+use vortex_session::VortexSession;
 
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
@@ -39,18 +40,24 @@ impl VTable for Cast {
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {
-                target: Some(dtype.into()),
+                target: Some(dtype.try_into()?),
             }
             .encode_to_vec(),
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<DType> {
-        pb::CastOpts::decode(metadata)?
-            .target
-            .as_ref()
-            .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
-            .try_into()
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let proto = pb::CastOpts::decode(_metadata)?.target;
+        DType::from_proto(
+            proto
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?,
+            session,
+        )
     }
 
     fn arity(&self, _options: &DType) -> Arity {

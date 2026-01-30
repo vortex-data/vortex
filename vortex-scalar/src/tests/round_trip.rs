@@ -27,6 +27,7 @@ mod tests {
     use crate::PrimitiveScalar;
     use crate::Scalar;
     use crate::Utf8Scalar;
+    use crate::tests::SESSION;
 
     // Test that primitive scalars round-trip through ScalarValue
     #[test]
@@ -218,7 +219,7 @@ mod tests {
             Nullability::NonNullable,
         );
         let pb_empty = pb::Scalar::from(&empty_list);
-        let round_tripped = Scalar::try_from(&pb_empty).unwrap();
+        let round_tripped = Scalar::from_proto(&pb_empty, &SESSION).unwrap();
         assert_eq!(empty_list, round_tripped);
 
         // Test nested lists
@@ -237,14 +238,14 @@ mod tests {
         let nested_list = Scalar::list(outer_dtype, vec![inner_list1], Nullability::NonNullable);
 
         let pb_nested = pb::Scalar::from(&nested_list);
-        let round_tripped_nested = Scalar::try_from(&pb_nested).unwrap();
+        let round_tripped_nested = Scalar::from_proto(&pb_nested, &SESSION).unwrap();
         assert_eq!(nested_list, round_tripped_nested);
 
         // Test large binary data
         let large_binary = vec![42u8; 10000];
         let binary_scalar = Scalar::binary(large_binary.clone(), Nullability::NonNullable);
         let pb_binary = pb::Scalar::from(&binary_scalar);
-        let round_tripped_binary = Scalar::try_from(&pb_binary).unwrap();
+        let round_tripped_binary = Scalar::from_proto(&pb_binary, &SESSION).unwrap();
         assert_eq!(binary_scalar, round_tripped_binary);
 
         // Verify the data is preserved
@@ -264,8 +265,8 @@ mod tests {
         let pb_nullable = pb::Scalar::from(&nullable_scalar);
         let pb_non_nullable = pb::Scalar::from(&non_nullable_scalar);
 
-        let recovered_nullable = Scalar::try_from(&pb_nullable).unwrap();
-        let recovered_non_nullable = Scalar::try_from(&pb_non_nullable).unwrap();
+        let recovered_nullable = Scalar::from_proto(&pb_nullable, &SESSION).unwrap();
+        let recovered_non_nullable = Scalar::from_proto(&pb_non_nullable, &SESSION).unwrap();
 
         assert_eq!(nullable_scalar.dtype(), recovered_nullable.dtype());
         assert_eq!(non_nullable_scalar.dtype(), recovered_non_nullable.dtype());

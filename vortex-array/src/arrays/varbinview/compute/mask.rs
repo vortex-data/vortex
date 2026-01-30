@@ -17,8 +17,8 @@ impl MaskKernel for VarBinViewVTable {
     fn mask(&self, array: &VarBinViewArray, mask: &Mask) -> VortexResult<ArrayRef> {
         // SAFETY: masking the validity does not affect the invariants
         unsafe {
-            Ok(VarBinViewArray::new_unchecked(
-                array.views().clone(),
+            Ok(VarBinViewArray::new_handle_unchecked(
+                array.views_handle().clone(),
                 array.buffers().clone(),
                 array.dtype().as_nullable(),
                 array.validity().mask(mask),

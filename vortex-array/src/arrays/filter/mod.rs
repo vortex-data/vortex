@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::FilterArray;
+pub use array::FilterArrayParts;
 
 mod execute;
 

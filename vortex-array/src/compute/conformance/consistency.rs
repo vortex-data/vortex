@@ -256,7 +256,7 @@ fn test_mask_identity(array: &dyn Array) {
 
     assert!(
         masked.dtype().is_nullable(),
-        "Mask operation should always produce a nullable array, but dtype is {:?}",
+        "Mask operation should always produce a nullable array, but dtype is {}",
         masked.dtype()
     );
 

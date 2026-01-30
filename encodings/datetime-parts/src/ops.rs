@@ -4,7 +4,7 @@
 use vortex_array::Array;
 use vortex_array::vtable::OperationsVTable;
 use vortex_dtype::DType;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -24,7 +24,7 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
             );
         };
 
-        let Ok(temporal_metadata) = TemporalMetadata::try_from(ext.as_ref()) else {
+        let Some(options) = ext.metadata_opt::<Timestamp>() else {
             vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
         };
 
@@ -57,9 +57,12 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
                 seconds,
                 subseconds,
             },
-            temporal_metadata.time_unit(),
+            options.unit,
         );
 
-        Ok(Scalar::extension(ext, Scalar::from(ts)))
+        Ok(Scalar::extension::<Timestamp>(
+            options.clone(),
+            Scalar::primitive(ts, ext.storage_dtype().nullability()),
+        ))
     }
 }

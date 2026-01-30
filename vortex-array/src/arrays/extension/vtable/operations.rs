@@ -11,7 +11,7 @@ use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ExtensionVTable> for ExtensionVTable {
     fn scalar_at(array: &ExtensionArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::extension(
+        Ok(Scalar::extension_ref(
             array.ext_dtype().clone(),
             array.storage().scalar_at(index)?,
         ))

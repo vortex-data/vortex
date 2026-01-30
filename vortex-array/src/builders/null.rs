@@ -61,7 +61,7 @@ impl ArrayBuilder for NullBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "NullBuilder expected scalar with dtype {:?}, got {:?}",
+            "NullBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

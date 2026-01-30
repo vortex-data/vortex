@@ -6,14 +6,16 @@ use std::sync::Arc;
 use arrow_array::Datum;
 use rstest::rstest;
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::datetime::DATE_ID;
-use vortex_dtype::datetime::TIME_ID;
-use vortex_dtype::datetime::TIMESTAMP_ID;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Date;
+use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
+use vortex_dtype::datetime::TimestampOptions;
+use vortex_dtype::extension::ExtDTypeVTable;
+use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
 use crate::Scalar;
 
@@ -256,20 +258,34 @@ fn test_list_scalar_to_arrow_todo() {
 }
 
 #[test]
-#[should_panic(expected = "Non temporal extension scalar conversion")]
+#[should_panic(expected = "Cannot convert extension scalar")]
 fn test_non_temporal_extension_to_arrow_todo() {
-    use vortex_dtype::ExtDType;
     use vortex_dtype::ExtID;
-    use vortex_dtype::ExtMetadata;
 
-    let ext_dtype = Arc::new(ExtDType::new(
-        ExtID::new("test_ext".into()),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(ExtMetadata::new(vec![].into())),
-    ));
+    #[derive(Debug, Clone, Default)]
+    struct SomeExt;
+    impl ExtDTypeVTable for SomeExt {
+        type Metadata = String;
 
-    let scalar = Scalar::extension(
-        ext_dtype,
+        fn id(&self) -> ExtID {
+            ExtID::new_ref("some_ext")
+        }
+
+        fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
+            vortex_bail!("not implemented")
+        }
+
+        fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
+            vortex_bail!("not implemented")
+        }
+
+        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+            Ok(())
+        }
+    }
+
+    let scalar = Scalar::extension::<SomeExt>(
+        "".into(),
         Scalar::primitive(42i32, Nullability::NonNullable),
     );
 
@@ -286,15 +302,8 @@ fn test_temporal_time_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let metadata = TemporalMetadata::Time(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<Time>(
+        time_unit,
         match ptype {
             PType::I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
@@ -307,24 +316,6 @@ fn test_temporal_time_to_arrow(
 
     let result = Arc::<dyn Datum>::try_from(&scalar);
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_temporal_time_d_unsupported() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Days);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(ext_dtype, Scalar::primitive(1i32, Nullability::NonNullable));
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
 }
 
 #[rstest]
@@ -335,15 +326,8 @@ fn test_temporal_date_to_arrow(
     #[case] ptype: PType,
     #[case] value: i64,
 ) {
-    let metadata = TemporalMetadata::Date(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        DATE_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let scalar = Scalar::extension::<Date>(
+        time_unit,
         match ptype {
             PType::I32 => {
                 let i32_value = i32::try_from(value).expect("test value should fit in i32");
@@ -359,48 +343,38 @@ fn test_temporal_date_to_arrow(
 }
 
 #[rstest]
-#[case(TimeUnit::Nanoseconds, PType::I64)]
-#[case(TimeUnit::Microseconds, PType::I64)]
-#[case(TimeUnit::Seconds, PType::I32)]
-fn test_temporal_date_unsupported(#[case] time_unit: TimeUnit, #[case] ptype: PType) {
-    let metadata = TemporalMetadata::Date(time_unit);
-    let ext_dtype = Arc::new(ExtDType::new(
-        DATE_ID.clone(),
-        Arc::new(DType::Primitive(ptype, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        match ptype {
-            PType::I32 => Scalar::primitive(1234i32, Nullability::NonNullable),
-            PType::I64 => Scalar::primitive(1234567890000i64, Nullability::NonNullable),
-            _ => unreachable!(),
-        },
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
-}
-
-#[rstest]
 #[case(TimeUnit::Nanoseconds, 1234567890000000000i64)]
 #[case(TimeUnit::Microseconds, 1234567890000000i64)]
 #[case(TimeUnit::Milliseconds, 1234567890000i64)]
 #[case(TimeUnit::Seconds, 1234567890i64)]
 fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: i64) {
-    let metadata = TemporalMetadata::Timestamp(time_unit, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
+    let scalar = Scalar::extension::<Timestamp>(
+        TimestampOptions {
+            unit: time_unit,
+            tz: None,
+        },
+        Scalar::primitive(value, Nullability::NonNullable),
+    );
 
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let result = Arc::<dyn Datum>::try_from(&scalar);
+    assert!(result.is_ok());
+}
+
+#[rstest]
+#[case(TimeUnit::Nanoseconds, "UTC", 1234567890000000000i64)]
+#[case(TimeUnit::Microseconds, "EST", 1234567890000000i64)]
+#[case(TimeUnit::Milliseconds, "ABC", 1234567890000i64)]
+#[case(TimeUnit::Seconds, "UTC", 1234567890i64)]
+fn test_temporal_timestamp_tz_to_arrow(
+    #[case] time_unit: TimeUnit,
+    #[case] tz: &str,
+    #[case] value: i64,
+) {
+    let scalar = Scalar::extension::<Timestamp>(
+        TimestampOptions {
+            unit: time_unit,
+            tz: Some(tz.into()),
+        },
         Scalar::primitive(value, Nullability::NonNullable),
     );
 
@@ -409,61 +383,20 @@ fn test_temporal_timestamp_to_arrow(#[case] time_unit: TimeUnit, #[case] value: 
 }
 
 #[test]
-fn test_temporal_timestamp_d_unsupported() {
-    let metadata = TemporalMetadata::Timestamp(TimeUnit::Days, None);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIMESTAMP_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::primitive(19000i64, Nullability::NonNullable),
-    );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Unsupported TimeUnit"));
-    }
-}
-
-#[test]
 fn test_temporal_with_null_value() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Primitive(PType::I64, Nullability::Nullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
-        Scalar::null(DType::Primitive(PType::I64, Nullability::Nullable)),
+    let scalar = Scalar::extension::<Time>(
+        TimeUnit::Milliseconds,
+        Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
     );
 
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_ok());
+    let _result = Arc::<dyn Datum>::try_from(&scalar).unwrap();
 }
 
 #[test]
+#[should_panic(expected = "DType is not a primitive type")]
 fn test_temporal_non_primitive_storage_error() {
-    let metadata = TemporalMetadata::Time(TimeUnit::Nanoseconds);
-    let ext_dtype = Arc::new(ExtDType::new(
-        TIME_ID.clone(),
-        Arc::new(DType::Utf8(Nullability::NonNullable)),
-        Some(metadata.into()),
-    ));
-
-    let scalar = Scalar::extension(
-        ext_dtype,
+    let _scalar = Scalar::extension::<Time>(
+        TimeUnit::Nanoseconds,
         Scalar::utf8("not a timestamp", Nullability::NonNullable),
     );
-
-    let result = Arc::<dyn Datum>::try_from(&scalar);
-    assert!(result.is_err());
-    if let Err(e) = result {
-        assert!(e.to_string().contains("Expected primitive scalar"));
-    }
 }

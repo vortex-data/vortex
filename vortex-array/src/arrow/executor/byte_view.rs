@@ -25,11 +25,11 @@ pub fn canonical_varbinview_to_arrow<T: ByteViewType>(
     array: &VarBinViewArray,
 ) -> VortexResult<ArrowArrayRef> {
     let views =
-        ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
+        ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
     let buffers: Vec<_> = array
         .buffers()
         .iter()
-        .map(|buffer| buffer.clone().into_arrow_buffer())
+        .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();
     let nulls = to_null_buffer(array.validity_mask()?);
 
@@ -44,11 +44,11 @@ pub fn execute_varbinview_to_arrow<T: ByteViewType>(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<ArrowArrayRef> {
     let views =
-        ScalarBuffer::<u128>::from(array.views().clone().into_byte_buffer().into_arrow_buffer());
+        ScalarBuffer::<u128>::from(array.views_handle().as_host().clone().into_arrow_buffer());
     let buffers: Vec<_> = array
         .buffers()
         .iter()
-        .map(|buffer| buffer.clone().into_arrow_buffer())
+        .map(|buffer| buffer.as_host().clone().into_arrow_buffer())
         .collect();
     let nulls = to_arrow_null_buffer(array.validity().clone(), array.len(), ctx)?;
 

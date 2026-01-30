@@ -14,6 +14,7 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::IntoArray as _;
@@ -57,8 +58,12 @@ impl VTable for Merge {
         }))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let instance = match metadata {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let instance = match _metadata {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
             _ => {

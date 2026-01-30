@@ -6,6 +6,7 @@ use arrow_array::ffi_stream::ArrowArrayStreamReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::pyfunction;
+use pyo3_object_store::PyObjectStore;
 use tokio::fs::File;
 use vortex::array::ArrayRef;
 use vortex::array::Canonical;
@@ -21,6 +22,8 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::file::WriteStrategyBuilder;
+use vortex::io::ObjectStoreWriter;
+use vortex::io::VortexWrite;
 
 use crate::PyVortex;
 use crate::SESSION;
@@ -33,6 +36,8 @@ use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::object_store::resolve::ResolvedStore;
+use crate::object_store::resolve::resolve_store;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     let m = PyModule::new(py, "io")?;
@@ -53,6 +58,11 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// ----------
 /// url : str
 ///     The URL to read from.
+/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+///     Pre-configured object store with credentials and settings.
+///     If provided, uses this store's configuration.
+///     If None, checks session registry for matching URL pattern.
+///     If not found, raises VortexError.
 /// projection : list[str | int] | None
 ///     The columns to read identified either by their index or name.
 /// row_filter : Expr | None
@@ -100,24 +110,46 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
 /// Read an array from a local file URL:
 ///
 /// ```python
-/// >>> a = vx.io.read_url("file:/path/to/dataset.vortex")  # doctest: +SKIP
+/// >>> a = vx.io.read_url("file:///path/to/dataset.vortex")  # doctest: +SKIP
+/// ```
+///
+/// Read from S3 with explicit credentials:
+///
+/// ```python
+/// >>> from vortex import store as S
+/// >>> store = S.S3Store(
+/// ...     bucket="my-bucket",
+/// ...     region="us-east-1",
+/// ...     access_key_id="AKIA...",
+/// ...     secret_access_key="..."
+/// ... )
+/// >>> a = vx.io.read_url("s3://my-bucket/data.vortex", store=store)  # doctest: +SKIP
 /// ```
 ///
 #[pyfunction]
-#[pyo3(signature = (url, *, projection = None, row_filter = None, indices = None, row_range = None))]
+#[pyo3(signature = (url, *, store = None, projection = None, row_filter = None, indices = None, row_range = None))]
 pub fn read_url<'py>(
     py: Python<'py>,
     url: &str,
+    store: Option<Bound<'py, PyAny>>,
     projection: Option<Vec<Bound<'py, PyAny>>>,
     row_filter: Option<&Bound<'py, PyExpr>>,
     indices: Option<PyArrayRef>,
     row_range: Option<(u64, u64)>,
 ) -> PyVortexResult<PyArrayRef> {
-    let dataset = py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url)))?;
+    let store_arc = if let Some(store_obj) = store {
+        let py_store: PyObjectStore = store_obj.extract()?;
+        Some(py_store.into_inner())
+    } else {
+        None
+    };
+
+    let dataset =
+        py.detach(|| TOKIO_RUNTIME.block_on(PyVortexDataset::from_url(url, store_arc)))?;
     dataset.to_array(projection, row_filter, indices, row_range)
 }
 
-/// Write a vortex struct array to the local filesystem.
+/// Write an array to a Vortex file.
 ///
 /// Parameters
 /// ----------
@@ -127,6 +159,9 @@ pub fn read_url<'py>(
 ///
 /// path : str
 ///     The file path.
+///
+/// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+///     An optional object store configuration to use for writing the output.
 ///
 /// Examples
 /// --------
@@ -168,15 +203,35 @@ pub fn read_url<'py>(
 ///
 /// :func:`vortex.io.VortexWriteOptions`
 #[pyfunction]
-#[pyo3(signature = (iter, path))]
-pub fn write(py: Python, iter: PyIntoArrayIterator, path: &str) -> PyVortexResult<()> {
+#[pyo3(signature = (iter, path, *, store = None))]
+pub fn write(
+    py: Python,
+    iter: PyIntoArrayIterator,
+    path: &str,
+    store: Option<PyObjectStore>,
+) -> PyVortexResult<()> {
     py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
-            let file = File::create(path).await?;
-            SESSION
-                .write_options()
-                .write(file, iter.into_inner().into_array_stream())
-                .await
+            match resolve_store(path, store.map(|x| x.into_inner()))? {
+                ResolvedStore::ObjectStore(store, path) => {
+                    let mut store = ObjectStoreWriter::new(store, &path).await?;
+                    SESSION
+                        .write_options()
+                        .write(&mut store, iter.into_inner().into_array_stream())
+                        .await?;
+                    store.shutdown().await?;
+                    VortexResult::Ok(())
+                }
+                ResolvedStore::Path(path) => {
+                    let mut w = File::create(path).await?;
+                    SESSION
+                        .write_options()
+                        .write(&mut w, iter.into_inner().into_array_stream())
+                        .await?;
+                    w.shutdown().await?;
+                    VortexResult::Ok(())
+                }
+            }
         })
     })?;
 
@@ -220,7 +275,7 @@ impl PyVortexWriteOptions {
     /// also used by :func:`vortex.io.write`):
     ///
     /// ```python
-    /// >>> vx.io.VortexWriteOptions.default().write_path(sprl, "chonky.vortex")
+    /// >>> vx.io.VortexWriteOptions.default().write(sprl, "chonky.vortex")
     /// >>> import os
     /// >>> os.path.getsize('chonky.vortex')
     /// 216156
@@ -233,7 +288,7 @@ impl PyVortexWriteOptions {
     /// We sure can.
     ///
     /// ```python
-    /// >>> vx.io.VortexWriteOptions.compact().write_path(sprl, "tiny.vortex")
+    /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
     /// 55116
     /// ```
@@ -246,7 +301,7 @@ impl PyVortexWriteOptions {
         }
     }
 
-    /// Write an array or iterator of arrays into a local file.
+    /// Write an array or iterator of arrays to a file.
     ///
     ///
     /// Parameters
@@ -258,6 +313,9 @@ impl PyVortexWriteOptions {
     /// path : str
     ///     The file path.
     ///
+    /// store : vortex.store.AzureStore | vortex.store.GCSStore | vortex.store.HTTPStore | vortex.store.LocalStore | vortex.store.MemoryStore | vortex.store.S3Store | None
+    ///     An optional object store configuration to use for writing the output.
+    ///
     /// Examples
     /// --------
     ///
@@ -267,7 +325,7 @@ impl PyVortexWriteOptions {
     /// >>> import vortex as vx
     /// >>> import random
     /// >>> a = vx.array([0, 1, 2, 3, None, 4])
-    /// >>> vx.io.VortexWriteOptions.default().write_path(a, "a.vortex") # doctest: +SKIP
+    /// >>> vx.io.VortexWriteOptions.default().write(a, "a.vortex") # doctest: +SKIP
     /// ```
     ///
     /// Write the same array while preferring small file sizes over read-throughput and
@@ -275,34 +333,50 @@ impl PyVortexWriteOptions {
     ///
     /// ```python
     /// >>> import vortex as vx
-    /// >>> vx.io.VortexWriteOptions.compact().write_path(a, "a.vortex") # doctest: +SKIP
+    /// >>> vx.io.VortexWriteOptions.compact().write(a, "a.vortex") # doctest: +SKIP
     /// ```
     ///
     /// See also
     /// --------
     ///
     /// :func:`vortex.io.write`
-    #[pyo3(signature = (iter, path))]
-    pub fn write_path(
+    #[pyo3(signature = (iter, path, *, store = None))]
+    pub fn write(
         &self,
         py: Python,
         iter: PyIntoArrayIterator,
         path: &str,
+        store: Option<PyObjectStore>,
     ) -> PyVortexResult<()> {
         py.detach(|| {
+            let mut strategy = WriteStrategyBuilder::new();
+            if let Some(compressor) = self.compressor.as_ref() {
+                strategy = strategy.with_compressor(compressor.clone())
+            }
+            let strategy = strategy.build();
             TOKIO_RUNTIME.block_on(async move {
-                let file = File::create(path).await?;
-
-                let mut strategy = WriteStrategyBuilder::new();
-                if let Some(compressor) = self.compressor.as_ref() {
-                    strategy = strategy.with_compressor(compressor.clone())
+                match resolve_store(path, store.map(|x| x.into_inner()))? {
+                    ResolvedStore::ObjectStore(store, path) => {
+                        let mut store = ObjectStoreWriter::new(store, &path).await?;
+                        SESSION
+                            .write_options()
+                            .with_strategy(strategy)
+                            .write(&mut store, iter.into_inner().into_array_stream())
+                            .await?;
+                        store.shutdown().await?;
+                        VortexResult::Ok(())
+                    }
+                    ResolvedStore::Path(path) => {
+                        let mut w = File::create(path).await?;
+                        SESSION
+                            .write_options()
+                            .with_strategy(strategy)
+                            .write(&mut w, iter.into_inner().into_array_stream())
+                            .await?;
+                        w.shutdown().await?;
+                        VortexResult::Ok(())
+                    }
                 }
-
-                SESSION
-                    .write_options()
-                    .with_strategy(strategy.build())
-                    .write(file, iter.into_inner().into_array_stream())
-                    .await
             })
         })?;
 

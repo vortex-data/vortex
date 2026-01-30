@@ -9,6 +9,14 @@ use vortex_mask::Mask;
 use crate::ArrayRef;
 use crate::stats::ArrayStats;
 
+/// Decomposed parts of the filter array.
+pub struct FilterArrayParts {
+    /// Child array that is filtered by the mask
+    pub child: ArrayRef,
+    /// Mask to apply at filter time. Child elements with set indices are kept, the rest discarded.
+    pub mask: Mask,
+}
+
 // TODO(connor): Write docs on why we have this, and what we had in the old world so that the future
 // does not repeat the mistakes of the past.
 /// A lazy array that represents filtering a child array by a boolean [`Mask`].
@@ -55,5 +63,13 @@ impl FilterArray {
     /// The mask used to filter the child array.
     pub fn filter_mask(&self) -> &Mask {
         &self.mask
+    }
+
+    /// Consume the array and return its individual components.
+    pub fn into_parts(self) -> FilterArrayParts {
+        FilterArrayParts {
+            child: self.child,
+            mask: self.mask,
+        }
     }
 }

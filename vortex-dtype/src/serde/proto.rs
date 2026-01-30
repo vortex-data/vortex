@@ -6,12 +6,11 @@ use std::sync::Arc;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::DecimalDType;
-use crate::ExtDType;
 use crate::ExtID;
-use crate::ExtMetadata;
 use crate::PType;
 use crate::StructFields;
 use crate::field::Field;
@@ -19,11 +18,11 @@ use crate::field::FieldPath;
 use crate::proto::dtype as pb;
 use crate::proto::dtype::d_type::DtypeType;
 use crate::proto::dtype::field::FieldType;
+use crate::session::DTypeSessionExt;
 
-impl TryFrom<&pb::DType> for DType {
-    type Error = VortexError;
-
-    fn try_from(value: &pb::DType) -> Result<Self, Self::Error> {
+impl DType {
+    /// Constructs a DType from its protobuf representation.
+    pub fn from_proto(value: &pb::DType, session: &VortexSession) -> VortexResult<Self> {
         match value
             .dtype_type
             .as_ref()
@@ -34,9 +33,15 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::Primitive(p) => Ok(Self::Primitive(p.r#type().into(), p.nullable.into())),
             DtypeType::Decimal(d) => Ok(Self::Decimal(
                 DecimalDType::try_new(
-                    d.precision.try_into().map_err(|_| vortex_err!("proto precision could not be downcast to u8"))?,
-                    d.scale.try_into().map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?)?,
-                d.nullable.into())),
+                    d.precision
+                        .try_into()
+                        .map_err(|_| vortex_err!("proto precision could not be downcast to u8"))?,
+                    d.scale
+                        .try_into()
+                        .map_err(|_| vortex_err!("proto scale could not be downcast to i8"))?,
+                )?,
+                d.nullable.into(),
+            )),
             DtypeType::Utf8(u) => Ok(Self::Utf8(u.nullable.into())),
             DtypeType::Binary(b) => Ok(Self::Binary(b.nullable.into())),
             DtypeType::Struct(s) => Ok(Self::Struct(
@@ -44,7 +49,7 @@ impl TryFrom<&pb::DType> for DType {
                     s.names.iter().map(|s| s.as_str()).collect(),
                     s.dtypes
                         .iter()
-                        .map(TryInto::<Self>::try_into)
+                        .map(|dt| DType::from_proto(dt, session))
                         .collect::<VortexResult<Vec<_>>>()?,
                 ),
                 s.nullable.into(),
@@ -52,46 +57,54 @@ impl TryFrom<&pb::DType> for DType {
             DtypeType::List(l) => {
                 let nullable = l.nullable.into();
                 Ok(Self::List(
-                    l.element_type
-                        .as_ref()
-                        .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid list element type"))?
-                        .as_ref()
-                        .try_into()
-                        .map(Arc::new)?,
+                    DType::from_proto(
+                        l.element_type
+                            .as_ref()
+                            .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid list element type"))?
+                            .as_ref(),
+                        session,
+                    )
+                    .map(Arc::new)?,
                     nullable,
                 ))
             }
             DtypeType::FixedSizeList(fsl) => {
                 let nullable = fsl.nullable.into();
                 Ok(Self::FixedSizeList(
-                    fsl.element_type
+                    DType::from_proto(fsl.element_type
                         .as_ref()
-                        .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid fixed-size list element type"))?
-                        .as_ref()
-                        .try_into()
-                        .map(Arc::new)?,
+                        .ok_or_else(
+                            || vortex_err!(InvalidSerde: "Invalid fixed-size list element type"),
+                        )?
+                        .as_ref(),
+                        session).map(Arc::new)?,
                     fsl.size,
                     nullable,
                 ))
             }
-            DtypeType::Extension(e) => Ok(Self::Extension(
-                Arc::new(ExtDType::new(
-                    ExtID::from(e.id.as_str()),
-                    Arc::new(DType::try_from(e.storage_dtype
-                                                 .as_ref()
-                                                 .ok_or_else(|| vortex_err!(InvalidSerde: "storage_dtype must be provided in DType proto message"))?
-                                                 .as_ref(),
-                    ).map_err(|e| vortex_err!("failed converting DType from proto message: {}", e))?),
-                    e.metadata.as_ref().map(|m| ExtMetadata::from(m.as_ref())),
-                ),
-            ))),
+            DtypeType::Extension(e) => {
+                let id = ExtID::new_arc(e.id.as_str().to_string().into());
+                let vtable = session.dtypes().registry().find(&id).ok_or_else(
+                    || vortex_err!(InvalidSerde: "Unregistered extension type ID: {}", e.id),
+                )?;
+                let storage_dtype = DType::from_proto(
+                    e.storage_dtype
+                        .as_ref()
+                        .ok_or_else(|| vortex_err!("Extension DType missing storage proto"))?,
+                    session,
+                )?;
+                let ext_dtype = vtable.deserialize(e.metadata(), storage_dtype)?;
+                Ok(Self::Extension(ext_dtype))
+            }
         }
     }
 }
 
-impl From<&DType> for pb::DType {
-    fn from(value: &DType) -> Self {
-        Self {
+impl TryFrom<&DType> for pb::DType {
+    type Error = VortexError;
+
+    fn try_from(value: &DType) -> VortexResult<Self> {
+        Ok(Self {
             dtype_type: Some(match value {
                 DType::Null => DtypeType::Null(pb::Null {}),
                 DType::Bool(null) => DtypeType::Bool(pb::Bool {
@@ -114,27 +127,30 @@ impl From<&DType> for pb::DType {
                 }),
                 DType::Struct(s, null) => DtypeType::Struct(pb::Struct {
                     names: s.names().iter().map(|s| s.as_ref().to_string()).collect(),
-                    dtypes: s.fields().map(|d| Self::from(&d)).collect(),
+                    dtypes: s
+                        .fields()
+                        .map(|d| Self::try_from(&d))
+                        .collect::<VortexResult<Vec<_>>>()?,
                     nullable: (*null).into(),
                 }),
                 DType::List(edt, null) => DtypeType::List(Box::new(pb::List {
-                    element_type: Some(Box::new(edt.as_ref().into())),
+                    element_type: Some(Box::new(edt.as_ref().try_into()?)),
                     nullable: (*null).into(),
                 })),
                 DType::FixedSizeList(edt, size, null) => {
                     DtypeType::FixedSizeList(Box::new(pb::FixedSizeList {
-                        element_type: Some(Box::new(edt.as_ref().into())),
+                        element_type: Some(Box::new(edt.as_ref().try_into()?)),
                         size: *size,
                         nullable: (*null).into(),
                     }))
                 }
                 DType::Extension(e) => DtypeType::Extension(Box::new(pb::Extension {
                     id: e.id().as_ref().into(),
-                    storage_dtype: Some(Box::new(e.storage_dtype().into())),
-                    metadata: e.metadata().map(|m| m.as_ref().into()),
+                    storage_dtype: Some(Box::new(e.storage_dtype().try_into()?)),
+                    metadata: Some(e.metadata_erased().serialize()?),
                 })),
             }),
-        }
+        })
     }
 }
 
@@ -201,20 +217,20 @@ mod tests {
     use super::*;
     use crate::DType;
     use crate::DecimalDType;
-    use crate::ExtDType;
-    use crate::ExtID;
-    use crate::ExtMetadata;
     use crate::Field;
     use crate::FieldPath;
     use crate::Nullability;
     use crate::PType;
     use crate::StructFields;
+    use crate::datetime::TimeUnit;
+    use crate::datetime::Timestamp;
     use crate::proto::dtype::d_type::DtypeType;
     use crate::proto::dtype::field::FieldType;
+    use crate::test::SESSION;
 
     fn round_trip_dtype(dtype: &DType) -> DType {
-        let pb_dtype = pb::DType::from(dtype);
-        DType::try_from(&pb_dtype).expect("Failed to convert from protobuf")
+        let pb_dtype = pb::DType::try_from(dtype).unwrap();
+        DType::from_proto(&pb_dtype, &SESSION).expect("Failed to convert from protobuf")
     }
 
     #[test]
@@ -336,12 +352,8 @@ mod tests {
 
     #[test]
     fn test_extension_round_trip() {
-        let ext_dtype = DType::Extension(Arc::new(ExtDType::new(
-            ExtID::from("test.extension"),
-            Arc::new(DType::Binary(Nullability::NonNullable)),
-            Some(ExtMetadata::from(b"test metadata".as_slice())),
-        )));
-
+        let ext_dtype =
+            DType::Extension(Timestamp::new(TimeUnit::Days, Nullability::Nullable).erased());
         let converted = round_trip_dtype(&ext_dtype);
         assert_eq!(ext_dtype, converted);
     }
@@ -408,7 +420,7 @@ mod tests {
             })),
         };
 
-        let result = DType::try_from(&pb_dtype);
+        let result = DType::from_proto(&pb_dtype, &SESSION);
         assert!(result.is_err());
     }
 
@@ -416,7 +428,7 @@ mod tests {
     fn test_missing_dtype_type() {
         let pb_dtype = pb::DType { dtype_type: None };
 
-        let result = DType::try_from(&pb_dtype);
+        let result = DType::from_proto(&pb_dtype, &SESSION);
         assert!(result.is_err());
         assert!(
             result
@@ -435,7 +447,7 @@ mod tests {
             }))),
         };
 
-        let result = DType::try_from(&pb_dtype);
+        let result = DType::from_proto(&pb_dtype, &SESSION);
         assert!(result.is_err());
         assert!(
             result
@@ -447,21 +459,22 @@ mod tests {
 
     #[test]
     fn test_missing_extension_storage() {
+        // Use a registered extension type ID so we can reach the storage_dtype check
         let pb_dtype = pb::DType {
             dtype_type: Some(DtypeType::Extension(Box::new(pb::Extension {
-                id: "test.ext".to_string(),
+                id: "vortex.date".to_string(),
                 storage_dtype: None,
                 metadata: None,
             }))),
         };
 
-        let result = DType::try_from(&pb_dtype);
+        let result = DType::from_proto(&pb_dtype, &SESSION);
         assert!(result.is_err());
         assert!(
             result
                 .unwrap_err()
                 .to_string()
-                .contains("storage_dtype must be provided")
+                .contains("Extension DType missing storage proto")
         );
     }
 }

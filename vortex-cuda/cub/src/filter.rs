@@ -116,7 +116,7 @@ macro_rules! impl_filter {
                     }
                 }
 
-                #[doc = "Get the temporary storage size required for filtering `" $ty "` elements."]
+                #[doc = "Get the temporary storage size required for filtering elements."]
                 pub fn [<filter_get_temp_size_ $suffix>](num_items: i64) -> Result<usize, CubError> {
                     let lib = cub_library()?;
                     let mut temp_bytes: usize = 0;
@@ -125,7 +125,7 @@ macro_rules! impl_filter {
                     Ok(temp_bytes)
                 }
 
-                #[doc = "Filter `" $ty "` elements using a byte mask (one byte per element)."]
+                #[doc = "Filter elements using a byte mask (one byte per element)."]
                 ///
                 /// # Safety
                 ///
@@ -162,7 +162,7 @@ macro_rules! impl_filter {
                     check_cuda_error(err, concat!("filter_bytemask_", stringify!($suffix)))
                 }
 
-                #[doc = "Filter `" $ty "` elements using a bit mask (one bit per element)."]
+                #[doc = "Filter elements using a bit mask (one bit per element)."]
                 ///
                 /// This version accepts packed bits directly, avoiding the need to expand
                 /// bits to bytes in a separate kernel.
@@ -219,4 +219,6 @@ impl_filter! {
     i64 => i64,
     f32 => f32,
     f64 => f64,
+    i128 => i128,
+    i256 => vortex_dtype::i256,
 }
