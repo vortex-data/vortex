@@ -287,16 +287,21 @@ pub fn nested_case_when(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect as _;
     use vortex_scalar::Scalar;
+    use vortex_session::VortexSession;
 
     use super::*;
+    use crate::Canonical;
     use crate::IntoArray;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute as _;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -307,6 +312,21 @@ mod tests {
     use crate::expr::exprs::literal::lit;
     use crate::expr::exprs::root::root;
     use crate::expr::test_harness;
+    use crate::session::ArraySession;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+    /// Helper to evaluate an expression using the apply+execute pattern
+    fn evaluate_expr(expr: &Expression, array: &ArrayRef) -> ArrayRef {
+        let mut ctx = SESSION.create_execution_ctx();
+        array
+            .apply(expr)
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap()
+            .into_array()
+    }
 
     // ==================== Serialization Tests ====================
 
@@ -455,7 +475,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[0, 0, 100, 100, 100]);
     }
 
@@ -475,7 +495,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[10, 0, 30, 0, 0]);
     }
 
@@ -495,7 +515,7 @@ mod tests {
             Some(lit(0i32)),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[0, 0, 100, 100, 100]);
     }
 
@@ -508,7 +528,7 @@ mod tests {
 
         let expr = case_when_no_else(gt(get_item("value", root()), lit(3i32)), lit(100i32));
 
-        let result = expr.evaluate(&test_array).unwrap();
+        let result = evaluate_expr(&expr, &test_array);
         assert!(result.dtype().is_nullable());
 
         assert_eq!(
@@ -546,7 +566,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[0, 0, 0, 0, 0]);
     }
 
@@ -563,7 +583,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[100, 100, 100, 100, 100]);
     }
 
@@ -571,7 +591,7 @@ mod tests {
     fn test_evaluate_with_literal_condition() {
         let test_array = buffer![1i32, 2, 3].into_array();
         let expr = case_when(lit(true), lit(100i32), lit(0i32));
-        let result = expr.evaluate(&test_array).unwrap();
+        let result = evaluate_expr(&expr, &test_array);
 
         if let Some(constant) = result.as_constant() {
             assert_eq!(constant, Scalar::from(100i32));
@@ -594,9 +614,9 @@ mod tests {
             lit(false),
         );
 
-        let result = expr.evaluate(&test_array).unwrap().to_bool();
+        let result = evaluate_expr(&expr, &test_array).to_bool();
         assert_eq!(
-            result.bit_buffer().iter().collect::<Vec<_>>(),
+            result.to_bit_buffer().iter().collect::<Vec<_>>(),
             vec![false, false, true, true, true]
         );
     }
@@ -612,7 +632,7 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[100, 0, 0, 0, 100]);
     }
 
@@ -635,7 +655,7 @@ mod tests {
             lit(0i32),
         );
 
-        let result = expr.evaluate(&test_array).unwrap();
+        let result = evaluate_expr(&expr, &test_array);
         let prim = result.to_primitive();
         assert_eq!(prim.as_slice::<i32>(), &[0, 0, 30, 40, 50]);
     }
@@ -651,12 +671,11 @@ mod tests {
 
         let expr = case_when(get_item("cond", root()), lit(100i32), lit(0i32));
 
-        let result = expr.evaluate(&test_array).unwrap().to_primitive();
+        let result = evaluate_expr(&expr, &test_array).to_primitive();
         assert_eq!(result.as_slice::<i32>(), &[0, 0, 0]);
     }
 
-    // Note: Direct execute tests are covered through evaluate tests above,
-    // since evaluate() calls execute() internally.
+    // Note: Direct execute tests are covered through apply+execute tests above.
 
     // Note: The binary CASE WHEN implementation using `zip` does NOT provide
     // short-circuit/lazy evaluation. All child expressions are evaluated first,

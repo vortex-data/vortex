@@ -4,9 +4,13 @@
 #![allow(clippy::unwrap_used)]
 #![allow(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use divan::Bencher;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::StructArray;
 use vortex_array::expr::case_when;
 use vortex_array::expr::get_item;
@@ -14,9 +18,14 @@ use vortex_array::expr::gt;
 use vortex_array::expr::lit;
 use vortex_array::expr::nested_case_when;
 use vortex_array::expr::root;
+use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::FieldNames;
+use vortex_session::VortexSession;
+
+static SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 fn main() {
     divan::main();
@@ -49,7 +58,14 @@ fn case_when_simple(bencher: Bencher, size: usize) {
 
     bencher
         .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| expr.evaluate(array).unwrap());
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
 }
 
 /// Benchmark nested CASE WHEN with multiple conditions.
@@ -69,7 +85,14 @@ fn case_when_nested_3_conditions(bencher: Bencher, size: usize) {
 
     bencher
         .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| expr.evaluate(array).unwrap());
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
 }
 
 /// Benchmark CASE WHEN where all conditions are true (short-circuit path).
@@ -86,7 +109,14 @@ fn case_when_all_true(bencher: Bencher, size: usize) {
 
     bencher
         .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| expr.evaluate(array).unwrap());
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
 }
 
 /// Benchmark CASE WHEN where all conditions are false (short-circuit path).
@@ -103,5 +133,12 @@ fn case_when_all_false(bencher: Bencher, size: usize) {
 
     bencher
         .with_inputs(|| (&expr, &array))
-        .bench_refs(|(expr, array)| expr.evaluate(array).unwrap());
+        .bench_refs(|(expr, array)| {
+            let mut ctx = SESSION.create_execution_ctx();
+            array
+                .apply(expr)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
 }

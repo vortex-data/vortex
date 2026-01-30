@@ -911,4 +911,96 @@ mod tests {
 
         Ok(())
     }
+
+    /// Test that applying a CASE expression to an Arrow RecordBatch using DataFusion
+    /// matches the result of applying the converted Vortex expression.
+    #[test]
+    fn test_case_when_datafusion_vortex_equivalence() {
+        use datafusion::arrow::array::Int32Array;
+        use datafusion::arrow::array::RecordBatch;
+        use datafusion_physical_expr::expressions::CaseExpr;
+        use vortex::VortexSessionDefault;
+        use vortex::array::ArrayRef;
+        use vortex::array::Canonical;
+        use vortex::array::VortexSessionExecute as _;
+        use vortex::array::arrow::FromArrowArray;
+        use vortex::session::VortexSession;
+
+        // Create test data
+        let values = Arc::new(Int32Array::from(vec![1, 5, 10, 15, 20]));
+        let schema = Arc::new(Schema::new(vec![Field::new(
+            "value",
+            DataType::Int32,
+            false,
+        )]));
+        let batch = RecordBatch::try_new(schema, vec![values]).unwrap();
+
+        // Build a DataFusion CASE expression:
+        // CASE WHEN value > 10 THEN 100 WHEN value > 5 THEN 50 ELSE 0 END
+        let col_value = Arc::new(df_expr::Column::new("value", 0)) as Arc<dyn PhysicalExpr>;
+        let lit_10 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(10)))) as Arc<dyn PhysicalExpr>;
+        let lit_5 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(5)))) as Arc<dyn PhysicalExpr>;
+        let lit_100 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(100)))) as Arc<dyn PhysicalExpr>;
+        let lit_50 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(50)))) as Arc<dyn PhysicalExpr>;
+        let lit_0 =
+            Arc::new(df_expr::Literal::new(ScalarValue::Int32(Some(0)))) as Arc<dyn PhysicalExpr>;
+
+        // WHEN value > 10 THEN 100
+        let when1 = Arc::new(df_expr::BinaryExpr::new(
+            col_value.clone(),
+            DFOperator::Gt,
+            lit_10,
+        )) as Arc<dyn PhysicalExpr>;
+        // WHEN value > 5 THEN 50
+        let when2 = Arc::new(df_expr::BinaryExpr::new(col_value, DFOperator::Gt, lit_5))
+            as Arc<dyn PhysicalExpr>;
+
+        let case_expr =
+            CaseExpr::try_new(None, vec![(when1, lit_100), (when2, lit_50)], Some(lit_0)).unwrap();
+
+        // Apply DataFusion expression
+        let df_result = case_expr.evaluate(&batch).unwrap();
+        let df_array = df_result.into_array(batch.num_rows()).unwrap();
+
+        // Convert to Vortex expression
+        let expr_convertor = DefaultExpressionConvertor::default();
+        let vortex_expr = expr_convertor.try_convert_case_expr(&case_expr).unwrap();
+
+        // Convert batch to Vortex array
+        let vortex_array: ArrayRef = ArrayRef::from_arrow(&batch, false).unwrap();
+
+        // Apply Vortex expression
+        let session = VortexSession::default();
+        let mut ctx = session.create_execution_ctx();
+        let vortex_result = vortex_array
+            .apply(&vortex_expr)
+            .unwrap()
+            .execute::<Canonical>(&mut ctx)
+            .unwrap();
+
+        // Convert back to Arrow for comparison
+        let vortex_as_arrow = vortex_result.into_primitive().as_slice::<i32>().to_vec();
+
+        // Convert DataFusion result to Vec for comparison
+        let df_as_arrow: Vec<i32> = df_array
+            .as_any()
+            .downcast_ref::<Int32Array>()
+            .unwrap()
+            .values()
+            .to_vec();
+
+        // Compare results
+        // Expected: [0, 0, 50, 100, 100] for values [1, 5, 10, 15, 20]
+        // value=1: not > 10, not > 5 -> ELSE 0
+        // value=5: not > 10, not > 5 -> ELSE 0
+        // value=10: not > 10, > 5 -> 50
+        // value=15: > 10 -> 100
+        // value=20: > 10 -> 100
+        assert_eq!(df_as_arrow, vec![0, 0, 50, 100, 100]);
+        assert_eq!(vortex_as_arrow, df_as_arrow);
+    }
 }
