@@ -47,7 +47,7 @@ def _schema_for_substrait(schema: pa.Schema) -> pa.Schema:
 def arrow_to_vortex(arrow_expression: pc.Expression, schema: pa.Schema) -> Expr:
     compat_schema = _schema_for_substrait(schema)
     substrait_object = ExtendedExpression()
-    _ = substrait_object.ParseFromString(bytes(arrow_expression.to_substrait(compat_schema)))
+    substrait_object.ParseFromString(bytes(arrow_expression.to_substrait(compat_schema)))  # pyright: ignore[reportUnusedCallResult]
 
     expressions = extended_expression(substrait_object)
 
