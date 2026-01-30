@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub(crate) mod dictionary;
-mod stats;
+pub(super) mod stats;
 
 use std::hash::Hash;
 use std::hash::Hasher;
@@ -30,7 +30,11 @@ use vortex_scalar::Scalar;
 use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
 
+use self::dictionary::dictionary_encode;
 pub use self::stats::FloatStats;
+use super::integer::DictScheme as IntDictScheme;
+use super::integer::RunEndScheme as IntRunEndScheme;
+use super::integer::SparseScheme as IntSparseScheme;
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Compressor;
@@ -41,11 +45,9 @@ use crate::GenerateStatsOptions;
 use crate::IntCode;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::float::dictionary::dictionary_encode;
-use crate::integer;
-use crate::patches::compress_patches;
-use crate::rle;
-use crate::rle::RLEScheme;
+use crate::compressor::patches::compress_patches;
+use crate::compressor::rle;
+use crate::compressor::rle::RLEScheme;
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> + Send + Sync {}
 
@@ -322,10 +324,10 @@ impl Scheme for ALPScheme {
         // to keep them linear for easy indexing.
         let mut int_excludes = Vec::new();
         if excludes.contains(&FloatCode::Dict) {
-            int_excludes.push(integer::DictScheme.code());
+            int_excludes.push(IntDictScheme.code());
         }
         if excludes.contains(&FloatCode::RunEnd) {
-            int_excludes.push(integer::RunEndScheme.code());
+            int_excludes.push(IntRunEndScheme.code());
         }
 
         let compressed_alp_ints = compressor.compress_canonical(
@@ -498,7 +500,7 @@ impl Scheme for NullDominated {
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
-            let new_excludes = [integer::SparseScheme.code()];
+            let new_excludes = [IntSparseScheme.code()];
 
             // Don't attempt to compress the non-null values
 
@@ -521,173 +523,194 @@ impl Scheme for NullDominated {
         }
     }
 }
-//
-// #[cfg(test)]
-// mod tests {
-//
-//     use std::iter;
-//
-//     use vortex_array::Array;
-//     use vortex_array::IntoArray;
-//     use vortex_array::ToCanonical;
-//     use vortex_array::arrays::PrimitiveArray;
-//     use vortex_array::assert_arrays_eq;
-//     use vortex_array::builders::ArrayBuilder;
-//     use vortex_array::builders::PrimitiveBuilder;
-//     use vortex_array::display::DisplayOptions;
-//     use vortex_array::validity::Validity;
-//     use vortex_buffer::Buffer;
-//     use vortex_buffer::buffer_mut;
-//     use vortex_dtype::Nullability;
-//     use vortex_error::VortexResult;
-//
-//     use crate::{compress, Compressor};
-//     use crate::CompressorStats;
-//     use crate::MAX_CASCADE;
-//     use crate::Scheme;
-//     use crate::float::FloatCompressor;
-//     use crate::float::RLE_FLOAT_SCHEME;
-//
-//     #[test]
-//     fn test_empty() -> VortexResult<()> {
-//         // Make sure empty array compression does not fail
-//
-//         let result = FloatCompressor::default().compress(
-//             &PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable),
-//             false,
-//             3,
-//         )?;
-//
-//         assert!(result.is_empty());
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_compress() -> VortexResult<()> {
-//         let mut values = buffer_mut![1.0f32; 1024];
-//         // Sprinkle some other values in.
-//         for i in 0..1024 {
-//             // Insert 2.0 at all odd positions.
-//             // This should force dictionary encoding and exclude run-end due to the
-//             // average run length being 1.
-//             values[i] = (i % 50) as f32;
-//         }
-//
-//         let floats = values.into_array().to_primitive();
-//         let compressed = FloatCompressor::default().compress(&floats, false, MAX_CASCADE)?;
-//         assert_eq!(compressed.len(), 1024);
-//
-//         let display = compressed
-//             .display_as(DisplayOptions::MetadataOnly)
-//             .to_string()
-//             .to_lowercase();
-//         assert_eq!(display, "vortex.dict(f32, len=1024)");
-//
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_rle_compression() -> VortexResult<()> {
-//         let mut values = Vec::new();
-//         values.extend(iter::repeat_n(1.5f32, 100));
-//         values.extend(iter::repeat_n(2.7f32, 200));
-//         values.extend(iter::repeat_n(3.15f32, 150));
-//
-//         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-//         let stats = crate::float::FloatStats::generate(&array);
-//         let compressed = RLE_FLOAT_SCHEME.compress(&stats, false, 3, &[])?;
-//
-//         let decoded = compressed;
-//         let expected = Buffer::copy_from(&values).into_array();
-//         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_sparse_compression() -> VortexResult<()> {
-//         let mut array = PrimitiveBuilder::<f32>::with_capacity(Nullability::Nullable, 100);
-//         array.append_value(f32::NAN);
-//         array.append_value(-f32::NAN);
-//         array.append_value(f32::INFINITY);
-//         array.append_value(-f32::INFINITY);
-//         array.append_value(0.0f32);
-//         array.append_value(-0.0f32);
-//         array.append_nulls(90);
-//
-//         let floats = array.finish_into_primitive();
-//
-//         let compressed = FloatCompressor::default().compress(&floats, false, MAX_CASCADE)?;
-//         assert_eq!(compressed.len(), 96);
-//
-//         let display = compressed
-//             .display_as(DisplayOptions::MetadataOnly)
-//             .to_string()
-//             .to_lowercase();
-//         assert_eq!(display, "vortex.sparse(f32?, len=96)");
-//
-//         Ok(())
-//     }
-// }
-//
-// /// Tests to verify that each float compression scheme produces the expected encoding.
-// #[cfg(test)]
-// mod scheme_selection_tests {
-//
-//     use vortex_alp::ALPVTable;
-//     use vortex_array::arrays::ConstantVTable;
-//     use vortex_array::arrays::DictVTable;
-//     use vortex_array::arrays::PrimitiveArray;
-//     use vortex_array::builders::ArrayBuilder;
-//     use vortex_array::builders::PrimitiveBuilder;
-//     use vortex_array::validity::Validity;
-//     use vortex_buffer::Buffer;
-//     use vortex_dtype::Nullability;
-//     use vortex_error::VortexResult;
-//
-//     use crate::Compressor;
-//     use crate::float::FloatCompressor;
-//
-//     #[test]
-//     fn test_constant_compressed() -> VortexResult<()> {
-//         let values: Vec<f64> = vec![42.5; 100];
-//         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-//         let compressed = FloatCompressor::default().compress(&array, false, 3)?;
-//         assert!(compressed.is::<ConstantVTable>());
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_alp_compressed() -> VortexResult<()> {
-//         let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
-//         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-//         let compressed = FloatCompressor::default().compress(&array, false, 3)?;
-//         assert!(compressed.is::<ALPVTable>());
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_dict_compressed() -> VortexResult<()> {
-//         let distinct_values = [1.1, 2.2, 3.3, 4.4, 5.5];
-//         let values: Vec<f64> = (0..1000)
-//             .map(|i| distinct_values[i % distinct_values.len()])
-//             .collect();
-//         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-//         let compressed = FloatCompressor::default().compress(&array, false, 3)?;
-//         assert!(compressed.is::<DictVTable>());
-//         Ok(())
-//     }
-//
-//     #[test]
-//     fn test_null_dominated_compressed() -> VortexResult<()> {
-//         let mut builder = PrimitiveBuilder::<f64>::with_capacity(Nullability::Nullable, 100);
-//         for i in 0..5 {
-//             builder.append_value(i as f64);
-//         }
-//         builder.append_nulls(95);
-//         let array = builder.finish_into_primitive();
-//         let compressed = FloatCompressor::default().compress(&array, false, 3)?;
-//         // Verify the compressed array preserves values.
-//         assert_eq!(compressed.len(), 100);
-//         Ok(())
-//     }
-// }
+
+#[cfg(test)]
+mod tests {
+
+    use std::iter;
+
+    use vortex_array::Array;
+    use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::display::DisplayOptions;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_buffer::buffer_mut;
+    use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
+
+    use super::RLE_FLOAT_SCHEME;
+    use crate::BtrBlocksCompressor;
+    use crate::CompressorContext;
+    use crate::CompressorExt;
+    use crate::CompressorStats;
+    use crate::Scheme;
+
+    #[test]
+    fn test_empty() -> VortexResult<()> {
+        // Make sure empty array compression does not fail
+        let btr = BtrBlocksCompressor::default();
+        let result = btr.float_compressor().compress(
+            &btr,
+            &PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable),
+            CompressorContext::default(),
+            &[],
+        )?;
+
+        assert!(result.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn test_compress() -> VortexResult<()> {
+        let mut values = buffer_mut![1.0f32; 1024];
+        // Sprinkle some other values in.
+        for i in 0..1024 {
+            // Insert 2.0 at all odd positions.
+            // This should force dictionary encoding and exclude run-end due to the
+            // average run length being 1.
+            values[i] = (i % 50) as f32;
+        }
+
+        let floats = values.into_array().to_primitive();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &floats, CompressorContext::default(), &[])?;
+        assert_eq!(compressed.len(), 1024);
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.dict(f32, len=1024)");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_rle_compression() -> VortexResult<()> {
+        let mut values = Vec::new();
+        values.extend(iter::repeat_n(1.5f32, 100));
+        values.extend(iter::repeat_n(2.7f32, 200));
+        values.extend(iter::repeat_n(3.15f32, 150));
+
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let stats = super::FloatStats::generate(&array);
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            RLE_FLOAT_SCHEME.compress(&btr, &stats, CompressorContext::default(), &[])?;
+
+        let decoded = compressed;
+        let expected = Buffer::copy_from(&values).into_array();
+        assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
+    }
+
+    #[test]
+    fn test_sparse_compression() -> VortexResult<()> {
+        let mut array = PrimitiveBuilder::<f32>::with_capacity(Nullability::Nullable, 100);
+        array.append_value(f32::NAN);
+        array.append_value(-f32::NAN);
+        array.append_value(f32::INFINITY);
+        array.append_value(-f32::INFINITY);
+        array.append_value(0.0f32);
+        array.append_value(-0.0f32);
+        array.append_nulls(90);
+
+        let floats = array.finish_into_primitive();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &floats, CompressorContext::default(), &[])?;
+        assert_eq!(compressed.len(), 96);
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.sparse(f32?, len=96)");
+
+        Ok(())
+    }
+}
+
+/// Tests to verify that each float compression scheme produces the expected encoding.
+#[cfg(test)]
+mod scheme_selection_tests {
+
+    use vortex_alp::ALPVTable;
+    use vortex_array::arrays::ConstantVTable;
+    use vortex_array::arrays::DictVTable;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::builders::ArrayBuilder;
+    use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
+
+    use crate::BtrBlocksCompressor;
+    use crate::CompressorContext;
+    use crate::CompressorExt;
+
+    #[test]
+    fn test_constant_compressed() -> VortexResult<()> {
+        let values: Vec<f64> = vec![42.5; 100];
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        assert!(compressed.is::<ConstantVTable>());
+        Ok(())
+    }
+
+    #[test]
+    fn test_alp_compressed() -> VortexResult<()> {
+        let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        assert!(compressed.is::<ALPVTable>());
+        Ok(())
+    }
+
+    #[test]
+    fn test_dict_compressed() -> VortexResult<()> {
+        let distinct_values = [1.1, 2.2, 3.3, 4.4, 5.5];
+        let values: Vec<f64> = (0..1000)
+            .map(|i| distinct_values[i % distinct_values.len()])
+            .collect();
+        let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        assert!(compressed.is::<DictVTable>());
+        Ok(())
+    }
+
+    #[test]
+    fn test_null_dominated_compressed() -> VortexResult<()> {
+        let mut builder = PrimitiveBuilder::<f64>::with_capacity(Nullability::Nullable, 100);
+        for i in 0..5 {
+            builder.append_value(i as f64);
+        }
+        builder.append_nulls(95);
+        let array = builder.finish_into_primitive();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.float_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
+        // Verify the compressed array preserves values.
+        assert_eq!(compressed.len(), 100);
+        Ok(())
+    }
+}

@@ -35,27 +35,23 @@
 //!
 //! [BtrBlocks]: https://www.cs.cit.tum.de/fileadmin/w00cfj/dis/papers/btrblocks.pdf
 
-pub use crate::float::FloatCode;
-use crate::float::FloatCompressor;
-pub use crate::integer::IntCode;
-use crate::integer::IntCompressor;
-pub use crate::string::StringCode;
-use crate::string::StringCompressor;
+pub use compressor::float::FloatCode;
+use compressor::float::FloatCompressor;
+pub use compressor::integer::IntCode;
+use compressor::integer::IntCompressor;
+pub use compressor::integer::IntegerStats;
+/// Dictionary encode an integer array using the precomputed stats.
+pub use compressor::integer::dictionary::dictionary_encode as integer_dictionary_encode;
+pub use compressor::string::StringCode;
+use compressor::string::StringCompressor;
 
 mod builder;
 mod canonical_compressor;
 mod compressor;
 mod ctx;
-mod decimal;
-mod float;
-mod integer;
-mod patches;
-mod rle;
 mod sample;
 mod scheme;
 mod stats;
-mod string;
-mod temporal;
 
 pub use builder::BtrBlocksCompressorBuilder;
 pub use canonical_compressor::BtrBlocksCompressor;

@@ -30,6 +30,9 @@ use vortex_sparse::SparseArray;
 use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use super::integer::DictScheme as IntDictScheme;
+use super::integer::SequenceScheme as IntSequenceScheme;
+use super::integer::SparseScheme as IntSparseScheme;
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Compressor;
@@ -40,7 +43,6 @@ use crate::GenerateStatsOptions;
 use crate::IntCode;
 use crate::Scheme;
 use crate::SchemeExt;
-use crate::integer;
 use crate::sample::sample;
 
 /// Array of variable-length byte arrays, and relevant stats for compression.
@@ -297,7 +299,7 @@ impl Scheme for DictScheme {
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(dict.codes().to_primitive()),
             ctx.descend(),
-            Excludes::int_only(&[integer::DictScheme.code(), integer::SequenceScheme.code()]),
+            Excludes::int_only(&[IntDictScheme.code(), IntSequenceScheme.code()]),
         )?;
 
         // Attempt to compress the values with non-Dict compression.
@@ -478,7 +480,7 @@ impl Scheme for NullDominated {
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the indices only (not the values for strings)
-            let new_excludes = vec![integer::SparseScheme.code(), IntCode::Dict];
+            let new_excludes = vec![IntSparseScheme.code(), IntCode::Dict];
 
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices = compressor.compress_canonical(

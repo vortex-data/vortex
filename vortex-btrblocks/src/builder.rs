@@ -10,12 +10,12 @@ use crate::BtrBlocksCompressor;
 use crate::FloatCode;
 use crate::IntCode;
 use crate::StringCode;
-use crate::float::ALL_FLOAT_SCHEMES;
-use crate::float::FloatScheme;
-use crate::integer::ALL_INT_SCHEMES;
-use crate::integer::IntegerScheme;
-use crate::string::ALL_STRING_SCHEMES;
-use crate::string::StringScheme;
+use crate::compressor::float::ALL_FLOAT_SCHEMES;
+use crate::compressor::float::FloatScheme;
+use crate::compressor::integer::ALL_INT_SCHEMES;
+use crate::compressor::integer::IntegerScheme;
+use crate::compressor::string::ALL_STRING_SCHEMES;
+use crate::compressor::string::StringScheme;
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///

@@ -32,11 +32,11 @@ use crate::FloatCompressor;
 use crate::IntCode;
 use crate::IntCompressor;
 use crate::StringCompressor;
-use crate::decimal::compress_decimal;
-use crate::float::FloatScheme;
-use crate::integer::IntegerScheme;
-use crate::string::StringScheme;
-use crate::temporal::compress_temporal;
+use crate::compressor::decimal::compress_decimal;
+use crate::compressor::float::FloatScheme;
+use crate::compressor::integer::IntegerScheme;
+use crate::compressor::string::StringScheme;
+use crate::compressor::temporal::compress_temporal;
 
 /// Trait for compressors that can compress canonical arrays.
 ///
@@ -119,6 +119,27 @@ impl BtrBlocksCompressor {
 
         self.compress_canonical(compact, CompressorContext::default(), Excludes::none())
     }
+
+    /// Creates an integer compressor using this compressor's configuration.
+    pub fn integer_compressor(&self) -> IntCompressor<'_> {
+        IntCompressor {
+            btr_blocks_compressor: self,
+        }
+    }
+
+    /// Creates a float compressor using this compressor's configuration.
+    pub fn float_compressor(&self) -> FloatCompressor<'_> {
+        FloatCompressor {
+            btr_blocks_compressor: self,
+        }
+    }
+
+    /// Creates a string compressor using this compressor's configuration.
+    pub fn string_compressor(&self) -> StringCompressor<'_> {
+        StringCompressor {
+            btr_blocks_compressor: self,
+        }
+    }
 }
 
 impl CanonicalCompressor for BtrBlocksCompressor {
@@ -137,15 +158,11 @@ impl CanonicalCompressor for BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    IntCompressor {
-                        btr_blocks_compressor: self,
-                    }
-                    .compress(self, &primitive, ctx, excludes.int)
+                    self.integer_compressor()
+                        .compress(self, &primitive, ctx, excludes.int)
                 } else {
-                    FloatCompressor {
-                        btr_blocks_compressor: self,
-                    }
-                    .compress(self, &primitive, ctx, excludes.float)
+                    self.float_compressor()
+                        .compress(self, &primitive, ctx, excludes.float)
                 }
             }
             Canonical::Decimal(decimal) => compress_decimal(self, &decimal),
@@ -209,10 +226,8 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    StringCompressor {
-                        btr_blocks_compressor: self,
-                    }
-                    .compress(self, &strings, ctx, excludes.string)
+                    self.string_compressor()
+                        .compress(self, &strings, ctx, excludes.string)
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())

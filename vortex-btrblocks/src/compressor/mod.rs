@@ -12,6 +12,14 @@ use crate::CompressorContext;
 use crate::CompressorStats;
 use crate::Scheme;
 
+pub(crate) mod decimal;
+pub(crate) mod float;
+pub(crate) mod integer;
+mod patches;
+mod rle;
+pub(crate) mod string;
+pub(crate) mod temporal;
+
 /// Maximum cascade depth for compression.
 pub(crate) const MAX_CASCADE: usize = 3;
 
