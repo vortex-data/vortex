@@ -95,6 +95,19 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
 }
 
+pub trait DeviceBufferExt: DeviceBuffer {
+    /// Slice a range of elements `T` out of the device buffer.
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+}
+
+impl<B: DeviceBuffer> DeviceBufferExt for B {
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+        let start_bytes = range.start * size_of::<T>();
+        let end_bytes = range.end * size_of::<T>();
+        self.slice(start_bytes..end_bytes)
+    }
+}
+
 impl Hash for dyn DeviceBuffer {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dyn_hash(state);

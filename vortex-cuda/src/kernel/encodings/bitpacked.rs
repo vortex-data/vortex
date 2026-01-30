@@ -12,7 +12,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::buffer::DeviceBuffer;
+use vortex_array::buffer::DeviceBufferExt;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
@@ -116,9 +116,8 @@ where
         launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
 
     // Build result with newly allocated buffer
-    let output_handle = BufferHandle::new_device(
-        output_buf.slice((offset * size_of::<A>())..(offset + len) * size_of::<A>()),
-    );
+    let output_handle =
+        BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len)));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
         A::PTYPE,
