@@ -153,6 +153,7 @@ fn benchmark_zstd_cuda_decompress(c: &mut Criterion) {
 
 criterion::criterion_group!(benches, benchmark_zstd_cuda_decompress);
 
+#[cfg(not(codspeed))]
 #[cuda_available]
 criterion::criterion_main!(benches);
 
