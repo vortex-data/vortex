@@ -194,8 +194,8 @@ mod tests {
     use futures::TryStreamExt;
     use rstest::rstest;
 
+    use crate::common_tests::TestSessionContext;
     use crate::persistent::VortexFormatFactory;
-    use crate::persistent::tests::TestSessionContext;
 
     #[tokio::test]
     async fn test_insert_into_sql() -> anyhow::Result<()> {
@@ -267,7 +267,7 @@ mod tests {
         let logical_plan = LogicalPlanBuilder::insert_into(
             LogicalPlan::Values(values.clone()),
             "my_tbl",
-            Arc::new(DefaultTableSource::new(tbl_provider)),
+            Arc::new(DefaultTableSource::new(tbl_provider.clone())),
             datafusion::logical_expr::dml::InsertOp::Append,
         )?
         .build()?;
@@ -278,7 +278,7 @@ mod tests {
             .collect()
             .await?;
 
-        let batches = my_tbl.collect().await?;
+        let batches = ctx.session.read_table(tbl_provider)?.collect().await?;
 
         assert_batches_sorted_eq!(
             [

@@ -505,14 +505,13 @@ impl FileFormat for VortexFormat {
 mod tests {
 
     use super::*;
-    use crate::persistent::tests::TestSessionContext;
+    use crate::common_tests::TestSessionContext;
 
     #[tokio::test]
     async fn create_table() -> anyhow::Result<()> {
         let ctx = TestSessionContext::default();
 
-        let df = ctx
-            .session
+        ctx.session
             .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
@@ -521,7 +520,7 @@ mod tests {
             )
             .await?;
 
-        assert_eq!(df.count().await?, 0);
+        assert!(ctx.session.table_exist("my_tbl")?);
 
         Ok(())
     }

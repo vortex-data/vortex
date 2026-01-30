@@ -22,19 +22,11 @@ pub use source::VortexSource;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use datafusion::arrow::util::pretty::pretty_format_batches;
-    use datafusion::datasource::provider::DefaultTableFactory;
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
-    use datafusion_common::GetExt;
     use datafusion_physical_plan::display::DisplayableExecutionPlan;
     use insta::assert_snapshot;
-    use object_store::ObjectStore;
-    use object_store::memory::InMemory;
     use rstest::rstest;
-    use url::Url;
     use vortex::VortexSessionDefault;
     use vortex::array::IntoArray;
     use vortex::array::arrays::ChunkedArray;
@@ -47,33 +39,7 @@ mod tests {
     use vortex::io::VortexWrite;
     use vortex::session::VortexSession;
 
-    use crate::VortexFormatFactory;
-
-    /// Holds a Datafusion SessionContext, configured to work with Vortex, and memory-backed storage.
-    pub struct TestSessionContext {
-        pub store: Arc<dyn ObjectStore>,
-        pub session: SessionContext,
-    }
-
-    impl Default for TestSessionContext {
-        fn default() -> Self {
-            let store = Arc::new(InMemory::new());
-            let factory = Arc::new(VortexFormatFactory::new());
-            let session_state_builder = SessionStateBuilder::new()
-                .with_default_features()
-                .with_table_factory(
-                    factory.get_ext().to_uppercase(),
-                    Arc::new(DefaultTableFactory::new()),
-                )
-                .with_file_formats(vec![factory])
-                .with_object_store(&Url::try_from("file://").unwrap(), store.clone());
-
-            let session: SessionContext =
-                SessionContext::new_with_state(session_state_builder.build()).enable_url_table();
-
-            Self { store, session }
-        }
-    }
+    use crate::common_tests::TestSessionContext;
 
     #[rstest]
     #[tokio::test]
