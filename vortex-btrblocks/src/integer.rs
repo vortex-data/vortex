@@ -40,11 +40,12 @@ use vortex_zigzag::zigzag_encode;
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Compressor;
+use crate::CompressorContext;
 use crate::CompressorStats;
 use crate::Excludes;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
-use crate::estimate_compression_ratio_with_sampling;
+use crate::SchemeExt;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
 use crate::rle;
@@ -203,14 +204,12 @@ impl rle::RLEConfig for IntRLEConfig {
     fn compress_values(
         compressor: &BtrBlocksCompressor,
         values: &PrimitiveArray,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         compressor.compress_canonical(
             Canonical::Primitive(values.clone()),
-            is_sample,
-            allowed_cascading,
+            ctx,
             Excludes::int_only(excludes),
         )
     }
@@ -231,8 +230,7 @@ impl Scheme for UncompressedScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         _stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // no compression
@@ -243,8 +241,7 @@ impl Scheme for UncompressedScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
@@ -267,12 +264,11 @@ impl Scheme for ConstantScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        _allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Never yield ConstantScheme for a sample, it could be a false-positive.
-        if is_sample {
+        if ctx.is_sample {
             return Ok(0.0);
         }
 
@@ -288,8 +284,7 @@ impl Scheme for ConstantScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let scalar_idx =
@@ -326,12 +321,11 @@ impl Scheme for FORScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Only apply if we are not at the leaf
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -371,8 +365,7 @@ impl Scheme for FORScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        _allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
@@ -388,8 +381,12 @@ impl Scheme for FORScheme {
         // of bitpacking.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
+        let leaf_ctx = CompressorContext {
+            is_sample: ctx.is_sample,
+            allowed_cascading: 0,
+        };
         let compressed =
-            BitPackingScheme.compress(compressor, &biased_stats, is_sample, 0, excludes)?;
+            BitPackingScheme.compress(compressor, &biased_stats, leaf_ctx, excludes)?;
 
         let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
@@ -412,12 +409,11 @@ impl Scheme for ZigZagScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // ZigZag is only useful when we cascade it with another encoding
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -432,22 +428,14 @@ impl Scheme for ZigZagScheme {
         }
 
         // Run compression on a sample to see how it performs.
-        estimate_compression_ratio_with_sampling(
-            self,
-            compressor,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
@@ -466,16 +454,9 @@ impl Scheme for ZigZagScheme {
 
         let compressed = compressor.compress_canonical(
             Canonical::Primitive(encoded),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&new_excludes),
         )?;
-        // let compressed = IntCompressor::compress_static(
-        //     &encoded,
-        //     is_sample,
-        //     allowed_cascading - 1,
-        //     &new_excludes,
-        // )?;
 
         tracing::debug!("zigzag output: {}", compressed.display_tree());
 
@@ -495,8 +476,7 @@ impl Scheme for BitPackingScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // BitPacking only works for non-negative values
@@ -509,22 +489,14 @@ impl Scheme for BitPackingScheme {
             return Ok(0.0);
         }
 
-        estimate_compression_ratio_with_sampling(
-            self,
-            compressor,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let histogram = bit_width_histogram(stats.source())?;
@@ -555,12 +527,11 @@ impl Scheme for SparseScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Only use `SparseScheme` if we can cascade.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -595,11 +566,10 @@ impl Scheme for SparseScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
         if top_count as usize == stats.src.len() {
             // top_value is the only value, use ConstantScheme
@@ -630,8 +600,7 @@ impl Scheme for SparseScheme {
 
             let compressed_values = compressor.compress_canonical(
                 Canonical::Primitive(sparse.patches().values().to_primitive()),
-                is_sample,
-                allowed_cascading - 1,
+                ctx.descend(),
                 Excludes::int_only(&new_excludes),
             )?;
 
@@ -639,8 +608,7 @@ impl Scheme for SparseScheme {
 
             let compressed_indices = compressor.compress_canonical(
                 Canonical::Primitive(indices),
-                is_sample,
-                allowed_cascading - 1,
+                ctx.descend(),
                 Excludes::int_only(&new_excludes),
             )?;
 
@@ -669,12 +637,11 @@ impl Scheme for DictScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Dict should not be terminal.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -710,11 +677,10 @@ impl Scheme for DictScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
 
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
         //    RLE or FOR + BP. Cascading probably wastes some time here.
@@ -728,8 +694,7 @@ impl Scheme for DictScheme {
 
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(dict.codes().to_primitive().narrow()?),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&new_excludes),
         )?;
 
@@ -756,8 +721,7 @@ impl Scheme for RunEndScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // If the run length is below the threshold, drop it.
@@ -765,30 +729,22 @@ impl Scheme for RunEndScheme {
             return Ok(0.0);
         }
 
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
         // Run compression on a sample, see how it performs.
-        estimate_compression_ratio_with_sampling(
-            self,
-            compressor,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
 
         // run-end encode the ends
         let (ends, values) = runend_encode(&stats.src);
@@ -798,15 +754,13 @@ impl Scheme for RunEndScheme {
 
         let compressed_ends = compressor.compress_canonical(
             Canonical::Primitive(ends.to_primitive()),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&new_excludes),
         )?;
 
         let compressed_values = compressor.compress_canonical(
             Canonical::Primitive(values.to_primitive()),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&new_excludes),
         )?;
 
@@ -832,8 +786,7 @@ impl Scheme for SequenceScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
         if stats.null_count > 0 {
@@ -856,8 +809,7 @@ impl Scheme for SequenceScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
         if stats.null_count > 0 {

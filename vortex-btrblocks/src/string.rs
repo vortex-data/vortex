@@ -33,12 +33,13 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Compressor;
+use crate::CompressorContext;
 use crate::CompressorStats;
 use crate::Excludes;
 use crate::GenerateStatsOptions;
 use crate::IntCode;
 use crate::Scheme;
-use crate::estimate_compression_ratio_with_sampling;
+use crate::SchemeExt;
 use crate::integer;
 use crate::sample::sample;
 
@@ -233,8 +234,7 @@ impl Scheme for UncompressedScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         _stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<f64> {
         Ok(1.0)
@@ -244,8 +244,7 @@ impl Scheme for UncompressedScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
@@ -264,8 +263,7 @@ impl Scheme for DictScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[StringCode],
     ) -> VortexResult<f64> {
         // If we don't have a sufficiently high number of distinct values, do not attempt Dict.
@@ -278,36 +276,27 @@ impl Scheme for DictScheme {
             return Ok(0.0);
         }
 
-        estimate_compression_ratio_with_sampling(
-            self,
-            compressor,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         let dict = dict_encode(&stats.source().clone().into_array())?;
 
         // If we are not allowed to cascade, do not attempt codes or values compression.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(dict.into_array());
         }
 
         // Find best compressor for codes and values separately
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(dict.codes().to_primitive()),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&[integer::DictScheme.code(), integer::SequenceScheme.code()]),
         )?;
 
@@ -315,8 +304,7 @@ impl Scheme for DictScheme {
         // Currently this will only be FSST.
         let compressed_values = compressor.compress_canonical(
             Canonical::VarBinView(dict.values().to_varbinview()),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::string_only(&[DictScheme.code()]),
         )?;
 
@@ -343,8 +331,7 @@ impl Scheme for FSSTScheme {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
         let fsst = {
@@ -354,15 +341,13 @@ impl Scheme for FSSTScheme {
 
         let compressed_original_lengths = compressor.compress_canonical(
             Canonical::Primitive(fsst.uncompressed_lengths().to_primitive().narrow()?),
-            is_sample,
-            allowed_cascading,
+            ctx,
             Excludes::int_only(&[]),
         )?;
 
         let compressed_codes_offsets = compressor.compress_canonical(
             Canonical::Primitive(fsst.codes().offsets().to_primitive().narrow()?),
-            is_sample,
-            allowed_cascading,
+            ctx,
             Excludes::int_only(&[]),
         )?;
         let compressed_codes = VarBinArray::try_new(
@@ -400,11 +385,10 @@ impl Scheme for ConstantScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        _allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
-        if is_sample {
+        if ctx.is_sample {
             return Ok(0.0);
         }
 
@@ -421,8 +405,7 @@ impl Scheme for ConstantScheme {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
         let scalar_idx =
@@ -459,12 +442,11 @@ impl Scheme for NullDominated {
         &self,
         _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
         // Only use `SparseScheme` if we can cascade.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -486,11 +468,10 @@ impl Scheme for NullDominated {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
 
         // We pass None as we only run this pathway for NULL-dominated string arrays
         let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
@@ -502,8 +483,7 @@ impl Scheme for NullDominated {
             let indices = sparse.patches().indices().to_primitive().narrow()?;
             let compressed_indices = compressor.compress_canonical(
                 Canonical::Primitive(indices),
-                is_sample,
-                allowed_cascading - 1,
+                ctx.descend(),
                 Excludes::int_only(&new_excludes),
             )?;
 

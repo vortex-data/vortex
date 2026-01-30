@@ -78,7 +78,7 @@ impl CompressingStrategy {
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
         let compressor = if exclude_int_dict_encoding {
-            BtrBlocksCompressorBuilder::new()
+            BtrBlocksCompressorBuilder::default()
                 .exclude_int([IntCode::Dict])
                 .build()
         } else {

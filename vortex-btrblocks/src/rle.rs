@@ -15,11 +15,12 @@ use vortex_fastlanes::RLEArray;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
+use crate::CompressorContext;
 use crate::CompressorStats;
 use crate::Excludes;
 use crate::IntCode;
 use crate::Scheme;
-use crate::estimate_compression_ratio_with_sampling;
+use crate::SchemeExt;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
@@ -48,8 +49,7 @@ pub trait RLEConfig: Debug + Send + Sync + 'static {
     fn compress_values(
         compressor: &BtrBlocksCompressor,
         values: &PrimitiveArray,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[Self::Code],
     ) -> VortexResult<ArrayRef>;
 }
@@ -85,12 +85,11 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[C::Code],
     ) -> VortexResult<f64> {
         // RLE is only useful when we cascade it with another encoding.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -105,27 +104,19 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         }
 
         // Run compression on a sample to see how it performs.
-        estimate_compression_ratio_with_sampling(
-            self,
-            compressor,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
         compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[C::Code],
     ) -> VortexResult<ArrayRef> {
         let rle_array = RLEArray::encode(RLEStats::source(stats))?;
 
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(rle_array.into_array());
         }
 
@@ -136,22 +127,19 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         let compressed_values = C::compress_values(
             compressor,
             &rle_array.values().to_primitive(),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             &new_excludes,
         )?;
 
         let compressed_indices = compressor.compress_canonical(
             Canonical::Primitive(rle_array.indices().to_primitive().narrow()?),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&[IntCode::Dict]),
         )?;
 
         let compressed_offsets = compressor.compress_canonical(
             Canonical::Primitive(rle_array.values_idx_offsets().to_primitive().narrow()?),
-            is_sample,
-            allowed_cascading - 1,
+            ctx.descend(),
             Excludes::int_only(&[IntCode::Dict]),
         )?;
 

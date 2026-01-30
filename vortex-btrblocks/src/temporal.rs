@@ -15,8 +15,8 @@ use vortex_error::VortexResult;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
+use crate::CompressorContext;
 use crate::Excludes;
-use crate::MAX_CASCADE;
 
 /// Compress a temporal array into a `DateTimePartsArray`.
 pub fn compress_temporal(
@@ -30,22 +30,21 @@ pub fn compress_temporal(
         subseconds,
     } = split_temporal(array)?;
 
+    let ctx = CompressorContext::default().descend();
+
     let days = compressor.compress_canonical(
         Canonical::Primitive(days.to_primitive().narrow()?),
-        false,
-        MAX_CASCADE - 1,
+        ctx,
         Excludes::int_only(&[]),
     )?;
     let seconds = compressor.compress_canonical(
         Canonical::Primitive(seconds.to_primitive().narrow()?),
-        false,
-        MAX_CASCADE - 1,
+        ctx,
         Excludes::int_only(&[]),
     )?;
     let subseconds = compressor.compress_canonical(
         Canonical::Primitive(subseconds.to_primitive().narrow()?),
-        false,
-        MAX_CASCADE - 1,
+        ctx,
         Excludes::int_only(&[]),
     )?;
 

@@ -13,8 +13,8 @@ use vortex_scalar::DecimalType;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
+use crate::CompressorContext;
 use crate::Excludes;
-use crate::MAX_CASCADE;
 
 // TODO(joe): add support splitting i128/256 buffers into chunks primitive values for compression.
 // 2 for i128 and 4 for i256
@@ -34,8 +34,7 @@ pub fn compress_decimal(
 
     let compressed = compressor.compress_canonical(
         Canonical::Primitive(prim),
-        false,
-        MAX_CASCADE,
+        CompressorContext::default(),
         Excludes::none(),
     )?;
 
