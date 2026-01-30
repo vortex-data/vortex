@@ -134,13 +134,13 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         let compressed_indices = compressor.compress_canonical(
             Canonical::Primitive(rle_array.indices().to_primitive().narrow()?),
             ctx.descend(),
-            Excludes::int_only(&[IntCode::Dict]),
+            Excludes::from(&[IntCode::Dict]),
         )?;
 
         let compressed_offsets = compressor.compress_canonical(
             Canonical::Primitive(rle_array.values_idx_offsets().to_primitive().narrow()?),
             ctx.descend(),
-            Excludes::int_only(&[IntCode::Dict]),
+            Excludes::from(&[IntCode::Dict]),
         )?;
 
         // SAFETY: Recursive compression doesn't affect the invariants.

@@ -35,17 +35,17 @@ pub fn compress_temporal(
     let days = compressor.compress_canonical(
         Canonical::Primitive(days.to_primitive().narrow()?),
         ctx,
-        Excludes::int_only(&[]),
+        Excludes::none(),
     )?;
     let seconds = compressor.compress_canonical(
         Canonical::Primitive(seconds.to_primitive().narrow()?),
         ctx,
-        Excludes::int_only(&[]),
+        Excludes::none(),
     )?;
     let subseconds = compressor.compress_canonical(
         Canonical::Primitive(subseconds.to_primitive().narrow()?),
         ctx,
-        Excludes::int_only(&[]),
+        Excludes::none(),
     )?;
 
     Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())

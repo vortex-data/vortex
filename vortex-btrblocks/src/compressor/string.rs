@@ -299,7 +299,7 @@ impl Scheme for DictScheme {
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(dict.codes().to_primitive()),
             ctx.descend(),
-            Excludes::int_only(&[IntDictScheme.code(), IntSequenceScheme.code()]),
+            Excludes::from(&[IntDictScheme.code(), IntSequenceScheme.code()]),
         )?;
 
         // Attempt to compress the values with non-Dict compression.
@@ -307,7 +307,7 @@ impl Scheme for DictScheme {
         let compressed_values = compressor.compress_canonical(
             Canonical::VarBinView(dict.values().to_varbinview()),
             ctx.descend(),
-            Excludes::string_only(&[DictScheme.code()]),
+            Excludes::from(&[DictScheme.code()]),
         )?;
 
         // SAFETY: compressing codes or values does not alter the invariants
@@ -344,13 +344,13 @@ impl Scheme for FSSTScheme {
         let compressed_original_lengths = compressor.compress_canonical(
             Canonical::Primitive(fsst.uncompressed_lengths().to_primitive().narrow()?),
             ctx,
-            Excludes::int_only(&[]),
+            Excludes::none(),
         )?;
 
         let compressed_codes_offsets = compressor.compress_canonical(
             Canonical::Primitive(fsst.codes().offsets().to_primitive().narrow()?),
             ctx,
-            Excludes::int_only(&[]),
+            Excludes::none(),
         )?;
         let compressed_codes = VarBinArray::try_new(
             compressed_codes_offsets,

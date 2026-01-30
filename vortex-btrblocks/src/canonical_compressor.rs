@@ -120,22 +120,19 @@ impl BtrBlocksCompressor {
         self.compress_canonical(compact, CompressorContext::default(), Excludes::none())
     }
 
-    /// Creates an integer compressor using this compressor's configuration.
-    pub fn integer_compressor(&self) -> IntCompressor<'_> {
+    pub(crate) fn integer_compressor(&self) -> IntCompressor<'_> {
         IntCompressor {
             btr_blocks_compressor: self,
         }
     }
 
-    /// Creates a float compressor using this compressor's configuration.
-    pub fn float_compressor(&self) -> FloatCompressor<'_> {
+    pub(crate) fn float_compressor(&self) -> FloatCompressor<'_> {
         FloatCompressor {
             btr_blocks_compressor: self,
         }
     }
 
-    /// Creates a string compressor using this compressor's configuration.
-    pub fn string_compressor(&self) -> StringCompressor<'_> {
+    pub(crate) fn string_compressor(&self) -> StringCompressor<'_> {
         StringCompressor {
             btr_blocks_compressor: self,
         }
@@ -200,7 +197,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 let compressed_offsets = self.compress_canonical(
                     Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
                     ctx,
-                    Excludes::int_only(&[IntCode::Dict]),
+                    Excludes::from(&[IntCode::Dict]),
                 )?;
 
                 Ok(ListArray::try_new(

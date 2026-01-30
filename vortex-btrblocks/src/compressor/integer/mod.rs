@@ -207,11 +207,7 @@ impl rle::RLEConfig for IntRLEConfig {
         ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        compressor.compress_canonical(
-            Canonical::Primitive(values.clone()),
-            ctx,
-            Excludes::int_only(excludes),
-        )
+        compressor.compress_canonical(Canonical::Primitive(values.clone()), ctx, excludes.into())
     }
 }
 

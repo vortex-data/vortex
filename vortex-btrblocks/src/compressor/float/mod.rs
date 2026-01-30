@@ -178,11 +178,7 @@ impl rle::RLEConfig for FloatRLEConfig {
         ctx: CompressorContext,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        compressor.compress_canonical(
-            Canonical::Primitive(values.clone()),
-            ctx,
-            Excludes::float_only(excludes),
-        )
+        compressor.compress_canonical(Canonical::Primitive(values.clone()), ctx, excludes.into())
     }
 }
 
@@ -438,7 +434,7 @@ impl Scheme for DictScheme {
         let compressed_values = compressor.compress_canonical(
             Canonical::Primitive(values.to_primitive()),
             ctx.descend(),
-            Excludes::float_only(&[FloatCode::Dict]),
+            Excludes::from(&[FloatCode::Dict]),
         )?;
 
         // SAFETY: compressing codes or values does not alter the invariants
