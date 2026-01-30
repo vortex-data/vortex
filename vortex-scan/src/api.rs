@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![deny(missing_docs)]
+
+//! The Vortex Scan API implements an abstract table scan interface that can be used to
+//! read data from various data sources.
+//!
+//! It supports arbitrary projection expressions, filter expressions, and limit pushdown as well
+//! as mechanisms for parallel and distributed execution via splits.
+//!
+//! The API is currently under development and may change in future releases, however we hope to
+//! stabilize into stable C ABI for use within foreign language bindings.
+
 use std::any::Any;
 use std::sync::Arc;
 
@@ -10,25 +21,21 @@ use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 /// Create a Vortex source from serialized configuration.
 ///
 /// Providers can be registered with Vortex under a specific
 #[async_trait(?Send)]
 pub trait DataSourceProvider: 'static {
-    /// URI schemes handled by this source provider.
+    /// Attempt to initialize a new source.
     ///
-    /// TODO(ngates): this might not be the right way to plugin sources.
-    fn schemes(&self) -> &[&str];
-
-    /// Initialize a new source.
-    async fn init_source(&self, uri: String) -> VortexResult<DataSourceRef>;
-
-    /// Serialize a source split to bytes.
-    async fn serialize_split(&self, split: &dyn Split) -> VortexResult<Vec<u8>>;
-
-    /// Deserialize a source split from bytes.
-    async fn deserialize_split(&self, data: &[u8]) -> VortexResult<SplitRef>;
+    /// Returns `Ok(None)` if the provider cannot handle the given URI.
+    async fn initialize(
+        &self,
+        uri: String,
+        session: &VortexSession,
+    ) -> VortexResult<Option<DataSourceRef>>;
 }
 
 /// A reference-counted data source.
@@ -47,8 +54,15 @@ pub trait DataSource: 'static + Send + Sync {
 
     /// Returns a scan over the source.
     async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
+
+    /// Serialize a split from this data source.
+    fn serialize_split(&self, split: &dyn Split) -> VortexResult<Vec<u8>>;
+
+    /// Deserialize a split that was previously serialized from a compatible data source.
+    fn deserialize_split(&self, data: &[u8]) -> VortexResult<SplitRef>;
 }
 
+/// A request to scan a data source.
 #[derive(Debug, Clone, Default)]
 pub struct ScanRequest {
     /// Projection expression, `None` implies `root()`.
@@ -62,8 +76,9 @@ pub struct ScanRequest {
 /// A boxed data source scan.
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
+/// A data source scan produces splits that can be executed to read data from the source.
 #[async_trait]
-pub trait DataSourceScan: 'static + Send + Sync {
+pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
@@ -76,16 +91,19 @@ pub trait DataSourceScan: 'static + Send + Sync {
     async fn next_splits(&mut self, max_splits: usize) -> VortexResult<Vec<SplitRef>>;
 }
 
+/// A stream of splits.
 pub type SplitStream = BoxStream<'static, VortexResult<SplitRef>>;
-pub type SplitRef = Arc<dyn Split>;
+
+/// A reference-counted split.
+pub type SplitRef = Box<dyn Split>;
 
 /// A split represents a unit of work that can be executed to produce a stream of arrays.
-pub trait Split: 'static + Send + Sync {
+pub trait Split: 'static + Send {
     /// Downcast the split to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
     /// Executes the split.
-    fn execute(&self) -> VortexResult<SendableArrayStream>;
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 
     /// Returns an estimate of the row count for this split.
     fn row_count_estimate(&self) -> Estimate<u64>;
@@ -97,8 +115,11 @@ pub trait Split: 'static + Send + Sync {
 /// An estimate that can be exact, an upper bound, or unknown.
 #[derive(Default)]
 pub enum Estimate<T> {
+    /// The exact value.
     Exact(T),
+    /// An upper bound on the value.
     UpperBound(T),
+    /// The value is unknown.
     #[default]
     Unknown,
 }

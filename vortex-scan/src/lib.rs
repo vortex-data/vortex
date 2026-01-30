@@ -6,8 +6,8 @@
 /// We don't actually know if this is right, but it is probably a good estimate.
 const IDEAL_SPLIT_SIZE: u64 = 100_000;
 
+pub mod api;
 pub mod arrow;
-pub mod datasource;
 mod filter;
 pub mod row_mask;
 mod splits;
@@ -22,6 +22,7 @@ pub use split_by::SplitBy;
 mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
+pub mod layout;
 mod repeated_scan;
 #[cfg(test)]
 mod test;
