@@ -11,6 +11,13 @@
 //!
 //! The API is currently under development and may change in future releases, however we hope to
 //! stabilize into stable C ABI for use within foreign language bindings.
+//!
+//! ## Open Issues
+//!
+//! * We probably want to make the DataSource serializable as well, so that we can share
+//!   source-level state with workers, separately from split serialization.
+//! * We should add a way for the client to negotiate capabilities with the data source, for
+//!   example which encodings it knows about.
 
 use std::any::Any;
 use std::sync::Arc;
@@ -44,6 +51,9 @@ pub type DataSourceRef = Arc<dyn DataSource>;
 /// A data source represents a streamable dataset that can be scanned with projection and filter
 /// expressions. Each scan produces splits that can be executed (potentially in parallel) to read
 /// data. Each split can be serialized for remote execution.
+///
+/// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
+/// split of a scan can only be consumed once.
 #[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
