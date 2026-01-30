@@ -43,6 +43,8 @@ use crate::estimate_compression_ratio_with_sampling;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer;
 use crate::patches::compress_patches;
+use crate::rle;
+use crate::rle::RLEScheme;
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> + Send + Sync {}
 
@@ -69,9 +71,9 @@ pub const ALL_FLOAT_SCHEMES: &[&dyn FloatScheme] = &[
     &ConstantScheme,
     &ALPScheme,
     &ALPRDScheme,
-    // &DictScheme,
+    &DictScheme,
     &NullDominated,
-    // &RLE_FLOAT_SCHEME,
+    &RLE_FLOAT_SCHEME,
 ];
 
 /// [`Compressor`] for floating-point numbers.
@@ -80,52 +82,6 @@ pub struct FloatCompressor<'a> {
     /// Reference to the parent compressor.
     pub btr_blocks_compressor: &'a dyn CanonicalCompressor,
 }
-
-// impl Default for FloatCompressor {
-//     fn default() -> Self {
-//         Self {
-//             schemes: ALL_FLOAT_SCHEMES.to_vec(),
-//         }
-//     }
-// }
-
-// impl<'a> FloatCompressor<'a> {
-//     /// Creates a new compressor with all schemes enabled.
-//     // pub fn new() -> Self {
-//     //     Self::
-//     // }
-//
-//     /// Creates a compressor with only the specified schemes.
-//     pub fn with_schemes(schemes: Vec<&'static dyn FloatScheme>) -> Self {
-//         Self { schemes }
-//     }
-//
-//     /// Creates a compressor excluding schemes with the given codes.
-//     pub fn excluding(excludes: &[FloatCode]) -> Self {
-//         Self {
-//             schemes: ALL_FLOAT_SCHEMES
-//                 .iter()
-//                 .filter(|s| !excludes.contains(&s.code()))
-//                 .copied()
-//                 .collect(),
-//         }
-//     }
-//
-//     /// Compress with default settings (static helper for internal use).
-//     pub(crate) fn compress_static(
-//         array: &PrimitiveArray,
-//         is_sample: bool,
-//         allowed_cascading: usize,
-//         excludes: &[FloatCode],
-//     ) -> VortexResult<ArrayRef> {
-//         let compressor = if excludes.is_empty() {
-//             Self::default()
-//         } else {
-//             Self::excluding(excludes)
-//         };
-//         compress(&compressor, array, is_sample, allowed_cascading, excludes)
-//     }
-// }
 
 impl<'a> Compressor for FloatCompressor<'a> {
     type ArrayVTable = PrimitiveVTable;
@@ -203,24 +159,34 @@ struct DictScheme;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominated;
 
-// impl rle::RLEConfig for FloatRLEConfig {
-//     type Stats = FloatStats;
-//     type Code = FloatCode;
-//
-//     const CODE: FloatCode = FloatCode::Rle;
-//
-//     fn compress_values(
-//         values: &PrimitiveArray,
-//         is_sample: bool,
-//         allowed_cascading: usize,
-//         excludes: &[FloatCode],
-//     ) -> VortexResult<ArrayRef> {
-//
-//     }
-// }
-//
-// /// RLE scheme for float compression.
-// pub const RLE_FLOAT_SCHEME: RLEScheme<FloatRLEConfig> = RLEScheme::new();
+/// Configuration for float RLE compression.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct FloatRLEConfig;
+
+impl rle::RLEConfig for FloatRLEConfig {
+    type Stats = FloatStats;
+    type Code = FloatCode;
+
+    const CODE: FloatCode = FloatCode::Rle;
+
+    fn compress_values(
+        compressor: &BtrBlocksCompressor,
+        values: &vortex_array::arrays::PrimitiveArray,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[FloatCode],
+    ) -> VortexResult<ArrayRef> {
+        compressor.compress_canonical(
+            Canonical::Primitive(values.clone()),
+            is_sample,
+            allowed_cascading,
+            Excludes::float_only(excludes),
+        )
+    }
+}
+
+/// RLE scheme for float compression.
+pub const RLE_FLOAT_SCHEME: RLEScheme<FloatRLEConfig> = RLEScheme::new();
 
 impl Scheme for UncompressedScheme {
     type StatsType = FloatStats;
