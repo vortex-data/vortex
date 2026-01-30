@@ -205,17 +205,22 @@ impl VarBinArray {
             vortex_ensure!(is_sorted, "offsets must be sorted");
         }
 
-        let last_offset = offsets
-            .scalar_at(offsets.len() - 1)?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
-        vortex_ensure!(
-            last_offset <= bytes.len(),
-            "Last offset {} exceeds bytes length {}",
-            last_offset,
-            bytes.len()
-        );
+        // Skip host-only validation when buffers are on the GPU.
+        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
+
+        if !offsets_on_device && bytes.is_on_host() {
+            let last_offset = offsets
+                .scalar_at(offsets.len() - 1)?
+                .as_primitive()
+                .as_::<usize>()
+                .ok_or_else(|| vortex_err!("Last offset must be convertible to usize"))?;
+            vortex_ensure!(
+                last_offset <= bytes.len(),
+                "Last offset {} exceeds bytes length {}",
+                last_offset,
+                bytes.len()
+            );
+        }
 
         // Check validity length
         if let Some(validity_len) = validity.maybe_len() {
@@ -227,8 +232,9 @@ impl VarBinArray {
             );
         }
 
-        // Validate UTF-8 for Utf8 dtype
+        // Validate UTF-8 for Utf8 dtype. Skip when buffers are on device.
         if matches!(dtype, DType::Utf8(_))
+            && !offsets_on_device
             && let Some(bytes) = bytes.as_host_opt()
         {
             let primitive_offsets = offsets.to_primitive();
