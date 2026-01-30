@@ -107,7 +107,7 @@ mod common_tests {
         // Write arrow data into a vortex file.
         pub async fn write_arrow_batch<P>(&self, path: P, batch: &RecordBatch) -> anyhow::Result<()>
         where
-            object_store::path::Path: From<P>,
+            P: Into<object_store::path::Path>,
         {
             let array = ArrayRef::from_arrow(batch, false)?;
             let mut write = ObjectStoreWriter::new(self.store.clone(), &path.into()).await?;
