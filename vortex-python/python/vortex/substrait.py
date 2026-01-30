@@ -15,8 +15,14 @@ try:
 except ImportError:
     # substrait < 0.27
     from substrait.gen.proto.algebra_pb2 import Expression, FunctionArgument  # pyright: ignore[reportMissingImports]
-    from substrait.gen.proto.extended_expression_pb2 import ExpressionReference, ExtendedExpression  # pyright: ignore[reportMissingImports]
-    from substrait.gen.proto.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI  # pyright: ignore[reportMissingImports]
+    from substrait.gen.proto.extended_expression_pb2 import (  # pyright: ignore[reportMissingImports]
+        ExpressionReference,
+        ExtendedExpression,
+    )
+    from substrait.gen.proto.extensions.extensions_pb2 import (  # pyright: ignore[reportMissingImports]
+        SimpleExtensionDeclaration,
+        SimpleExtensionURI,
+    )
     from substrait.gen.proto.type_pb2 import NamedStruct  # pyright: ignore[reportMissingImports]
 
 from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
