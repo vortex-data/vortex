@@ -20,6 +20,7 @@ use vortex_array::arrays::StructArrayParts;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
@@ -46,15 +47,10 @@ impl CanonicalCudaExt for Canonical {
                     ..
                 } = struct_array.into_parts();
 
-                let futures = fields
-                    .iter()
-                    .map(|field| field.to_canonical().map(|c| c.into_host()))
-                    .collect::<VortexResult<Vec<_>>>()?;
-                let host_fields = try_join_all(futures).await?;
-                let host_fields = host_fields
-                    .into_iter()
-                    .map(Canonical::into_array)
-                    .collect::<Vec<_>>();
+                let mut host_fields = vec![];
+                for field in fields.iter() {
+                    host_fields.push(field.to_canonical()?.into_host().await?.into_array());
+                }
 
                 Ok(Canonical::Struct(StructArray::new(
                     struct_fields.names().clone(),
@@ -74,9 +70,9 @@ impl CanonicalCudaExt for Canonical {
                     len,
                     ..
                 } = bool.into_parts();
-                Ok(Canonical::Bool(BoolArray::new_handle(
-                    bits, offset, len, validity,
-                )))
+
+                let bits = BitBuffer::new_with_offset(bits.try_into_host()?.await?, offset, len);
+                Ok(Canonical::Bool(BoolArray::new(bits, validity)))
             }
             Canonical::Primitive(prim) => {
                 let PrimitiveArrayParts {

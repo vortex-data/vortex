@@ -7,6 +7,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 use std::ffi::c_void;
+use std::fmt::Debug;
 use std::mem::size_of;
 use std::time::Duration;
 
@@ -124,7 +125,14 @@ async fn run_filter_timed<T: CubFilterable + cudarc::driver::DeviceRepr>(
 /// Benchmark filter for a specific type.
 fn benchmark_filter_type<T>(c: &mut Criterion, type_name: &str)
 where
-    T: CubFilterable + cudarc::driver::DeviceRepr + From<u8> + Clone + Send + Sync + 'static,
+    T: CubFilterable
+        + cudarc::driver::DeviceRepr
+        + From<u8>
+        + Debug
+        + Clone
+        + Send
+        + Sync
+        + 'static,
 {
     let mut group = c.benchmark_group(format!("Filter_cuda_{type_name}"));
     group.sample_size(10);
@@ -161,7 +169,7 @@ where
                             let d_input = d_input_handle
                                 .as_device()
                                 .as_any()
-                                .downcast_ref::<CudaDeviceBuffer<T>>()
+                                .downcast_ref::<CudaDeviceBuffer>()
                                 .unwrap();
 
                             // Copy bitmask to device
@@ -171,7 +179,7 @@ where
                             let d_bitmask = d_bitmask_handle
                                 .as_device()
                                 .as_any()
-                                .downcast_ref::<CudaDeviceBuffer<u8>>()
+                                .downcast_ref::<CudaDeviceBuffer>()
                                 .unwrap();
 
                             // Allocate output and temp buffers

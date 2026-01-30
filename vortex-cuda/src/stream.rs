@@ -3,6 +3,7 @@
 
 //! CUDA stream utility functions.
 
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaSlice;
@@ -33,7 +34,10 @@ impl VortexCudaStream {
     ///
     /// Any kernel submitted to the stream after alloc can safely use the
     /// memory, as operations on the stream are ordered sequentially.
-    pub fn device_alloc<T: DeviceRepr>(&self, len: usize) -> VortexResult<CudaSlice<T>> {
+    pub fn device_alloc<T: DeviceRepr + Send + Sync + 'static>(
+        &self,
+        len: usize,
+    ) -> VortexResult<CudaSlice<T>> {
         // SAFETY: No safety guarantees for allocations on the GPU.
         unsafe {
             self.0
@@ -60,7 +64,7 @@ impl VortexCudaStream {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Send + Sync + 'static,
+        T: DeviceRepr + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         let host_slice: &[T] = data.as_ref();
@@ -94,7 +98,7 @@ impl VortexCudaStream {
     /// # Returns
     ///
     /// A future that resolves to the device buffer handle when the copy completes.
-    pub fn move_to_device<T: DeviceRepr + Send + Sync + 'static>(
+    pub fn move_to_device<T: DeviceRepr + Debug + Send + Sync + 'static>(
         &self,
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
