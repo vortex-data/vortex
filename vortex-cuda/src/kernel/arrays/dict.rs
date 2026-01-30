@@ -129,7 +129,7 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let _cuda_events = crate::launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "dict",
-        ptypes: &[value_ptype.to_string().as_str(), I::PTYPE.to_string().as_str()],
+        ptypes: &[value_ptype, I::PTYPE],
         launch_args: [codes_view, codes_len_u64, values_view, output_view],
         event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
         array_len: codes_len

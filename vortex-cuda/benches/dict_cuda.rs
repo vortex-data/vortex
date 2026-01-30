@@ -101,7 +101,7 @@ fn launch_dict_kernel_timed<V: cudarc::driver::DeviceRepr, I: cudarc::driver::De
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "dict",
-        ptypes: &[value_ptype.to_string().as_str(), code_ptype.to_string().as_str()],
+        ptypes: &[value_ptype, code_ptype],
         launch_args: [codes_view, codes_len_u64, values_view, output_view],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: codes_len
