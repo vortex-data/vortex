@@ -212,6 +212,12 @@ impl RunEndArray {
             return Ok(());
         }
 
+        // Skip host-only validation when buffers are on the GPU.
+        let ends_on_device = ends.buffer_handles().iter().any(|h| h.is_on_device());
+        if ends_on_device {
+            return Ok(());
+        }
+
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
             let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
