@@ -28,7 +28,7 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
-use vortex_bench::conversions::convert_parquet_to_vortex;
+use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
@@ -125,10 +125,12 @@ async fn main() -> anyhow::Result<()> {
         for format in args.formats.iter() {
             match format {
                 Format::OnDiskVortex => {
-                    convert_parquet_to_vortex(&base_path, CompactionStrategy::Default).await?;
+                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
+                        .await?;
                 }
                 Format::VortexCompact => {
-                    convert_parquet_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
+                        .await?;
                 }
                 _ => {}
             }
