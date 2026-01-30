@@ -80,7 +80,6 @@ pub fn take_portable_simd<T, I, const LANE_COUNT: usize>(values: &[T], indices: 
 where
     T: NativePType + simd::SimdElement,
     I: UnsignedPType + simd::SimdElement,
-    simd::LaneCount<LANE_COUNT>: simd::SupportedLaneCount,
     simd::Simd<I, LANE_COUNT>: SimdUint<Cast<usize> = simd::Simd<usize, LANE_COUNT>>,
 {
     let indices_len = indices.len();
