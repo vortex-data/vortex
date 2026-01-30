@@ -127,8 +127,10 @@ mod tests {
         // Test extension scalar
         let ext_scalar = Scalar::extension::<Date>(
             TimeUnit::Days,
-            Scalar::primitive(42i32, Nullability::NonNullable),
-        );
+            Some(jiff::civil::Date::new(1970, 1, 1).unwrap()),
+            Nullability::NonNullable,
+        )
+        .unwrap();
         assert_eq!(ext_scalar.nbytes(), 4); // i32 storage
     }
 

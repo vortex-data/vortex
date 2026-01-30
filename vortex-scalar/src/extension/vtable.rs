@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::hash::Hash;
 
-use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
 use vortex_dtype::Nullability;
 use vortex_dtype::extension::ExtDTypeVTable;
@@ -19,17 +18,7 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
     /// The native value type for this extension scalar.
     /// The `Default` trait should return a value representing `zero`.
     // TODO(ngates): require total ordering?
-    type Value: 'static + Send + Sync + Clone + Debug + Display + PartialEq + Hash;
-
-    /// Return the `zero` value for this extension scalar.
-    fn zero(&self, metadata: &Self::Metadata) -> Self::Value;
-
-    /// Returns the storage dtype for this extension scalar.
-    fn storage_dtype(
-        &self,
-        metadata: &Self::Metadata,
-        nullability: Nullability,
-    ) -> VortexResult<DType>;
+    type Value: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
 
     /// Unpack the native value from the given scalar.
     ///
@@ -40,10 +29,7 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
     fn pack(
         &self,
         metadata: &Self::Metadata,
-        value: Self::Value,
+        value: Option<&Self::Value>,
         nullability: Nullability,
     ) -> VortexResult<Scalar>;
-
-    /// Pack a null value into the storage scalar.
-    fn pack_null(&self, metadata: &Self::Metadata) -> VortexResult<Scalar>;
 }

@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Sub;
+
 use jiff::Span;
 use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
@@ -37,11 +39,20 @@ impl ExtScalarVTable for Time {
     fn pack(
         &self,
         metadata: &Self::Metadata,
-        value: Self::Value,
+        value: Option<&Self::Value>,
         nullability: Nullability,
     ) -> VortexResult<Scalar> {
+        let Some(value) = value else {
+            let ptype = match metadata {
+                TimeUnit::Nanoseconds | TimeUnit::Microseconds => PType::I64,
+                TimeUnit::Milliseconds | TimeUnit::Seconds => PType::I32,
+                TimeUnit::Days => unreachable!("TimeUnit::Days is not supported for Time types"),
+            };
+            return Ok(Scalar::null(DType::Primitive(ptype, Nullability::Nullable)));
+        };
+
         let epoch = jiff::civil::Time::MIN;
-        let span = value - epoch;
+        let span = value.sub(epoch);
         let length = span.get_unit_length(*metadata);
 
         Ok(match metadata {
@@ -55,14 +66,5 @@ impl ExtScalarVTable for Time {
             }
             TimeUnit::Days => unreachable!("TimeUnit::Days is not supported for Time types"),
         })
-    }
-
-    fn pack_null(&self, metadata: &Self::Metadata) -> VortexResult<Scalar> {
-        let ptype = match metadata {
-            TimeUnit::Nanoseconds | TimeUnit::Microseconds => PType::I64,
-            TimeUnit::Milliseconds | TimeUnit::Seconds => PType::I32,
-            TimeUnit::Days => unreachable!("TimeUnit::Days is not supported for Time types"),
-        };
-        Ok(Scalar::null(DType::Primitive(ptype, Nullability::Nullable)))
     }
 }

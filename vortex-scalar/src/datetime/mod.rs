@@ -1,11 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::datetime::AnyTemporal;
+use vortex_dtype::datetime::Date;
+use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
 
-// pub mod date;
-// pub mod time;
-// pub mod timestamp;
+use crate::ExtScalarRef;
+use crate::datetime::timestamp::TimestampValue;
+use crate::extension::Matcher;
+
+pub mod date;
+pub mod time;
+pub mod timestamp;
+
+pub enum TemporalValue<'a> {
+    Time(&'a jiff::civil::Time),
+    Date(&'a jiff::civil::Date),
+    Timestamp(&'a TimestampValue),
+}
+
+impl Matcher for AnyTemporal {
+    type Match<'a> = Option<TemporalValue<'a>>;
+
+    fn try_match<'a>(item: &'a ExtScalarRef) -> Option<Self::Match<'a>> {
+        if let Some(v) = item.value_opt::<Time>() {
+            return Some(v.map(TemporalValue::Time));
+        }
+        if let Some(v) = item.value_opt::<Date>() {
+            return Some(v.map(TemporalValue::Date));
+        }
+        if let Some(v) = item.value_opt::<Timestamp>() {
+            return Some(v.map(TemporalValue::Timestamp));
+        }
+        None
+    }
+}
 
 trait SpanExt {
     fn get_unit_length(&self, time_unit: TimeUnit) -> i64;

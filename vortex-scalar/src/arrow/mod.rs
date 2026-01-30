@@ -128,7 +128,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
-                let storage_scalar = value.as_extension().storage();
+                let storage_scalar = value.as_extension_storage();
                 let primitive = storage_scalar
                     .as_primitive_opt()
                     .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;

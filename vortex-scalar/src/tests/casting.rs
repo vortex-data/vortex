@@ -24,7 +24,7 @@ mod tests {
     use crate::Scalar;
     use crate::ScalarValue;
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct Apples;
     impl ExtDTypeVTable for Apples {
         type Metadata = usize;
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_coercion() {
         // Create an extension type with f16 storage
-        #[derive(Debug, Clone, Default)]
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
         struct F16Ext;
         impl ExtDTypeVTable for F16Ext {
             type Metadata = usize;
@@ -344,8 +344,7 @@ mod tests {
         // Verify the value was coerced to f16
         assert_eq!(
             scalar
-                .as_extension()
-                .storage()
+                .as_extension_storage()
                 .as_primitive()
                 .pvalue()
                 .unwrap(),
@@ -356,7 +355,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_nested_struct_coercion() {
         // Create an extension type with struct storage that contains f16 field
-        #[derive(Debug, Clone, Default)]
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
         struct StructExt;
         impl ExtDTypeVTable for StructExt {
             type Metadata = usize;
@@ -405,8 +404,7 @@ mod tests {
 
         // Verify the struct field was coerced
         let list_elems = scalar
-            .as_extension()
-            .storage()
+            .as_extension_storage()
             .as_struct()
             .fields()
             .vortex_expect("non null")

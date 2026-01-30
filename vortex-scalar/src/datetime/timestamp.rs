@@ -3,6 +3,7 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::ops::Sub;
 
 use jiff::Span;
 use vortex_dtype::DType;
@@ -18,27 +19,17 @@ use crate::ScalarValue;
 use crate::datetime::SpanExt;
 use crate::extension::ExtScalarVTable;
 
-#[derive(Clone, Debug, Hash)]
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TimestampValue {
     Zoned(jiff::Zoned),
-    Unzoned(jiff::civil::DateTime),
-}
-
-impl PartialEq for TimestampValue {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (TimestampValue::Zoned(a), TimestampValue::Zoned(b)) => a == b,
-            (TimestampValue::Unzoned(a), TimestampValue::Unzoned(b)) => a == b,
-            _ => false,
-        }
-    }
+    Unzoned(jiff::Timestamp),
 }
 
 impl Display for TimestampValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             TimestampValue::Zoned(z) => write!(f, "{}", z),
-            TimestampValue::Unzoned(dt) => write!(f, "{}", dt),
+            TimestampValue::Unzoned(ts) => write!(f, "{}", ts),
         }
     }
 }
@@ -48,19 +39,12 @@ impl ExtScalarVTable for Timestamp {
 
     fn zero(&self, metadata: &Self::Metadata) -> Self::Value {
         match &metadata.tz {
-            None => {
-                let epoch = jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)
-                    .vortex_expect("failed to create epoch datetime");
-                TimestampValue::Unzoned(epoch)
-            }
-            Some(tz) => {
-                let epoch = jiff::Timestamp::UNIX_EPOCH;
-                TimestampValue::Zoned(
-                    epoch
-                        .in_tz(tz.as_ref())
-                        .vortex_expect("failed to create zoned epoch"),
-                )
-            }
+            None => TimestampValue::Unzoned(jiff::Timestamp::UNIX_EPOCH),
+            Some(tz) => TimestampValue::Zoned(
+                jiff::Timestamp::UNIX_EPOCH
+                    .in_tz(tz.as_ref())
+                    .vortex_expect("failed to create zoned epoch"),
+            ),
         }
     }
 
@@ -72,7 +56,7 @@ impl ExtScalarVTable for Timestamp {
 
         Ok(match &dtype.metadata().tz {
             None => {
-                let epoch = jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?;
+                let epoch = jiff::Timestamp::UNIX_EPOCH;
                 let span = Span::from_unit_length(v, dtype.metadata().unit);
                 TimestampValue::Unzoned(epoch.checked_add(span)?)
             }
@@ -87,29 +71,27 @@ impl ExtScalarVTable for Timestamp {
     fn pack(
         &self,
         metadata: &Self::Metadata,
-        value: Self::Value,
+        value: Option<&Self::Value>,
         nullability: Nullability,
     ) -> VortexResult<Scalar> {
+        let Some(value) = value else {
+            return Ok(Scalar::null(DType::Primitive(
+                PType::I64,
+                Nullability::Nullable,
+            )));
+        };
+
         match value {
             TimestampValue::Zoned(zoned) => {
-                let epoch = jiff::Timestamp::UNIX_EPOCH;
-                let span = zoned.timestamp() - epoch;
+                let span = zoned.timestamp() - jiff::Timestamp::UNIX_EPOCH;
                 let length = span.get_unit_length(metadata.unit);
                 Ok(Scalar::primitive(length, nullability))
             }
             TimestampValue::Unzoned(datetime) => {
-                let epoch = jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?;
-                let span = datetime - epoch;
+                let span = datetime.sub(jiff::Timestamp::UNIX_EPOCH);
                 let length = span.get_unit_length(metadata.unit);
                 Ok(Scalar::primitive(length, nullability))
             }
         }
-    }
-
-    fn pack_null(&self, _metadata: &Self::Metadata) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Primitive(
-            PType::I64,
-            Nullability::Nullable,
-        )))
     }
 }

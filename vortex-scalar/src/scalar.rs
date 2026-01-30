@@ -158,7 +158,7 @@ impl Scalar {
             DType::Binary(_) => self.as_binary().cast(target),
             DType::Struct(..) => self.as_struct().cast(target),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().cast(target),
-            DType::Extension(..) => self.as_extension().cast(target),
+            DType::Extension(..) => self.as_extension_storage().cast(target),
         }
     }
 
@@ -199,7 +199,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_) => self.as_extension().storage().nbytes(),
+            DType::Extension(_) => self.as_extension_storage().nbytes(),
         }
     }
 
@@ -287,7 +287,7 @@ impl Scalar {
                 .elements()
                 .map(|vals| vals.iter().all(|f| f.is_zero()))
                 .unwrap_or(false),
-            DType::Extension(..) => self.as_extension().storage().is_zero(),
+            DType::Extension(..) => self.as_extension_storage().is_zero(),
         }
     }
 
@@ -472,7 +472,7 @@ impl Scalar {
             return None;
         }
         Some(
-            ExtScalar::try_from_scalar(ext_dtype, &self.value)
+            ExtScalar::try_from_scalar(ext_dtype.clone(), &self.value)
                 .vortex_expect("Failed to convert scalar to extension"),
         )
     }
@@ -483,14 +483,22 @@ impl Scalar {
     ///
     /// Panics if the scalar is not an extension type.
     pub fn as_extension_ref(&self) -> ExtScalarRef {
-        // ExtScalarRef::try_from(self).vortex_expect("Failed to convert scalar to extension")
-        todo!()
+        ExtScalarRef::ExtScalarRef::try_from(self)
+            .vortex_expect("Failed to convert scalar to extension")
     }
 
     /// Returns a view of the scalar as an extension scalar if it has an extension type.
     pub fn as_extension_ref_opt(&self) -> Option<ExtScalarRef> {
         todo!()
         // matches!(self.dtype, DType::Extension(..)).then(|| self.as_extension_ref())
+    }
+
+    /// Returns the storage scalar for this extension scalar.
+    ///
+    /// This is cheaper than going via `as_extension().storage()`.
+    pub fn as_extension_storage(&self) -> Scalar {
+        let storage_dtype = self.dtype.as_extension().storage_dtype();
+        Scalar::new(storage_dtype.clone(), self.value.clone())
     }
 }
 
@@ -569,7 +577,7 @@ impl PartialEq for Scalar {
             DType::Binary(_) => self.as_binary() == other.as_binary(),
             DType::Struct(..) => self.as_struct() == other.as_struct(),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list() == other.as_list(),
-            DType::Extension(_) => self.as_extension() == other.as_extension(),
+            DType::Extension(_) => self.as_extension_storage() == other.as_extension_storage(),
         }
     }
 }
@@ -620,7 +628,9 @@ impl PartialOrd for Scalar {
             DType::List(..) | DType::FixedSizeList(..) => {
                 self.as_list().partial_cmp(&other.as_list())
             }
-            DType::Extension(_) => self.as_extension().partial_cmp(&other.as_extension()),
+            DType::Extension(_) => self
+                .as_extension_storage()
+                .partial_cmp(&other.as_extension_storage()),
         }
     }
 }
@@ -636,7 +646,7 @@ impl Hash for Scalar {
             DType::Binary(_) => self.as_binary().hash(state),
             DType::Struct(..) => self.as_struct().hash(state),
             DType::List(..) | DType::FixedSizeList(..) => self.as_list().hash(state),
-            DType::Extension(_) => self.as_extension().hash(state),
+            DType::Extension(_) => self.as_extension_storage().hash(state),
         }
     }
 }
