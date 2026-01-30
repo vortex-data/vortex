@@ -120,7 +120,9 @@ fn nvcc_compile_ptx(include_dir: &Path, output_dir: &Path, cu_path: &Path) -> io
     }
 
     // Output PTX file goes to output_dir with same base name
-    let ptx_path = output_dir.join(cu_path.file_name().unwrap()).with_extension("ptx");
+    let ptx_path = output_dir
+        .join(cu_path.file_name().unwrap())
+        .with_extension("ptx");
 
     cmd.arg("-std=c++17")
         .arg("-arch=native")
