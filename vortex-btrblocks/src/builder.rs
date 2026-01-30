@@ -3,14 +3,22 @@
 
 //! Builder for configuring `BtrBlocksCompressor` instances.
 
-use enum_iterator::all;
+use itertools::Itertools;
 use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
-use crate::BtrBlocksCompressorConfig;
 use crate::FloatCode;
+use crate::FloatCompressor;
 use crate::IntCode;
+use crate::IntCompressor;
 use crate::StringCode;
+use crate::StringCompressor;
+use crate::float::ALL_FLOAT_SCHEMES;
+use crate::float::FloatScheme;
+use crate::integer::ALL_INT_SCHEMES;
+use crate::integer::IntegerScheme;
+use crate::string::ALL_STRING_SCHEMES;
+use crate::string::StringScheme;
 
 /// Builder for creating configured [`BtrBlocksCompressor`] instances.
 ///
@@ -38,9 +46,9 @@ use crate::StringCode;
 /// ```
 #[derive(Debug, Clone)]
 pub struct BtrBlocksCompressorBuilder {
-    int_schemes: HashSet<IntCode>,
-    float_schemes: HashSet<FloatCode>,
-    string_schemes: HashSet<StringCode>,
+    int_schemes: HashSet<&'static dyn IntegerScheme>,
+    float_schemes: HashSet<&'static dyn FloatScheme>,
+    string_schemes: HashSet<&'static dyn StringScheme>,
 }
 
 impl Default for BtrBlocksCompressorBuilder {
@@ -53,9 +61,9 @@ impl BtrBlocksCompressorBuilder {
     /// Creates a new builder with all schemes enabled.
     pub fn new() -> Self {
         Self {
-            int_schemes: all::<IntCode>().collect(),
-            float_schemes: all::<FloatCode>().collect(),
-            string_schemes: all::<StringCode>().collect(),
+            int_schemes: ALL_INT_SCHEMES.iter().copied().collect(),
+            float_schemes: ALL_FLOAT_SCHEMES.iter().copied().collect(),
+            string_schemes: ALL_STRING_SCHEMES.iter().copied().collect(),
         }
     }
 
@@ -70,10 +78,9 @@ impl BtrBlocksCompressorBuilder {
     ///     .exclude_int([IntCode::Dict, IntCode::Rle])
     ///     .build();
     /// ```
-    pub fn exclude_int(mut self, schemes: impl IntoIterator<Item = IntCode>) -> Self {
-        for scheme in schemes {
-            self.int_schemes.remove(&scheme);
-        }
+    pub fn exclude_int(mut self, codes: impl IntoIterator<Item = IntCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        self.int_schemes.retain(|s| !codes.contains(&s.code()));
         self
     }
 
@@ -88,10 +95,9 @@ impl BtrBlocksCompressorBuilder {
     ///     .exclude_float([FloatCode::Dict, FloatCode::Alp])
     ///     .build();
     /// ```
-    pub fn exclude_float(mut self, schemes: impl IntoIterator<Item = FloatCode>) -> Self {
-        for scheme in schemes {
-            self.float_schemes.remove(&scheme);
-        }
+    pub fn exclude_float(mut self, codes: impl IntoIterator<Item = FloatCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        self.float_schemes.retain(|s| !codes.contains(&s.code()));
         self
     }
 
@@ -106,10 +112,9 @@ impl BtrBlocksCompressorBuilder {
     ///     .exclude_string([StringCode::Dict, StringCode::Fsst])
     ///     .build();
     /// ```
-    pub fn exclude_string(mut self, schemes: impl IntoIterator<Item = StringCode>) -> Self {
-        for scheme in schemes {
-            self.string_schemes.remove(&scheme);
-        }
+    pub fn exclude_string(mut self, codes: impl IntoIterator<Item = StringCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        self.string_schemes.retain(|s| !codes.contains(&s.code()));
         self
     }
 
@@ -125,8 +130,13 @@ impl BtrBlocksCompressorBuilder {
     ///     .include_int([IntCode::Dict]) // re-enables Dict
     ///     .build();
     /// ```
-    pub fn include_int(mut self, schemes: impl IntoIterator<Item = IntCode>) -> Self {
-        self.int_schemes.extend(schemes);
+    pub fn include_int(mut self, codes: impl IntoIterator<Item = IntCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        for scheme in ALL_INT_SCHEMES {
+            if codes.contains(&scheme.code()) {
+                self.int_schemes.insert(*scheme);
+            }
+        }
         self
     }
 
@@ -142,8 +152,13 @@ impl BtrBlocksCompressorBuilder {
     ///     .include_float([FloatCode::Alp]) // re-enables Alp
     ///     .build();
     /// ```
-    pub fn include_float(mut self, schemes: impl IntoIterator<Item = FloatCode>) -> Self {
-        self.float_schemes.extend(schemes);
+    pub fn include_float(mut self, codes: impl IntoIterator<Item = FloatCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        for scheme in ALL_FLOAT_SCHEMES {
+            if codes.contains(&scheme.code()) {
+                self.float_schemes.insert(*scheme);
+            }
+        }
         self
     }
 
@@ -159,18 +174,22 @@ impl BtrBlocksCompressorBuilder {
     ///     .include_string([StringCode::Dict]) // re-enables Dict
     ///     .build();
     /// ```
-    pub fn include_string(mut self, schemes: impl IntoIterator<Item = StringCode>) -> Self {
-        self.string_schemes.extend(schemes);
+    pub fn include_string(mut self, codes: impl IntoIterator<Item = StringCode>) -> Self {
+        let codes: HashSet<_> = codes.into_iter().collect();
+        for scheme in ALL_STRING_SCHEMES {
+            if codes.contains(&scheme.code()) {
+                self.string_schemes.insert(*scheme);
+            }
+        }
         self
     }
 
     /// Builds the configured `BtrBlocksCompressor`.
     pub fn build(self) -> BtrBlocksCompressor {
-        let config = BtrBlocksCompressorConfig::from_schemes(
-            self.int_schemes,
-            self.float_schemes,
-            self.string_schemes,
-        );
-        BtrBlocksCompressor::from_config(config)
+        BtrBlocksCompressor {
+            int_schemes: self.int_schemes.into_iter().collect_vec(),
+            float_schemes: self.float_schemes.into_iter().collect_vec(),
+            string_schemes: self.string_schemes.into_iter().collect_vec(),
+        }
     }
 }

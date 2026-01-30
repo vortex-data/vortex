@@ -10298,6 +10298,7 @@ dependencies = [
  "rustc-hash",
  "test-with",
  "tracing",
+ "tracing-subscriber",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",

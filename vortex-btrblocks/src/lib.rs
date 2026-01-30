@@ -37,9 +37,8 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::hash::Hasher;
 
-use enum_iterator::all;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -62,7 +61,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::decimal::compress_decimal;
 pub use crate::float::FloatCode;
@@ -89,6 +87,62 @@ mod string;
 mod temporal;
 
 pub use builder::BtrBlocksCompressorBuilder;
+
+use crate::float::FloatScheme;
+use crate::integer::IntegerScheme;
+use crate::string::StringScheme;
+
+/// Holds references to exclude lists for each compression code type.
+///
+/// This struct is passed through recursive compression calls to specify
+/// which schemes should be excluded at each level.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Excludes<'a> {
+    /// Integer schemes to exclude.
+    pub int: &'a [IntCode],
+    /// Float schemes to exclude.
+    pub float: &'a [FloatCode],
+    /// String schemes to exclude.
+    pub string: &'a [StringCode],
+}
+
+impl<'a> Excludes<'a> {
+    /// Creates an empty excludes (no exclusions).
+    pub const fn none() -> Self {
+        Self {
+            int: &[],
+            float: &[],
+            string: &[],
+        }
+    }
+
+    /// Creates excludes with only integer exclusions.
+    pub const fn int_only(int: &'a [IntCode]) -> Self {
+        Self {
+            int,
+            float: &[],
+            string: &[],
+        }
+    }
+
+    /// Creates excludes with only float exclusions.
+    pub const fn float_only(float: &'a [FloatCode]) -> Self {
+        Self {
+            int: &[],
+            float,
+            string: &[],
+        }
+    }
+
+    /// Creates excludes with only string exclusions.
+    pub const fn string_only(string: &'a [StringCode]) -> Self {
+        Self {
+            int: &[],
+            float: &[],
+            string,
+        }
+    }
+}
 
 /// Configures how stats are generated.
 pub struct GenerateStatsOptions {
@@ -171,6 +225,7 @@ pub trait Scheme: Debug {
     /// Returns the estimated compression ratio as well as the tree of compressors to use.
     fn expected_compression_ratio(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
@@ -178,6 +233,7 @@ pub trait Scheme: Debug {
     ) -> VortexResult<f64> {
         estimate_compression_ratio_with_sampling(
             self,
+            compressor,
             stats,
             is_sample,
             allowed_cascading,
@@ -188,6 +244,7 @@ pub trait Scheme: Debug {
     /// Compress the input with this scheme, yielding a new array.
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
@@ -195,8 +252,21 @@ pub trait Scheme: Debug {
     ) -> VortexResult<ArrayRef>;
 }
 
+impl<C: Copy + Eq + Hash, V: CompressorStats> PartialEq for dyn Scheme<CodeType = C, StatsType = V> {
+    fn eq(&self, other: &Self) -> bool {
+        self.code() == other.code()
+    }
+}
+impl<C: Copy + Eq + Hash, V: CompressorStats> Eq for dyn Scheme<CodeType = C, StatsType = V> {}
+impl<C: Copy + Eq + Hash, V: CompressorStats> Hash for dyn Scheme<CodeType = C, StatsType = V> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
+}
+
 fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
-    compressor: &T,
+    scheme: &T,
+    btr_blocks_compressor: &BtrBlocksCompressor,
     stats: &T::StatsType,
     is_sample: bool,
     allowed_cascading: usize,
@@ -230,13 +300,19 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         stats.sample(SAMPLE_SIZE, sample_count)
     };
 
-    let after = compressor
-        .compress(&sample, true, allowed_cascading, excludes)?
+    let after = scheme
+        .compress(
+            btr_blocks_compressor,
+            &sample,
+            true,
+            allowed_cascading,
+            excludes,
+        )?
         .nbytes();
     let before = sample.source().nbytes();
 
     tracing::debug!(
-        "estimate_compression_ratio_with_sampling(compressor={compressor:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}",
+        "estimate_compression_ratio_with_sampling(compressor={scheme:#?} is_sample={is_sample}, allowed_cascading={allowed_cascading}) = {}",
         before as f64 / after as f64
     );
 
@@ -262,52 +338,13 @@ pub trait Compressor {
     /// The statistics type used to analyze arrays for compression.
     type StatsType: CompressorStats<ArrayVTable = Self::ArrayVTable>;
 
+    /// Generates statistics for the given array to guide compression scheme selection.
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType;
+
     /// Returns all available compression schemes for this compressor.
-    fn schemes() -> &'static [&'static Self::SchemeType];
+    fn schemes(&self) -> &[&'static Self::SchemeType];
     /// Returns the default fallback compression scheme.
-    fn default_scheme() -> &'static Self::SchemeType;
-    /// Returns the scheme code for dictionary compression.
-    fn dict_scheme_code() -> <Self::SchemeType as Scheme>::CodeType;
-
-    /// Compresses an array using the optimal compression scheme.
-    ///
-    /// Generates statistics on the input array, selects the best compression scheme,
-    /// and applies it. Returns the original array if compression would increase size.
-    fn compress(
-        array: &<Self::ArrayVTable as VTable>::Array,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[<Self::SchemeType as Scheme>::CodeType],
-    ) -> VortexResult<ArrayRef>
-    where
-        Self::SchemeType: 'static,
-    {
-        // Avoid compressing empty arrays.
-        if array.is_empty() {
-            return Ok(array.to_array());
-        }
-
-        // Generate stats on the array directly.
-        let stats = if excludes.contains(&Self::dict_scheme_code()) {
-            Self::StatsType::generate_opts(
-                array,
-                GenerateStatsOptions {
-                    count_distinct_values: false,
-                },
-            )
-        } else {
-            Self::StatsType::generate(array)
-        };
-        let best_scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
-
-        let output = best_scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
-        if output.nbytes() < array.nbytes() {
-            Ok(output)
-        } else {
-            tracing::debug!("resulting tree too large: {}", output.display_tree());
-            Ok(array.to_array())
-        }
-    }
+    fn default_scheme(&self) -> &'static Self::SchemeType;
 
     /// Selects the best compression scheme based on expected compression ratios.
     ///
@@ -316,6 +353,8 @@ pub trait Compressor {
     /// if no scheme provides compression benefits.
     #[allow(clippy::cognitive_complexity)]
     fn choose_scheme(
+        &self,
+        compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
@@ -327,7 +366,8 @@ pub trait Compressor {
         // logging helpers
         let depth = MAX_CASCADE - allowed_cascading;
 
-        for scheme in Self::schemes().iter() {
+        for scheme in self.schemes().iter() {
+            // Skip excluded schemes
             if excludes.contains(&scheme.code()) {
                 continue;
             }
@@ -337,10 +377,21 @@ pub trait Compressor {
                 continue;
             }
 
-            tracing::trace!(is_sample, depth, ?scheme, "Trying compression scheme");
+            tracing::trace!(
+                is_sample,
+                depth,
+                is_constant = scheme.is_constant(),
+                ?scheme,
+                "Trying compression scheme"
+            );
 
-            let ratio =
-                scheme.expected_compression_ratio(stats, is_sample, allowed_cascading, excludes)?;
+            let ratio = scheme.expected_compression_ratio(
+                compressor,
+                stats,
+                is_sample,
+                allowed_cascading,
+                excludes,
+            )?;
             tracing::trace!(
                 is_sample,
                 depth,
@@ -366,52 +417,54 @@ pub trait Compressor {
         if let Some(best) = best_scheme {
             Ok(best)
         } else {
-            Ok(Self::default_scheme())
+            Ok(self.default_scheme())
         }
     }
 }
 
-/// Configuration for allowed compression schemes.
+/// Compresses an array using the given compressor.
 ///
-/// This is immutable after construction and can be shared across multiple compression calls.
-/// Use [`BtrBlocksCompressorBuilder`] to create a custom configuration.
-#[derive(Debug, Clone)]
-pub struct BtrBlocksCompressorConfig {
-    /// Allowed integer compression schemes.
-    int_schemes: HashSet<IntCode>,
+/// Generates statistics on the input array, selects the best compression scheme,
+/// and applies it. Returns the original array if compression would increase size.
+pub fn compress<C: Compressor>(
+    c: &C,
+    compressor: &BtrBlocksCompressor,
+    array: &<<C as Compressor>::ArrayVTable as VTable>::Array,
+    is_sample: bool,
+    allowed_cascading: usize,
+    excludes: &[<C::SchemeType as Scheme>::CodeType],
+) -> VortexResult<ArrayRef>
+where
+    <C as Compressor>::SchemeType: 'static,
+{
+    // Avoid compressing empty arrays.
+    if array.is_empty() {
+        return Ok(array.to_array());
+    }
 
-    /// Allowed float compression schemes.
-    float_schemes: HashSet<FloatCode>,
+    // Generate stats on the array directly.
+    let stats = c.gen_stats(array);
+    let best_scheme =
+        c.choose_scheme(compressor, &stats, is_sample, allowed_cascading, excludes)?;
 
-    /// Allowed string compression schemes.
-    string_schemes: HashSet<StringCode>,
-}
-
-impl Default for BtrBlocksCompressorConfig {
-    fn default() -> Self {
-        Self {
-            int_schemes: all::<IntCode>().collect(),
-            float_schemes: all::<FloatCode>().collect(),
-            string_schemes: all::<StringCode>().collect(),
-        }
+    let output =
+        best_scheme.compress(compressor, &stats, is_sample, allowed_cascading, excludes)?;
+    if output.nbytes() < array.nbytes() {
+        Ok(output)
+    } else {
+        tracing::debug!("resulting tree too large: {}", output.display_tree());
+        Ok(array.to_array())
     }
 }
 
-impl BtrBlocksCompressorConfig {
-    /// Creates a config from the given allowed schemes.
-    ///
-    /// This is used by [`BtrBlocksCompressorBuilder::build`].
-    pub(crate) fn from_schemes(
-        int_schemes: HashSet<IntCode>,
-        float_schemes: HashSet<FloatCode>,
-        string_schemes: HashSet<StringCode>,
-    ) -> Self {
-        Self {
-            int_schemes,
-            float_schemes,
-            string_schemes,
-        }
-    }
+trait CanonicalCompressor {
+    fn compress_canonical(
+        &self,
+        array: Canonical,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: Excludes,
+    ) -> VortexResult<ArrayRef>;
 }
 
 /// The main compressor type implementing BtrBlocks-inspired compression.
@@ -441,105 +494,24 @@ impl BtrBlocksCompressorConfig {
 ///     .exclude_int([IntCode::Dict])
 ///     .build();
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Clone, Default)]
 pub struct BtrBlocksCompressor {
-    /// Immutable configuration for allowed schemes.
-    config: Arc<BtrBlocksCompressorConfig>,
+    /// Integer compressor with configured schemes.
+    pub int_schemes: Vec<&'static dyn IntegerScheme>,
 
-    /// Runtime integer excludes used during recursion.
-    int_excludes: Vec<IntCode>,
+    /// Float compressor with configured schemes.
+    // float_compressor: FloatCompressor,
+    pub float_schemes: Vec<&'static dyn FloatScheme>,
 
-    /// Runtime float excludes used during recursion.
-    float_excludes: Vec<FloatCode>,
-
-    /// Runtime string excludes used during recursion.
-    string_excludes: Vec<StringCode>,
-}
-
-impl Default for BtrBlocksCompressor {
-    fn default() -> Self {
-        Self {
-            config: Arc::new(BtrBlocksCompressorConfig::default()),
-            int_excludes: Vec::new(),
-            float_excludes: Vec::new(),
-            string_excludes: Vec::new(),
-        }
-    }
+    /// String compressor with configured schemes.
+    pub string_schemes: Vec<&'static dyn StringScheme>,
+    // string_compressor: StringCompressor,
 }
 
 impl BtrBlocksCompressor {
     /// Creates a new compressor with default settings (all schemes allowed).
     pub fn new() -> Self {
         Self::default()
-    }
-
-    /// Creates a compressor from a config.
-    ///
-    /// This is used by [`BtrBlocksCompressorBuilder::build`].
-    pub(crate) fn from_config(config: BtrBlocksCompressorConfig) -> Self {
-        Self {
-            config: Arc::new(config),
-            int_excludes: Vec::new(),
-            float_excludes: Vec::new(),
-            string_excludes: Vec::new(),
-        }
-    }
-
-    fn int_excludes(&self) -> Vec<IntCode> {
-        all::<IntCode>()
-            .filter(|c| !self.config.int_schemes.contains(c) || self.int_excludes.contains(c))
-            .collect()
-    }
-
-    fn float_excludes(&self) -> Vec<FloatCode> {
-        all::<FloatCode>()
-            .filter(|c| !self.config.float_schemes.contains(c) || self.float_excludes.contains(c))
-            .collect()
-    }
-
-    fn string_excludes(&self) -> Vec<StringCode> {
-        all::<StringCode>()
-            .filter(|c| !self.config.string_schemes.contains(c) || self.string_excludes.contains(c))
-            .collect()
-    }
-
-    /// Returns a new compressor with additional runtime int excludes for recursion.
-    #[allow(dead_code)]
-    fn with_int_excludes(&self, excludes: impl IntoIterator<Item = IntCode>) -> Self {
-        let mut int_excludes = self.int_excludes.clone();
-        int_excludes.extend(excludes);
-        Self {
-            config: Arc::clone(&self.config),
-            int_excludes,
-            float_excludes: self.float_excludes.clone(),
-            string_excludes: self.string_excludes.clone(),
-        }
-    }
-
-    /// Returns a new compressor with additional runtime float excludes for recursion.
-    #[allow(dead_code)]
-    fn with_float_excludes(&self, excludes: impl IntoIterator<Item = FloatCode>) -> Self {
-        let mut float_excludes = self.float_excludes.clone();
-        float_excludes.extend(excludes);
-        Self {
-            config: Arc::clone(&self.config),
-            int_excludes: self.int_excludes.clone(),
-            float_excludes,
-            string_excludes: self.string_excludes.clone(),
-        }
-    }
-
-    /// Returns a new compressor with additional runtime string excludes for recursion.
-    #[allow(dead_code)]
-    fn with_string_excludes(&self, excludes: impl IntoIterator<Item = StringCode>) -> Self {
-        let mut string_excludes = self.string_excludes.clone();
-        string_excludes.extend(excludes);
-        Self {
-            config: Arc::clone(&self.config),
-            int_excludes: self.int_excludes.clone(),
-            float_excludes: self.float_excludes.clone(),
-            string_excludes,
-        }
     }
 
     /// Compresses an array using BtrBlocks-inspired compression.
@@ -552,30 +524,48 @@ impl BtrBlocksCompressor {
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
 
-        self.compress_canonical(compact)
+        self.compress_canonical(compact, Excludes::none())
     }
+}
 
+impl CanonicalCompressor for BtrBlocksCompressor {
     /// Compresses a canonical array by dispatching to type-specific compressors.
     ///
     /// Recursively compresses nested structures and applies optimal schemes for each data type.
-    pub fn compress_canonical(&self, array: Canonical) -> VortexResult<ArrayRef> {
+    fn compress_canonical<'a>(
+        &self,
+        array: Canonical,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: Excludes<'a>,
+    ) -> VortexResult<ArrayRef> {
         match array {
             Canonical::Null(null_array) => Ok(null_array.into_array()),
             // TODO(aduffy): Sparse, other bool compressors.
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    IntCompressor::compress(&primitive, false, MAX_CASCADE, &self.int_excludes())
+                    // compress(
+                    //     &self.int_schemes,
+                    //     &primitive,
+                    //     false,
+                    //     MAX_CASCADE,
+                    //     excludes.int,
+                    // )
+                    todo!()
                 } else {
-                    FloatCompressor::compress(
+                    compress(
+                        &FloatCompressor {
+                            btr_blocks_compressor: &self,
+                        },
                         &primitive,
                         false,
                         MAX_CASCADE,
-                        &self.float_excludes(),
+                        excludes.float,
                     )
                 }
             }
-            Canonical::Decimal(decimal) => compress_decimal(&decimal),
+            Canonical::Decimal(decimal) => compress_decimal(self, &decimal),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
                     .unmasked_fields()
@@ -607,7 +597,7 @@ impl BtrBlocksCompressor {
                 // we guarantee above that all elements are referenced by offsets, we may narrow the
                 // widths.
 
-                let compressed_offsets = IntCompressor::compress_no_dict(
+                let compressed_offsets = IntCompressor::compress_no_dict_static(
                     &list_array.offsets().to_primitive().narrow()?,
                     false,
                     MAX_CASCADE,
@@ -637,12 +627,14 @@ impl BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    StringCompressor::compress(
-                        &strings,
-                        false,
-                        MAX_CASCADE,
-                        &self.string_excludes(),
-                    )
+                    // compress(
+                    //     &self.string_schemes,
+                    //     &strings,
+                    //     false,
+                    //     MAX_CASCADE,
+                    //     excludes.string,
+                    // )
+                    todo!()
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())
@@ -678,6 +670,56 @@ impl BtrBlocksCompressor {
                         .into_array(),
                 )
             }
+        }
+    }
+}
+
+/// Context passed through recursive compression calls.
+#[derive(Debug, Clone, Copy)]
+pub struct CompressorContext<'a> {
+    /// Whether we're compressing a sample (for ratio estimation).
+    pub is_sample: bool,
+    /// Remaining cascade depth allowed.
+    pub allowed_cascading: usize,
+    /// Schemes to exclude at this level.
+    pub excludes: Excludes<'a>,
+}
+
+impl<'a> CompressorContext<'a> {
+    /// Creates a new context for top-level compression.
+    pub fn new(allowed_cascading: usize) -> Self {
+        Self {
+            is_sample: false,
+            allowed_cascading,
+            excludes: Excludes::none(),
+        }
+    }
+
+    /// Creates a context for sample-based compression ratio estimation.
+    pub fn for_sample(allowed_cascading: usize) -> Self {
+        Self {
+            is_sample: true,
+            allowed_cascading,
+            excludes: Excludes::none(),
+        }
+    }
+
+    /// Returns a new context with decremented cascade depth.
+    pub fn decrement_cascade(self) -> Self {
+        Self {
+            allowed_cascading: self.allowed_cascading.saturating_sub(1),
+            ..self
+        }
+    }
+
+    /// Returns a new context with additional integer excludes.
+    pub fn with_int_excludes(self, int: &'a [IntCode]) -> Self {
+        Self {
+            excludes: Excludes {
+                int,
+                ..self.excludes
+            },
+            ..self
         }
     }
 }

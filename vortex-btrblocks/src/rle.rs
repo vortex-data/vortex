@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
@@ -11,6 +12,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 
+use crate::BtrBlocksCompressor;
 use crate::CompressorStats;
 use crate::Scheme;
 use crate::estimate_compression_ratio_with_sampling;
@@ -19,53 +21,69 @@ use crate::integer::IntCompressor;
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
 
+/// Trait for accessing RLE-specific statistics.
 pub trait RLEStats {
     fn value_count(&self) -> u32;
     fn average_run_length(&self) -> u32;
     fn source(&self) -> &PrimitiveArray;
 }
 
-/// RLE scheme that is generic over stats and code.
-#[derive(Debug, Clone, Copy)]
-pub struct RLEScheme<Stats, Code> {
-    pub code: Code,
-    /// Function to compress values
-    pub compress_values_fn: fn(&PrimitiveArray, bool, usize, &[Code]) -> VortexResult<ArrayRef>,
-    /// Phantom data to tie the scheme to specific stats type
-    _phantom: std::marker::PhantomData<Stats>,
+/// Configuration trait for RLE schemes.
+///
+/// Implement this trait to define the behavior of an RLE scheme for a specific
+/// stats and code type combination.
+pub trait RLEConfig: Debug + Send + Sync + 'static {
+    /// The statistics type used by this RLE scheme.
+    type Stats: RLEStats + CompressorStats;
+    /// The code type used to identify schemes.
+    type Code: Copy + Clone + Debug + Hash + PartialEq + Eq;
+
+    /// The unique code identifying this RLE scheme.
+    const CODE: Self::Code;
+
+    /// Compress the values array after RLE encoding.
+    fn compress_values(
+        values: &PrimitiveArray,
+        is_sample: bool,
+        allowed_cascading: usize,
+        excludes: &[Self::Code],
+    ) -> VortexResult<ArrayRef>;
 }
 
-impl<S, C> RLEScheme<S, C> {
-    pub const fn new(
-        code: C,
-        compress_values_fn: fn(&PrimitiveArray, bool, usize, &[C]) -> VortexResult<ArrayRef>,
-    ) -> Self {
-        Self {
-            code,
-            compress_values_fn,
-            _phantom: std::marker::PhantomData,
-        }
+/// RLE scheme that is generic over a configuration type.
+///
+/// This is a ZST (zero-sized type) - all behavior is defined by the `RLEConfig` trait.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RLEScheme<C: RLEConfig>(PhantomData<C>);
+
+impl<C: RLEConfig> RLEScheme<C> {
+    /// Creates a new RLE scheme.
+    pub const fn new() -> Self {
+        Self(PhantomData)
     }
 }
 
-impl<S, C> Scheme for RLEScheme<S, C>
-where
-    S: RLEStats + CompressorStats,
-    C: Copy + Clone + Debug + Hash + PartialEq + Eq,
-{
-    type StatsType = S;
-    type CodeType = C;
+impl<C: RLEConfig> Default for RLEScheme<C> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    fn code(&self) -> C {
-        self.code
+impl<C: RLEConfig> Scheme for RLEScheme<C> {
+    type StatsType = C::Stats;
+    type CodeType = C::Code;
+
+    fn code(&self) -> C::Code {
+        C::CODE
     }
 
     fn expected_compression_ratio(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[C],
+        excludes: &[C::Code],
     ) -> VortexResult<f64> {
         // RLE is only useful when we cascade it with another encoding.
         if allowed_cascading == 0 {
@@ -85,6 +103,7 @@ where
         // Run compression on a sample to see how it performs.
         estimate_compression_ratio_with_sampling(
             self,
+            compressor,
             stats,
             is_sample,
             allowed_cascading,
@@ -94,10 +113,11 @@ where
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[C],
+        excludes: &[C::Code],
     ) -> VortexResult<ArrayRef> {
         let rle_array = RLEArray::encode(RLEStats::source(stats))?;
 
@@ -109,34 +129,21 @@ where
         let mut new_excludes = vec![self.code()];
         new_excludes.extend_from_slice(excludes);
 
-        let compressed_values = (self.compress_values_fn)(
+        let compressed_values = C::compress_values(
             &rle_array.values().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
         )?;
 
-        // NOTE(aduffy): this encoding appears to be faulty, and was causing Undefined Behavior
-        //  checks to trigger in the gharchive benchmark dataset decompression.
-        // Delta in an unstable encoding, once we deem it stable we can switch over to this always.
-        // #[cfg(feature = "unstable_encodings")]
-        // // For indices and offsets, we always use integer compression without dictionary encoding.
-        // let compressed_indices = try_compress_delta(
-        //     &rle_array.indices().to_primitive().narrow()?,
-        //     is_sample,
-        //     allowed_cascading - 1,
-        //     &[],
-        // )?;
-
-        // #[cfg(not(feature = "unstable_encodings"))]
-        let compressed_indices = IntCompressor::compress_no_dict(
+        let compressed_indices = IntCompressor::compress_no_dict_static(
             &rle_array.indices().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
             &[],
         )?;
 
-        let compressed_offsets = IntCompressor::compress_no_dict(
+        let compressed_offsets = IntCompressor::compress_no_dict_static(
             &rle_array.values_idx_offsets().to_primitive().narrow()?,
             is_sample,
             allowed_cascading - 1,
@@ -157,21 +164,3 @@ where
         }
     }
 }
-
-// #[cfg(feature = "unstable_encodings")]
-// fn try_compress_delta(
-//     primitive_array: &PrimitiveArray,
-//     is_sample: bool,
-//     allowed_cascading: usize,
-//     excludes: &[IntCode],
-// ) -> VortexResult<ArrayRef> {
-//     use vortex_fastlanes::{DeltaArray, delta_compress};
-//
-//     let (bases, deltas) = delta_compress(primitive_array)?;
-//     let compressed_bases = IntCompressor::compress(&bases, is_sample, allowed_cascading, excludes)?;
-//     let compressed_deltas =
-//         IntCompressor::compress_no_dict(&deltas, is_sample, allowed_cascading, excludes)?;
-//
-//     DeltaArray::try_from_delta_compress_parts(compressed_bases, compressed_deltas)
-//         .map(DeltaArray::into_array)
-// }

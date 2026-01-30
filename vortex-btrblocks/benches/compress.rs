@@ -15,8 +15,8 @@ mod benchmarks {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_btrblocks::Compressor;
     use vortex_btrblocks::IntCompressor;
+    use vortex_btrblocks::compress;
     use vortex_buffer::buffer_mut;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -46,7 +46,7 @@ mod benchmarks {
             .with_inputs(|| &array)
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|array| IntCompressor::compress(array, false, 3, &[]).unwrap());
+            .bench_refs(|array| compress(&IntCompressor::default(), array, false, 3, &[]).unwrap());
     }
 }
 
