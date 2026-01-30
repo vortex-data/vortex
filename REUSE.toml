@@ -37,7 +37,7 @@ SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
 
 [[annotations]]
-path = ["vortex-cuda/kernels/bit_unpack_*"]
+path = ["vortex-cuda/kernels/src/bit_unpack_*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"
