@@ -56,6 +56,10 @@ pub struct RepeatedScan<A: 'static + Send> {
 }
 
 impl RepeatedScan<ArrayRef> {
+    pub fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
     pub fn execute_array_iter<B: BlockingRuntime>(
         &self,
         row_range: Option<Range<u64>>,

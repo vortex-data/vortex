@@ -264,22 +264,28 @@ impl ListViewArray {
             );
         }
 
-        let offsets_primitive = offsets.to_primitive();
-        let sizes_primitive = sizes.to_primitive();
+        // Skip host-only validation when buffers are on the GPU.
+        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
+        let sizes_on_device = sizes.buffer_handles().iter().any(|h| h.is_on_device());
 
-        // Validate the `offsets` and `sizes` arrays.
-        match_each_integer_ptype!(offset_ptype, |O| {
-            match_each_integer_ptype!(size_ptype, |S| {
-                let offsets_slice = offsets_primitive.as_slice::<O>();
-                let sizes_slice = sizes_primitive.as_slice::<S>();
+        if !offsets_on_device && !sizes_on_device {
+            let offsets_primitive = offsets.to_primitive();
+            let sizes_primitive = sizes.to_primitive();
 
-                validate_offsets_and_sizes::<O, S>(
-                    offsets_slice,
-                    sizes_slice,
-                    elements.len() as u64,
-                )?;
-            })
-        });
+            // Validate the `offsets` and `sizes` arrays.
+            match_each_integer_ptype!(offset_ptype, |O| {
+                match_each_integer_ptype!(size_ptype, |S| {
+                    let offsets_slice = offsets_primitive.as_slice::<O>();
+                    let sizes_slice = sizes_primitive.as_slice::<S>();
+
+                    validate_offsets_and_sizes::<O, S>(
+                        offsets_slice,
+                        sizes_slice,
+                        elements.len() as u64,
+                    )?;
+                })
+            });
+        }
 
         Ok(())
     }
