@@ -8,8 +8,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::patches::Patches;
 use vortex_error::VortexResult;
 
-use crate::BtrBlocksCompressor;
-
 /// Compresses the given patches by downscaling integers and checking for constant values.
 pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
     // Downscale the patch indices.

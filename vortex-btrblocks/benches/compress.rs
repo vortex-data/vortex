@@ -15,8 +15,7 @@ mod benchmarks {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
-    use vortex_btrblocks::IntCompressor;
-    use vortex_btrblocks::compress;
+    use vortex_btrblocks::BtrBlocksCompressor;
     use vortex_buffer::buffer_mut;
     use vortex_utils::aliases::hash_set::HashSet;
 
@@ -42,11 +41,12 @@ mod benchmarks {
     #[divan::bench]
     fn btrblocks(bencher: Bencher) {
         let array = make_clickbench_window_name().to_primitive();
+        let compressor = BtrBlocksCompressor::default();
         bencher
             .with_inputs(|| &array)
             .input_counter(|array| ItemsCount::new(array.len()))
             .input_counter(|array| BytesCount::of_many::<i32>(array.len()))
-            .bench_refs(|array| compress(&IntCompressor::default(), array, false, 3, &[]).unwrap());
+            .bench_refs(|array| compressor.compress(array.as_ref()).unwrap());
     }
 }
 

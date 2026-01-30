@@ -17,7 +17,6 @@ use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Excludes;
 use crate::MAX_CASCADE;
-use crate::integer::IntCompressor;
 
 /// Compress a temporal array into a `DateTimePartsArray`.
 pub fn compress_temporal(
@@ -37,17 +36,17 @@ pub fn compress_temporal(
         MAX_CASCADE - 1,
         Excludes::int_only(&[]),
     )?;
-    let seconds = IntCompressor::compress_static(
-        &seconds.to_primitive().narrow()?,
+    let seconds = compressor.compress_canonical(
+        Canonical::Primitive(seconds.to_primitive().narrow()?),
         false,
         MAX_CASCADE - 1,
-        &[],
+        Excludes::int_only(&[]),
     )?;
-    let subseconds = IntCompressor::compress_static(
-        &subseconds.to_primitive().narrow()?,
+    let subseconds = compressor.compress_canonical(
+        Canonical::Primitive(subseconds.to_primitive().narrow()?),
         false,
         MAX_CASCADE - 1,
-        &[],
+        Excludes::int_only(&[]),
     )?;
 
     Ok(DateTimePartsArray::try_new(dtype, days, seconds, subseconds)?.into_array())

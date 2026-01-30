@@ -20,7 +20,6 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictArrayParts;
 use vortex_array::arrays::MaskedArray;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
@@ -40,15 +39,10 @@ use crate::Excludes;
 use crate::GenerateStatsOptions;
 use crate::IntCode;
 use crate::Scheme;
-use crate::compress;
 use crate::estimate_compression_ratio_with_sampling;
 use crate::float::dictionary::dictionary_encode;
 use crate::integer;
-use crate::integer::IntCompressor;
-use crate::integer::IntegerStats;
 use crate::patches::compress_patches;
-use crate::rle;
-use crate::rle::RLEScheme;
 
 pub trait FloatScheme: Scheme<StatsType = FloatStats, CodeType = FloatCode> + Send + Sync {}
 
@@ -81,10 +75,10 @@ pub const ALL_FLOAT_SCHEMES: &[&dyn FloatScheme] = &[
 ];
 
 /// [`Compressor`] for floating-point numbers.
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct FloatCompressor<'a> {
-    /// tmp
-    pub btr_blocks_compressor: &'a BtrBlocksCompressor, // schemes: Vec<&'static dyn FloatScheme>,
+    /// Reference to the parent compressor.
+    pub btr_blocks_compressor: &'a dyn CanonicalCompressor,
 }
 
 // impl Default for FloatCompressor {
@@ -141,7 +135,7 @@ impl<'a> Compressor for FloatCompressor<'a> {
     fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
         if self
             .btr_blocks_compressor
-            .float_schemes
+            .float_schemes()
             .iter()
             .any(|s| s.code() == DictScheme.code())
         {
@@ -162,7 +156,7 @@ impl<'a> Compressor for FloatCompressor<'a> {
     }
 
     fn schemes(&self) -> &[&'static dyn FloatScheme] {
-        &self.btr_blocks_compressor.float_schemes
+        self.btr_blocks_compressor.float_schemes()
     }
 
     fn default_scheme(&self) -> &'static Self::SchemeType {
@@ -208,10 +202,6 @@ struct DictScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominated;
-
-/// Configuration for float RLE compression.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub struct FloatRLEConfig;
 
 // impl rle::RLEConfig for FloatRLEConfig {
 //     type Stats = FloatStats;
@@ -390,15 +380,8 @@ impl Scheme for ALPScheme {
             Canonical::Primitive(alp_ints),
             is_sample,
             allowed_cascading - 1,
-            Excludes::float_only(excludes),
+            Excludes::int_only(&int_excludes),
         )?;
-
-        // let compressed_alp_ints = IntCompressor::compress_static(
-        //     &alp_ints,
-        //     is_sample,
-        //     allowed_cascading - 1,
-        //     &int_excludes,
-        // )?;
 
         let patches = alp.patches().map(compress_patches).transpose()?;
 
@@ -438,7 +421,7 @@ impl Scheme for ALPRDScheme {
 
     fn compress(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
@@ -504,35 +487,12 @@ impl Scheme for DictScheme {
         stats: &Self::StatsType,
         is_sample: bool,
         allowed_cascading: usize,
-        excludes: &[Self::CodeType],
+        _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
         let dict = dictionary_encode(stats);
         let has_all_values_referenced = dict.has_all_values_referenced();
         let DictArrayParts { codes, values, .. } = dict.into_parts();
 
-        // Only compress the codes.
-        // let codes_stats = IntegerStats::generate_opts(
-        //     &codes.to_primitive().narrow()?,
-        //     GenerateStatsOptions {
-        //         count_distinct_values: false,
-        //     },
-        // );
-        //
-        // let codes_excludes = &[integer::DictScheme.code(), integer::SequenceScheme.code()];
-        // let codes_compressor = IntCompressor::excluding(codes_excludes);
-        // let codes_scheme = codes_compressor.choose_scheme(
-        //     &codes_stats,
-        //     is_sample,
-        //     allowed_cascading - 1,
-        //     codes_excludes,
-        // )?;
-        // let compressed_codes = codes_scheme.compress(
-        //     compressor,
-        //     &codes_stats,
-        //     is_sample,
-        //     allowed_cascading - 1,
-        //     &[integer::DictScheme.code()],
-        // )?;
         let compressed_codes = compressor.compress_canonical(
             Canonical::Primitive(codes.to_primitive()),
             is_sample,

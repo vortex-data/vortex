@@ -14,7 +14,6 @@ use vortex_scalar::DecimalType;
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;
 use crate::Excludes;
-use crate::IntCompressor;
 use crate::MAX_CASCADE;
 
 // TODO(joe): add support splitting i128/256 buffers into chunks primitive values for compression.

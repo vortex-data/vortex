@@ -457,7 +457,12 @@ where
     }
 }
 
-trait CanonicalCompressor {
+/// Trait for compressors that can compress canonical arrays.
+///
+/// Provides access to configured compression schemes and the ability to
+/// compress canonical arrays recursively.
+pub trait CanonicalCompressor {
+    /// Compresses a canonical array with the specified options.
     fn compress_canonical(
         &self,
         array: Canonical,
@@ -465,6 +470,15 @@ trait CanonicalCompressor {
         allowed_cascading: usize,
         excludes: Excludes,
     ) -> VortexResult<ArrayRef>;
+
+    /// Returns the enabled integer compression schemes.
+    fn int_schemes(&self) -> &[&'static dyn IntegerScheme];
+
+    /// Returns the enabled float compression schemes.
+    fn float_schemes(&self) -> &[&'static dyn FloatScheme];
+
+    /// Returns the enabled string compression schemes.
+    fn string_schemes(&self) -> &[&'static dyn StringScheme];
 }
 
 /// The main compressor type implementing BtrBlocks-inspired compression.
@@ -494,24 +508,43 @@ trait CanonicalCompressor {
 ///     .exclude_int([IntCode::Dict])
 ///     .build();
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct BtrBlocksCompressor {
     /// Integer compressor with configured schemes.
     pub int_schemes: Vec<&'static dyn IntegerScheme>,
 
     /// Float compressor with configured schemes.
-    // float_compressor: FloatCompressor,
     pub float_schemes: Vec<&'static dyn FloatScheme>,
 
     /// String compressor with configured schemes.
     pub string_schemes: Vec<&'static dyn StringScheme>,
-    // string_compressor: StringCompressor,
+}
+
+impl Default for BtrBlocksCompressor {
+    fn default() -> Self {
+        BtrBlocksCompressorBuilder::new().build()
+    }
 }
 
 impl BtrBlocksCompressor {
     /// Creates a new compressor with default settings (all schemes allowed).
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns an iterator over the enabled integer compression scheme codes.
+    pub fn int_codes(&self) -> impl Iterator<Item = IntCode> + '_ {
+        self.int_schemes.iter().map(|s| s.code())
+    }
+
+    /// Returns an iterator over the enabled float compression scheme codes.
+    pub fn float_codes(&self) -> impl Iterator<Item = FloatCode> + '_ {
+        self.float_schemes.iter().map(|s| s.code())
+    }
+
+    /// Returns an iterator over the enabled string compression scheme codes.
+    pub fn string_codes(&self) -> impl Iterator<Item = StringCode> + '_ {
+        self.string_schemes.iter().map(|s| s.code())
     }
 
     /// Compresses an array using BtrBlocks-inspired compression.
@@ -524,7 +557,7 @@ impl BtrBlocksCompressor {
         // Compact it, removing any wasted space before we attempt to compress it
         let compact = canonical.compact()?;
 
-        self.compress_canonical(compact, Excludes::none())
+        self.compress_canonical(compact, false, MAX_CASCADE, Excludes::none())
     }
 }
 
@@ -545,22 +578,25 @@ impl CanonicalCompressor for BtrBlocksCompressor {
             Canonical::Bool(bool_array) => Ok(bool_array.into_array()),
             Canonical::Primitive(primitive) => {
                 if primitive.ptype().is_int() {
-                    // compress(
-                    //     &self.int_schemes,
-                    //     &primitive,
-                    //     false,
-                    //     MAX_CASCADE,
-                    //     excludes.int,
-                    // )
-                    todo!()
+                    compress(
+                        &IntCompressor {
+                            btr_blocks_compressor: self,
+                        },
+                        self,
+                        &primitive,
+                        is_sample,
+                        allowed_cascading,
+                        excludes.int,
+                    )
                 } else {
                     compress(
                         &FloatCompressor {
-                            btr_blocks_compressor: &self,
+                            btr_blocks_compressor: self,
                         },
+                        self,
                         &primitive,
-                        false,
-                        MAX_CASCADE,
+                        is_sample,
+                        allowed_cascading,
                         excludes.float,
                     )
                 }
@@ -597,11 +633,11 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 // we guarantee above that all elements are referenced by offsets, we may narrow the
                 // widths.
 
-                let compressed_offsets = IntCompressor::compress_no_dict_static(
-                    &list_array.offsets().to_primitive().narrow()?,
-                    false,
-                    MAX_CASCADE,
-                    &[],
+                let compressed_offsets = self.compress_canonical(
+                    Canonical::Primitive(list_array.offsets().to_primitive().narrow()?),
+                    is_sample,
+                    allowed_cascading,
+                    Excludes::int_only(&[IntCode::Dict]),
                 )?;
 
                 Ok(ListArray::try_new(
@@ -627,14 +663,16 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     .dtype()
                     .eq_ignore_nullability(&DType::Utf8(Nullability::NonNullable))
                 {
-                    // compress(
-                    //     &self.string_schemes,
-                    //     &strings,
-                    //     false,
-                    //     MAX_CASCADE,
-                    //     excludes.string,
-                    // )
-                    todo!()
+                    compress(
+                        &StringCompressor {
+                            btr_blocks_compressor: self,
+                        },
+                        self,
+                        &strings,
+                        is_sample,
+                        allowed_cascading,
+                        excludes.string,
+                    )
                 } else {
                     // Binary arrays do not compress
                     Ok(strings.into_array())
@@ -659,7 +697,7 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                     }
 
                     let temporal_array = TemporalArray::try_from(ext_array)?;
-                    return compress_temporal(temporal_array);
+                    return compress_temporal(self, temporal_array);
                 }
 
                 // Compress the underlying storage array.
@@ -671,6 +709,18 @@ impl CanonicalCompressor for BtrBlocksCompressor {
                 )
             }
         }
+    }
+
+    fn int_schemes(&self) -> &[&'static dyn IntegerScheme] {
+        &self.int_schemes
+    }
+
+    fn float_schemes(&self) -> &[&'static dyn FloatScheme] {
+        &self.float_schemes
+    }
+
+    fn string_schemes(&self) -> &[&'static dyn StringScheme] {
+        &self.string_schemes
     }
 }
 

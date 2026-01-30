@@ -8,11 +8,8 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::BtrBlocksCompressor;
 use crate::FloatCode;
-use crate::FloatCompressor;
 use crate::IntCode;
-use crate::IntCompressor;
 use crate::StringCode;
-use crate::StringCompressor;
 use crate::float::ALL_FLOAT_SCHEMES;
 use crate::float::FloatScheme;
 use crate::integer::ALL_INT_SCHEMES;

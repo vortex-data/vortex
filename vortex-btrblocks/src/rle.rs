@@ -6,6 +6,7 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -13,10 +14,12 @@ use vortex_error::VortexResult;
 use vortex_fastlanes::RLEArray;
 
 use crate::BtrBlocksCompressor;
+use crate::CanonicalCompressor;
 use crate::CompressorStats;
+use crate::Excludes;
+use crate::IntCode;
 use crate::Scheme;
 use crate::estimate_compression_ratio_with_sampling;
-use crate::integer::IntCompressor;
 
 /// Threshold for the average run length in an array before we consider run-length encoding.
 pub const RUN_LENGTH_THRESHOLD: u32 = 4;
@@ -43,6 +46,7 @@ pub trait RLEConfig: Debug + Send + Sync + 'static {
 
     /// Compress the values array after RLE encoding.
     fn compress_values(
+        compressor: &BtrBlocksCompressor,
         values: &PrimitiveArray,
         is_sample: bool,
         allowed_cascading: usize,
@@ -130,24 +134,25 @@ impl<C: RLEConfig> Scheme for RLEScheme<C> {
         new_excludes.extend_from_slice(excludes);
 
         let compressed_values = C::compress_values(
+            compressor,
             &rle_array.values().to_primitive(),
             is_sample,
             allowed_cascading - 1,
             &new_excludes,
         )?;
 
-        let compressed_indices = IntCompressor::compress_no_dict_static(
-            &rle_array.indices().to_primitive().narrow()?,
+        let compressed_indices = compressor.compress_canonical(
+            Canonical::Primitive(rle_array.indices().to_primitive().narrow()?),
             is_sample,
             allowed_cascading - 1,
-            &[],
+            Excludes::int_only(&[IntCode::Dict]),
         )?;
 
-        let compressed_offsets = IntCompressor::compress_no_dict_static(
-            &rle_array.values_idx_offsets().to_primitive().narrow()?,
+        let compressed_offsets = compressor.compress_canonical(
+            Canonical::Primitive(rle_array.values_idx_offsets().to_primitive().narrow()?),
             is_sample,
             allowed_cascading - 1,
-            &[],
+            Excludes::int_only(&[IntCode::Dict]),
         )?;
 
         // SAFETY: Recursive compression doesn't affect the invariants.

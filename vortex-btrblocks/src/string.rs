@@ -36,11 +36,10 @@ use crate::Compressor;
 use crate::CompressorStats;
 use crate::Excludes;
 use crate::GenerateStatsOptions;
+use crate::IntCode;
 use crate::Scheme;
-use crate::compress;
 use crate::estimate_compression_ratio_with_sampling;
 use crate::integer;
-use crate::integer::IntCompressor;
 use crate::sample::sample;
 
 /// Array of variable-length byte arrays, and relevant stats for compression.
@@ -125,64 +124,24 @@ pub const ALL_STRING_SCHEMES: &[&dyn StringScheme] = &[
 ];
 
 /// [`Compressor`] for strings.
-#[derive(Clone)]
-pub struct StringCompressor {
-    schemes: Vec<&'static dyn StringScheme>,
+#[derive(Clone, Copy)]
+pub struct StringCompressor<'a> {
+    /// Reference to the parent compressor.
+    pub btr_blocks_compressor: &'a dyn CanonicalCompressor,
 }
 
-impl Default for StringCompressor {
-    fn default() -> Self {
-        Self {
-            schemes: ALL_STRING_SCHEMES.to_vec(),
-        }
-    }
-}
-
-impl StringCompressor {
-    /// Creates a new compressor with all schemes enabled.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Creates a compressor with only the specified schemes.
-    pub fn with_schemes(schemes: Vec<&'static dyn StringScheme>) -> Self {
-        Self { schemes }
-    }
-
-    /// Creates a compressor excluding schemes with the given codes.
-    pub fn excluding(excludes: &[StringCode]) -> Self {
-        Self {
-            schemes: ALL_STRING_SCHEMES
-                .iter()
-                .filter(|s| !excludes.contains(&s.code()))
-                .copied()
-                .collect(),
-        }
-    }
-
-    /// Compress with default settings (static helper for internal use).
-    pub(crate) fn compress_static(
-        array: &VarBinViewArray,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[StringCode],
-    ) -> VortexResult<ArrayRef> {
-        let compressor = if excludes.is_empty() {
-            Self::default()
-        } else {
-            Self::excluding(excludes)
-        };
-        compress(&compressor, array, is_sample, allowed_cascading, excludes)
-    }
-}
-
-impl Compressor for StringCompressor {
+impl<'a> Compressor for StringCompressor<'a> {
     type ArrayVTable = VarBinViewVTable;
     type SchemeType = dyn StringScheme;
     type StatsType = StringStats;
 
     fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
-        if self.schemes.iter().any(|s| s.code() == DictScheme.code()) {
+        if self
+            .btr_blocks_compressor
+            .string_schemes()
+            .iter()
+            .any(|s| s.code() == DictScheme.code())
+        {
             StringStats::generate_opts(
                 array,
                 GenerateStatsOptions {
@@ -200,7 +159,7 @@ impl Compressor for StringCompressor {
     }
 
     fn schemes(&self) -> &[&'static dyn StringScheme] {
-        &self.schemes
+        self.btr_blocks_compressor.string_schemes()
     }
 
     fn default_scheme(&self) -> &'static Self::SchemeType {
@@ -272,7 +231,7 @@ impl Scheme for UncompressedScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         _stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
@@ -283,7 +242,7 @@ impl Scheme for UncompressedScheme {
 
     fn compress(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
@@ -439,7 +398,7 @@ impl Scheme for ConstantScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         is_sample: bool,
         _allowed_cascading: usize,
@@ -460,7 +419,7 @@ impl Scheme for ConstantScheme {
 
     fn compress(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         _is_sample: bool,
         _allowed_cascading: usize,
@@ -498,7 +457,7 @@ impl Scheme for NullDominated {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
         _is_sample: bool,
         allowed_cascading: usize,
@@ -537,16 +496,15 @@ impl Scheme for NullDominated {
         let sparse_encoded = SparseArray::encode(stats.src.as_ref(), None)?;
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
-            // Compress the values
-            let new_excludes = vec![integer::SparseScheme.code()];
+            // Compress the indices only (not the values for strings)
+            let new_excludes = vec![integer::SparseScheme.code(), IntCode::Dict];
 
-            // Don't attempt to compress the non-null values
             let indices = sparse.patches().indices().to_primitive().narrow()?;
-            let compressed_indices = IntCompressor::compress_no_dict_static(
-                &indices,
+            let compressed_indices = compressor.compress_canonical(
+                Canonical::Primitive(indices),
                 is_sample,
                 allowed_cascading - 1,
-                &new_excludes,
+                Excludes::int_only(&new_excludes),
             )?;
 
             SparseArray::try_new(
@@ -572,8 +530,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_error::VortexResult;
 
-    use crate::MAX_CASCADE;
-    use crate::string::StringCompressor;
+    use crate::BtrBlocksCompressor;
 
     #[test]
     fn test_strings() -> VortexResult<()> {
@@ -586,7 +543,7 @@ mod tests {
         }
         let strings = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
 
-        let compressed = StringCompressor::compress_static(&strings, false, 3, &[])?;
+        let compressed = BtrBlocksCompressor::default().compress(strings.as_ref())?;
         assert_eq!(compressed.len(), 2048);
 
         let display = compressed
@@ -607,7 +564,7 @@ mod tests {
 
         let strings = strings.finish_into_varbinview();
 
-        let compressed = StringCompressor::compress_static(&strings, false, MAX_CASCADE, &[])?;
+        let compressed = BtrBlocksCompressor::default().compress(strings.as_ref())?;
         assert_eq!(compressed.len(), 100);
 
         let display = compressed
@@ -631,13 +588,13 @@ mod scheme_selection_tests {
     use vortex_error::VortexResult;
     use vortex_fsst::FSSTVTable;
 
-    use crate::string::StringCompressor;
+    use crate::BtrBlocksCompressor;
 
     #[test]
     fn test_constant_compressed() -> VortexResult<()> {
         let strings: Vec<Option<&str>> = vec![Some("constant_value"); 100];
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress_static(&array, false, 3, &[])?;
+        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
         assert!(compressed.is::<ConstantVTable>());
         Ok(())
     }
@@ -650,7 +607,7 @@ mod scheme_selection_tests {
             strings.push(Some(distinct_values[i % 3]));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress_static(&array, false, 3, &[])?;
+        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
         assert!(compressed.is::<DictVTable>());
         Ok(())
     }
@@ -664,7 +621,7 @@ mod scheme_selection_tests {
             )));
         }
         let array = VarBinViewArray::from_iter(strings, DType::Utf8(Nullability::NonNullable));
-        let compressed = StringCompressor::compress_static(&array, false, 3, &[])?;
+        let compressed = BtrBlocksCompressor::default().compress(array.as_ref())?;
         assert!(compressed.is::<FSSTVTable>());
         Ok(())
     }

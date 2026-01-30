@@ -44,7 +44,6 @@ use crate::CompressorStats;
 use crate::Excludes;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
-use crate::compress;
 use crate::estimate_compression_ratio_with_sampling;
 use crate::integer::dictionary::dictionary_encode;
 use crate::patches::compress_patches;
@@ -65,105 +64,32 @@ pub const ALL_INT_SCHEMES: &[&dyn IntegerScheme] = &[
 ];
 
 /// [`Compressor`] for signed and unsigned integers.
-#[derive(Clone)]
-pub struct IntCompressor {
-    schemes: Vec<&'static dyn IntegerScheme>,
-    default: &'static dyn IntegerScheme,
+#[derive(Clone, Copy)]
+pub struct IntCompressor<'a> {
+    /// Reference to the parent compressor.
+    pub btr_blocks_compressor: &'a dyn CanonicalCompressor,
 }
 
-impl Default for IntCompressor {
-    fn default() -> Self {
-        Self {
-            schemes: ALL_INT_SCHEMES.to_vec(),
-            default: &UncompressedScheme,
-        }
-    }
-}
-
-impl IntCompressor {
-    /// Creates a new compressor with all schemes enabled.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Creates a compressor with only the specified schemes.
-    pub fn with_schemes(schemes: Vec<&'static dyn IntegerScheme>) -> Self {
-        Self {
-            schemes,
-            default: &UncompressedScheme,
-        }
-    }
-
-    /// Creates a compressor excluding schemes with the given codes.
-    pub fn excluding(excludes: &[IntCode]) -> Self {
-        Self::with_schemes(
-            ALL_INT_SCHEMES
-                .iter()
-                .filter(|s| !excludes.contains(&s.code()))
-                .copied()
-                .collect(),
-        )
-    }
-
-    /// Creates a compressor without dictionary encoding.
-    pub fn no_dict() -> Self {
-        Self::excluding(&[IntCode::Dict])
-    }
-
-    /// Compress without dictionary encoding (static helper for internal use).
-    // pub(crate) fn compress_no_dict_static(
-    //     array: &PrimitiveArray,
-    //     is_sample: bool,
-    //     allowed_cascading: usize,
-    //     excludes: &[IntCode],
-    // ) -> VortexResult<ArrayRef> {
-    //     let compressor = Self::excluding(&[IntCode::Dict]);
-    //     let compressor = if excludes.is_empty() {
-    //         compressor
-    //     } else {
-    //         Self::with_schemes(
-    //             compressor
-    //                 .schemes
-    //                 .iter()
-    //                 .filter(|s| !excludes.contains(&s.code()))
-    //                 .copied()
-    //                 .collect(),
-    //         )
-    //     };
-    //     compress(&compressor, array, is_sample, allowed_cascading, excludes)
-    // }
-
-    /// Compress with default settings (static helper for internal use).
-    pub(crate) fn compress_static(
-        array: &PrimitiveArray,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[IntCode],
-    ) -> VortexResult<ArrayRef> {
-        let compressor = if excludes.is_empty() {
-            Self::default()
-        } else {
-            Self::excluding(excludes)
-        };
-        compress(&compressor, array, is_sample, allowed_cascading, excludes)
-    }
-}
-
-impl Compressor for IntCompressor {
+impl<'a> Compressor for IntCompressor<'a> {
     type ArrayVTable = PrimitiveVTable;
     type SchemeType = dyn IntegerScheme;
     type StatsType = IntegerStats;
 
     fn schemes(&self) -> &[&'static dyn IntegerScheme] {
-        &self.schemes
+        self.btr_blocks_compressor.int_schemes()
     }
 
     fn default_scheme(&self) -> &'static Self::SchemeType {
-        self.default
+        &UncompressedScheme
     }
 
     fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
-        if self.schemes.iter().any(|s| s.code() == IntCode::Dict) {
+        if self
+            .btr_blocks_compressor
+            .int_schemes()
+            .iter()
+            .any(|s| s.code() == IntCode::Dict)
+        {
             IntegerStats::generate_opts(
                 array,
                 GenerateStatsOptions {
@@ -275,12 +201,18 @@ impl rle::RLEConfig for IntRLEConfig {
     const CODE: IntCode = IntCode::Rle;
 
     fn compress_values(
+        compressor: &BtrBlocksCompressor,
         values: &PrimitiveArray,
         is_sample: bool,
         allowed_cascading: usize,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        IntCompressor::compress_no_dict_static(values, is_sample, allowed_cascading, excludes)
+        compressor.compress_canonical(
+            Canonical::Primitive(values.clone()),
+            is_sample,
+            allowed_cascading,
+            Excludes::int_only(excludes),
+        )
     }
 }
 
@@ -621,7 +553,7 @@ impl Scheme for SparseScheme {
     // We can avoid asserting the encoding tree instead.
     fn expected_compression_ratio(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
         _is_sample: bool,
         allowed_cascading: usize,
@@ -693,23 +625,23 @@ impl Scheme for SparseScheme {
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
-            let mut new_excludes = vec![SparseScheme.code()];
+            let mut new_excludes = vec![SparseScheme.code(), IntCode::Dict];
             new_excludes.extend_from_slice(excludes);
 
-            let compressed_values = IntCompressor::compress_no_dict_static(
-                &sparse.patches().values().to_primitive(),
+            let compressed_values = compressor.compress_canonical(
+                Canonical::Primitive(sparse.patches().values().to_primitive()),
                 is_sample,
                 allowed_cascading - 1,
-                &new_excludes,
+                Excludes::int_only(&new_excludes),
             )?;
 
             let indices = sparse.patches().indices().to_primitive().narrow()?;
 
-            let compressed_indices = IntCompressor::compress_no_dict_static(
-                &indices,
+            let compressed_indices = compressor.compress_canonical(
+                Canonical::Primitive(indices),
                 is_sample,
                 allowed_cascading - 1,
-                &new_excludes,
+                Excludes::int_only(&new_excludes),
             )?;
 
             SparseArray::try_new(
@@ -735,7 +667,7 @@ impl Scheme for DictScheme {
 
     fn expected_compression_ratio(
         &self,
-        compressor: &BtrBlocksCompressor,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
         _is_sample: bool,
         allowed_cascading: usize,
@@ -794,11 +726,11 @@ impl Scheme for DictScheme {
         let mut new_excludes = vec![IntCode::Dict, IntCode::Sequence];
         new_excludes.extend_from_slice(excludes);
 
-        let compressed_codes = IntCompressor::compress_no_dict_static(
-            &dict.codes().to_primitive().narrow()?,
+        let compressed_codes = compressor.compress_canonical(
+            Canonical::Primitive(dict.codes().to_primitive().narrow()?),
             is_sample,
             allowed_cascading - 1,
-            &new_excludes,
+            Excludes::int_only(&new_excludes),
         )?;
 
         // SAFETY: compressing codes does not change their values
@@ -864,33 +796,18 @@ impl Scheme for RunEndScheme {
         let mut new_excludes = vec![RunEndScheme.code(), DictScheme.code()];
         new_excludes.extend_from_slice(excludes);
 
-        let ends_stats = IntegerStats::generate_opts(
-            &ends.to_primitive(),
-            GenerateStatsOptions {
-                count_distinct_values: false,
-            },
-        );
-        let ends_compressor = IntCompressor::excluding(&new_excludes);
-        let ends_scheme = ends_compressor.choose_scheme(
-            compressor,
-            &ends_stats,
+        let compressed_ends = compressor.compress_canonical(
+            Canonical::Primitive(ends.to_primitive()),
             is_sample,
             allowed_cascading - 1,
-            &new_excludes,
-        )?;
-        let compressed_ends = ends_scheme.compress(
-            compressor,
-            &ends_stats,
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
+            Excludes::int_only(&new_excludes),
         )?;
 
-        let compressed_values = IntCompressor::compress_no_dict_static(
-            &values.to_primitive(),
+        let compressed_values = compressor.compress_canonical(
+            Canonical::Primitive(values.to_primitive()),
             is_sample,
             allowed_cascading - 1,
-            &new_excludes,
+            Excludes::int_only(&new_excludes),
         )?;
 
         // SAFETY: compression doesn't affect invariants
