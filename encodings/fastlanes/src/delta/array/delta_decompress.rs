@@ -30,8 +30,9 @@ pub fn delta_decompress(
 
     // TODO(connor): This is incorrect, we need to untranspose the validity!!!
 
-    let validity = Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability());
-    let validity = validity.slice(start..end);
+    let validity =
+        Validity::from_mask(array.deltas().validity_mask()?, array.dtype().nullability());
+    let validity = validity.slice(start..end)?;
 
     Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;

@@ -9,9 +9,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 
-use crate::Array;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::primitive::PrimitiveArray;
@@ -48,9 +46,9 @@ fn test_project() {
     assert_eq!(struct_b.len(), 5);
 
     let bools = &struct_b.fields[0];
-    assert_eq!(
-        bools.to_bool().bit_buffer().iter().collect::<Vec<_>>(),
-        vec![true, true, true, false, false]
+    assert_arrays_eq!(
+        bools,
+        BoolArray::from_iter([true, true, true, false, false])
     );
 
     let prims = &struct_b.fields[1];
@@ -114,21 +112,21 @@ fn test_duplicate_field_names() {
     .unwrap();
 
     // field_by_name should return the first field with the matching name
-    let first_value_field = struct_array.field_by_name("value").unwrap();
+    let first_value_field = struct_array.unmasked_field_by_name("value").unwrap();
     assert_arrays_eq!(
         first_value_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // This is field1, not field3
     );
 
     // Verify field_by_name_opt also returns the first match
-    let opt_field = struct_array.field_by_name_opt("value").unwrap();
+    let opt_field = struct_array.unmasked_field_by_name_opt("value").unwrap();
     assert_arrays_eq!(
         opt_field,
         PrimitiveArray::from_iter([1i32, 2, 3]) // First "value" field
     );
 
     // Verify the third field (second "value") can be accessed by index
-    let third_field = &struct_array.fields()[2];
+    let third_field = &struct_array.unmasked_fields()[2];
     assert_arrays_eq!(third_field, PrimitiveArray::from_iter([100i32, 200, 300]));
 }
 

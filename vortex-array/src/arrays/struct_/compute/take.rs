@@ -23,7 +23,7 @@ impl TakeKernel for StructVTable {
         // an out of bounds element
         if array.is_empty() {
             return StructArray::try_new_with_dtype(
-                array.fields().clone(),
+                array.unmasked_fields().clone(),
                 array.struct_fields().clone(),
                 indices.len(),
                 Validity::AllInvalid,
@@ -37,7 +37,7 @@ impl TakeKernel for StructVTable {
         )?;
         StructArray::try_new_with_dtype(
             array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|field| compute::take(field, inner_indices))
                 .collect::<Result<Vec<_>, _>>()?,

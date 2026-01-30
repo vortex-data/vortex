@@ -8,7 +8,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
-use vortex_array::compute::filter;
 use vortex_array::compute::take;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
@@ -54,7 +53,7 @@ fn test_fsst_array_ops() {
     );
 
     // test slice
-    let fsst_sliced = fsst_array.slice(1..3);
+    let fsst_sliced = fsst_array.slice(1..3).unwrap();
     assert!(fsst_sliced.is::<FSSTVTable>());
     assert_eq!(fsst_sliced.len(), 2);
     assert_nth_scalar!(
@@ -87,8 +86,8 @@ fn test_fsst_array_ops() {
     // test filter
     let mask = Mask::from_iter([false, true, true]);
 
-    let fsst_filtered = filter(&fsst_array, &mask).unwrap();
-    assert!(fsst_filtered.is::<FSSTVTable>());
+    let fsst_filtered = fsst_array.filter(mask).unwrap();
+
     assert_eq!(fsst_filtered.len(), 2);
     assert_nth_scalar!(
         fsst_filtered,

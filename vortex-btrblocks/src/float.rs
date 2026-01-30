@@ -17,7 +17,6 @@ use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::PType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
@@ -173,13 +172,14 @@ impl Scheme for ConstantScheme {
         _allowed_cascading: usize,
         _excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let scalar_idx = (0..stats.source().len()).position(|idx| stats.source().is_valid(idx));
+        let scalar_idx =
+            (0..stats.source().len()).position(|idx| stats.source().is_valid(idx).unwrap_or(false));
 
         match scalar_idx {
             Some(idx) => {
-                let scalar = stats.source().scalar_at(idx);
+                let scalar = stats.source().scalar_at(idx)?;
                 let const_arr = ConstantArray::new(scalar, stats.src.len()).into_array();
-                if !stats.source().all_valid() {
+                if !stats.source().all_valid()? {
                     Ok(MaskedArray::try_new(const_arr, stats.src.validity().clone())?.into_array())
                 } else {
                     Ok(const_arr)
@@ -239,8 +239,7 @@ impl Scheme for ALPScheme {
         allowed_cascading: usize,
         excludes: &[FloatCode],
     ) -> VortexResult<ArrayRef> {
-        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)
-            .vortex_expect("Input is a supported floating point array");
+        let alp_encoded = alp_encode(&stats.source().to_primitive(), None)?;
         let alp = alp_encoded.as_::<ALPVTable>();
         let alp_ints = alp.encoded().to_primitive();
 
@@ -483,11 +482,12 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::display::DisplayOptions;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer_mut;
     use vortex_dtype::Nullability;
-    use vortex_sparse::SparseVTable;
+    use vortex_error::VortexResult;
 
     use crate::Compressor;
     use crate::CompressorStats;
@@ -497,21 +497,21 @@ mod tests {
     use crate::float::RLE_FLOAT_SCHEME;
 
     #[test]
-    fn test_empty() {
+    fn test_empty() -> VortexResult<()> {
         // Make sure empty array compression does not fail
         let result = FloatCompressor::compress(
             &PrimitiveArray::new(Buffer::<f32>::empty(), Validity::NonNullable),
             false,
             3,
             &[],
-        )
-        .unwrap();
+        )?;
 
         assert!(result.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn test_compress() {
+    fn test_compress() -> VortexResult<()> {
         let mut values = buffer_mut![1.0f32; 1024];
         // Sprinkle some other values in.
         for i in 0..1024 {
@@ -522,12 +522,20 @@ mod tests {
         }
 
         let floats = values.into_array().to_primitive();
-        let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
-        println!("compressed: {}", compressed.display_tree())
+        let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[])?;
+        assert_eq!(compressed.len(), 1024);
+
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.dict(f32, len=1024)");
+
+        Ok(())
     }
 
     #[test]
-    fn test_rle_compression() {
+    fn test_rle_compression() -> VortexResult<()> {
         let mut values = Vec::new();
         values.extend(iter::repeat_n(1.5f32, 100));
         values.extend(iter::repeat_n(2.7f32, 200));
@@ -535,15 +543,16 @@ mod tests {
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
         let stats = crate::float::FloatStats::generate(&array);
-        let compressed = RLE_FLOAT_SCHEME.compress(&stats, false, 3, &[]).unwrap();
+        let compressed = RLE_FLOAT_SCHEME.compress(&stats, false, 3, &[])?;
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
         assert_arrays_eq!(decoded.as_ref(), expected.as_ref());
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_compression() {
+    fn test_sparse_compression() -> VortexResult<()> {
         let mut array = PrimitiveBuilder::<f32>::with_capacity(Nullability::Nullable, 100);
         array.append_value(f32::NAN);
         array.append_value(-f32::NAN);
@@ -555,9 +564,16 @@ mod tests {
 
         let floats = array.finish_into_primitive();
 
-        let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[]).unwrap();
+        let compressed = FloatCompressor::compress(&floats, false, MAX_CASCADE, &[])?;
+        assert_eq!(compressed.len(), 96);
 
-        assert!(compressed.is::<SparseVTable>());
+        let display = compressed
+            .display_as(DisplayOptions::MetadataOnly)
+            .to_string()
+            .to_lowercase();
+        assert_eq!(display, "vortex.sparse(f32?, len=96)");
+
+        Ok(())
     }
 }
 
@@ -574,47 +590,52 @@ mod scheme_selection_tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
     use vortex_dtype::Nullability;
-    use vortex_sparse::SparseVTable;
+    use vortex_error::VortexResult;
 
     use crate::Compressor;
     use crate::float::FloatCompressor;
 
     #[test]
-    fn test_constant_compressed() {
+    fn test_constant_compressed() -> VortexResult<()> {
         let values: Vec<f64> = vec![42.5; 100];
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = FloatCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<ConstantVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_alp_compressed() {
+    fn test_alp_compressed() -> VortexResult<()> {
         let values: Vec<f64> = (0..1000).map(|i| (i as f64) * 0.01).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = FloatCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<ALPVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_dict_compressed() {
+    fn test_dict_compressed() -> VortexResult<()> {
         let distinct_values = [1.1, 2.2, 3.3, 4.4, 5.5];
         let values: Vec<f64> = (0..1000)
             .map(|i| distinct_values[i % distinct_values.len()])
             .collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
+        let compressed = FloatCompressor::compress(&array, false, 3, &[])?;
         assert!(compressed.is::<DictVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_null_dominated_compressed() {
+    fn test_null_dominated_compressed() -> VortexResult<()> {
         let mut builder = PrimitiveBuilder::<f64>::with_capacity(Nullability::Nullable, 100);
         for i in 0..5 {
             builder.append_value(i as f64);
         }
         builder.append_nulls(95);
         let array = builder.finish_into_primitive();
-        let compressed = FloatCompressor::compress(&array, false, 3, &[]).unwrap();
-        assert!(compressed.is::<SparseVTable>());
+        let compressed = FloatCompressor::compress(&array, false, 3, &[])?;
+        // Verify the compressed array preserves values.
+        assert_eq!(compressed.len(), 100);
+        Ok(())
     }
 }

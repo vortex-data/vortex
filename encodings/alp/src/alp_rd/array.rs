@@ -38,7 +38,6 @@ use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -82,15 +81,17 @@ impl VTable for ALPRDVTable {
     fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
-            .and_then(|patches| patches.slice(range.clone()));
+            .map(|patches| patches.slice(range.clone()))
+            .transpose()?
+            .flatten();
 
         // SAFETY: slicing components does not change the encoded values
         Ok(Some(unsafe {
             ALPRDArray::new_unchecked(
                 array.dtype().clone(),
-                array.left_parts().slice(range.clone()),
+                array.left_parts().slice(range.clone())?,
                 array.left_parts_dictionary().clone(),
-                array.right_parts().slice(range),
+                array.right_parts().slice(range)?,
                 array.right_bit_width(),
                 left_parts_exceptions,
             )
@@ -168,17 +169,17 @@ impl VTable for ALPRDVTable {
             .0
             .patches
             .map(|p| {
-                let indices = children.get(2, &p.indices_dtype(), p.len())?;
-                let values = children.get(3, &left_parts_dtype, p.len())?;
+                let indices = children.get(2, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(3, &left_parts_dtype, p.len()?)?;
 
-                Ok::<_, VortexError>(Patches::new(
+                Patches::new(
                     len,
-                    p.offset(),
+                    p.offset()?,
                     indices,
                     values,
                     // TODO(0ax1): handle chunk offsets
                     None,
-                ))
+                )
             })
             .transpose()?;
 
@@ -232,7 +233,7 @@ impl VTable for ALPRDVTable {
             array.left_parts_patches = Some(Patches::new(
                 array_len, offset, indices, values,
                 None, // chunk_offsets not currently supported for ALPRD
-            ));
+            )?);
         }
 
         Ok(())
@@ -341,7 +342,7 @@ impl ALPRDArray {
 
         let left_parts_patches = left_parts_patches
             .map(|patches| {
-                if !patches.values().all_valid() {
+                if !patches.values().all_valid()? {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.

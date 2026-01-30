@@ -172,7 +172,7 @@ impl ArrayBuilder for DecimalBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "DecimalBuilder expected scalar with dtype {:?}, got {:?}",
+            "DecimalBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -197,8 +197,11 @@ impl ArrayBuilder for DecimalBuilder {
                 .extend(decimal_array.buffer::<D>().iter().copied());
         });
 
-        self.nulls
-            .append_validity_mask(decimal_array.validity_mask());
+        self.nulls.append_validity_mask(
+            decimal_array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -314,7 +317,7 @@ mod tests {
         let i128s = i128s.finish();
 
         for i in 0..i8s.len() {
-            assert_eq!(i8s.scalar_at(i), i128s.scalar_at(i));
+            assert_eq!(i8s.scalar_at(i).unwrap(), i128s.scalar_at(i).unwrap());
         }
     }
 
@@ -338,7 +341,7 @@ mod tests {
         // Test by taking a scalar from the array and appending it to a new builder.
         let mut builder2 = DecimalBuilder::new::<i64>(DecimalDType::new(10, 2), true.into());
         for i in 0..array.len() {
-            let scalar = array.scalar_at(i);
+            let scalar = array.scalar_at(i).unwrap();
             builder2.append_scalar(&scalar).unwrap();
         }
 

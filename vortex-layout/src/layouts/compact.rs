@@ -42,7 +42,11 @@ fn is_pco_number_type(ptype: PType) -> bool {
 pub struct CompactCompressor {
     pco_level: usize,
     zstd_level: i32,
-    values_per_page: usize,
+    /// Dictionaries are trained from previously seen frames to improve compression ratio.
+    /// nvCOMP though doesn't support ZSTD dictionaries. Therefore, we need the option to
+    /// disable them for compatibility.
+    zstd_use_dicts: bool,
+    zstd_values_per_page: usize,
 }
 
 impl CompactCompressor {
@@ -56,14 +60,19 @@ impl CompactCompressor {
         self
     }
 
+    pub fn with_zstd_use_dicts(mut self, use_dicts: bool) -> Self {
+        self.zstd_use_dicts = use_dicts;
+        self
+    }
+
     /// Sets the number of non-null primitive values to store per
     /// separately-decompressible page/frame.
     ///
     /// Fewer values per page can reduce the time to query a small slice of rows, but too
     /// few can increase compressed size and (de)compression time. The default is 0, which
     /// is used for maximally-large pages.
-    pub fn with_values_per_page(mut self, values_per_page: usize) -> Self {
-        self.values_per_page = values_per_page;
+    pub fn with_zstd_values_per_page(mut self, values_per_page: usize) -> Self {
+        self.zstd_values_per_page = values_per_page;
         self
     }
 
@@ -81,15 +90,26 @@ impl CompactCompressor {
                 let ptype = primitive.ptype();
 
                 if is_pco_number_type(ptype) {
-                    let pco_array =
-                        PcoArray::from_primitive(primitive, self.pco_level, self.values_per_page)?;
+                    let pco_array = PcoArray::from_primitive(
+                        primitive,
+                        self.pco_level,
+                        self.zstd_values_per_page,
+                    )?;
                     pco_array.into_array()
                 } else {
-                    let zstd_array = ZstdArray::from_primitive(
-                        primitive,
-                        self.zstd_level,
-                        self.values_per_page,
-                    )?;
+                    let zstd_array = if self.zstd_use_dicts {
+                        ZstdArray::from_primitive(
+                            primitive,
+                            self.zstd_level,
+                            self.zstd_values_per_page,
+                        )?
+                    } else {
+                        ZstdArray::from_primitive_without_dict(
+                            primitive,
+                            self.zstd_level,
+                            self.zstd_values_per_page,
+                        )?
+                    };
                     zstd_array.into_array()
                 }
             }
@@ -119,13 +139,22 @@ impl CompactCompressor {
             }
             Canonical::VarBinView(vbv) => {
                 // always zstd
-                ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.values_per_page)?
+                if self.zstd_use_dicts {
+                    ZstdArray::from_var_bin_view(vbv, self.zstd_level, self.zstd_values_per_page)?
+                        .into_array()
+                } else {
+                    ZstdArray::from_var_bin_view_without_dict(
+                        vbv,
+                        self.zstd_level,
+                        self.zstd_values_per_page,
+                    )?
                     .into_array()
+                }
             }
             Canonical::Struct(struct_array) => {
                 // recurse
                 let fields = struct_array
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| self.compress(field))
                     .collect::<VortexResult<Vec<_>>>()?;
@@ -194,11 +223,12 @@ impl Default for CompactCompressor {
         Self {
             pco_level: pco::DEFAULT_COMPRESSION_LEVEL,
             zstd_level: 3,
+            zstd_use_dicts: true,
             // This is probably high enough to not hurt performance or
             // compression. It also currently aligns with the default strategy's
             // number of rows per statistic, which allows efficient pushdown
             // (but nothing enforces this).
-            values_per_page: 8192,
+            zstd_values_per_page: 8192,
         }
     }
 }

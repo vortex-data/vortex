@@ -68,3 +68,6 @@ known-first-party = [
 log_cli = true
 log_cli_level = "INFO"
 xfail_strict = true
+
+[tool.basedpyright]
+exclude = ["vortex-python/python/vortex/_lib/store/**.pyi"]

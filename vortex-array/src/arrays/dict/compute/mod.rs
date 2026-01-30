@@ -22,7 +22,6 @@ use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
 use crate::compute::TakeKernel;
 use crate::compute::TakeKernelAdapter;
-use crate::compute::filter;
 use crate::compute::take;
 use crate::register_kernel;
 
@@ -39,7 +38,7 @@ register_kernel!(TakeKernelAdapter(DictVTable).lift());
 
 impl FilterKernel for DictVTable {
     fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let codes = filter(array.codes(), mask)?;
+        let codes = array.codes().filter(mask.clone())?;
 
         // SAFETY: filtering codes doesn't change invariants
         // Preserve all_values_referenced since filtering codes doesn't affect which values are referenced
@@ -146,7 +145,7 @@ mod test {
             Some(5),
         ]);
         let dict = dict_encode(reference.as_ref()).unwrap();
-        dict.slice(1..4)
+        dict.slice(1..4).unwrap()
     }
 
     #[test]

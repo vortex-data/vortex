@@ -13,7 +13,6 @@ use std::hash::Hasher;
 use std::marker::PhantomData;
 use std::ops::Deref;
 use std::ops::Range;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
@@ -35,11 +34,12 @@ use crate::executor::ExecutionCtx;
 use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
+use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
-use crate::expr::lit;
 use crate::matchers::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -127,30 +127,37 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let inputs: Arc<[_]> = array
-            .children
-            .iter()
-            .map(|child| {
-                if let Some(scalar) = child.as_constant() {
-                    return Ok(lit(scalar));
-                }
-                Expression::try_new(
-                    ScalarFn::new(
-                        ArrayExpr,
-                        FakeEq(child.clone().execute::<Canonical>(ctx)?.into_array()),
-                    ),
-                    [],
-                )
-            })
-            .collect::<VortexResult<_>>()?;
+        let args = ExecutionArgs {
+            inputs: array.children.clone(),
+            row_count: array.len,
+            ctx,
+        };
 
-        array
+        let result = array
             .scalar_fn
-            .evaluate(
-                &Expression::try_new(array.scalar_fn.clone(), inputs)?,
-                &array.to_array(),
-            )?
-            .execute::<Canonical>(ctx)
+            .execute(args)?
+            .into_array()
+            .execute::<Canonical>(ctx)?;
+
+        debug_assert_eq!(
+            result.dtype(),
+            &array.dtype,
+            "Scalar function {} returned dtype {:?} but expected {:?}",
+            array.scalar_fn,
+            result.dtype(),
+            array.dtype
+        );
+
+        debug_assert_eq!(
+            result.len(),
+            array.len(),
+            "Scalar function {} returned len {:?} but expected {:?}",
+            array.scalar_fn,
+            result.len(),
+            array.len()
+        );
+
+        Ok(result)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -170,7 +177,7 @@ impl VTable for ScalarFnVTable {
             .children()
             .iter()
             .map(|c| c.slice(range.clone()))
-            .collect();
+            .collect::<VortexResult<_>>()?;
 
         Ok(Some(
             ScalarFnArray {
@@ -340,13 +347,12 @@ impl expr::VTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(options.0.clone())
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        crate::Executable::execute(options.0.clone(), args.ctx)
     }
 
     fn validity(

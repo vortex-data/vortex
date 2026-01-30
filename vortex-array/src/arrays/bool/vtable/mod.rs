@@ -3,7 +3,6 @@
 
 use std::ops::Range;
 
-use vortex_buffer::BitBuffer;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -64,10 +63,9 @@ impl VTable for BoolVTable {
     }
 
     fn metadata(array: &BoolArray) -> VortexResult<Self::Metadata> {
-        let bit_offset = array.bit_buffer().offset();
-        assert!(bit_offset < 8, "Offset must be <8, got {bit_offset}");
+        assert!(array.offset < 8, "Offset must be <8, got {}", array.offset);
         Ok(ProstMetadata(BoolMetadata {
-            offset: u32::try_from(bit_offset).vortex_expect("checked"),
+            offset: u32::try_from(array.offset).vortex_expect("checked"),
         }))
     }
 
@@ -100,10 +98,9 @@ impl VTable for BoolVTable {
             vortex_bail!("Expected 0 or 1 child, got {}", children.len());
         };
 
-        let buffer = buffers[0].clone().try_to_host()?;
-        let bits = BitBuffer::new_with_offset(buffer, len, metadata.offset as usize);
+        let buffer = buffers[0].clone();
 
-        BoolArray::try_new(bits, validity)
+        BoolArray::try_new_from_handle(buffer, metadata.offset as usize, len, validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -136,9 +133,9 @@ impl VTable for BoolVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            BoolArray::from_bit_buffer(
-                array.bit_buffer().slice(range.clone()),
-                array.validity().slice(range),
+            BoolArray::new(
+                array.to_bit_buffer().slice(range.clone()),
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

@@ -52,7 +52,7 @@ impl Alignment {
         Self::new(align_of::<T>())
     }
 
-    /// Check if this alignment is a "larger" than another alignment.
+    /// Check if `self` alignment is a "larger" than `other` alignment.
     ///
     /// ## Example
     ///

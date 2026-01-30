@@ -325,10 +325,14 @@ fn random_bool(
 ) -> Result<ArrayRef> {
     let v = arbitrary_vec_of_len(u, len)?;
     let validity = random_validity(u, nullability, v.len())?;
-    Ok(BoolArray::from_bit_buffer(BitBuffer::from(v), validity).into_array())
+    Ok(BoolArray::new(BitBuffer::from(v), validity).into_array())
 }
 
-fn random_validity(u: &mut Unstructured, nullability: Nullability, len: usize) -> Result<Validity> {
+pub fn random_validity(
+    u: &mut Unstructured,
+    nullability: Nullability,
+    len: usize,
+) -> Result<Validity> {
     match nullability {
         Nullability::NonNullable => Ok(Validity::NonNullable),
         Nullability::Nullable => Ok(match u.int_in_range(0..=2)? {

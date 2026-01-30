@@ -26,10 +26,10 @@ mod test {
     #[test]
     fn test_slice_nulls() {
         let nulls = NullArray::new(10);
-        let sliced = nulls.slice(0..4).to_null();
+        let sliced = nulls.slice(0..4).unwrap().to_null();
 
         assert_eq!(sliced.len(), 4);
-        assert!(matches!(sliced.validity_mask(), Mask::AllFalse(4)));
+        assert!(matches!(sliced.validity_mask().unwrap(), Mask::AllFalse(4)));
     }
 
     #[test]
@@ -40,14 +40,14 @@ mod test {
             .to_null();
 
         assert_eq!(taken.len(), 5);
-        assert!(matches!(taken.validity_mask(), Mask::AllFalse(5)));
+        assert!(matches!(taken.validity_mask().unwrap(), Mask::AllFalse(5)));
     }
 
     #[test]
     fn test_scalar_at_nulls() {
         let nulls = NullArray::new(10);
 
-        let scalar = nulls.scalar_at(0);
+        let scalar = nulls.scalar_at(0).unwrap();
         assert!(scalar.is_null());
         assert_eq!(scalar.dtype().clone(), DType::Null);
     }

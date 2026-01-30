@@ -7,6 +7,7 @@ use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::buffer::BufferHandle;
 use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<ConstantVTable> for ConstantVTable {
@@ -16,7 +17,7 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
             .value()
             .to_protobytes::<ByteBufferMut>()
             .freeze();
-        visitor.visit_buffer(&buffer);
+        visitor.visit_buffer_handle("scalar", &BufferHandle::new_host(buffer));
     }
 
     fn visit_children(_array: &ConstantArray, _visitor: &mut dyn ArrayChildVisitor) {}

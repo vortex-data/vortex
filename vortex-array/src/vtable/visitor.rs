@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_buffer::ByteBuffer;
-
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
+use crate::buffer::BufferHandle;
 use crate::vtable::VTable;
 
 pub trait VisitorVTable<V: VTable> {
@@ -17,12 +16,27 @@ pub trait VisitorVTable<V: VTable> {
         struct NBuffers(usize);
 
         impl ArrayBufferVisitor for NBuffers {
-            fn visit_buffer(&mut self, _buffer: &ByteBuffer) {
+            fn visit_buffer_handle(&mut self, _name: &str, _handle: &BufferHandle) {
                 self.0 += 1;
             }
         }
 
         let mut visitor = NBuffers(0);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(array, &mut visitor);
+        visitor.0
+    }
+
+    /// Return the names of the buffers in the array.
+    fn buffer_names(array: &V::Array) -> Vec<String> {
+        struct BufferNames(Vec<String>);
+
+        impl ArrayBufferVisitor for BufferNames {
+            fn visit_buffer_handle(&mut self, name: &str, _handle: &BufferHandle) {
+                self.0.push(name.to_string());
+            }
+        }
+
+        let mut visitor = BufferNames(Vec::new());
         <V::VisitorVTable as VisitorVTable<V>>::visit_buffers(array, &mut visitor);
         visitor.0
     }

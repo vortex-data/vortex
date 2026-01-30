@@ -24,7 +24,7 @@ impl CastKernel for BoolVTable {
             .clone()
             .cast_nullability(new_nullability, array.len())?;
         Ok(Some(
-            BoolArray::from_bit_buffer(array.bit_buffer().clone(), new_validity).to_array(),
+            BoolArray::new(array.to_bit_buffer(), new_validity).to_array(),
         ))
     }
 }

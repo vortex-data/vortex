@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fs::File;
+use std::io;
 #[cfg(all(not(unix), not(windows)))]
 use std::io::Read;
 #[cfg(all(not(unix), not(windows)))]
@@ -15,8 +16,8 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
-use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
@@ -27,7 +28,7 @@ use crate::runtime::Handle;
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
 /// This is a platform-specific helper that uses the most efficient method available.
 #[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std::io::Result<()> {
+pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> io::Result<()> {
     #[cfg(unix)]
     {
         file.read_exact_at(buffer, offset)
@@ -38,8 +39,8 @@ pub(crate) fn read_exact_at(file: &File, buffer: &mut [u8], offset: u64) -> std:
         while bytes_read < buffer.len() {
             let read = file.seek_read(&mut buffer[bytes_read..], offset + bytes_read as u64)?;
             if read == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
                     "failed to fill whole buffer",
                 ));
             }
@@ -107,7 +108,7 @@ impl VortexReadAt for FileReadAdapter {
         offset: u64,
         length: usize,
         alignment: Alignment,
-    ) -> BoxFuture<'static, VortexResult<ByteBuffer>> {
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = self.file.clone();
         let handle = self.handle.clone();
         async move {
@@ -116,7 +117,7 @@ impl VortexReadAt for FileReadAdapter {
                     let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
                     unsafe { buffer.set_len(length) };
                     read_exact_at(&file, &mut buffer, offset)?;
-                    Ok(buffer.freeze())
+                    Ok(BufferHandle::new_host(buffer.freeze()))
                 })
                 .await
         }

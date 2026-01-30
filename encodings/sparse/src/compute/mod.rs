@@ -48,7 +48,6 @@ mod test {
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
-    use vortex_array::compute::filter;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
@@ -58,7 +57,6 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::SparseArray;
-    use crate::SparseVTable;
 
     #[fixture]
     fn array() -> ArrayRef {
@@ -78,14 +76,19 @@ mod test {
         predicate.extend_from_slice(&[false; 17]);
         let mask = Mask::from_iter(predicate);
 
-        let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = filtered_array.as_::<SparseVTable>();
+        let filtered_array = array.filter(mask).unwrap();
 
-        assert_eq!(filtered_array.len(), 1);
-        assert_arrays_eq!(
-            filtered_array.patches().indices(),
-            PrimitiveArray::from_iter([0u64])
-        );
+        // Construct expected SparseArray: index 2 was kept, which had value 33.
+        // The new index is 0 (since it's the only element).
+        let expected = SparseArray::try_new(
+            buffer![0u64].into_array(),
+            PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
+            1,
+            Scalar::null_typed::<i32>(),
+        )
+        .unwrap();
+
+        assert_arrays_eq!(filtered_array, expected);
     }
 
     #[test]
@@ -100,13 +103,21 @@ mod test {
         .unwrap()
         .into_array();
 
-        let filtered_array = filter(&array, &mask).unwrap();
-        let filtered_array = filtered_array.as_::<SparseVTable>();
+        let filtered_array = array.filter(mask).unwrap();
 
-        assert_arrays_eq!(
-            filtered_array.patches().indices(),
-            PrimitiveArray::from_iter([1u64, 3])
-        );
+        // Original indices 0, 3, 6 with values 33, 44, 55.
+        // Mask keeps indices 1, 3, 5, 6 -> new indices 0, 1, 2, 3.
+        // Index 3 (value 44) maps to new index 1.
+        // Index 6 (value 55) maps to new index 3.
+        let expected = SparseArray::try_new(
+            buffer![1u64, 3].into_array(),
+            PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
+            4,
+            Scalar::null_typed::<i32>(),
+        )
+        .unwrap();
+
+        assert_arrays_eq!(filtered_array, expected);
     }
 
     #[rstest]

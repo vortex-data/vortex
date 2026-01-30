@@ -114,6 +114,7 @@ fn take_primitive_scalar<T: NativePType, I: IntegerPType>(array: &[T], indices: 
 mod test {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_error::VortexExpect;
     use vortex_scalar::Scalar;
 
     use crate::Array;
@@ -143,11 +144,20 @@ mod test {
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
         let actual = take(values.as_ref(), indices.as_ref()).unwrap();
-        assert_eq!(actual.scalar_at(0), Scalar::from(Some(1)));
+        assert_eq!(
+            actual.scalar_at(0).vortex_expect("no fail"),
+            Scalar::from(Some(1))
+        );
         // position 3 is null
-        assert_eq!(actual.scalar_at(1), Scalar::null_typed::<i32>());
+        assert_eq!(
+            actual.scalar_at(1).vortex_expect("no fail"),
+            Scalar::null_typed::<i32>()
+        );
         // the third index is null
-        assert_eq!(actual.scalar_at(2), Scalar::null_typed::<i32>());
+        assert_eq!(
+            actual.scalar_at(2).vortex_expect("no fail"),
+            Scalar::null_typed::<i32>()
+        );
     }
 
     #[rstest]

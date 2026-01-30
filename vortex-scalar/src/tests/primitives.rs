@@ -9,11 +9,11 @@ mod tests {
 
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtID;
     use vortex_dtype::NativeDecimalType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::datetime::Date;
+    use vortex_dtype::datetime::TimeUnit;
     use vortex_utils::aliases::hash_set::HashSet;
 
     use crate::InnerScalarValue;
@@ -125,13 +125,8 @@ mod tests {
         assert_eq!(list_scalar.nbytes(), 3 * 4); // 3 * i32
 
         // Test extension scalar
-        let ext_dtype = Arc::new(ExtDType::new(
-            ExtID::new("test_ext".into()),
-            Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable)),
-            None,
-        ));
-        let ext_scalar = Scalar::extension(
-            ext_dtype,
+        let ext_scalar = Scalar::extension::<Date>(
+            TimeUnit::Days,
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
         assert_eq!(ext_scalar.nbytes(), 4); // i32 storage

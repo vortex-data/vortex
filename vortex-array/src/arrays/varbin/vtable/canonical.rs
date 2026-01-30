@@ -3,17 +3,16 @@
 
 use std::sync::Arc;
 
-use num_traits::AsPrimitive;
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
-use vortex_vector::binaryview::BinaryView;
 
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::build_views::MAX_BUFFER_LEN;
+use crate::arrays::build_views::build_views;
+use crate::arrays::build_views::offsets_to_lengths;
 use crate::arrays::varbin::VarBinArray;
 
 /// Converts a VarBinArray to its canonical form (VarBinViewArray).
@@ -27,29 +26,21 @@ pub(crate) fn varbin_to_canonical(
     let array = array.clone().zero_offsets();
     let (dtype, bytes, offsets, validity) = array.into_parts();
 
+    // offsets_to_lengths
     let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+    let bytes = bytes.unwrap_host().into_mut();
 
-    // Build views directly from offsets
-    #[expect(clippy::cast_possible_truncation, reason = "BinaryView offset is u32")]
-    let views: Buffer<BinaryView> = match_each_integer_ptype!(offsets.ptype(), |O| {
-        let offsets_slice = offsets.as_slice::<O>();
-        let bytes_slice = bytes.as_ref();
+    match_each_integer_ptype!(offsets.ptype(), |P| {
+        let lens = offsets_to_lengths(offsets.as_slice::<P>());
+        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes, lens.as_slice());
 
-        let mut views = BufferMut::<BinaryView>::with_capacity(offsets_slice.len() - 1);
-        for window in offsets_slice.windows(2) {
-            let start: usize = window[0].as_();
-            let end: usize = window[1].as_();
-            let value = &bytes_slice[start..end];
-            views.push(BinaryView::make_view(value, 0, start as u32));
-        }
-        views.freeze()
-    });
+        let varbinview =
+            unsafe { VarBinViewArray::new_unchecked(views, Arc::from(buffers), dtype, validity) };
 
-    // Create VarBinViewArray with the original bytes buffer and computed views
-    // SAFETY: views are correctly computed from valid offsets
-    let varbinview =
-        unsafe { VarBinViewArray::new_unchecked(views, Arc::from([bytes]), dtype, validity) };
-    Ok(Canonical::VarBinView(varbinview))
+        // Create VarBinViewArray with the original bytes buffer and computed views
+        // SAFETY: views are correctly computed from valid offsets
+        Ok(Canonical::VarBinView(varbinview))
+    })
 }
 
 #[cfg(test)]
@@ -74,12 +65,12 @@ mod tests {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
-        let varbin = varbin.slice(1..4);
+        let varbin = varbin.slice(1..4).unwrap();
 
         let canonical = varbin.to_varbinview();
         assert_eq!(canonical.dtype(), &dtype);
 
-        assert!(!canonical.is_valid(0));
+        assert!(!canonical.is_valid(0).unwrap());
 
         // First value is inlined (12 bytes)
         assert!(canonical.views()[1].is_inlined());

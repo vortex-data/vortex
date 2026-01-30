@@ -14,7 +14,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
@@ -102,14 +101,6 @@ impl Expression {
             .map(|c| c.return_dtype(scope))
             .try_collect()?;
         self.scalar_fn.return_dtype(&dtypes)
-    }
-
-    /// Evaluates the expression in the given scope, returning an array.
-    pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        if self.is::<Root>() {
-            return Ok(scope.clone());
-        }
-        self.scalar_fn.evaluate(self, scope)
     }
 
     /// Returns a new expression representing the validity mask output of this expression.

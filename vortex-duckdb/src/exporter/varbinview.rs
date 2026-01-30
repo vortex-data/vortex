@@ -8,12 +8,12 @@ use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrays::VarBinViewArrayParts;
+use vortex::array::arrays::build_views::BinaryView;
+use vortex::array::arrays::build_views::Inlined;
 use vortex::buffer::Buffer;
 use vortex::buffer::ByteBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
-use vortex::vector::binaryview::BinaryView;
-use vortex::vector::binaryview::Inlined;
 
 use crate::LogicalType;
 use crate::duckdb::Vector;
@@ -46,12 +46,21 @@ pub(crate) fn new_exporter(
             &LogicalType::try_from(dtype)?,
         ));
     }
+
+    let buffers = buffers
+        .iter()
+        .cloned()
+        .map(|b| b.unwrap_host())
+        .collect_vec();
+
+    let buffers: Arc<[ByteBuffer]> = Arc::from(buffers);
+
     Ok(validity::new_exporter(
         validity,
         Box::new(VarBinViewExporter {
-            views,
-            buffers: buffers.clone(),
+            views: Buffer::<BinaryView>::from_byte_buffer(views.unwrap_host()),
             vector_buffers: buffers.iter().cloned().map(VectorBuffer::new).collect_vec(),
+            buffers,
         }),
     ))
 }

@@ -205,7 +205,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ListBuilder expected scalar with dtype {:?}, got {:?}",
+            "ListBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -221,7 +221,11 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
         }
 
         // Append validity information.
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
 
         // Note that `ListViewArray` has `n` offsets and sizes, not `n+1` offsets like `ListArray`.
         let elements = list.elements();
@@ -251,7 +255,9 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
                 let size: usize = new_sizes[i].as_();
 
                 if size > 0 {
-                    let list_elements = new_elements.slice(offset..offset + size);
+                    let list_elements = new_elements
+                        .slice(offset..offset + size)
+                        .vortex_expect("list builder slice");
                     builder.elements_builder.extend_from_array(&list_elements);
                     curr_offset += size;
                 }
@@ -361,8 +367,8 @@ mod tests {
 
         let list_array = list.to_listview();
 
-        assert_eq!(list_array.list_elements_at(0).len(), 3);
-        assert_eq!(list_array.list_elements_at(1).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 3);
     }
 
     #[test]
@@ -413,9 +419,9 @@ mod tests {
 
         let list_array = list.to_listview();
 
-        assert_eq!(list_array.list_elements_at(0).len(), 3);
-        assert_eq!(list_array.list_elements_at(1).len(), 0);
-        assert_eq!(list_array.list_elements_at(2).len(), 3);
+        assert_eq!(list_array.list_elements_at(0).unwrap().len(), 3);
+        assert_eq!(list_array.list_elements_at(1).unwrap().len(), 0);
+        assert_eq!(list_array.list_elements_at(2).unwrap().len(), 3);
     }
 
     fn test_extend_builder_gen<O: IntegerPType>() {
@@ -430,8 +436,8 @@ mod tests {
 
         builder.extend_from_array(&list);
         builder.extend_from_array(&list);
-        builder.extend_from_array(&list.slice(0..0));
-        builder.extend_from_array(&list.slice(1..3));
+        builder.extend_from_array(&list.slice(0..0).unwrap());
+        builder.extend_from_array(&list.slice(1..3).unwrap());
 
         let expected = ListArray::from_iter_opt_slow::<O, _, _>(
             [
@@ -498,10 +504,13 @@ mod tests {
         let canon_values = chunked_list.unwrap().to_listview();
 
         assert_eq!(
-            one_trailing_unused_element.scalar_at(0),
-            canon_values.scalar_at(0)
+            one_trailing_unused_element.scalar_at(0).unwrap(),
+            canon_values.scalar_at(0).unwrap()
         );
-        assert_eq!(second_array.scalar_at(0), canon_values.scalar_at(1));
+        assert_eq!(
+            second_array.scalar_at(0).unwrap(),
+            canon_values.scalar_at(1).unwrap()
+        );
     }
 
     #[test]
@@ -530,7 +539,7 @@ mod tests {
 
         // Check actual values using scalar_at.
 
-        let scalar0 = array.scalar_at(0);
+        let scalar0 = array.scalar_at(0).unwrap();
         let list0 = scalar0.as_list();
         assert_eq!(list0.len(), 2);
         if let Some(list0_items) = list0.elements() {
@@ -538,7 +547,7 @@ mod tests {
             assert_eq!(list0_items[1].as_primitive().typed_value::<i32>(), Some(2));
         }
 
-        let scalar1 = array.scalar_at(1);
+        let scalar1 = array.scalar_at(1).unwrap();
         let list1 = scalar1.as_list();
         assert_eq!(list1.len(), 3);
         if let Some(list1_items) = list1.elements() {
@@ -547,14 +556,14 @@ mod tests {
             assert_eq!(list1_items[2].as_primitive().typed_value::<i32>(), Some(5));
         }
 
-        let scalar2 = array.scalar_at(2);
+        let scalar2 = array.scalar_at(2).unwrap();
         let list2 = scalar2.as_list();
         assert!(list2.is_null()); // This should be null.
 
         // Check validity.
-        assert!(array.validity().is_valid(0));
-        assert!(array.validity().is_valid(1));
-        assert!(!array.validity().is_valid(2));
+        assert!(array.validity().is_valid(0).unwrap());
+        assert!(array.validity().is_valid(1).unwrap());
+        assert!(!array.validity().is_valid(2).unwrap());
 
         // Test wrong dtype error.
         let mut builder = ListBuilder::<u64>::with_capacity(dtype, NonNullable, 20, 10);

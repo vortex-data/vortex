@@ -7,7 +7,6 @@ use arrow_array::make_array;
 use arrow_data::ArrayData as ArrowArrayData;
 use arrow_schema::DataType;
 use arrow_schema::Field;
-use itertools::Itertools;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use vortex::array::ArrayRef;
@@ -21,9 +20,11 @@ use vortex::error::VortexResult;
 
 use crate::arrays::PyArrayRef;
 use crate::arrow::FromPyArrow;
+use crate::error::PyVortexError;
+use crate::error::PyVortexResult;
 
 /// Convert an Arrow object to a Vortex array.
-pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyResult<PyArrayRef> {
+pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyVortexResult<PyArrayRef> {
     let pa = obj.py().import("pyarrow")?;
     let pa_array = pa.getattr("Array")?;
     let chunked_array = pa.getattr("ChunkedArray")?;
@@ -32,18 +33,17 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyResult<PyArrayRef> 
     if obj.is_instance(&pa_array)? {
         let arrow_array = ArrowArrayData::from_pyarrow(&obj.as_borrowed()).map(make_array)?;
         let is_nullable = arrow_array.is_nullable();
-        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable);
+        let enc_array = ArrayRef::from_arrow(arrow_array.as_ref(), is_nullable)?;
         Ok(PyArrayRef::from(enc_array))
     } else if obj.is_instance(&chunked_array)? {
         let chunks: Vec<Bound<PyAny>> = obj.getattr("chunks")?.extract()?;
         let encoded_chunks = chunks
             .iter()
             .map(|a| {
-                ArrowArrayData::from_pyarrow(&a.as_borrowed())
-                    .map(make_array)
-                    .map(|a| ArrayRef::from_arrow(a.as_ref(), false))
+                let arrow_array = ArrowArrayData::from_pyarrow(&a.as_borrowed()).map(make_array)?;
+                ArrayRef::from_arrow(arrow_array.as_ref(), false).map_err(PyVortexError::from)
             })
-            .collect::<PyResult<Vec<_>>>()?;
+            .collect::<PyVortexResult<Vec<_>>>()?;
         let dtype: DType = obj
             .getattr("type")
             .and_then(|v| DataType::from_pyarrow(&v.as_borrowed()))
@@ -56,15 +56,15 @@ pub(super) fn from_arrow(obj: &Borrowed<'_, '_, PyAny>) -> PyResult<PyArrayRef> 
         let dtype = DType::from_arrow(array_stream.schema());
         let chunks = array_stream
             .into_iter()
-            .map(|b| b.map_err(VortexError::from))
-            .map_ok(|b| ArrayRef::from_arrow(b, false))
+            .map(|b| {
+                b.map_err(VortexError::from)
+                    .and_then(|b| ArrayRef::from_arrow(b, false))
+            })
             .collect::<VortexResult<Vec<_>>>()?;
         Ok(PyArrayRef::from(
             ChunkedArray::try_new(chunks, dtype)?.into_array(),
         ))
     } else {
-        Err(PyValueError::new_err(
-            "Cannot convert object to Vortex array",
-        ))
+        Err(PyValueError::new_err("Cannot convert object to Vortex array").into())
     }
 }

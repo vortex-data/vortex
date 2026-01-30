@@ -22,8 +22,6 @@ pub use split_by::SplitBy;
 mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
-#[cfg(gpu_unstable)]
-pub mod gpu;
 mod repeated_scan;
 #[cfg(test)]
 mod test;

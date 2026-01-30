@@ -16,6 +16,7 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_vector::Vector;
 use vortex_vector::binaryview::BinaryVector;
+use vortex_vector::binaryview::BinaryView;
 use vortex_vector::binaryview::StringVector;
 use vortex_vector::bool::BoolVector;
 use vortex_vector::decimal::DVector;
@@ -51,11 +52,11 @@ impl Canonical {
         Ok(match self {
             Canonical::Null(a) => Vector::Null(NullVector::new(a.len())),
             Canonical::Bool(a) => {
-                Vector::Bool(BoolVector::new(a.bit_buffer().clone(), a.validity_mask()))
+                Vector::Bool(BoolVector::new(a.to_bit_buffer(), a.validity_mask()?))
             }
             Canonical::Primitive(a) => {
                 let ptype = a.ptype();
-                let validity = a.validity_mask();
+                let validity = a.validity_mask()?;
                 match_each_native_ptype!(ptype, |T| {
                     let buffer = a.to_buffer::<T>();
                     Vector::Primitive(PVector::<T>::new(buffer, validity).into())
@@ -72,7 +73,7 @@ impl Canonical {
                     match_each_decimal_value_type!(min_value_type, |E| {
                         let decimal_dtype = a.decimal_dtype();
                         let buffer = a.buffer::<D>();
-                        let validity_mask = a.validity_mask();
+                        let validity_mask = a.validity_mask()?;
 
                         // Copy from D to E, possibly widening, possibly narrowing
                         let values = Buffer::<E>::from_trusted_len_iter(buffer.iter().map(|d| {
@@ -97,20 +98,22 @@ impl Canonical {
                 })
             }
             Canonical::VarBinView(a) => {
-                let validity = a.validity_mask();
+                let validity = a.validity_mask()?;
+                let views =
+                    Buffer::<BinaryView>::from_byte_buffer(a.views_handle().as_host().clone());
                 match a.dtype() {
                     DType::Utf8(_) => {
-                        let views = a.views().clone();
                         // Convert Arc<[ByteBuffer]> to Arc<Box<[ByteBuffer]>>
-                        let buffers: Box<[_]> = a.buffers().iter().cloned().collect();
+                        let buffers: Box<[_]> =
+                            a.buffers().iter().map(|b| b.as_host()).cloned().collect();
                         Vector::String(unsafe {
                             StringVector::new_unchecked(views, Arc::new(buffers), validity)
                         })
                     }
                     DType::Binary(_) => {
-                        let views = a.views().clone();
                         // Convert Arc<[ByteBuffer]> to Arc<Box<[ByteBuffer]>>
-                        let buffers: Box<[_]> = a.buffers().iter().cloned().collect();
+                        let buffers: Box<[_]> =
+                            a.buffers().iter().map(|b| b.as_host()).cloned().collect();
                         Vector::Binary(unsafe {
                             BinaryVector::new_unchecked(views, Arc::new(buffers), validity)
                         })
@@ -137,9 +140,9 @@ impl Canonical {
                 match_each_native_ptype!(offsets_ptype, |O| {
                     match_each_native_ptype!(sizes_ptype, |S| {
                         let offsets_vec =
-                            PVector::<O>::new(offsets.to_buffer::<O>(), offsets.validity_mask());
+                            PVector::<O>::new(offsets.to_buffer::<O>(), offsets.validity_mask()?);
                         let sizes_vec =
-                            PVector::<S>::new(sizes.to_buffer::<S>(), sizes.validity_mask());
+                            PVector::<S>::new(sizes.to_buffer::<S>(), sizes.validity_mask()?);
                         Vector::List(unsafe {
                             ListViewVector::new_unchecked(
                                 Arc::new(elements_vector),
@@ -152,7 +155,7 @@ impl Canonical {
                 })
             }
             Canonical::FixedSizeList(a) => {
-                let validity = a.validity_mask();
+                let validity = a.validity_mask()?;
                 let list_size = a.list_size();
                 let elements_vector = a.elements().clone().execute::<Vector>(ctx)?;
                 Vector::FixedSizeList(unsafe {
@@ -164,9 +167,9 @@ impl Canonical {
                 })
             }
             Canonical::Struct(a) => {
-                let validity = a.validity_mask();
-                let mut fields = Vec::with_capacity(a.fields().len());
-                for f in a.fields().iter().cloned() {
+                let validity = a.validity_mask()?;
+                let mut fields = Vec::with_capacity(a.unmasked_fields().len());
+                for f in a.unmasked_fields().iter().cloned() {
                     fields.push(f.execute::<Vector>(ctx)?);
                 }
                 let fields: Box<[Vector]> = fields.into_boxed_slice();

@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::iter;
-use std::ops::Deref;
 
 use num_traits::AsPrimitive;
 use vortex_buffer::Buffer;
@@ -18,6 +17,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::buffer::BufferHandle;
 use crate::compute::TakeKernel;
 use crate::compute::TakeKernelAdapter;
 use crate::register_kernel;
@@ -30,18 +30,15 @@ impl TakeKernel for VarBinViewVTable {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive();
 
+        let indices_mask = indices.validity_mask()?;
         let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
-            take_views(
-                array.views(),
-                indices.as_slice::<I>(),
-                &indices.validity_mask(),
-            )
+            take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
         });
 
         // SAFETY: taking all components at same indices maintains invariants
         unsafe {
-            Ok(VarBinViewArray::new_unchecked(
-                views_buffer,
+            Ok(VarBinViewArray::new_handle_unchecked(
+                BufferHandle::new_host(views_buffer.into_byte_buffer()),
                 array.buffers().clone(),
                 array
                     .dtype()
@@ -56,12 +53,11 @@ impl TakeKernel for VarBinViewVTable {
 register_kernel!(TakeKernelAdapter(VarBinViewVTable).lift());
 
 fn take_views<I: AsPrimitive<usize>>(
-    views: &Buffer<BinaryView>,
+    views_ref: &[BinaryView],
     indices: &[I],
     mask: &Mask,
 ) -> Buffer<BinaryView> {
     // NOTE(ngates): this deref is not actually trivial, so we run it once.
-    let views_ref = views.deref();
     // We do not use iter_bools directly, since the resulting dyn iterator cannot
     // implement TrustedLen.
     match mask.bit_buffer() {

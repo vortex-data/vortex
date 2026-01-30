@@ -5,41 +5,71 @@
 #![allow(clippy::expect_used)]
 #![allow(clippy::use_debug)]
 
+use std::env;
+use std::fs::File;
+use std::io;
 use std::path::Path;
 use std::process::Command;
 
-fn main() {
-    if cfg!(not(target_os = "linux")) {
-        // cuda is only support on linux right now
-        return;
-    }
+use fastlanes::FastLanes;
 
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+use crate::cuda_kernel_generator::IndentedWriter;
+use crate::cuda_kernel_generator::generate_cuda_unpack_for_width;
+
+pub mod cuda_kernel_generator;
+
+fn main() {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
     let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
-    if !has_nvcc() {
-        // Only warn on Linux where we expect CUDA to be available.
-        println!("cargo:warning=nvcc not found, skipping CUDA kernel compilation");
-        return;
-    }
+    // Always emit the kernels directory path as a compile-time env var so any binary
+    // linking against vortex-cuda can find the PTX files. This must be set regardless
+    // of CUDA availability since the code using env!() is always compiled.
+    // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
+    println!(
+        "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
+        kernels_dir.display()
+    );
 
     println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
 
+    generate_unpack::<u8>(&kernels_dir, 32).expect("Failed to generate unpack for u8");
+    generate_unpack::<u16>(&kernels_dir, 32).expect("Failed to generate unpack for u16");
+    generate_unpack::<u32>(&kernels_dir, 32).expect("Failed to generate unpack for u32");
+    generate_unpack::<u64>(&kernels_dir, 16).expect("Failed to generate unpack for u64");
+
+    if !is_cuda_available() {
+        return;
+    }
+
     if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
         for path in entries.flatten().map(|entry| entry.path()) {
-            if path.extension().is_some_and(|ext| ext == "cu") {
-                println!("cargo:rerun-if-changed={}", path.display());
-                if let Err(e) = nvcc_compile_ptx(&kernels_dir, &path) {
-                    println!("cargo:warning=Failed to compile CUDA kernel: {}", e);
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
+                Some("cu") => {
+                    println!("cargo:rerun-if-changed={}", path.display());
+                    // Compile .cu files to PTX
+                    nvcc_compile_ptx(&kernels_dir, &path)
+                        .map_err(|e| {
+                            format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
+                        })
+                        .unwrap();
                 }
+                _ => {}
             }
         }
     }
 }
 
-fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
+fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::Result<()> {
+    let mut cu_file = File::create(output_dir.join(format!("bit_unpack_{}.cu", T::T)))?;
+    let mut cu_writer = IndentedWriter::new(&mut cu_file);
+    generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
+}
+
+fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> io::Result<()> {
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
-    let profile = std::env::var("PROFILE").unwrap();
+    let profile = env::var("PROFILE").unwrap();
 
     let mut cmd = Command::new("nvcc");
     if profile.as_str() == "debug" {
@@ -62,8 +92,8 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
         // CUDA Sanitizers
         // - memory: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-memcheck
         // - thread: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-racecheck
-        // - init: // https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-initcheck
-        // - synchronize : https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
+        // - init: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-initcheck
+        // - synchronize: https://docs.nvidia.com/compute-sanitizer/ComputeSanitizer/index.html#using-synccheck
     } else {
         cmd.arg("-O3");
     }
@@ -104,7 +134,7 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
             }
         }
 
-        return Err(std::io::Error::other(format!(
+        return Err(io::Error::other(format!(
             "nvcc compilation failed for {}",
             cu_path.display()
         )));
@@ -112,7 +142,8 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-fn has_nvcc() -> bool {
+/// Check if CUDA is available based on nvcc.
+fn is_cuda_available() -> bool {
     Command::new("nvcc")
         .arg("--version")
         .output()

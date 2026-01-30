@@ -78,7 +78,7 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if array.is_empty() {
             Ok(Some(Canonical::empty(array.dtype()).into_array()))
         } else {
-            let result = array.scalar_at(0);
+            let result = array.scalar_at(0)?;
             Ok(Some(ConstantArray::new(result, array.len).into_array()))
         }
     }
@@ -237,6 +237,6 @@ mod tests {
         .to_array();
 
         let expr = is_null(root());
-        expr.evaluate(&array).vortex_expect("expr evaluation");
+        array.apply(&expr).vortex_expect("expr evaluation");
     }
 }

@@ -76,25 +76,25 @@ mod tests {
         // RunEnd encoding should expand to [100, 100, 100, 200, 200, 100, 100, 100, 300, 300]
         assert_eq!(decoded.len(), 10);
         assert_eq!(
-            TryInto::<i64>::try_into(decoded.scalar_at(0).as_ref())
+            TryInto::<i64>::try_into(decoded.scalar_at(0).unwrap().as_ref())
                 .ok()
                 .unwrap(),
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(decoded.scalar_at(3).as_ref())
+            TryInto::<i64>::try_into(decoded.scalar_at(3).unwrap().as_ref())
                 .ok()
                 .unwrap(),
             200i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(decoded.scalar_at(5).as_ref())
+            TryInto::<i64>::try_into(decoded.scalar_at(5).unwrap().as_ref())
                 .ok()
                 .unwrap(),
             100i64
         );
         assert_eq!(
-            TryInto::<i64>::try_into(decoded.scalar_at(8).as_ref())
+            TryInto::<i64>::try_into(decoded.scalar_at(8).unwrap().as_ref())
                 .ok()
                 .unwrap(),
             300i64
@@ -130,7 +130,7 @@ mod tests {
         .unwrap();
 
         // Slice it to get offset 3, length 5: [200, 200, 300, 300, 300]
-        let sliced = runend.slice(3..8);
+        let sliced = runend.slice(3..8).unwrap();
 
         // Verify the slice is correct before casting
         assert_arrays_eq!(sliced, PrimitiveArray::from_iter([200, 200, 300, 300, 300]));

@@ -45,6 +45,12 @@ pub struct DictArray {
     pub(super) all_values_referenced: bool,
 }
 
+pub struct DictArrayParts {
+    pub codes: ArrayRef,
+    pub values: ArrayRef,
+    pub dtype: DType,
+}
+
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
     ///
@@ -114,8 +120,12 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
-    pub fn into_parts(self) -> (ArrayRef, ArrayRef) {
-        (self.codes, self.values)
+    pub fn into_parts(self) -> DictArrayParts {
+        DictArrayParts {
+            codes: self.codes,
+            values: self.values,
+            dtype: self.dtype,
+        }
     }
 
     #[inline]
@@ -166,7 +176,7 @@ impl DictArray {
     ///
     /// This is useful for operations like min/max that need to ignore unreferenced values.
     pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        let codes_validity = self.codes().validity_mask();
+        let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -247,7 +257,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -265,7 +275,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -287,7 +297,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -305,7 +315,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };

@@ -64,12 +64,12 @@ impl VTable for DictVTable {
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_code = array.codes().slice(range);
+        let sliced_code = array.codes().slice(range)?;
         if sliced_code.is::<ConstantVTable>() {
-            let code = &sliced_code.scalar_at(0).as_primitive().as_::<usize>();
+            let code = &sliced_code.scalar_at(0)?.as_primitive().as_::<usize>();
             return if let Some(code) = code {
                 Ok(Some(
-                    ConstantArray::new(array.values().scalar_at(*code), sliced_code.len())
+                    ConstantArray::new(array.values().scalar_at(*code)?, sliced_code.len())
                         .into_array(),
                 ))
             } else {
@@ -213,7 +213,7 @@ pub(super) fn execute_fast_path(
     }
 
     // All codes are null - result is all nulls
-    if array.codes.all_invalid() {
+    if array.codes.all_invalid()? {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
                 .into_array()

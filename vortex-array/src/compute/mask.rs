@@ -49,20 +49,24 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_array::IntoArray;
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{ mask};
+/// use vortex_error::VortexResult;
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;
 ///
+/// # fn main() -> VortexResult<()> {
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask_array = Mask::from_iter([true, false, false, false, true]);
 ///
-/// let masked = mask(array.as_ref(), &mask_array).unwrap();
+/// let masked = mask(array.as_ref(), &mask_array)?;
 /// assert_eq!(masked.len(), 5);
-/// assert!(!masked.is_valid(0));
-/// assert!(!masked.is_valid(1));
-/// assert_eq!(masked.scalar_at(2), Scalar::from(Some(1)));
-/// assert!(!masked.is_valid(3));
-/// assert!(!masked.is_valid(4));
+/// assert!(!masked.is_valid(0).unwrap());
+/// assert!(!masked.is_valid(1).unwrap());
+/// assert_eq!(masked.scalar_at(2)?, Scalar::from(Some(1)));
+/// assert!(!masked.is_valid(3).unwrap());
+/// assert!(!masked.is_valid(4).unwrap());
+/// # Ok(())
+/// # }
 /// ```
 ///
 pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
@@ -126,7 +130,7 @@ impl ComputeFnVTable for MaskFn {
         }
 
         // Do nothing if the array is already all nulls.
-        if array.all_invalid() {
+        if array.all_invalid()? {
             return Ok(array.to_array().into());
         }
 
@@ -147,7 +151,7 @@ impl ComputeFnVTable for MaskFn {
 
         let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
 
-        Ok(ArrayRef::from_arrow(masked.as_ref(), true).into())
+        Ok(ArrayRef::from_arrow(masked.as_ref(), true)?.into())
     }
 
     fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {

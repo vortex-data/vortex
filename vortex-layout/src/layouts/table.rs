@@ -251,13 +251,13 @@ impl LayoutStrategy for TableStrategy {
             if is_nullable {
                 columns.push((
                     sequence_pointer.advance(),
-                    chunk.validity_mask().into_array(),
+                    chunk.validity_mask()?.into_array(),
                 ));
             }
 
             columns.extend(
                 struct_chunk
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| (sequence_pointer.advance(), field.to_array())),
             );

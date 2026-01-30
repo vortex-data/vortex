@@ -23,15 +23,17 @@ pub(crate) fn sample(input: &dyn Array, sample_size: u32, sample_count: u32) -> 
     );
 
     // For every slice, grab the relevant slice and repack into a new PrimitiveArray.
-    ChunkedArray::try_new(
-        slices
-            .into_iter()
-            .map(|(start, end)| input.slice(start..end))
-            .collect(),
-        input.dtype().clone(),
-    )
-    .vortex_expect("sample")
-    .into_array()
+    let chunks: Vec<_> = slices
+        .into_iter()
+        .map(|(start, end)| {
+            input
+                .slice(start..end)
+                .vortex_expect("slice should succeed")
+        })
+        .collect();
+    ChunkedArray::try_new(chunks, input.dtype().clone())
+        .vortex_expect("sample slices should form valid chunked array")
+        .into_array()
 }
 
 pub fn stratified_slices(

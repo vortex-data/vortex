@@ -48,6 +48,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_array::IntoArray;
@@ -71,7 +72,7 @@ use crate::validity::Validity;
 /// assert_eq!(list_view.len(), 3);
 ///
 /// // Access individual lists
-/// let first_list = list_view.list_elements_at(0);
+/// let first_list = list_view.list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
 /// // First list contains elements[2..4] = [3, 4]
 ///
@@ -79,6 +80,8 @@ use crate::validity::Validity;
 /// let first_size = list_view.size_at(0);
 /// assert_eq!(first_offset, 2);
 /// assert_eq!(first_size, 2);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// [`ListArray`]: crate::arrays::ListArray
@@ -371,6 +374,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
                     .scalar_at(index)
+                    .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -398,6 +402,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
                     .scalar_at(index)
+                    .vortex_expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")
@@ -405,7 +410,11 @@ impl ListViewArray {
     }
 
     /// Returns the elements at the given index from the list array.
-    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slice operation fails.
+    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)

@@ -34,6 +34,7 @@ pin-project-lite = { workspace = true }
 handle = "1.0.2"
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
 tracing = { workspace = true }
+vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }

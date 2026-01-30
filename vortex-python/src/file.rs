@@ -7,6 +7,7 @@ use arrow_array::RecordBatchReader;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
+use pyo3_object_store::PyObjectStore;
 use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::compute::cast;
@@ -31,9 +32,12 @@ use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dataset::PyVortexDataset;
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::expr::PyExpr;
 use crate::install_module;
 use crate::iter::PyArrayIterator;
+use crate::object_store::resolve::ResolvedStore;
+use crate::object_store::resolve::resolve_store;
 use crate::scan::PyRepeatedScan;
 
 pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
@@ -47,9 +51,18 @@ pub(crate) fn init(py: Python, parent: &Bound<PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+/// Open a Vortex file for reading.
+///
+/// Callers can optionally configure an object store to build from using one of the definitions
+/// in the `vortex.store` crate.
 #[pyfunction]
-#[pyo3(signature = (path, *, without_segment_cache = false))]
-pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyVortexFile> {
+#[pyo3(signature = (path, *, store = None, without_segment_cache = false))]
+pub fn open(
+    py: Python,
+    path: &str,
+    store: Option<PyObjectStore>,
+    without_segment_cache: bool,
+) -> PyVortexResult<PyVortexFile> {
     let vxf = py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
@@ -59,7 +72,13 @@ pub fn open(py: Python, path: &str, without_segment_cache: bool) -> PyResult<PyV
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }
-            options.open_path(path).await
+
+            match resolve_store(path, store.map(|x| x.into_inner()))? {
+                ResolvedStore::ObjectStore(store, path) => {
+                    options.open_object_store(&store, path.as_ref()).await
+                }
+                ResolvedStore::Path(path) => options.open_path(path).await,
+            }
         })
     })?;
 
@@ -89,7 +108,7 @@ impl PyVortexFile {
         expr: Option<PyExpr>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> PyResult<PyArrayIterator> {
+    ) -> PyVortexResult<PyArrayIterator> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -109,7 +128,7 @@ impl PyVortexFile {
         expr: Option<PyExpr>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
-    ) -> PyResult<PyRepeatedScan> {
+    ) -> PyVortexResult<PyRepeatedScan> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
@@ -131,7 +150,7 @@ impl PyVortexFile {
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
         batch_size: Option<usize>,
-    ) -> PyResult<Py<PyAny>> {
+    ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
 
         let reader = slf.py().detach(|| {
@@ -149,15 +168,15 @@ impl PyVortexFile {
         })?;
 
         let rbr: Box<dyn RecordBatchReader + Send> = Box::new(reader);
-        rbr.into_pyarrow(slf.py())
+        Ok(rbr.into_pyarrow(slf.py())?)
     }
 
-    fn to_dataset(slf: Bound<Self>) -> PyResult<PyVortexDataset> {
+    fn to_dataset(slf: Bound<Self>) -> PyVortexResult<PyVortexDataset> {
         Ok(PyVortexDataset::try_new(slf.get().vxf.clone())?)
     }
 
     #[pyo3(signature = (*))]
-    pub fn splits(&self) -> VortexResult<Vec<(u64, u64)>> {
+    pub fn splits(&self) -> PyVortexResult<Vec<(u64, u64)>> {
         Ok(self
             .vxf
             .splits()?

@@ -12,7 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -67,7 +66,8 @@ impl VTable for SliceVTable {
     }
 
     fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(None)
+        // TODO(joe): make this configurable
+        vortex_bail!("Slice array is not serializable")
     }
 
     fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
@@ -106,7 +106,7 @@ impl VTable for SliceVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Execute the child to get canonical form, then slice it
         let canonical = array.child.clone().execute::<Canonical>(ctx)?;
-        let result = canonical.as_ref().slice(array.range.clone());
+        let result = canonical.as_ref().slice(array.range.clone())?;
         assert!(
             result.is_canonical(),
             "this must be canonical fix the slice impl for the dtype {} showing this error",
@@ -157,18 +157,14 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
 }
 
 impl OperationsVTable<SliceVTable> for SliceVTable {
-    fn scalar_at(array: &SliceArray, index: usize) -> Scalar {
+    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
         array.child.scalar_at(array.range.start + index)
     }
 }
 
 impl ValidityVTable<SliceVTable> for SliceVTable {
     fn validity(array: &SliceArray) -> VortexResult<Validity> {
-        Ok(array.child.validity()?.slice(array.range.clone()))
-    }
-
-    fn validity_mask(array: &SliceArray) -> Mask {
-        array.child.validity_mask().slice(array.range.clone())
+        array.child.validity()?.slice(array.range.clone())
     }
 }
 
@@ -203,7 +199,7 @@ mod tests {
         // Slice(1..4, Slice(2..8, base)) combines to Slice(3..6, base)
         let arr = PrimitiveArray::from_iter(0i32..10).into_array();
         let inner_slice = SliceArray::new(arr, 2..8).into_array();
-        let slice = inner_slice.slice(1..4);
+        let slice = inner_slice.slice(1..4)?;
 
         assert_arrays_eq!(slice, PrimitiveArray::from_iter([3i32, 4, 5]));
 

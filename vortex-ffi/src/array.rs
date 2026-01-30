@@ -58,7 +58,7 @@ pub unsafe extern "C-unwind" fn vx_array_get_field(
 
         let field_array = array
             .to_struct()
-            .fields()
+            .unmasked_fields()
             .get(index as usize)
             .ok_or_else(|| vortex_err!("Field index out of bounds"))?
             .clone();
@@ -72,12 +72,13 @@ pub unsafe extern "C-unwind" fn vx_array_slice(
     array: *const vx_array,
     start: u32,
     stop: u32,
-    // TODO(aduffy): deprecate this from the FFI API.
-    _error_out: *mut *mut vx_error,
+    error_out: *mut *mut vx_error,
 ) -> *const vx_array {
-    let array = vx_array::as_ref(array);
-    let sliced = array.slice(start as usize..stop as usize);
-    vx_array::new(sliced)
+    try_or_default(error_out, || {
+        let array = vx_array::as_ref(array);
+        let sliced = array.slice(start as usize..stop as usize)?;
+        Ok(vx_array::new(sliced))
+    })
 }
 
 #[unsafe(no_mangle)]
@@ -87,7 +88,10 @@ pub unsafe extern "C-unwind" fn vx_array_is_null(
     _error_out: *mut *mut vx_error,
 ) -> bool {
     let array = vx_array::as_ref(array);
-    array.is_invalid(index as usize)
+    // TODO(joe): propagate this error up instead of expecting
+    array
+        .is_invalid(index as usize)
+        .vortex_expect("is_invalid failed")
 }
 
 // TODO(robert): Make this return usize and remove error
@@ -97,7 +101,7 @@ pub unsafe extern "C-unwind" fn vx_array_null_count(
     error_out: *mut *mut vx_error,
 ) -> u32 {
     let array = vx_array::as_ref(array);
-    try_or_default(error_out, || Ok(array.invalid_count().try_into()?))
+    try_or_default(error_out, || Ok(array.invalid_count()?.try_into()?))
 }
 
 macro_rules! ffiarray_get_ptype {
@@ -106,7 +110,9 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize);
+                // TODO(joe): propagate this error up instead of expecting
+                let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                // TODO(joe): propagate this error up instead of expecting
                 value.as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("null value")
@@ -115,7 +121,9 @@ macro_rules! ffiarray_get_ptype {
             #[unsafe(no_mangle)]
             pub unsafe extern "C-unwind" fn [<vx_array_get_storage_ $ptype>](array: *const vx_array, index: u32) -> $ptype {
                 let array = vx_array::as_ref(array);
-                let value = array.scalar_at(index as usize);
+                // TODO(joe): propagate this error up instead of expecting
+                let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
+                // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
                     .storage()
                     .as_primitive()
@@ -146,7 +154,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_utf8(
     index: u32,
 ) -> *const vx_string {
     let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize);
+    // TODO(joe): propagate this error up instead of expecting
+    let value = array
+        .scalar_at(index as usize)
+        .vortex_expect("scalar_at failed");
     let utf8_scalar = value.as_utf8();
     if let Some(buffer) = utf8_scalar.value() {
         vx_string::new(Arc::from(buffer.as_str()))
@@ -163,7 +174,10 @@ pub unsafe extern "C-unwind" fn vx_array_get_binary(
     index: u32,
 ) -> *const vx_binary {
     let array = vx_array::as_ref(array);
-    let value = array.scalar_at(index as usize);
+    // TODO(joe): propagate this error up instead of expecting
+    let value = array
+        .scalar_at(index as usize)
+        .vortex_expect("scalar_at failed");
     let binary_scalar = value.as_binary();
     if let Some(bytes) = binary_scalar.value() {
         vx_binary::new(Arc::from(bytes.as_bytes()))

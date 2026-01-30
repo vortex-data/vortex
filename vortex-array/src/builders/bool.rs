@@ -7,6 +7,7 @@ use std::mem;
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
@@ -63,7 +64,7 @@ impl BoolBuilder {
             "Null count and value count should match when calling BoolBuilder::finish."
         );
 
-        BoolArray::from_bit_buffer(
+        BoolArray::new(
             mem::take(&mut self.inner).freeze(),
             self.nulls.finish_with_nullability(self.dtype.nullability()),
         )
@@ -99,7 +100,7 @@ impl ArrayBuilder for BoolBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+            "BoolBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -116,8 +117,12 @@ impl ArrayBuilder for BoolBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let bool_array = array.to_bool();
 
-        self.inner.append_buffer(bool_array.bit_buffer());
-        self.nulls.append_validity_mask(bool_array.validity_mask());
+        self.inner.append_buffer(&bool_array.to_bit_buffer());
+        self.nulls.append_validity_mask(
+            bool_array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, additional: usize) {
@@ -195,7 +200,7 @@ mod tests {
         let into_canon = chunk.to_bool();
 
         assert_eq!(canon_into.validity(), into_canon.validity());
-        assert_eq!(canon_into.bit_buffer(), into_canon.bit_buffer());
+        assert_eq!(canon_into.to_bit_buffer(), into_canon.to_bit_buffer());
         Ok(())
     }
 

@@ -3,11 +3,11 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::ArrayRef;
 use vortex_array::expr::Arity;
 use vortex_array::expr::ChildName;
 use vortex_array::expr::EmptyOptions;
 use vortex_array::expr::ExecutionArgs;
+use vortex_array::expr::ExecutionResult;
 use vortex_array::expr::ExprId;
 use vortex_array::expr::Expression;
 use vortex_array::expr::VTable;
@@ -17,7 +17,6 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
 
 pub struct RowIdx;
 
@@ -49,20 +48,13 @@ impl VTable for RowIdx {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         _options: &Self::Options,
-        _expr: &Expression,
-        _scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
+        _args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         vortex_bail!(
-            "RowIdxExpr should not be evaluated directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
-        );
-    }
-
-    fn execute(&self, _options: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        vortex_bail!(
-            "RowIdxExpr should not be eecuted directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
+            "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );
     }
 }

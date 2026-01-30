@@ -29,8 +29,8 @@ impl CastKernel for VarBinViewVTable {
         // SAFETY: casting just changes the DType, does not affect invariants on views/buffers.
         unsafe {
             Ok(Some(
-                VarBinViewArray::new_unchecked(
-                    array.views().clone(),
+                VarBinViewArray::new_handle_unchecked(
+                    array.views_handle().clone(),
                     array.buffers().clone(),
                     new_dtype,
                     new_validity,

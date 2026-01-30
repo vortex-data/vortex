@@ -35,10 +35,10 @@ impl ArrayAccessor<[u8]> for VarBinArray {
                 }
                 Validity::AllInvalid => f(&mut iter::repeat_n(None, self.len())),
                 Validity::Array(v) => {
-                    let validity = v.to_bool();
+                    let validity = v.to_bool().into_bit_buffer();
                     let mut iter = offsets
                         .windows(2)
-                        .zip(validity.bit_buffer())
+                        .zip(validity.iter())
                         .map(|(w, valid)| valid.then(|| &bytes[w[0] as usize..w[1] as usize]));
                     f(&mut iter)
                 }

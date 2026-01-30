@@ -14,17 +14,15 @@ use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
-use vortex_vector::Datum;
 
-use crate::Array;
-use crate::ArrayRef;
 use crate::IntoArray as _;
-use crate::ToCanonical;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
@@ -60,8 +58,12 @@ impl VTable for Merge {
         }))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let instance = match metadata {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let instance = match _metadata {
             [0x00] => DuplicateHandling::RightMost,
             [0x01] => DuplicateHandling::Error,
             _ => {
@@ -135,36 +137,34 @@ impl VTable for Merge {
         ))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in expr.children().iter() {
-            // TODO(marko): When nullable, we need to merge struct validity into field validity.
-            let array = child.evaluate(scope)?;
+        for input in args.inputs {
+            let array = input.execute::<StructArray>(args.ctx)?;
             if array.dtype().is_nullable() {
                 vortex_bail!("merge expects non-nullable input");
             }
-            if !array.dtype().is_struct() {
-                vortex_bail!("merge expects struct input");
-            }
-            let array = array.to_struct();
 
-            for (field_name, array) in array.names().iter().zip_eq(array.fields().iter().cloned()) {
+            for (field_name, field_array) in array
+                .names()
+                .iter()
+                .zip_eq(array.unmasked_fields().iter().cloned())
+            {
                 // Update or insert field.
                 if let Some(idx) = field_names.iter().position(|name| name == field_name) {
                     duplicate_names.insert(field_name.clone());
-                    arrays[idx] = array;
+                    arrays[idx] = field_array;
                 } else {
                     field_names.push(field_name.clone());
-                    arrays.push(array);
+                    arrays.push(field_array);
                 }
             }
         }
@@ -178,15 +178,10 @@ impl VTable for Merge {
 
         // TODO(DK): When children are allowed to be nullable, this needs to change.
         let validity = Validity::NonNullable;
-        let len = scope.len();
-        Ok(
-            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
-                .into_array(),
-        )
-    }
-
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Datum> {
-        todo!()
+        let len = args.row_count;
+        StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+            .into_array()
+            .execute(args.ctx)
     }
 
     fn reduce(
@@ -325,6 +320,7 @@ mod tests {
     use crate::ToCanonical;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
+    use crate::assert_arrays_eq;
     use crate::expr::Expression;
     use crate::expr::Pack;
     use crate::expr::exprs::get_item::get_item;
@@ -339,9 +335,9 @@ mod tests {
             vortex_bail!("empty field path");
         };
 
-        let mut array = array.to_struct().field_by_name(field)?.clone();
+        let mut array = array.to_struct().unmasked_field_by_name(field)?.clone();
         for field in field_path {
-            array = array.to_struct().field_by_name(field)?.clone();
+            array = array.to_struct().unmasked_field_by_name(field)?.clone();
         }
         Ok(array.to_primitive())
     }
@@ -388,42 +384,32 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array).unwrap();
+        let actual_array = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             actual_array.as_struct_typed().names(),
             ["a", "b", "c", "d", "e"]
         );
 
-        assert_eq!(
-            primitive_field(&actual_array, &["a"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [0, 0, 0]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["a"]).unwrap(),
+            PrimitiveArray::from_iter([0i32, 0, 0])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["b"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [2, 2, 2]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["b"]).unwrap(),
+            PrimitiveArray::from_iter([2i32, 2, 2])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["c"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [3, 3, 3]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["c"]).unwrap(),
+            PrimitiveArray::from_iter([3i32, 3, 3])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["d"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [4, 4, 4]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["d"]).unwrap(),
+            PrimitiveArray::from_iter([4i32, 4, 4])
         );
-        assert_eq!(
-            primitive_field(&actual_array, &["e"])
-                .unwrap()
-                .as_slice::<i32>(),
-            [5, 5, 5]
+        assert_arrays_eq!(
+            primitive_field(&actual_array, &["e"]).unwrap(),
+            PrimitiveArray::from_iter([5i32, 5, 5])
         );
     }
 
@@ -470,7 +456,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        expr.evaluate(&test_array).unwrap();
+        test_array.apply(&expr).unwrap();
     }
 
     #[test]
@@ -480,7 +466,7 @@ mod tests {
         let test_array = StructArray::from_fields(&[("a", buffer![0, 1, 2].into_array())])
             .unwrap()
             .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap();
+        let actual_array = test_array.clone().apply(&expr).unwrap();
         assert_eq!(actual_array.len(), test_array.len());
         assert_eq!(actual_array.as_struct_typed().nfields(), 0);
     }
@@ -523,11 +509,11 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(
             actual_array
-                .field_by_name("a")
+                .unmasked_field_by_name("a")
                 .unwrap()
                 .to_struct()
                 .names()
@@ -564,7 +550,7 @@ mod tests {
         ])
         .unwrap()
         .into_array();
-        let actual_array = expr.evaluate(&test_array.clone()).unwrap().to_struct();
+        let actual_array = test_array.clone().apply(&expr).unwrap().to_struct();
 
         assert_eq!(actual_array.names(), ["a", "c", "b", "d"]);
     }

@@ -4,7 +4,6 @@
 use itertools::Itertools;
 use vortex::array::ExecutionCtx;
 use vortex::array::arrays::BoolArray;
-use vortex::array::arrays::BoolArrayParts;
 use vortex::buffer::BitBuffer;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -24,8 +23,8 @@ pub(crate) fn new_exporter(
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     let len = array.len();
-    let BoolArrayParts { validity, bits, .. } = array.into_parts();
-    let validity = validity.to_array(len).execute::<Mask>(ctx)?;
+    let bits = array.to_bit_buffer();
+    let validity = array.validity()?.to_array(len).execute::<Mask>(ctx)?;
 
     if validity.all_false() {
         return Ok(all_invalid::new_exporter(len, &LogicalType::bool()));

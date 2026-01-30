@@ -13,7 +13,6 @@ use vortex_array::compute::FilterKernel;
 use vortex_array::compute::FilterKernelAdapter;
 use vortex_array::compute::TakeKernel;
 use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::filter;
 use vortex_array::compute::take;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
@@ -37,7 +36,7 @@ register_kernel!(TakeKernelAdapter(FoRVTable).lift());
 impl FilterKernel for FoRVTable {
     fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
         FoRArray::try_new(
-            filter(array.encoded(), mask)?,
+            array.encoded().filter(mask.clone())?,
             array.reference_scalar().clone(),
         )
         .map(|a| a.into_array())

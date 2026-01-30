@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// TODO(connor): REMOVE THIS FILE!
+
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -51,17 +53,21 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// use vortex_array::{Array, IntoArray};
 /// use vortex_array::arrays::{BoolArray, PrimitiveArray};
 /// use vortex_array::compute::{ filter, mask};
+/// use vortex_error::VortexResult;
 /// use vortex_mask::Mask;
 /// use vortex_scalar::Scalar;
 ///
+/// # fn main() -> VortexResult<()> {
 /// let array =
 ///     PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)]);
 /// let mask = Mask::from_iter([true, false, false, false, true]);
 ///
-/// let filtered = filter(array.as_ref(), &mask).unwrap();
+/// let filtered = filter(array.as_ref(), &mask)?;
 /// assert_eq!(filtered.len(), 2);
-/// assert_eq!(filtered.scalar_at(0), Scalar::from(Some(0_i32)));
-/// assert_eq!(filtered.scalar_at(1), Scalar::from(Some(2_i32)));
+/// assert_eq!(filtered.scalar_at(0)?, Scalar::from(Some(0_i32)));
+/// assert_eq!(filtered.scalar_at(1)?, Scalar::from(Some(2_i32)));
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// # Panics
@@ -69,12 +75,8 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// The `predicate` must receive an Array with type non-nullable bool, and will panic if this is
 /// not the case.
 pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    FILTER_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into(), mask.into()],
-            options: &(),
-        })?
-        .unwrap_array()
+    // TODO(connor): Remove this function completely!!!
+    Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
 }
 
 struct Filter;
@@ -106,7 +108,7 @@ impl ComputeFnVTable for Filter {
         }
 
         // If the entire array is null, then we only need to adjust the length of the array.
-        if array.validity_mask().true_count() == 0 {
+        if array.validity_mask()?.true_count() == 0 {
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().clone()), true_count)
                     .into_array()
@@ -126,7 +128,7 @@ impl ComputeFnVTable for Filter {
         // Otherwise, we can use scalar_at if the mask has length 1.
         if mask.true_count() == 1 {
             let idx = mask.first().vortex_expect("true_count == 1");
-            return Ok(ConstantArray::new(array.scalar_at(idx), 1)
+            return Ok(ConstantArray::new(array.scalar_at(idx)?, 1)
                 .into_array()
                 .into());
         }
@@ -136,7 +138,7 @@ impl ComputeFnVTable for Filter {
 
         if !array.is_canonical() {
             let canonical = array.to_canonical()?.into_array();
-            return filter(&canonical, mask).map(Into::into);
+            return canonical.filter(mask.clone()).map(Into::into);
         };
 
         vortex_bail!(
@@ -251,30 +253,5 @@ pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef>
     let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
     let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
 
-    Ok(ArrayRef::from_arrow(
-        filtered.as_ref(),
-        array.dtype().is_nullable(),
-    ))
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use crate::arrays::PrimitiveArray;
-    use crate::canonical::ToCanonical;
-    use crate::compute::filter::filter;
-
-    #[test]
-    fn test_filter() {
-        let items =
-            PrimitiveArray::from_option_iter([Some(0i32), None, Some(1i32), None, Some(2i32)])
-                .into_array();
-        let mask = Mask::from_iter([true, false, true, false, true]);
-
-        let filtered = filter(&items, &mask).unwrap();
-        assert_eq!(
-            filtered.to_primitive().as_slice::<i32>(),
-            &[0i32, 1i32, 2i32]
-        );
-    }
+    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
 }

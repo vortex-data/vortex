@@ -36,7 +36,7 @@ pub async fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<ChunkedA
 
     while let Some(rb) = reader.next().await {
         let rb = rb?;
-        let chunk = ArrayRef::from_arrow(rb, false);
+        let chunk = ArrayRef::from_arrow(rb, false)?;
 
         // Make sure data is uncompressed and canonicalized
         let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());

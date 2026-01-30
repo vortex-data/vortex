@@ -39,6 +39,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           targets: ${{ matrix.target.target }}
+          enable-sccache: "false"
 
       - name: Cargo Set Version
         run: |
@@ -90,6 +91,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v5
         with:
@@ -131,6 +133,7 @@ jobs:
         with:
           targets: ${{ matrix.target.target }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
       - run: cargo build --release --package vortex-jni
       - uses: actions/upload-artifact@v5
         with:

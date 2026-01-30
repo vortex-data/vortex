@@ -62,7 +62,7 @@ where
     }
 
     fn shutdown(&mut self) -> impl Future<Output = io::Result<()>> {
-        ready(Ok(()))
+        ready(Write::flush(self))
     }
 }
 

@@ -14,8 +14,8 @@ use crate::DecimalBytePartsVTable;
 
 impl MaskKernel for DecimalBytePartsVTable {
     fn mask(&self, array: &DecimalBytePartsArray, mask_array: &Mask) -> VortexResult<ArrayRef> {
-        DecimalBytePartsArray::try_new(mask(&array.msp, mask_array)?, *array.decimal_dtype())
-            .map(|a| a.to_array())
+        let masked = mask(&array.msp, mask_array)?;
+        DecimalBytePartsArray::try_new(masked, *array.decimal_dtype()).map(|a| a.to_array())
     }
 }
 

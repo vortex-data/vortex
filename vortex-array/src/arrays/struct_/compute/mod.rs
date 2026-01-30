@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
-mod filter;
 mod is_constant;
 mod mask;
 mod min_max;
@@ -22,7 +21,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
     use vortex_error::VortexExpect;
-    use vortex_mask::Mask;
 
     use crate::Array;
     use crate::IntoArray as _;
@@ -33,24 +31,11 @@ mod tests {
     use crate::assert_arrays_eq;
     use crate::compute::cast;
     use crate::compute::conformance::consistency::test_array_consistency;
-    use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::filter;
     use crate::compute::is_constant;
     use crate::compute::take;
     use crate::validity::Validity;
-
-    #[test]
-    fn filter_empty_struct() {
-        let struct_arr =
-            StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
-        let mask = vec![
-            false, true, false, true, false, true, false, true, false, true,
-        ];
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter(mask)).unwrap();
-        assert_eq!(filtered.len(), 5);
-    }
 
     #[test]
     fn take_empty_struct() {
@@ -85,14 +70,6 @@ mod tests {
             )
             .unwrap()
         );
-    }
-
-    #[test]
-    fn filter_empty_struct_with_empty_filter() {
-        let struct_arr =
-            StructArray::try_new(FieldNames::empty(), vec![], 0, Validity::NonNullable).unwrap();
-        let filtered = filter(struct_arr.as_ref(), &Mask::from_iter::<[bool; 0]>([])).unwrap();
-        assert_eq!(filtered.len(), 0);
     }
 
     #[test]
@@ -139,49 +116,6 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_empty_struct() {
-        test_filter_conformance(
-            StructArray::try_new(FieldNames::empty(), vec![], 5, Validity::NonNullable)
-                .unwrap()
-                .as_ref(),
-        );
-    }
-
-    #[test]
-    fn test_filter_complex_struct() {
-        let xs = buffer![0i64, 1, 2, 3, 4].into_array();
-        let ys = VarBinArray::from_iter(
-            [Some("a"), Some("b"), None, Some("d"), None],
-            DType::Utf8(Nullable),
-        )
-        .into_array();
-        let zs =
-            BoolArray::from_iter([Some(true), Some(true), None, None, Some(false)]).into_array();
-
-        test_filter_conformance(
-            StructArray::try_new(
-                ["xs", "ys", "zs"].into(),
-                vec![
-                    StructArray::try_new(
-                        ["left", "right"].into(),
-                        vec![xs.clone(), xs],
-                        5,
-                        Validity::NonNullable,
-                    )
-                    .unwrap()
-                    .into_array(),
-                    ys,
-                    zs,
-                ],
-                5,
-                Validity::NonNullable,
-            )
-            .unwrap()
-            .as_ref(),
-        );
-    }
-
-    #[test]
     fn test_cast_empty_struct() {
         let array = StructArray::try_new(FieldNames::default(), vec![], 5, Validity::NonNullable)
             .unwrap()
@@ -203,7 +137,7 @@ mod tests {
     fn test_cast_complex_struct() {
         let xs = PrimitiveArray::from_option_iter([Some(0i64), Some(1), Some(2), Some(3), Some(4)]);
         let ys = VarBinArray::from_vec(vec!["a", "b", "c", "d", "e"], DType::Utf8(Nullable));
-        let zs = BoolArray::from_bit_buffer(
+        let zs = BoolArray::new(
             BitBuffer::from_iter([true, true, false, false, true]),
             Validity::AllValid,
         );

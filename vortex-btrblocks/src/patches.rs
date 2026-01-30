@@ -20,17 +20,17 @@ pub fn compress_patches(patches: &Patches) -> VortexResult<Patches> {
         .compute_is_constant()
         .unwrap_or_default()
     {
-        ConstantArray::new(values.scalar_at(0), values.len()).into_array()
+        ConstantArray::new(values.scalar_at(0)?, values.len()).into_array()
     } else {
         values.clone()
     };
 
-    Ok(Patches::new(
+    Patches::new(
         patches.array_len(),
         patches.offset(),
         indices,
         values,
         // TODO(0ax1): chunk offsets
         None,
-    ))
+    )
 }

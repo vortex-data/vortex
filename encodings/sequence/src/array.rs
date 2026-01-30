@@ -21,7 +21,6 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
@@ -44,13 +43,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
-use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
 
@@ -287,7 +282,6 @@ impl VTable for SequenceVTable {
         Ok(Canonical::Primitive(prim))
     }
 
-    // TODO(joe): remove via vector.
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -306,14 +300,18 @@ impl VTable for SequenceVTable {
 
         match filter.filter_mask().indices() {
             AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(VectorMut::with_capacity(array.dtype(), 0).freeze())),
+            AllOr::None => Ok(Some(Canonical::empty(array.dtype()))),
             AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
                 let base = array.base().cast::<P>();
                 let multiplier = array.multiplier().cast::<P>();
-                execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
+                Canonical::Primitive(execute_iter(
+                    base,
+                    multiplier,
+                    indices.iter().copied(),
+                    array.dtype().nullability(),
+                ))
             }))),
         }
-        .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
 
     fn reduce_parent(
@@ -342,8 +340,8 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
     base: P,
     multiplier: P,
     iter: I,
-    len: usize,
-) -> PVector<P> {
+    nullability: Nullability,
+) -> PrimitiveArray {
     let values = if multiplier == <P>::one() {
         BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
     } else {
@@ -352,7 +350,7 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
         )
     };
 
-    PVector::<P>::new(values.freeze(), Mask::new_true(len))
+    PrimitiveArray::new(values, nullability.into())
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
@@ -388,21 +386,17 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
-        Scalar::new(
+    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::new(
             array.dtype().clone(),
             ScalarValue::from(array.index_value(index)),
-        )
+        ))
     }
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
-    }
-
-    fn validity_mask(array: &SequenceArray) -> Mask {
-        Mask::AllTrue(array.len())
     }
 }
 
@@ -444,7 +438,8 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2..3);
+            .slice(2..3)
+            .unwrap();
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
@@ -455,7 +450,8 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2);
+            .scalar_at(2)
+            .unwrap();
 
         assert_eq!(
             scalar,

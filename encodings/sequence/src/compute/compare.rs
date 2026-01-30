@@ -55,9 +55,7 @@ impl CompareKernel for SequenceVTable {
 
         if let Some(set_idx) = set_idx {
             let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(
-                BoolArray::from_bit_buffer(buffer, validity).to_array(),
-            ))
+            Ok(Some(BoolArray::new(buffer, validity).to_array()))
         } else {
             Ok(Some(
                 ConstantArray::new(
@@ -132,9 +130,9 @@ fn find_intersection<P: NativePType>(
 
 #[cfg(test)]
 mod tests {
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::ConstantArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::compute::Operator;
     use vortex_array::compute::compare;
     use vortex_dtype::Nullability::NonNullable;
@@ -145,42 +143,27 @@ mod tests {
     #[test]
     fn test_compare_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
-
         let rhs = ConstantArray::new(4i64, lhs.len());
-
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-
-        assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
-        )
+        let expected = BoolArray::from_iter([false, false, true, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
     fn test_compare_match_scale() {
         let lhs = SequenceArray::typed_new(2i64, 3, Nullable, 4).unwrap();
-
         let rhs = ConstantArray::new(8i64, lhs.len());
-
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-
-        assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, true, false]).bit_buffer(),
-        )
+        let expected = BoolArray::from_iter([Some(false), Some(false), Some(true), Some(false)]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
     fn test_compare_no_match() {
         let lhs = SequenceArray::typed_new(2i64, 1, NonNullable, 4).unwrap();
-
         let rhs = ConstantArray::new(1i64, lhs.len());
-
         let result = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
-
-        assert_eq!(
-            result.to_bool().bit_buffer(),
-            BoolArray::from_iter(vec![false, false, false, false]).bit_buffer(),
-        )
+        let expected = BoolArray::from_iter([false, false, false, false]);
+        assert_arrays_eq!(result, expected);
     }
 }

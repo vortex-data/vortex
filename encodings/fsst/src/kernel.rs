@@ -11,12 +11,13 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::VarBinViewArray;
+use vortex_array::arrays::build_views::BinaryView;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -30,9 +31,6 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
-use vortex_vector::binaryview::BinaryVector;
-use vortex_vector::binaryview::BinaryView;
-use vortex_vector::binaryview::StringVector;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -50,7 +48,6 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         Exact::new()
     }
 
-    // TODO(joe); remove Vector usage!
     fn execute_parent(
         &self,
         array: &FSSTArray,
@@ -101,21 +98,14 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
             )
         });
 
-        let dtype = array.dtype();
-        let canonical = match dtype {
-            DType::Binary(_) => unsafe {
-                BinaryVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
-            }
-            .into_array(array.dtype())
-            .to_array()
-            .execute::<Canonical>(ctx)?,
-            DType::Utf8(_) => unsafe {
-                StringVector::new_unchecked(views, Arc::new(vec![buffer].into()), validity)
-            }
-            .into_array(array.dtype())
-            .to_array()
-            .execute::<Canonical>(ctx)?,
-            _ => unreachable!("Not a supported FSST DType"),
+        // SAFETY: FSST already validates the bytes for binary/UTF-8.
+        let canonical = unsafe {
+            Canonical::VarBinView(VarBinViewArray::new_unchecked(
+                views,
+                Arc::from(vec![buffer]),
+                array.dtype().clone(),
+                Validity::from_mask(validity, array.dtype().nullability()),
+            ))
         };
 
         Ok(Some(canonical))
@@ -152,9 +142,7 @@ fn fsst_decode<S: IntegerPType + AsPrimitive<usize> + AsPrimitive<u32>>(
             }
         }
         Mask::AllFalse(_) => {
-            // Nothing to decompress
-            unsafe { uncompressed.set_len(0) };
-            return (Buffer::empty(), uncompressed.freeze());
+            // Nothing to decompress - all values are null with length 0
         }
         Mask::Values(values) => {
             for (filtered_idx, (idx, is_valid)) in filter_mask
@@ -200,4 +188,162 @@ fn fsst_decode<S: IntegerPType + AsPrimitive<usize> + AsPrimitive<u32>>(
     unsafe { views.set_len(filtered_uncompressed_lengths.len()) };
 
     (views.freeze(), uncompressed)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use vortex_array::Array;
+    use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
+    use vortex_array::arrays::FilterArray;
+    use vortex_array::arrays::builder::VarBinBuilder;
+    use vortex_array::assert_arrays_eq;
+    use vortex_array::session::ArraySession;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
+    use vortex_mask::Mask;
+    use vortex_session::VortexSession;
+
+    use crate::FSSTVTable;
+    use crate::fsst_compress;
+    use crate::fsst_train_compressor;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+
+    fn build_test_fsst_array() -> ArrayRef {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(10);
+        builder.append_value(b"hello world");
+        builder.append_value(b"foo bar baz");
+        builder.append_value(b"testing fsst compression");
+        builder.append_value(b"another string here");
+        builder.append_value(b"the quick brown fox");
+        builder.append_value(b"jumps over the lazy dog");
+        builder.append_value(b"abcdefghijklmnop");
+        builder.append_value(b"qrstuvwxyz");
+        builder.append_value(b"0123456789");
+        builder.append_value(b"final string");
+        let input = builder.finish(DType::Utf8(Nullability::NonNullable));
+
+        let compressor = fsst_train_compressor(&input);
+        fsst_compress(input, &compressor).into_array()
+    }
+
+    #[test]
+    fn test_fsst_filter_simple() -> VortexResult<()> {
+        let fsst_array = build_test_fsst_array();
+        assert!(fsst_array.is::<FSSTVTable>());
+        assert_eq!(fsst_array.len(), 10);
+
+        // Filter 1/5 elements (every 5th element: indices 0 and 5)
+        let mask = Mask::from_iter([
+            true, false, false, false, false, true, false, false, false, false,
+        ]);
+
+        // Create FilterArray and execute
+        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        // Compare with filtering the canonical VarBinView.
+        let expected = fsst_array.filter(mask)?;
+
+        assert_eq!(result.len(), 2);
+        assert_arrays_eq!(result.into_array(), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fsst_filter_every_other() -> VortexResult<()> {
+        let fsst_array = build_test_fsst_array();
+
+        // Filter every other element
+        let mask = Mask::from_iter([
+            true, false, true, false, true, false, true, false, true, false,
+        ]);
+
+        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        let expected = fsst_array.filter(mask)?;
+
+        assert_eq!(result.len(), 5);
+        assert_arrays_eq!(result.into_array(), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn issues_6034_test_fsst_filter_with_nulls_and_special_chars() -> VortexResult<()> {
+        //
+        // Test case with special characters and nulls
+        // Values: ["", "", "", "", "", "", "", "", "", "", "", ",", "A<<<<<<<", "", "", "", "", null, null, null, null, null, null]
+        // Mask: only the last element is selected (true at index 22)
+        let mut builder = VarBinBuilder::<i32>::with_capacity(23);
+        // 11 empty strings
+        for _ in 0..11 {
+            builder.append_value(b"");
+        }
+        // ","
+        builder.append_value(b",");
+        // "A<<<<<<<"
+        builder.append_value(b"A<<<<<<<");
+        // 4 more empty strings
+        for _ in 0..4 {
+            builder.append_value(b"");
+        }
+        // 6 nulls
+        for _ in 0..6 {
+            builder.append_null();
+        }
+        let input = builder.finish(DType::Utf8(Nullability::Nullable));
+
+        let compressor = fsst_train_compressor(&input);
+        let fsst_array: ArrayRef = fsst_compress(input.clone(), &compressor).into_array();
+
+        // Filter: only select the last element (index 22)
+        let mut mask = vec![false; 22];
+        mask.push(true);
+        let mask = Mask::from_iter(mask);
+
+        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        let expected = input.filter(mask)?;
+
+        assert_eq!(result.len(), 1);
+        assert_arrays_eq!(result.into_array(), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn filter_only_null() -> VortexResult<()> {
+        let mut builder = VarBinBuilder::<i32>::with_capacity(3);
+        builder.append_null();
+        builder.append_value(b"A");
+        builder.append_null();
+
+        let input = builder.finish(DType::Utf8(Nullability::Nullable));
+
+        let compressor = fsst_train_compressor(&input);
+        let fsst_array: ArrayRef = fsst_compress(input.clone(), &compressor).into_array();
+
+        let mask = Mask::from_iter([true, false, true]);
+
+        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        let expected = input.filter(mask)?;
+
+        assert_eq!(result.len(), 2);
+        assert_arrays_eq!(result.into_array(), expected);
+        Ok(())
+    }
 }

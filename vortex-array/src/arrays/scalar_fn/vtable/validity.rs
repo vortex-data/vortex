@@ -3,24 +3,57 @@
 
 use std::sync::Arc;
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
-use crate::arrays::NullArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ArrayExpr;
 use crate::arrays::scalar_fn::vtable::FakeEq;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::executor::CanonicalOutput;
+use crate::expr::ExecutionArgs;
 use crate::expr::Expression;
+use crate::expr::Literal;
+use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::lit;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
+
+/// Execute an expression tree recursively.
+///
+/// This assumes all leaf expressions are either ArrayExpr (wrapping actual arrays) or Literals.
+fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+
+    // Handle Root expression - this should not happen in validity expressions
+    if expr.is::<Root>() {
+        vortex_error::vortex_bail!("Root expression cannot be executed in validity context");
+    }
+
+    // Handle Literal expression - create a constant array
+    if expr.is::<Literal>() {
+        let scalar = expr.as_::<Literal>();
+        return Ok(crate::arrays::ConstantArray::new(scalar.clone(), row_count).into_array());
+    }
+
+    // Recursively execute child expressions to get input arrays
+    let inputs: Vec<ArrayRef> = expr
+        .children()
+        .iter()
+        .map(|child| execute_expr(child, row_count))
+        .collect::<VortexResult<_>>()?;
+
+    let args = ExecutionArgs {
+        inputs,
+        row_count,
+        ctx: &mut ctx,
+    };
+
+    Ok(expr.scalar_fn().execute(args)?.into_array())
+}
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn validity(array: &ScalarFnArray) -> VortexResult<Validity> {
@@ -38,26 +71,7 @@ impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
         let expr = Expression::try_new(array.scalar_fn.clone(), inputs)?;
         let validity_expr = array.scalar_fn().validity(&expr)?;
 
-        // We can evaluate the validity expression against an empty scope because we know all
-        // leaves are ArrayExpr.
-        Ok(Validity::Array(
-            validity_expr.evaluate(&NullArray::new(array.len()).into_array())?,
-        ))
-    }
-
-    fn validity_mask(array: &ScalarFnArray) -> Mask {
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let output = array
-            .to_array()
-            .execute::<CanonicalOutput>(&mut ctx)
-            .vortex_expect("Validity mask computation should be fallible");
-        match output {
-            CanonicalOutput::Constant(c) => Mask::new(array.len, c.scalar().is_valid()),
-            CanonicalOutput::Array(a) => a
-                .into_array()
-                .validity()
-                .vortex_expect("cannot fail")
-                .to_mask(array.len()),
-        }
+        // Execute the validity expression. All leaves are ArrayExpr nodes.
+        Ok(Validity::Array(execute_expr(&validity_expr, array.len())?))
     }
 }
