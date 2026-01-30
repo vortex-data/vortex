@@ -655,43 +655,6 @@ jobs:
           token: ${{ secrets.CODSPEED_TOKEN }}
           mode: "simulation"
 
-  bench-codspeed-gpu:
-    name: "Benchmark with Codspeed (GPU)"
-    timeout-minutes: 120
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=g5
-      - cpu=8
-      - image=ubuntu24-gpu-x64
-      - extras=s3-cache
-      - tag=bench-codspeed-gpu
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - name: Display NVIDIA SMI details
-        run: |
-          nvidia-smi
-          nvidia-smi -L
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
-      - name: Install Codspeed
-        run: cargo install --force cargo-codspeed --locked
-      - name: Build benchmarks
-        run: cargo codspeed -m walltime build -p vortex-cuda --profile bench
-      - name: Run benchmarks
-        uses: CodSpeedHQ/action@94b88560ad3ed11ed5e92a321518a47c35a1fed5
-        env:
-          CARGO_MANIFEST_DIR: ${{ github.workspace }}/vortex-cuda
-        with:
-          run: cargo codspeed run
-          token: ${{ secrets.CODSPEED_TOKEN }}
-          mode: "walltime"
-
   license-check-and-audit-check:
     name: License Check and Audit Check
     runs-on: ubuntu-latest
