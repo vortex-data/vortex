@@ -1640,14 +1640,27 @@ wheels = [
 
 [[package]]
 name = "substrait"
-version = "0.24.2"
+version = "0.27.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "protobuf" },
+    { name = "substrait-protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4d/73/0f3d6a1df07c7868533e78467e8b61a1559844a988c2cd0565aafa7773c2/substrait-0.27.0.tar.gz", hash = "sha256:73d6f90465c8138a10fb912c669a840abb95b04060c7d31faf331e38901bfb0a", size = 173217, upload-time = "2026-01-29T22:51:11.743Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c6/0b/d048fe689b39f35fac47bd5468b0c1f9deaa265ba5379015b8f1c3e908c3/substrait-0.27.0-py3-none-any.whl", hash = "sha256:09fbb748d61ab9d02149e518c8d282ca4db8caebfbe60c1660b23a28007bbc85", size = 90516, upload-time = "2026-01-29T22:51:10.705Z" },
+]
+
+[[package]]
+name = "substrait-protobuf"
+version = "0.79.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/40/99/48c601b6627609ffaea473f603006ff1ded88189ccd1260f58d9a340d88c/substrait-0.24.2.tar.gz", hash = "sha256:743cc352e96b0927b2cd37cd5a8fdac0a96a68df9600bd104fc36aebd222a836", size = 185019, upload-time = "2025-09-15T14:58:29.678Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/61/8d/0d7ff0e56fdf341182729da4ce5754712ad3b950e0e404ec2fa53f46627b/substrait_protobuf-0.79.0.tar.gz", hash = "sha256:f1bf8641eb3ee785f4affd4f728568958deda2bb1ededa09f02f2118229616d4", size = 74840, upload-time = "2026-01-29T00:08:55.587Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d3/9c/a67b8d3e10e0bb26d68325bbd3752422aa8dfcc324f2fa18adf0e6acfb15/substrait-0.24.2-py3-none-any.whl", hash = "sha256:d1d475833566fa9d67eed3273456883c0568486ccced92b524b31709d2817e19", size = 155429, upload-time = "2025-09-15T14:58:28.031Z" },
+    { url = "https://files.pythonhosted.org/packages/0a/27/24e16471dc7b5986cd2af0d5aab9b12347fb835840fb2320b1b2375e53a8/substrait_protobuf-0.79.0-py3-none-any.whl", hash = "sha256:6f710459569be0b92661e16a2d180a9f2a03853c3ef0154a0c6c8a9aef365ffa", size = 83741, upload-time = "2026-01-29T00:08:54.03Z" },
 ]
 
 [[package]]
