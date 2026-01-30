@@ -23,6 +23,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 mod arrays;
 mod encodings;
 mod filter;
+mod patches;
 mod slice;
 
 pub use arrays::DictExecutor;
