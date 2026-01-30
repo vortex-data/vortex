@@ -188,23 +188,7 @@ pub fn runend_decode_primitive(
     }))
 }
 
-pub fn runend_decode_bools(
-    ends: PrimitiveArray,
-    values: BoolArray,
-    offset: usize,
-    length: usize,
-) -> VortexResult<BoolArray> {
-    let validity_mask = values.validity_mask()?;
-    Ok(match_each_unsigned_integer_ptype!(ends.ptype(), |E| {
-        runend_decode_typed_bool(
-            trimmed_ends_iter(ends.as_slice::<E>(), offset, length),
-            &values.to_bit_buffer(),
-            validity_mask,
-            values.dtype().nullability(),
-            length,
-        )
-    }))
-}
+pub use crate::decompress_bool::runend_decode_bools;
 
 /// Decode a run-end encoded slice of values into a flat `Buffer<T>` and `Validity`.
 ///
