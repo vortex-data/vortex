@@ -300,6 +300,8 @@ export default function Modal({ chartData, onClose }) {
         bodyFont: { family: 'Geist Mono, monospace', size: 11 },
         padding: 12,
         cornerRadius: 4,
+        caretSize: 0,
+        position: 'topCorner',
         itemSort: (a, b) => b.parsed.y - a.parsed.y,
         callbacks: {
           title: (items) => {
