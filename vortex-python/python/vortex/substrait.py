@@ -10,8 +10,10 @@ from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
 if TYPE_CHECKING:
     from substrait.algebra_pb2 import Expression, FunctionArgument
     from substrait.extended_expression_pb2 import ExpressionReference, ExtendedExpression
-    from substrait.extensions.extensions_pb2 import SimpleExtensionDeclaration
-    from substrait.extensions.extensions_pb2 import SimpleExtensionURI  # pyright: ignore[reportDeprecated]
+    from substrait.extensions.extensions_pb2 import (
+        SimpleExtensionDeclaration,
+        SimpleExtensionURI,  # pyright: ignore[reportDeprecated]
+    )
     from substrait.type_pb2 import NamedStruct
 else:
     try:
