@@ -145,10 +145,12 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     thread_count: usize,
 ) -> io::Result<()> {
-    writeln!(output, "// SPDX-License-Identifier: Apache-2.0")?;
+    const SPDX: &str = "SPDX";
+    writeln!(output, "// {}-License-Identifier: Apache-2.0", SPDX)?;
     writeln!(
         output,
-        "// SPDX-FileCopyrightText: Copyright the Vortex contributors"
+        "// {}-FileCopyrightText: Copyright the Vortex contributors",
+        SPDX
     )?;
     writeln!(output, "// AUTO-GENERATED. Do not edit by hand!")?;
     writeln!(output, "#include <cuda.h>")?;
