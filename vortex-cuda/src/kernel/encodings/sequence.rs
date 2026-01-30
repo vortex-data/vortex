@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use cudarc::driver::DeviceRepr;
+use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
+use vortex_array::ArrayRef;
+use vortex_array::Canonical;
+use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::BufferHandle;
+use vortex_cuda_macros::cuda_tests;
+use vortex_dtype::NativePType;
+use vortex_dtype::Nullability;
+use vortex_dtype::match_each_native_ptype;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
+use vortex_sequence::SequenceArrayParts;
+use vortex_sequence::SequenceVTable;
+
+use crate::CudaDeviceBuffer;
+use crate::CudaExecutionCtx;
+use crate::executor::CudaExecute;
+use crate::launch_cuda_kernel;
+
+/// CUDA execution for `SequenceArray`.
+#[derive(Debug)]
+pub struct SequenceExecutor;
+
+#[async_trait]
+impl CudaExecute for SequenceExecutor {
+    async fn execute(
+        &self,
+        array: ArrayRef,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Canonical> {
+        let array = array
+            .try_into::<SequenceVTable>()
+            .map_err(|_| vortex_err!("SequenceExecutor can only accept SequenceArray"))?;
+
+        let SequenceArrayParts {
+            base,
+            multiplier,
+            len,
+            ptype,
+            nullability,
+        } = array.into_parts();
+
+        match_each_native_ptype!(ptype, |P| {
+            let base = base.cast::<P>();
+            let multiplier = multiplier.cast::<P>();
+
+            execute_typed::<P>(base, multiplier, len, nullability, ctx).await
+        })
+    }
+}
+
+async fn execute_typed<T: NativePType + DeviceRepr>(
+    base: T,
+    multiplier: T,
+    len: usize,
+    nullability: Nullability,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<Canonical> {
+    let buffer = ctx.device_alloc::<T>(len)?;
+
+    let len_u64 = len as u64;
+
+    let _events = launch_cuda_kernel!(
+        execution_ctx: ctx,
+        module: "sequence",
+        ptypes: &[T::PTYPE.to_string().as_str()],
+        launch_args: [buffer, base, multiplier, len_u64],
+        event_recording: CU_EVENT_DISABLE_TIMING,
+        array_len: len
+    );
+
+    let output_buf = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(buffer)));
+
+    Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
+        output_buf,
+        T::PTYPE,
+        nullability.into(),
+    )))
+}
+
+#[cuda_tests]
+mod tests {
+    use futures::executor::block_on;
+    use rstest::rstest;
+    use vortex_array::IntoArray;
+    use vortex_array::assert_arrays_eq;
+    use vortex_dtype::NativePType;
+    use vortex_dtype::Nullability;
+    use vortex_scalar::PValue;
+    use vortex_sequence::SequenceArray;
+    use vortex_session::VortexSession;
+
+    use crate::CanonicalCudaExt;
+    use crate::CudaSession;
+    use crate::executor::CudaExecute;
+    use crate::kernel::encodings::sequence::SequenceExecutor;
+
+    #[rstest]
+    #[case::u8(10u8, 2u8, 10)]
+    #[case::u16(10u16, 2u16, 100)]
+    #[case::u32(10u32, 2u32, 1000)]
+    #[case::u64(100u64, 20u64, 500)]
+    fn test_sequence<T: NativePType + Into<PValue>>(
+        #[case] base: T,
+        #[case] multiplier: T,
+        #[case] len: usize,
+    ) {
+        block_on(
+            async move { test_ptype::<T>(base, multiplier, len, Nullability::NonNullable).await },
+        );
+
+        block_on(
+            async move { test_ptype::<T>(base, multiplier, len, Nullability::Nullable).await },
+        );
+    }
+
+    async fn test_ptype<P: NativePType + Into<PValue>>(
+        base: P,
+        multiplier: P,
+        len: usize,
+        nullability: Nullability,
+    ) {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+
+        let array = SequenceArray::typed_new(base, multiplier, nullability, len).unwrap();
+
+        let cpu_result = array.to_canonical().unwrap().into_array();
+
+        let gpu_result = SequenceExecutor
+            .execute(array.into_array(), &mut cuda_ctx)
+            .await
+            .unwrap()
+            .into_host()
+            .await
+            .unwrap()
+            .into_array();
+
+        assert_arrays_eq!(cpu_result, gpu_result);
+    }
+}
