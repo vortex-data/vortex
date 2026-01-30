@@ -482,3 +482,35 @@ async fn test_schema_evolution_struct_field_order() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_cast_int_to_string() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
+
+    ctx.session
+        .sql(r#"copy (select 1 as id) to 'example.vortex'"#)
+        .await?
+        .show()
+        .await?;
+
+    ctx.session
+        .sql(r#"select cast(id as string) as sid from 'example.vortex' where id > 0"#)
+        .await?
+        .show()
+        .await?;
+
+    ctx.session
+        .sql(r#"select id from 'example.vortex' where cast (id as string) == '1'"#)
+        .await?
+        .show()
+        .await?;
+
+    // This fails as it pushes string cast to the scan
+    ctx.session
+        .sql(r#"select cast(id as string) from 'example.vortex'"#)
+        .await?
+        .collect()
+        .await?;
+
+    Ok(())
+}
