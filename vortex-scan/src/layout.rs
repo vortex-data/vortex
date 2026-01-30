@@ -27,7 +27,7 @@ use crate::api::ScanRequest;
 use crate::api::Split;
 use crate::api::SplitRef;
 
-/// An implementation of a [`DataSource`] that reads data from a [`LayoutReader`].
+/// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
