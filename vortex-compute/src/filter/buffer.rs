@@ -5,12 +5,9 @@ use vortex_buffer::BitView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
+use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
-
-// This is modeled after the constant with the equivalent name in arrow-rs.
-const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
 
 impl<M, T: Copy> Filter<M> for Buffer<T>
 where
@@ -19,6 +16,9 @@ where
 {
     type Output = Self;
 
+    /// Filters a `Buffer` according to some selection mask.
+    ///
+    /// This will attempt to filter in-place if possible.
     fn filter(self, selection_mask: &M) -> Self {
         // If we have exclusive access, we can perform the filter in place.
         match self.try_into_mut() {
@@ -36,22 +36,61 @@ impl<T: Copy> Filter<Mask> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection_mask: &Mask) -> Buffer<T> {
-        assert_eq!(
-            selection_mask.len(),
-            self.len(),
-            "Selection mask length must equal the buffer length"
-        );
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
 
         match selection_mask {
             Mask::AllTrue(_) => self.clone(),
             Mask::AllFalse(_) => Buffer::empty(),
-            Mask::Values(v) => match v.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-                MaskIter::Indices(indices) => filter_indices(self.as_slice(), indices),
-                MaskIter::Slices(slices) => {
-                    filter_slices(self.as_slice(), selection_mask.true_count(), slices)
-                }
-            },
+            Mask::Values(v) => self.filter(v.as_ref()),
         }
+    }
+}
+
+impl<T: Copy> Filter<MaskValues> for &Buffer<T> {
+    type Output = Buffer<T>;
+
+    fn filter(self, mask_values: &MaskValues) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
+        self.as_slice().filter(mask_values)
+    }
+}
+
+impl<T: Copy> Filter<[usize]> for &Buffer<T> {
+    type Output = Buffer<T>;
+
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
+    fn filter(self, indices: &[usize]) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
+        self.as_slice().filter(indices)
+    }
+}
+
+impl<T: Copy> Filter<[(usize, usize)]> for &Buffer<T> {
+    type Output = Buffer<T>;
+
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
+    fn filter(self, slices: &[(usize, usize)]) -> Buffer<T> {
+        // Delegates to the filter implementation over slices.
+        self.as_slice().filter(slices)
     }
 }
 
@@ -59,6 +98,7 @@ impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &Buffer<T> {
     type Output = Buffer<T>;
 
     fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        // Delegates to the filter implementation over slices.
         self.as_slice().filter(selection)
     }
 }
@@ -70,21 +110,11 @@ where
     type Output = ();
 
     fn filter(self, selection_mask: &M) -> Self::Output {
+        // Delegates to the filter implementation over slices, as that is also an in-place
+        // operation.
         let true_count = self.as_mut_slice().filter(selection_mask).len();
         self.truncate(true_count);
     }
-}
-
-fn filter_indices<T: Copy>(values: &[T], indices: &[usize]) -> Buffer<T> {
-    Buffer::<T>::from_trusted_len_iter(indices.iter().map(|&idx| values[idx]))
-}
-
-fn filter_slices<T>(values: &[T], output_len: usize, slices: &[(usize, usize)]) -> Buffer<T> {
-    let mut out = BufferMut::<T>::with_capacity(output_len);
-    for (start, end) in slices {
-        out.extend_from_slice(&values[*start..*end]);
-    }
-    out.freeze()
 }
 
 #[cfg(test)]
@@ -126,14 +156,14 @@ mod tests {
     #[test]
     fn test_filter_indices_direct() {
         let buf = buffer![100u32, 200, 300, 400];
-        let result = filter_indices(buf.as_slice(), &[0, 2, 3]);
+        let result = (&buf).filter([0usize, 2, 3].as_slice());
         assert_eq!(result, buffer![100u32, 300, 400]);
     }
 
     #[test]
     fn test_filter_slices_direct() {
         let buf = buffer![1u32, 2, 3, 4, 5];
-        let result = filter_slices(buf.as_slice(), 3, &[(0, 2), (4, 5)]);
+        let result = (&buf).filter([(0usize, 2), (4, 5)].as_slice());
         assert_eq!(result, buffer![1u32, 2, 5]);
     }
 
@@ -232,14 +262,5 @@ mod tests {
         buf.filter(&mask);
         let expected: Vec<u32> = (0..1000).filter(|i| i % 3 == 0).collect();
         assert_eq!(buf.as_slice(), &expected[..]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Mask length must equal the slice length")]
-    fn test_filter_length_mismatch() {
-        let mut buf = buffer_mut![1u32, 2, 3];
-        let mask = Mask::new_true(5); // Wrong length.
-
-        buf.filter(&mask);
     }
 }
