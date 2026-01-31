@@ -44,7 +44,7 @@ pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + H
 }
 
 /// A dynamic vtable for extension types, used for type-erased deserialization.
-pub trait DynVTable: 'static + Send + Sync + Debug {
+pub trait DynExtDTypeVTable: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtID;
 
@@ -52,7 +52,7 @@ pub trait DynVTable: 'static + Send + Sync + Debug {
     fn deserialize(&self, data: &[u8], storage_dtype: DType) -> VortexResult<ExtDTypeRef>;
 }
 
-impl<V: ExtDTypeVTable> DynVTable for V {
+impl<V: ExtDTypeVTable> DynExtDTypeVTable for V {
     fn id(&self) -> ExtID {
         ExtDTypeVTable::id(self)
     }

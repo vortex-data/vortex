@@ -20,8 +20,8 @@ use vortex_dtype::PType;
 use vortex_dtype::extension::EmptyMetadata;
 use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_dtype::session::DTypeSession;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
@@ -53,11 +53,10 @@ impl ExtScalarVTable for Even {
     type Value = i64;
 
     fn unpack(&self, _dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
-        let v = storage
-            .as_pvalue()?
-            .vortex_expect("storage is non-null")
-            .cast::<i64>();
-        Ok(v)
+        let ScalarValue::Primitive(pvalue) = storage else {
+            vortex_bail!("storage is not a primitive value");
+        };
+        Ok(pvalue.cast::<i64>())
     }
 
     fn pack(

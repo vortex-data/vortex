@@ -20,6 +20,7 @@ use vortex_dtype::ExtDType;
 use vortex_dtype::ExtDTypeRef;
 use vortex_dtype::ExtID;
 use vortex_dtype::Nullability;
+use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -31,9 +32,43 @@ use crate::Scalar;
 use crate::ScalarValue;
 use crate::session::ScalarSessionExt;
 
+/// A type-erased reference to an extension scalar's storage.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtensionScalar<'a> {
     pub(super) ext_dtype: &'a ExtDTypeRef,
-    pub(super) ext_value: Option<&'a ExtScalarRef>,
+    pub(super) storage: &'a ScalarValue,
+}
+
+impl ExtensionScalar<'_> {
+    /// Return the type-erased dtype of the extension scalar.
+    pub fn ext_dtype(&self) -> &ExtDTypeRef {
+        self.ext_dtype
+    }
+
+    /// Return the typed dtype of the extension scalar.
+    pub fn typed_dtype<V: ExtDTypeVTable>(&self) -> VortexResult<ExtDType<V>> {
+        self.ext_dtype.clone().try_downcast::<V>().map_err(|_| {
+            vortex_err!(
+                "Failed to downcast ExtDTypeRef {} to {}",
+                self.ext_dtype.id(),
+                type_name::<V>()
+            )
+        })
+    }
+
+    /// Return the storage scalar value of the extension scalar.
+    pub fn storage(&self) -> &ScalarValue {
+        self.storage
+    }
+
+    /// Return the typed scalar value of the extension scalar.
+    pub fn typed_storage<V: ExtScalarVTable>(&self) -> VortexResult<Option<V::Value>> {
+        let ext_dtype = self.typed_dtype::<V>()?;
+        Ok(match self.storage {
+            ScalarValue::Null => None,
+            _ => Some(ext_dtype.vtable().unpack(&ext_dtype, self.storage)?),
+        })
+    }
 }
 
 /// A typed extension scalar.
@@ -60,10 +95,9 @@ impl<V: ExtScalarVTable + Default> ExtScalar<V> {
             .try_downcast::<V>()
             .map_err(|_| vortex_err!("Failed to downcast ExtDTypeRef to {}", type_name::<V>()))?;
 
-        let value = if value.is_null() {
-            None
-        } else {
-            Some(dtype.vtable().unpack(&dtype, value)?)
+        let value = match value {
+            ScalarValue::Null => None,
+            _ => Some(dtype.vtable().unpack(&dtype, value)?),
         };
 
         Ok(Self(Arc::new(ExtScalarAdapter::<V> {
@@ -82,11 +116,7 @@ impl<V: ExtScalarVTable> ExtScalar<V> {
         value: Option<V::Value>,
     ) -> VortexResult<Self> {
         // Ensure the value is permitted by the dtype's metadata and nullability
-        let _storage_scalar = vtable.pack(
-            dtype.metadata(),
-            value.as_ref(),
-            dtype.storage_dtype().nullability(),
-        )?;
+        let _storage_scalar = vtable.pack(dtype.metadata(), value.as_ref(), dtype.nullability())?;
         Ok(Self(Arc::new(ExtScalarAdapter::<V> {
             vtable,
             dtype,
@@ -385,21 +415,21 @@ impl Scalar {
         }
 
         let vtable = V::default();
-        let storage_scalar = vtable.pack(&metadata, value.as_ref(), nullability)?;
+        let (storage_dtype, storage_value) = vtable
+            .pack(&metadata, value.as_ref(), nullability)?
+            .into_parts();
 
-        let ext_dtype = ExtDType::<V>::try_new(metadata, storage_scalar.dtype().clone())
-            .vortex_expect("Failed to create extension dtype");
+        let ext_dtype = ExtDType::try_with_vtable(vtable, metadata, storage_dtype)?;
 
-        Ok(Self::new(
-            DType::Extension(ext_dtype.erased()),
-            storage_scalar.into_value(),
-        ))
+        Ok(unsafe { Self::new_unchecked(DType::Extension(ext_dtype.erased()), storage_value) })
     }
 
     /// Creates a new extension scalar wrapping the given storage value.
+    /// FIXME(ngates): take a ScalarValue?
     pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
         assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::new(DType::Extension(ext_dtype), value.value().clone())
+        Self::try_new(DType::Extension(ext_dtype), value.value().clone())
+            .vortex_expect("Failed to create extension scalar from reference")
     }
 }
 

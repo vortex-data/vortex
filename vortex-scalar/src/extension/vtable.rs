@@ -31,6 +31,7 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
     fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value>;
 
     /// Pack the native value into the storage scalar.
+    /// FIXME(ngates): do we take ExtDType here and use its storage DType?
     fn pack(
         &self,
         metadata: &Self::Metadata,
@@ -58,11 +59,12 @@ impl<V: ExtScalarVTable> DynExtScalarVTable for V {
             .clone()
             .try_downcast::<V>()
             .map_err(|_| vortex_err!("DTypeRef is not of expected extension type {}", self.id()))?;
-        let value = if storage.is_null() {
-            None
-        } else {
-            Some(ExtScalarVTable::unpack(self, &dtype, storage)?)
+
+        let value = match storage {
+            ScalarValue::Null => None,
+            _ => Some(ExtScalarVTable::unpack(self, &dtype, storage)?),
         };
+
         Ok(ExtScalar::try_with_vtable(self.clone(), dtype.clone(), value)?.erased())
     }
 }

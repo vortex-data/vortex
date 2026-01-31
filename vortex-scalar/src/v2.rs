@@ -16,7 +16,6 @@ use crate::BinaryScalar;
 use crate::BoolScalar;
 use crate::DecimalScalar;
 use crate::DecimalValue;
-use crate::ExtScalarRef;
 use crate::FixedSizeListScalar;
 use crate::ListScalar;
 use crate::PValue;
@@ -52,6 +51,11 @@ impl Scalar {
             value
         );
         Ok(Self { dtype, value })
+    }
+
+    /// Returns the parts of the Scalar.
+    pub fn into_parts(self) -> (DType, ScalarValue) {
+        (self.dtype, self.value)
     }
 
     /// Returns the DType of the Scalar.
@@ -141,13 +145,7 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
                 false
             }
         }
-        DType::Extension(ext_dtype) => {
-            if let ScalarValue::Extension(ext_value) = value {
-                ext_value.id() == ext_dtype.id()
-            } else {
-                false
-            }
-        }
+        DType::Extension(ext_dtype) => is_compatible(ext_dtype.storage_dtype(), value),
     }
 }
 
@@ -331,14 +329,9 @@ impl Scalar {
         let DType::Extension(ext_dtype) = &self.dtype else {
             return None;
         };
-        let ext_value = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Extension(e) => Some(e),
-            _ => unreachable!(),
-        };
         Some(ExtensionScalar {
             ext_dtype,
-            ext_value,
+            storage: &self.value,
         })
     }
 }
@@ -352,7 +345,6 @@ pub enum ScalarValue {
     Utf8(BufferString),
     Binary(ByteBuffer),
     List(Vec<ScalarValue>),
-    Extension(ExtScalarRef),
 }
 
 impl Display for ScalarValue {
@@ -397,7 +389,6 @@ impl Display for ScalarValue {
                 }
                 write!(f, "]")
             }
-            ScalarValue::Extension(ext) => write!(f, "{}", ext),
         }
     }
 }

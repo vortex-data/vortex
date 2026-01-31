@@ -75,6 +75,12 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         &self.0.storage_dtype
     }
 
+    /// Returns the nullability of the storage dtype.
+    #[inline]
+    pub fn nullability(&self) -> Nullability {
+        self.storage_dtype().nullability()
+    }
+
     /// Erase the concrete type information, returning a type-erased extension dtype.
     pub fn erased(self) -> ExtDTypeRef {
         ExtDTypeRef(self.0)
@@ -140,9 +146,14 @@ impl ExtDTypeRef {
         self.0.storage_dtype()
     }
 
+    /// Returns the nullability of the storage dtype.
+    pub fn nullability(&self) -> Nullability {
+        self.storage_dtype().nullability()
+    }
+
     /// Returns a new ExtDTypeRef with the given nullability.
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
-        if self.storage_dtype().nullability() == nullability {
+        if self.nullability() == nullability {
             self.clone()
         } else {
             self.0.with_nullability(nullability)
