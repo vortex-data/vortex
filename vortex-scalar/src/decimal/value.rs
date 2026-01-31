@@ -4,6 +4,8 @@
 //! Additional trait implementations for decimal types to ensure consistency.
 
 use std::cmp::Ordering;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::hash::Hash;
 
 use num_traits::CheckedAdd;
@@ -128,6 +130,12 @@ impl DecimalValue {
     /// Checked division. Returns `None` on overflow or division by zero.
     pub fn checked_div(&self, other: &Self) -> Option<Self> {
         self.checked_binary_op(other, |a, b| a.checked_div(&b))
+    }
+}
+
+impl Display for DecimalValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match_each_decimal_value!(self, |v| { write!(f, "{}", v) })
     }
 }
 

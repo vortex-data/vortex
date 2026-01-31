@@ -40,8 +40,11 @@ impl Scalar {
         nullability: Nullability,
         children: Vec<ScalarValue>,
     ) -> Self {
-        Self::try_new(DType::List(element_dtype, nullability), children)
-            .vortex_expect("Failed to create list scalar")
+        Self::try_new(
+            DType::List(element_dtype, nullability),
+            ScalarValue::List(children),
+        )
+        .vortex_expect("Failed to create list scalar")
     }
 }
 

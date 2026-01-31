@@ -4,23 +4,22 @@
 use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex_dtype::DType;
-
 use crate::Scalar;
 
 impl Display for Scalar {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.dtype() {
-            DType::Null => write!(f, "null"),
-            DType::Bool(_) => write!(f, "{}", self.as_bool()),
-            DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
-            DType::Decimal(..) => write!(f, "{}", self.as_decimal()),
-            DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
-            DType::Binary(_) => write!(f, "{}", self.as_binary()),
-            DType::Struct(..) => write!(f, "{}", self.as_struct()),
-            DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
-            DType::Extension(_) => write!(f, "{}", self.as_extension_ref()),
-        }
+    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+        // match self.dtype() {
+        //     DType::Null => write!(f, "null"),
+        //     DType::Bool(_) => write!(f, "{}", self.as_bool()),
+        //     DType::Primitive(..) => write!(f, "{}", self.as_primitive()),
+        //     DType::Decimal(..) => write!(f, "{}", self.as_decimal()),
+        //     DType::Utf8(_) => write!(f, "{}", self.as_utf8()),
+        //     DType::Binary(_) => write!(f, "{}", self.as_binary()),
+        //     DType::Struct(..) => write!(f, "{}", self.as_struct()),
+        //     DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
+        //     DType::Extension(_) => write!(f, "{}", self.as_extension_ref()),
+        // }
     }
 }
 

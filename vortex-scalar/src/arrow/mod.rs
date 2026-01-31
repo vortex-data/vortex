@@ -94,7 +94,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
             }
-            DType::Decimal(..) => match value.as_decimal().decimal_value() {
+            DType::Decimal(..) => match value.as_decimal().decimal_value().cloned() {
                 // TODO(joe): replace with decimal32, etc.
                 Some(DecimalValue::I8(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
                 Some(DecimalValue::I16(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
