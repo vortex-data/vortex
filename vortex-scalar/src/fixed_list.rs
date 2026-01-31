@@ -39,7 +39,7 @@ impl Scalar {
             .vortex_expect("tried to create a fixed-size list that was larger than u32");
         Self::try_new(
             DType::FixedSizeList(element_dtype, size, nullability),
-            ScalarValue::FixedSizeList(children),
+            ScalarValue::List(children),
         )
         .vortex_expect("failed to create fixed-size list scalar")
     }

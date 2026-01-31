@@ -109,7 +109,7 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
             }
         }
         DType::FixedSizeList(elem_dtype, size, _) => {
-            if let ScalarValue::FixedSizeList(elements) = value {
+            if let ScalarValue::List(elements) = value {
                 if elements.len() != *size as usize {
                     return false;
                 }
@@ -122,7 +122,7 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
             }
         }
         DType::Struct(fields, _) => {
-            if let ScalarValue::Struct(values) = value {
+            if let ScalarValue::List(values) = value {
                 if values.len() != fields.nfields() {
                     return false;
                 }
@@ -290,7 +290,7 @@ impl Scalar {
         };
         let elements = match &self.value {
             ScalarValue::Null => None,
-            ScalarValue::FixedSizeList(e) => Some(e.as_slice()),
+            ScalarValue::List(e) => Some(e.as_slice()),
             _ => unreachable!(),
         };
         Some(FixedSizeListScalar {
@@ -312,7 +312,7 @@ impl Scalar {
         };
         let values = match &self.value {
             ScalarValue::Null => None,
-            ScalarValue::Struct(s) => Some(s.as_slice()),
+            ScalarValue::List(s) => Some(s.as_slice()),
             _ => unreachable!(),
         };
         Some(StructScalar {
@@ -352,8 +352,6 @@ pub enum ScalarValue {
     Utf8(BufferString),
     Binary(ByteBuffer),
     List(Vec<ScalarValue>),
-    FixedSizeList(Vec<ScalarValue>),
-    Struct(Vec<ScalarValue>),
     Extension(ExtScalarRef),
 }
 
@@ -398,26 +396,6 @@ impl Display for ScalarValue {
                     write!(f, "{}", element)?;
                 }
                 write!(f, "]")
-            }
-            ScalarValue::FixedSizeList(elements) => {
-                write!(f, "[")?;
-                for (i, element) in elements.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", element)?;
-                }
-                write!(f, "]")
-            }
-            ScalarValue::Struct(fields) => {
-                write!(f, "{{")?;
-                for (i, field) in fields.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", field)?;
-                }
-                write!(f, "}}")
             }
             ScalarValue::Extension(ext) => write!(f, "{}", ext),
         }

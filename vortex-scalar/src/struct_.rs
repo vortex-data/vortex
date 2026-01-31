@@ -166,7 +166,7 @@ impl Scalar {
     ) -> Self {
         Self::try_new(
             DType::Struct(fields, nullability),
-            ScalarValue::Struct(children),
+            ScalarValue::List(children),
         )
         .vortex_expect("Failed to create struct scalar")
     }
