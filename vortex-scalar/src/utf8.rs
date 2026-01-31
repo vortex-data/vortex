@@ -18,7 +18,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_utils::aliases::StringEscape;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -92,10 +91,10 @@ mod private {
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Utf8Scalar<'a> {
-    dtype: &'a DType,
-    value: Option<Arc<BufferString>>,
+    pub(super) nullability: Nullability,
+    pub(super) value: Option<&'a BufferString>,
 }
 
 impl Display for Utf8Scalar<'_> {
@@ -104,12 +103,6 @@ impl Display for Utf8Scalar<'_> {
             None => write!(f, "null"),
             Some(v) => write!(f, "\"{}\"", StringEscape(v.as_str())),
         }
-    }
-}
-
-impl PartialEq for Utf8Scalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
 

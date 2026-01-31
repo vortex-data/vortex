@@ -15,7 +15,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;

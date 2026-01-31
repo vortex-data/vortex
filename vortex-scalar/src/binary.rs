@@ -1,167 +1,93 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::sync::Arc;
-
-use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
-/// A scalar value representing binary data.
-///
-/// This type provides a view into a binary scalar value, which can be either
-/// a valid byte buffer or null.
-#[derive(Debug, Clone, Hash)]
+/// A view over a scalar holding a binary value.
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BinaryScalar<'a> {
-    dtype: &'a DType,
-    value: Option<Arc<ByteBuffer>>,
-}
-
-impl Display for BinaryScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.value {
-            None => write!(f, "null"),
-            Some(v) => write!(
-                f,
-                "\"{}\"",
-                v.as_slice().iter().map(|b| format!("{b:x}")).format(" ")
-            ),
-        }
-    }
-}
-
-impl PartialEq for BinaryScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
-    }
-}
-
-impl Eq for BinaryScalar<'_> {}
-
-impl PartialOrd for BinaryScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BinaryScalar<'_> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.value.cmp(&other.value)
-    }
+    pub(super) nullability: Nullability,
+    pub(super) value: Option<&'a ByteBuffer>,
 }
 
 impl<'a> BinaryScalar<'a> {
-    /// Creates a binary scalar from a data type and scalar value.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data type is not a binary type.
-    pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
-        if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
-        }
-        Ok(Self {
-            dtype,
-            value: value.as_buffer()?,
-        })
-    }
-
-    /// Returns the data type of this binary scalar.
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
-    }
-
     /// Returns the binary value as a byte buffer, or None if null.
-    pub fn value(&self) -> Option<ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
+    pub fn value(&self) -> Option<&ByteBuffer> {
+        self.value
     }
-
-    /// Returns a reference to the binary value, or None if null.
-    /// This avoids cloning the underlying ByteBuffer.
-    pub fn value_ref(&self) -> Option<&ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref())
-    }
-
-    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
-    /// this.
-    ///
-    /// Returns None if constructing a greater value would overflow.
-    pub fn upper_bound(self, max_length: usize) -> Option<Self> {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                let sliced = value.slice(0..max_length);
-                drop(value);
-                let mut sliced_mut = sliced.into_mut();
-                for b in sliced_mut.iter_mut().rev() {
-                    let (incr, overflow) = b.overflowing_add(1);
-                    *b = incr;
-                    if !overflow {
-                        return Some(Self {
-                            dtype: self.dtype,
-                            value: Some(Arc::new(sliced_mut.freeze())),
-                        });
-                    }
-                }
-                None
-            } else {
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                })
-            }
-        } else {
-            Some(self)
-        }
-    }
-
-    /// Construct a value at most `max_length` in size that's less than ourselves.
-    pub fn lower_bound(self, max_length: usize) -> Self {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(value.slice(0..max_length))),
-                }
-            } else {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                }
-            }
-        } else {
-            self
-        }
-    }
-
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Binary(..)) {
-            vortex_bail!(
-                "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
-            )
-        }
-        Ok(Scalar::new(
-            dtype.clone(),
-            ScalarValue(InnerScalarValue::Buffer(
-                self.value
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .clone(),
-            )),
-        ))
-    }
+    //
+    // /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
+    // /// this.
+    // ///
+    // /// Returns None if constructing a greater value would overflow.
+    // pub fn upper_bound(self, max_length: usize) -> Option<Self> {
+    //     if let Some(value) = self.value {
+    //         if value.len() > max_length {
+    //             let sliced = value.slice(0..max_length);
+    //             drop(value);
+    //             let mut sliced_mut = sliced.into_mut();
+    //             for b in sliced_mut.iter_mut().rev() {
+    //                 let (incr, overflow) = b.overflowing_add(1);
+    //                 *b = incr;
+    //                 if !overflow {
+    //                     return Some(Self {
+    //                         dtype: self.dtype,
+    //                         value: Some(Arc::new(sliced_mut.freeze())),
+    //                     });
+    //                 }
+    //             }
+    //             None
+    //         } else {
+    //             Some(Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(value),
+    //             })
+    //         }
+    //     } else {
+    //         Some(self)
+    //     }
+    // }
+    //
+    // /// Construct a value at most `max_length` in size that's less than ourselves.
+    // pub fn lower_bound(self, max_length: usize) -> Self {
+    //     if let Some(value) = self.value {
+    //         if value.len() > max_length {
+    //             Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(Arc::new(value.slice(0..max_length))),
+    //             }
+    //         } else {
+    //             Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(value),
+    //             }
+    //         }
+    //     } else {
+    //         self
+    //     }
+    // }
+    //
+    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    //     if !matches!(dtype, DType::Binary(..)) {
+    //         vortex_bail!(
+    //             "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
+    //         )
+    //     }
+    //     Ok(Scalar::new(
+    //         dtype.clone(),
+    //         ScalarValue(InnerScalarValue::Buffer(
+    //             self.value
+    //                 .as_ref()
+    //                 .vortex_expect("nullness handled in Scalar::cast")
+    //                 .clone(),
+    //         )),
+    //     ))
+    // }
 
     /// Length of the scalar value or None if value is null
     pub fn len(&self) -> Option<usize> {
@@ -177,65 +103,12 @@ impl<'a> BinaryScalar<'a> {
 impl Scalar {
     /// Creates a new binary scalar from a byte buffer.
     pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
-        Self::new(
-            DType::Binary(nullability),
-            ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
-        )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Binary(_)) {
-            vortex_bail!("Expected binary scalar, found {}", value.dtype())
+        unsafe {
+            Scalar::new_unchecked(
+                DType::Binary(nullability),
+                ScalarValue::Binary(buffer.into()),
+            )
         }
-        Ok(Self {
-            dtype: value.dtype(),
-            value: value.value().as_buffer()?,
-        })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ByteBuffer {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        let binary = scalar
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?;
-
-        binary
-            .value()
-            .ok_or_else(|| vortex_err!("Cannot extract present value from null scalar"))
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Option<ByteBuffer> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        Ok(scalar
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?
-            .value())
-    }
-}
-
-impl TryFrom<Scalar> for ByteBuffer {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> VortexResult<Self> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl TryFrom<Scalar> for Option<ByteBuffer> {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> VortexResult<Self> {
-        Self::try_from(&scalar)
     }
 }
 
@@ -247,16 +120,7 @@ impl From<&[u8]> for Scalar {
 
 impl From<ByteBuffer> for Scalar {
     fn from(value: ByteBuffer) -> Self {
-        Self::new(DType::Binary(Nullability::NonNullable), value.into())
-    }
-}
-
-impl From<Arc<ByteBuffer>> for Scalar {
-    fn from(value: Arc<ByteBuffer>) -> Self {
-        Self::new(
-            DType::Binary(Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Buffer(value)),
-        )
+        Self::binary(value, Nullability::NonNullable)
     }
 }
 
@@ -268,7 +132,7 @@ impl From<&[u8]> for ScalarValue {
 
 impl From<ByteBuffer> for ScalarValue {
     fn from(value: ByteBuffer) -> Self {
-        ScalarValue(InnerScalarValue::Buffer(Arc::new(value)))
+        ScalarValue::Binary(value)
     }
 }
 

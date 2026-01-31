@@ -18,7 +18,6 @@ use vortex_proto::scalar::scalar_value::Kind;
 use vortex_session::VortexSession;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 use crate::pvalue::PValue;
@@ -197,7 +196,6 @@ mod tests {
     use vortex_proto::scalar as pb;
 
     use super::*;
-    use crate::InnerScalarValue;
     use crate::Scalar;
     use crate::ScalarValue;
     use crate::tests::SESSION;

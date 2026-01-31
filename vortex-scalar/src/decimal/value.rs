@@ -23,7 +23,6 @@ use vortex_error::VortexExpect;
 use vortex_error::vortex_err;
 
 use crate::DecimalScalar;
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 

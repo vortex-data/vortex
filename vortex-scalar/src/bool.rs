@@ -4,6 +4,7 @@
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::marker::PhantomData;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -14,7 +15,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -22,10 +22,12 @@ use crate::ScalarValue;
 ///
 /// This type provides a view into a boolean scalar value, which can be either
 /// true, false, or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct BoolScalar<'a> {
-    dtype: &'a DType,
-    value: Option<bool>,
+    pub(super) nullability: Nullability,
+    pub(super) value: Option<bool>,
+    // All other scalars carry a lifetime, so we do the same here for consistency.
+    pub(super) _marker: PhantomData<&'a ()>,
 }
 
 impl Display for BoolScalar<'_> {
@@ -34,12 +36,6 @@ impl Display for BoolScalar<'_> {
             None => write!(f, "null"),
             Some(v) => write!(f, "{v}"),
         }
-    }
-}
-
-impl PartialEq for BoolScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
     }
 }
 

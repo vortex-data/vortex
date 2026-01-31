@@ -7,6 +7,7 @@ use std::fmt;
 use num_traits::ToPrimitive as NumToPrimitive;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
+use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value;
 use vortex_error::VortexError;
@@ -16,7 +17,6 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::NumericOperator;
 use crate::Scalar;
 use crate::ScalarValue;
@@ -24,9 +24,9 @@ use crate::ScalarValue;
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
-    pub(super) dtype: &'a DType,
-    pub(super) decimal_type: DecimalDType,
-    pub(super) value: Option<DecimalValue>,
+    pub(crate) decimal_type: &'a DecimalDType,
+    pub(crate) nullability: Nullability,
+    pub(crate) dvalue: Option<&'a DecimalValue>,
 }
 
 impl<'a> DecimalScalar<'a> {
@@ -42,7 +42,7 @@ impl<'a> DecimalScalar<'a> {
         Ok(Self {
             dtype,
             decimal_type,
-            value,
+            dvalue: value,
         })
     }
 
@@ -54,7 +54,7 @@ impl<'a> DecimalScalar<'a> {
 
     /// Returns the decimal value, or None if null.
     pub fn decimal_value(&self) -> Option<DecimalValue> {
-        self.value
+        self.dvalue
     }
 
     /// Cast decimal scalar to another data type.
@@ -67,7 +67,7 @@ impl<'a> DecimalScalar<'a> {
                     return Ok(Scalar::new(
                         dtype.clone(),
                         ScalarValue(InnerScalarValue::Decimal(
-                            self.value.unwrap_or(DecimalValue::I128(0)),
+                            self.dvalue.unwrap_or(DecimalValue::I128(0)),
                         )),
                     ));
                 }
@@ -75,7 +75,7 @@ impl<'a> DecimalScalar<'a> {
                 // Different precision/scale - need to implement scaling logic
                 // For now, we'll do a simple value preservation without scaling
                 // TODO: Implement proper decimal scaling logic
-                if let Some(value) = &self.value {
+                if let Some(value) = &self.dvalue {
                     Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
                 } else {
                     Ok(Scalar::null(dtype.clone()))
@@ -83,7 +83,7 @@ impl<'a> DecimalScalar<'a> {
             }
             DType::Primitive(ptype, nullability) => {
                 // Cast decimal to primitive type
-                if let Some(decimal_value) = &self.value {
+                if let Some(decimal_value) = &self.dvalue {
                     // Convert decimal value to primitive, accounting for scale
                     let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
 
@@ -211,7 +211,7 @@ impl<'a> DecimalScalar<'a> {
         };
 
         // Handle null cases using SQL semantics
-        let result_value = match (self.value, other.value) {
+        let result_value = match (self.dvalue, other.dvalue) {
             (None, _) | (_, None) => None,
             (Some(lhs), Some(rhs)) => {
                 // Perform the operation
@@ -237,7 +237,7 @@ impl<'a> DecimalScalar<'a> {
         Some(DecimalScalar {
             dtype: result_dtype,
             decimal_type: self.decimal_type,
-            value: result_value,
+            dvalue: result_value,
         })
     }
 }
@@ -252,7 +252,7 @@ impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
 
 impl PartialEq for DecimalScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype) && self.dvalue == other.dvalue
     }
 }
 
@@ -264,13 +264,13 @@ impl PartialOrd for DecimalScalar<'_> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.value.partial_cmp(&other.value)
+        self.dvalue.partial_cmp(&other.dvalue)
     }
 }
 
 impl fmt::Display for DecimalScalar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Some(&decimal_value) = self.value.as_ref() else {
+        let Some(&decimal_value) = self.dvalue.as_ref() else {
             return write!(f, "null");
         };
 

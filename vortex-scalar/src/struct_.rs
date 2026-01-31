@@ -13,6 +13,7 @@ use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
+use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
@@ -21,7 +22,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -31,8 +31,9 @@ use crate::ScalarValue;
 /// named fields with different types, or be null.
 #[derive(Debug, Clone)]
 pub struct StructScalar<'a> {
-    dtype: &'a DType,
-    fields: Option<&'a Arc<[ScalarValue]>>,
+    pub(super) fields: &'a StructFields,
+    pub(super) nullability: Nullability,
+    pub(super) values: Option<&'a [ScalarValue]>,
 }
 
 impl Display for StructScalar<'_> {

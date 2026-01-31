@@ -19,7 +19,6 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;

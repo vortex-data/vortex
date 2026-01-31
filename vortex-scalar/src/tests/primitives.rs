@@ -16,7 +16,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;

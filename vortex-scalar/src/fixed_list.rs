@@ -30,66 +30,14 @@ use crate::ScalarValue;
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
 #[derive(Debug, Clone)]
-pub struct ListScalar<'a> {
+pub struct FixedSizeListScalar<'a> {
+    pub(super) element_size: u32,
     pub(super) element_dtype: &'a Arc<DType>,
     pub(super) nullability: Nullability,
     pub(super) elements: Option<&'a [ScalarValue]>,
 }
 
-impl Display for ListScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.elements {
-            None => write!(f, "null"),
-            Some(elems) => {
-                let fixed_size_list_str: &dyn Display =
-                    if let DType::FixedSizeList(_, size, _) = self.dtype {
-                        &format!("fixed_size<{size}>")
-                    } else {
-                        &""
-                    };
-
-                write!(
-                    f,
-                    "{fixed_size_list_str}[{}]",
-                    elems
-                        .iter()
-                        .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
-                        .format(", ")
-                )
-            }
-        }
-    }
-}
-
-impl PartialEq for ListScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.elements() == other.elements()
-    }
-}
-
-impl Eq for ListScalar<'_> {}
-
-/// Ord is not implemented since it's undefined for different element DTypes
-impl PartialOrd for ListScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self
-            .element_dtype
-            .eq_ignore_nullability(other.element_dtype)
-        {
-            return None;
-        }
-        self.elements().partial_cmp(&other.elements())
-    }
-}
-
-impl Hash for ListScalar<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.dtype.hash(state);
-        self.elements().hash(state);
-    }
-}
-
-impl<'a> ListScalar<'a> {
+impl<'a> FixedSizeListScalar<'a> {
     /// Returns the data type of this list scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
@@ -271,23 +219,6 @@ impl Scalar {
         nullability: Nullability,
     ) -> Self {
         Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        let element_dtype = value
-            .dtype()
-            .as_any_size_list_element_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?;
-
-        Ok(Self {
-            dtype: value.dtype(),
-            element_dtype,
-            elements: value.value().as_list()?.cloned(),
-        })
     }
 }
 

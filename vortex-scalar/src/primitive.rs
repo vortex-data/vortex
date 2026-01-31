@@ -26,7 +26,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 use crate::pvalue::CoercePValue;
@@ -38,9 +37,9 @@ use crate::pvalue::PValue;
 /// (integers, floats) with various bit widths.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct PrimitiveScalar<'a> {
-    dtype: &'a DType,
-    ptype: PType,
-    pvalue: Option<PValue>,
+    pub(super) ptype: PType,
+    pub(super) nullability: Nullability,
+    pub(super) pvalue: Option<&'a PValue>,
 }
 
 impl Display for PrimitiveScalar<'_> {
@@ -573,7 +572,6 @@ mod tests {
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::PrimitiveScalar;
     use crate::ScalarValue;

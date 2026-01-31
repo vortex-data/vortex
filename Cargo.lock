@@ -10958,6 +10958,7 @@ dependencies = [
  "arbitrary",
  "arrow-array 57.2.0",
  "bytes",
+ "clap",
  "itertools 0.14.0",
  "jiff",
  "num-traits",

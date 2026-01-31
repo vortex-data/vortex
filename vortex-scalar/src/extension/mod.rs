@@ -31,6 +31,11 @@ use crate::Scalar;
 use crate::ScalarValue;
 use crate::session::ScalarSessionExt;
 
+pub struct ExtensionScalar<'a> {
+    pub(super) ext_dtype: &'a ExtDTypeRef,
+    pub(super) ext_value: Option<&'a ExtScalarRef>,
+}
+
 /// A typed extension scalar.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtScalar<V: ExtScalarVTable>(Arc<ExtScalarAdapter<V>>);
@@ -410,7 +415,7 @@ impl Scalar {
 //     use vortex_error::VortexResult;
 //
 //     use crate::ExtScalar;
-//     use crate::InnerScalarValue;
+//
 //     use crate::Scalar;
 //     use crate::ScalarValue;
 //
