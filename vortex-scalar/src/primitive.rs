@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::type_name;
-use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -19,88 +18,25 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
-use vortex_dtype::match_each_native_ptype;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::Scalar;
 use crate::ScalarValue;
-use crate::pvalue::CoercePValue;
 use crate::pvalue::PValue;
 
 /// A scalar value representing a primitive type.
 ///
 /// This type provides a view into a primitive scalar value of any primitive type
 /// (integers, floats) with various bit widths.
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PrimitiveScalar<'a> {
     pub(super) ptype: PType,
     pub(super) nullability: Nullability,
     pub(super) pvalue: Option<&'a PValue>,
 }
 
-impl Display for PrimitiveScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.pvalue {
-            None => write!(f, "null"),
-            Some(pv) => write!(f, "{pv}"),
-        }
-    }
-}
-
-impl PartialEq for PrimitiveScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.pvalue == other.pvalue
-    }
-}
-
-impl Eq for PrimitiveScalar<'_> {}
-
-/// Ord is not implemented since it's undefined for different PTypes
-impl PartialOrd for PrimitiveScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if !self.dtype.eq_ignore_nullability(other.dtype) {
-            return None;
-        }
-        self.pvalue.partial_cmp(&other.pvalue)
-    }
-}
-
 impl<'a> PrimitiveScalar<'a> {
-    /// Creates a new primitive scalar from a data type and scalar value.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data type is not a primitive type or if the value
-    /// cannot be converted to the expected primitive type.
-    pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
-        let ptype = PType::try_from(dtype)?;
-
-        // Read the serialized value into the correct PValue.
-        // The serialized form may come back over the wire as e.g. any integer type.
-        let pvalue = match_each_native_ptype!(ptype, |T| {
-            value
-                .as_pvalue()?
-                .map(|pv| VortexResult::Ok(PValue::from(<T>::coerce(pv)?)))
-                .transpose()?
-        });
-
-        Ok(Self {
-            dtype,
-            ptype,
-            pvalue,
-        })
-    }
-
-    /// Returns the data type of this primitive scalar.
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
-    }
-
     /// Returns the primitive type of this scalar.
     #[inline]
     pub fn ptype(&self) -> PType {
@@ -109,7 +45,7 @@ impl<'a> PrimitiveScalar<'a> {
 
     /// Returns the primitive value, or None if null.
     #[inline]
-    pub fn pvalue(&self) -> Option<PValue> {
+    pub fn pvalue(&self) -> Option<&PValue> {
         self.pvalue
     }
 
@@ -132,21 +68,21 @@ impl<'a> PrimitiveScalar<'a> {
 
         self.pvalue.map(|pv| pv.cast::<T>())
     }
-
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let ptype = PType::try_from(dtype)?;
-        let pvalue = self
-            .pvalue
-            .vortex_expect("nullness handled in Scalar::cast");
-        Ok(match_each_native_ptype!(ptype, |Q| {
-            Scalar::primitive(
-                pvalue
-                    .cast_opt::<Q>()
-                    .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
-                dtype.nullability(),
-            )
-        }))
-    }
+    //
+    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    //     let ptype = PType::try_from(dtype)?;
+    //     let pvalue = self
+    //         .pvalue
+    //         .vortex_expect("nullness handled in Scalar::cast");
+    //     Ok(match_each_native_ptype!(ptype, |Q| {
+    //         Scalar::primitive(
+    //             pvalue
+    //                 .cast_opt::<Q>()
+    //                 .ok_or_else(|| vortex_err!("Cannot cast {} to {}", self.ptype, dtype))?,
+    //             dtype.nullability(),
+    //         )
+    //     }))
+    // }
 
     /// Returns true if the scalar is nan.
     pub fn is_nan(&self) -> bool {
@@ -216,7 +152,7 @@ impl<'a> PrimitiveScalar<'a> {
     /// assert_eq!(primitive.as_opt::<i8>(), None);
     /// ```
     pub fn as_opt<T: FromPrimitiveOrF16>(&self) -> Option<Option<T>> {
-        if let Some(pv) = self.pvalue {
+        if let Some(pv) = self.pvalue.cloned() {
             match pv {
                 PValue::U8(v) => T::from_u8(v),
                 PValue::U16(v) => T::from_u16(v),
@@ -237,43 +173,35 @@ impl<'a> PrimitiveScalar<'a> {
     }
 }
 
-impl<'a> TryFrom<&'a Scalar> for PrimitiveScalar<'a> {
-    type Error = VortexError;
+// impl Sub for PrimitiveScalar<'_> {
+//     type Output = Self;
+//
+//     fn sub(self, rhs: Self) -> Self::Output {
+//         self.checked_sub(&rhs)
+//             .vortex_expect("PrimitiveScalar subtract: overflow or underflow")
+//     }
+// }
 
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Self::try_new(value.dtype(), value.value())
-    }
-}
+// impl CheckedSub for PrimitiveScalar<'_> {
+//     fn checked_sub(&self, rhs: &Self) -> Option<Self> {
+//         self.checked_binary_numeric(rhs, NumericOperator::Sub)
+//     }
+// }
 
-impl Sub for PrimitiveScalar<'_> {
-    type Output = Self;
+// impl Add for PrimitiveScalar<'_> {
+//     type Output = Self;
+//
+//     fn add(self, rhs: Self) -> Self::Output {
+//         self.checked_add(&rhs)
+//             .vortex_expect("PrimitiveScalar add: overflow or underflow")
+//     }
+// }
 
-    fn sub(self, rhs: Self) -> Self::Output {
-        self.checked_sub(&rhs)
-            .vortex_expect("PrimitiveScalar subtract: overflow or underflow")
-    }
-}
-
-impl CheckedSub for PrimitiveScalar<'_> {
-    fn checked_sub(&self, rhs: &Self) -> Option<Self> {
-        self.checked_binary_numeric(rhs, NumericOperator::Sub)
-    }
-}
-
-impl Add for PrimitiveScalar<'_> {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        self.checked_add(&rhs)
-            .vortex_expect("PrimitiveScalar add: overflow or underflow")
-    }
-}
-
-impl CheckedAdd for PrimitiveScalar<'_> {
-    fn checked_add(&self, rhs: &Self) -> Option<Self> {
-        self.checked_binary_numeric(rhs, NumericOperator::Add)
-    }
-}
+// impl CheckedAdd for PrimitiveScalar<'_> {
+//     fn checked_add(&self, rhs: &Self) -> Option<Self> {
+//         self.checked_binary_numeric(rhs, NumericOperator::Add)
+//     }
+// }
 
 impl Scalar {
     /// Creates a new primitive scalar from a native value.
@@ -286,94 +214,79 @@ impl Scalar {
     /// Note that an explicit PType is passed since any compatible PValue may be used as the value
     /// for a primitive type.
     pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self::new(
-            DType::Primitive(ptype, nullability),
-            ScalarValue(InnerScalarValue::Primitive(value)),
-        )
-    }
-
-    /// Reinterprets the bytes of this scalar as a different primitive type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the scalar is not a primitive type or if the types have different byte widths.
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
-        let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
-            vortex_panic!(
-                e,
-                "Failed to reinterpret cast {} to {}",
-                self.dtype(),
-                ptype
+        unsafe {
+            Scalar::new_unchecked(
+                DType::Primitive(ptype, nullability),
+                ScalarValue::Primitive(value),
             )
-        });
-        if primitive.ptype() == ptype {
-            return self.clone();
         }
-
-        assert_eq!(
-            primitive.ptype().byte_width(),
-            ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
-        );
-
-        Scalar::new(
-            DType::Primitive(ptype, self.dtype().nullability()),
-            primitive
-                .pvalue
-                .map(|p| p.reinterpret_cast(ptype))
-                .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
-                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
-        )
     }
+    //
+    // /// Reinterprets the bytes of this scalar as a different primitive type.
+    // ///
+    // /// # Panics
+    // ///
+    // /// Panics if the scalar is not a primitive type or if the types have different byte widths.
+    // pub fn reinterpret_cast(&self, ptype: PType) -> Self {
+    //     let primitive = PrimitiveScalar::try_from(self).unwrap_or_else(|e| {
+    //         vortex_panic!(
+    //             e,
+    //             "Failed to reinterpret cast {} to {}",
+    //             self.dtype(),
+    //             ptype
+    //         )
+    //     });
+    //     if primitive.ptype() == ptype {
+    //         return self.clone();
+    //     }
+    //
+    //     assert_eq!(
+    //         primitive.ptype().byte_width(),
+    //         ptype.byte_width(),
+    //         "can't reinterpret cast between integers of two different widths"
+    //     );
+    //
+    //     Scalar::new(
+    //         DType::Primitive(ptype, self.dtype().nullability()),
+    //         primitive
+    //             .pvalue
+    //             .map(|p| p.reinterpret_cast(ptype))
+    //             .map(|x| ScalarValue(InnerScalarValue::Primitive(x)))
+    //             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
+    //     )
+    // }
 }
 
 macro_rules! primitive_scalar {
     ($T:ty) => {
-        impl TryFrom<&Scalar> for $T {
-            type Error = VortexError;
-
-            fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-                <Option<$T>>::try_from(value)?
-                    .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-            }
-        }
-
-        impl TryFrom<Scalar> for $T {
-            type Error = VortexError;
-
-            fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-                <$T>::try_from(&value)
-            }
-        }
-
-        impl TryFrom<&Scalar> for Option<$T> {
-            type Error = VortexError;
-
-            fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-                Ok(PrimitiveScalar::try_from(value)?.typed_value::<$T>())
-            }
-        }
-
-        impl TryFrom<Scalar> for Option<$T> {
-            type Error = VortexError;
-
-            fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-                <Option<$T>>::try_from(&value)
-            }
-        }
-
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
-                Scalar::new(
-                    DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                    ScalarValue(InnerScalarValue::Primitive(value.into())),
-                )
+                unsafe {
+                    Scalar::new_unchecked(
+                        DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
+                        ScalarValue::Primitive(value.into()),
+                    )
+                }
+            }
+        }
+
+        impl From<Option<$T>> for Scalar {
+            fn from(value: Option<$T>) -> Self {
+                match value {
+                    Some(v) => Scalar::from(v),
+                    None => unsafe {
+                        Scalar::new_unchecked(
+                            DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
+                            ScalarValue::Null,
+                        )
+                    },
+                }
             }
         }
 
         impl From<$T> for ScalarValue {
             fn from(value: $T) -> Self {
-                ScalarValue(InnerScalarValue::Primitive(value.into()))
+                ScalarValue::Primitive(value.into())
             }
         }
     };
@@ -392,45 +305,16 @@ primitive_scalar!(f32);
 primitive_scalar!(f64);
 
 /// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
-impl TryFrom<&Scalar> for usize {
-    type Error = VortexError;
-
-    fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-        let prim = PrimitiveScalar::try_from(value)?
-            .as_::<u64>()
-            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
-        Ok(usize::try_from(prim)?)
-    }
-}
-
-impl TryFrom<&Scalar> for Option<usize> {
-    type Error = VortexError;
-
-    fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
-        Ok(PrimitiveScalar::try_from(value)?
-            .as_::<u64>()
-            .map(usize::try_from)
-            .transpose()?)
-    }
-}
-
-/// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
 impl From<usize> for Scalar {
     fn from(value: usize) -> Self {
         Scalar::primitive(value as u64, Nullability::NonNullable)
     }
 }
 
-impl From<PValue> for ScalarValue {
-    fn from(value: PValue) -> Self {
-        ScalarValue(InnerScalarValue::Primitive(value))
-    }
-}
-
 /// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
 impl From<usize> for ScalarValue {
     fn from(value: usize) -> Self {
-        ScalarValue(InnerScalarValue::Primitive((value as u64).into()))
+        ScalarValue::Primitive((value as u64).into())
     }
 }
 
@@ -476,92 +360,92 @@ impl NumericOperator {
         }
     }
 }
-
-impl<'a> PrimitiveScalar<'a> {
-    /// Apply the (checked) operator to self and other using SQL-style null semantics.
-    ///
-    /// If the operation overflows, Ok(None) is returned.
-    ///
-    /// If the types are incompatible (ignoring nullability), an error is returned.
-    ///
-    /// If either value is null, the result is null.
-    pub fn checked_binary_numeric(
-        &self,
-        other: &PrimitiveScalar<'a>,
-        op: NumericOperator,
-    ) -> Option<PrimitiveScalar<'a>> {
-        if !self.dtype().eq_ignore_nullability(other.dtype()) {
-            vortex_panic!("types must match: {} {}", self.dtype(), other.dtype());
-        }
-        let result_dtype = if self.dtype().is_nullable() {
-            self.dtype()
-        } else {
-            other.dtype()
-        };
-        let ptype = self.ptype();
-
-        match_each_native_ptype!(
-            self.ptype(),
-            integral: |P| {
-                self.checked_integral_numeric_operator::<P>(other, result_dtype, ptype, op)
-            },
-            floating: |P| {
-                let lhs = self.typed_value::<P>();
-                let rhs = other.typed_value::<P>();
-                let value_or_null = match (lhs, rhs) {
-                    (_, None) | (None, _) => None,
-                    (Some(lhs), Some(rhs)) => match op {
-                        NumericOperator::Add => Some(lhs + rhs),
-                        NumericOperator::Sub => Some(lhs - rhs),
-                        NumericOperator::RSub => Some(rhs - lhs),
-                        NumericOperator::Mul => Some(lhs * rhs),
-                        NumericOperator::Div => Some(lhs / rhs),
-                        NumericOperator::RDiv => Some(rhs / lhs),
-                    }
-                };
-                Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
-            }
-        )
-    }
-
-    fn checked_integral_numeric_operator<
-        P: NativePType
-            + TryFrom<PValue, Error = VortexError>
-            + CheckedSub
-            + CheckedAdd
-            + CheckedMul
-            + CheckedDiv,
-    >(
-        &self,
-        other: &PrimitiveScalar<'a>,
-        result_dtype: &'a DType,
-        ptype: PType,
-        op: NumericOperator,
-    ) -> Option<PrimitiveScalar<'a>>
-    where
-        PValue: From<P>,
-    {
-        let lhs = self.typed_value::<P>();
-        let rhs = other.typed_value::<P>();
-        let value_or_null_or_overflow = match (lhs, rhs) {
-            (_, None) | (None, _) => Some(None),
-            (Some(lhs), Some(rhs)) => match op {
-                NumericOperator::Add => lhs.checked_add(&rhs).map(Some),
-                NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
-                NumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
-                NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
-                NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
-                NumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
-            },
-        };
-
-        value_or_null_or_overflow.map(|value_or_null| Self {
-            dtype: result_dtype,
-            ptype,
-            pvalue: value_or_null.map(PValue::from),
-        })
-    }
-}
+//
+// impl<'a> PrimitiveScalar<'a> {
+//     /// Apply the (checked) operator to self and other using SQL-style null semantics.
+//     ///
+//     /// If the operation overflows, Ok(None) is returned.
+//     ///
+//     /// If the types are incompatible (ignoring nullability), an error is returned.
+//     ///
+//     /// If either value is null, the result is null.
+//     pub fn checked_binary_numeric(
+//         &self,
+//         other: &PrimitiveScalar<'a>,
+//         op: NumericOperator,
+//     ) -> Option<PrimitiveScalar<'a>> {
+//         if !self.dtype().eq_ignore_nullability(other.dtype()) {
+//             vortex_panic!("types must match: {} {}", self.dtype(), other.dtype());
+//         }
+//         let result_dtype = if self.dtype().is_nullable() {
+//             self.dtype()
+//         } else {
+//             other.dtype()
+//         };
+//         let ptype = self.ptype();
+//
+//         match_each_native_ptype!(
+//             self.ptype(),
+//             integral: |P| {
+//                 self.checked_integral_numeric_operator::<P>(other, result_dtype, ptype, op)
+//             },
+//             floating: |P| {
+//                 let lhs = self.typed_value::<P>();
+//                 let rhs = other.typed_value::<P>();
+//                 let value_or_null = match (lhs, rhs) {
+//                     (_, None) | (None, _) => None,
+//                     (Some(lhs), Some(rhs)) => match op {
+//                         NumericOperator::Add => Some(lhs + rhs),
+//                         NumericOperator::Sub => Some(lhs - rhs),
+//                         NumericOperator::RSub => Some(rhs - lhs),
+//                         NumericOperator::Mul => Some(lhs * rhs),
+//                         NumericOperator::Div => Some(lhs / rhs),
+//                         NumericOperator::RDiv => Some(rhs / lhs),
+//                     }
+//                 };
+//                 Some(Self { dtype: result_dtype, ptype, pvalue: value_or_null.map(PValue::from) })
+//             }
+//         )
+//     }
+//
+//     fn checked_integral_numeric_operator<
+//         P: NativePType
+//             + TryFrom<PValue, Error = VortexError>
+//             + CheckedSub
+//             + CheckedAdd
+//             + CheckedMul
+//             + CheckedDiv,
+//     >(
+//         &self,
+//         other: &PrimitiveScalar<'a>,
+//         result_dtype: &'a DType,
+//         ptype: PType,
+//         op: NumericOperator,
+//     ) -> Option<PrimitiveScalar<'a>>
+//     where
+//         PValue: From<P>,
+//     {
+//         let lhs = self.typed_value::<P>();
+//         let rhs = other.typed_value::<P>();
+//         let value_or_null_or_overflow = match (lhs, rhs) {
+//             (_, None) | (None, _) => Some(None),
+//             (Some(lhs), Some(rhs)) => match op {
+//                 NumericOperator::Add => lhs.checked_add(&rhs).map(Some),
+//                 NumericOperator::Sub => lhs.checked_sub(&rhs).map(Some),
+//                 NumericOperator::RSub => rhs.checked_sub(&lhs).map(Some),
+//                 NumericOperator::Mul => lhs.checked_mul(&rhs).map(Some),
+//                 NumericOperator::Div => lhs.checked_div(&rhs).map(Some),
+//                 NumericOperator::RDiv => rhs.checked_div(&lhs).map(Some),
+//             },
+//         };
+//
+//         value_or_null_or_overflow.map(|value_or_null| Self {
+//             dtype: result_dtype,
+//             ptype,
+//             pvalue: value_or_null.map(PValue::from),
+//         })
+//     }
+// }
 
 #[cfg(test)]
 mod tests {

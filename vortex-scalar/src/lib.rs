@@ -8,14 +8,13 @@
 //! ([`DType`](vortex_dtype::DType)) and a value ([`ScalarValue`]).
 
 #![deny(missing_docs)]
-extern crate core;
 
 // #[cfg(feature = "arbitrary")]
 // pub mod arbitrary;
 mod arrow;
 mod binary;
 mod bool;
-pub mod datetime;
+// pub mod datetime;
 mod decimal;
 mod display;
 pub mod extension;
@@ -23,7 +22,7 @@ mod fixed_list;
 mod list;
 mod null;
 mod primitive;
-mod proto;
+// mod proto;
 mod pvalue;
 // mod scalar;
 // mod scalar_value;

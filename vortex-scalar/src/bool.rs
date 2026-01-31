@@ -1,19 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp::Ordering;
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::marker::PhantomData;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::Scalar;
 use crate::ScalarValue;
@@ -30,138 +21,61 @@ pub struct BoolScalar<'a> {
     pub(super) _marker: PhantomData<&'a ()>,
 }
 
-impl Display for BoolScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self.value {
-            None => write!(f, "null"),
-            Some(v) => write!(f, "{v}"),
-        }
-    }
-}
-
-impl PartialOrd for BoolScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for BoolScalar<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.value.cmp(&other.value)
-    }
-}
-
 impl<'a> BoolScalar<'a> {
-    /// Returns the data type of this boolean scalar.
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
-    }
-
     /// Returns the boolean value, or None if null.
     pub fn value(&self) -> Option<bool> {
         self.value
     }
-
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Bool(..)) {
-            vortex_bail!(
-                "Cannot cast bool to {dtype}: boolean scalars can only be cast to boolean types with different nullability"
-            )
-        }
-        Ok(Scalar::bool(
-            self.value.vortex_expect("nullness handled in Scalar::cast"),
-            dtype.nullability(),
-        ))
-    }
-
-    /// Returns a new boolean scalar with the inverted value.
-    ///
-    /// Null values remain null.
-    pub fn invert(self) -> BoolScalar<'a> {
-        BoolScalar {
-            dtype: self.dtype,
-            value: self.value.map(|v| !v),
-        }
-    }
-
-    /// Converts this boolean scalar into a general scalar.
-    pub fn into_scalar(self) -> Scalar {
-        Scalar::new(
-            self.dtype.clone(),
-            self.value
-                .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
-                .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
-        )
-    }
+    //
+    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    //     if !matches!(dtype, DType::Bool(..)) {
+    //         vortex_bail!(
+    //             "Cannot cast bool to {dtype}: boolean scalars can only be cast to boolean types with different nullability"
+    //         )
+    //     }
+    //     Ok(Scalar::bool(
+    //         self.value.vortex_expect("nullness handled in Scalar::cast"),
+    //         dtype.nullability(),
+    //     ))
+    // }
+    //
+    // /// Returns a new boolean scalar with the inverted value.
+    // ///
+    // /// Null values remain null.
+    // pub fn invert(self) -> BoolScalar<'a> {
+    //     BoolScalar {
+    //         dtype: self.dtype,
+    //         value: self.value.map(|v| !v),
+    //     }
+    // }
+    //
+    // /// Converts this boolean scalar into a general scalar.
+    // pub fn into_scalar(self) -> Scalar {
+    //     Scalar::new(
+    //         self.dtype.clone(),
+    //         self.value
+    //             .map(|x| ScalarValue(InnerScalarValue::Bool(x)))
+    //             .unwrap_or_else(|| ScalarValue(InnerScalarValue::Null)),
+    //     )
+    // }
 }
 
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
-        Self::new(
-            DType::Bool(nullability),
-            ScalarValue(InnerScalarValue::Bool(value)),
-        )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for BoolScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Bool(_)) {
-            vortex_bail!("Expected bool scalar, found {}", value.dtype())
-        }
-        Ok(Self {
-            dtype: value.dtype(),
-            value: value.value().as_bool()?,
-        })
-    }
-}
-
-impl TryFrom<&Scalar> for bool {
-    type Error = VortexError;
-
-    fn try_from(value: &Scalar) -> VortexResult<Self> {
-        <Option<bool>>::try_from(value)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-    }
-}
-
-impl TryFrom<&Scalar> for Option<bool> {
-    type Error = VortexError;
-
-    fn try_from(value: &Scalar) -> VortexResult<Self> {
-        Ok(BoolScalar::try_from(value)?.value())
-    }
-}
-
-impl TryFrom<Scalar> for bool {
-    type Error = VortexError;
-
-    fn try_from(value: Scalar) -> VortexResult<Self> {
-        Self::try_from(&value)
-    }
-}
-
-impl TryFrom<Scalar> for Option<bool> {
-    type Error = VortexError;
-
-    fn try_from(value: Scalar) -> VortexResult<Self> {
-        Self::try_from(&value)
+        unsafe { Scalar::new_unchecked(DType::Bool(nullability), ScalarValue::Bool(value)) }
     }
 }
 
 impl From<bool> for Scalar {
     fn from(value: bool) -> Self {
-        Self::new(DType::Bool(NonNullable), value.into())
+        Self::bool(value, Nullability::NonNullable)
     }
 }
 
 impl From<bool> for ScalarValue {
     fn from(value: bool) -> Self {
-        ScalarValue(InnerScalarValue::Bool(value))
+        ScalarValue::Bool(value)
     }
 }
 
@@ -170,12 +84,6 @@ mod test {
     use vortex_dtype::Nullability::*;
 
     use super::*;
-
-    #[test]
-    fn into_from() {
-        let scalar: Scalar = false.into();
-        assert!(!bool::try_from(&scalar).unwrap());
-    }
 
     #[test]
     fn equality() {

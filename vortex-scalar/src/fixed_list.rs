@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
-use std::hash::Hash;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
