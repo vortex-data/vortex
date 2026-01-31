@@ -1,20 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
-use vortex_error::vortex_panic;
 
 use crate::Scalar;
 use crate::ScalarValue;
@@ -29,217 +21,14 @@ use crate::ScalarValue;
 /// number of `elements` is equal to the `size` field of the [`FixedSizeList`].
 ///
 /// [`FixedSizeList`]: DType::FixedSizeList
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ListScalar<'a> {
     pub(super) element_dtype: &'a Arc<DType>,
     pub(super) nullability: Nullability,
     pub(super) elements: Option<&'a [ScalarValue]>,
 }
 
-impl Display for ListScalar<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.elements {
-            None => write!(f, "null"),
-            Some(elems) => {
-                let fixed_size_list_str: &dyn Display =
-                    if let DType::FixedSizeList(_, size, _) = self.dtype {
-                        &format!("fixed_size<{size}>")
-                    } else {
-                        &""
-                    };
-
-                write!(
-                    f,
-                    "{fixed_size_list_str}[{}]",
-                    elems
-                        .iter()
-                        .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
-                        .format(", ")
-                )
-            }
-        }
-    }
-}
-
-impl PartialEq for ListScalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.elements() == other.elements()
-    }
-}
-
-impl Eq for ListScalar<'_> {}
-
-/// Ord is not implemented since it's undefined for different element DTypes
-impl PartialOrd for ListScalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        if !self
-            .element_dtype
-            .eq_ignore_nullability(other.element_dtype)
-        {
-            return None;
-        }
-        self.elements().partial_cmp(&other.elements())
-    }
-}
-
-impl Hash for ListScalar<'_> {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.dtype.hash(state);
-        self.elements().hash(state);
-    }
-}
-
-impl<'a> ListScalar<'a> {
-    /// Returns the data type of this list scalar.
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
-    }
-
-    /// Returns the number of elements in the list.
-    ///
-    /// Returns 0 if the list is null.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.elements.as_ref().map(|e| e.len()).unwrap_or(0)
-    }
-
-    /// Returns true if the list has no elements or is null.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        match self.elements.as_ref() {
-            None => true,
-            Some(l) => l.is_empty(),
-        }
-    }
-
-    /// Returns true if the list is null.
-    #[inline]
-    pub fn is_null(&self) -> bool {
-        self.elements.is_none()
-    }
-
-    /// Returns the data type of the list's elements.
-    pub fn element_dtype(&self) -> &DType {
-        self.dtype
-            .as_any_size_list_element_opt()
-            .unwrap_or_else(|| vortex_panic!("`ListScalar` somehow had dtype {}", self.dtype))
-            .as_ref()
-    }
-
-    /// Returns the element at the given index as a scalar.
-    ///
-    /// Returns None if the list is null or the index is out of bounds.
-    pub fn element(&self, idx: usize) -> Option<Scalar> {
-        self.elements
-            .as_ref()
-            .and_then(|l| l.get(idx))
-            .map(|value| Scalar::new(self.element_dtype().clone(), value.clone()))
-    }
-
-    /// Returns all elements in the list as a vector of scalars.
-    ///
-    /// Returns None if the list is null.
-    pub fn elements(&self) -> Option<Vec<Scalar>> {
-        self.elements.as_ref().map(|elems| {
-            elems
-                .iter()
-                .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
-                .collect_vec()
-        })
-    }
-
-    /// Casts the list to the target [`DType`].
-    ///
-    /// # Panics
-    ///
-    /// Panics if the target [`DType`] is not a [`List`]: or [`FixedSizeList`], or if trying to cast
-    /// to a [`FixedSizeList`] with the incorrect number of elements.
-    ///
-    /// [`List`]: DType::List
-    /// [`FixedSizeList`]: DType::FixedSizeList
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        let target_element_dtype = dtype
-            .as_any_size_list_element_opt()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Cannot cast {} to {}: list can only be cast to a list or fixed-size list",
-                    self.dtype(),
-                    dtype
-                )
-            })?
-            .as_ref();
-
-        if let DType::FixedSizeList(_, size, _) = dtype
-            && *size as usize != self.len()
-        {
-            vortex_bail!(
-                "tried to cast to a `FixedSizeList[{size}]` but had {} elements",
-                self.len()
-            )
-        }
-
-        Ok(Scalar::new(
-            dtype.clone(),
-            ScalarValue(InnerScalarValue::List(
-                self.elements
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .iter()
-                    .map(|element| {
-                        // Recursively cast the elements of the list.
-                        Scalar::new(DType::clone(self.element_dtype), element.clone())
-                            .cast(target_element_dtype)
-                            .map(|x| x.into_value())
-                    })
-                    .collect::<VortexResult<Arc<[ScalarValue]>>>()?,
-            )),
-        ))
-    }
-}
-
-/// A helper enum for creating a [`ListScalar`].
-enum ListKind {
-    Variable,
-    FixedSize,
-}
-
-/// Helper functions to create a [`ListScalar`] as a [`Scalar`].
 impl Scalar {
-    fn create_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-        list_kind: ListKind,
-    ) -> Self {
-        let element_dtype = element_dtype.into();
-
-        let children: Arc<[ScalarValue]> = children
-            .into_iter()
-            .map(|child| {
-                if child.dtype() != &*element_dtype {
-                    vortex_panic!(
-                        "tried to create list of {} with values of type {}",
-                        element_dtype,
-                        child.dtype()
-                    );
-                }
-                child.into_value()
-            })
-            .collect();
-        let size: u32 = children
-            .len()
-            .try_into()
-            .vortex_expect("tried to create a list that was too large");
-
-        let dtype = match list_kind {
-            ListKind::Variable => DType::List(element_dtype, nullability),
-            ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
-        };
-
-        Self::new(dtype, ScalarValue(InnerScalarValue::List(children)))
-    }
-
     /// Creates a new list scalar with the given element type and children.
     ///
     /// # Panics
@@ -247,47 +36,12 @@ impl Scalar {
     /// Panics if any child scalar has a different type than the element type, or if there are too
     /// many children.
     pub fn list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
+        element_dtype: Arc<DType>,
         nullability: Nullability,
+        children: Vec<ScalarValue>,
     ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::Variable)
-    }
-
-    /// Creates a new empty list scalar with the given element type.
-    pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::create_list(element_dtype, vec![], nullability, ListKind::Variable)
-    }
-
-    /// Creates a new fixed-size list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn fixed_size_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-    ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        let element_dtype = value
-            .dtype()
-            .as_any_size_list_element_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?;
-
-        Ok(Self {
-            dtype: value.dtype(),
-            element_dtype,
-            elements: value.value().as_list()?.cloned(),
-        })
+        Self::try_new(DType::List(element_dtype, nullability), children)
+            .vortex_expect("Failed to create list scalar")
     }
 }
 

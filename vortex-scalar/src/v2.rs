@@ -86,7 +86,16 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
                 false
             }
         }
-        DType::Decimal(..) => matches!(value, ScalarValue::Decimal(_)),
+        DType::Decimal(dec_dtype, _) => {
+            if let ScalarValue::Decimal(dvalue) = value {
+                dvalue
+                    .fits_in_precision(*dec_dtype)
+                    // FIXME(ngates): why the option?
+                    .vortex_expect("Failed to check decimal precision compatibility")
+            } else {
+                false
+            }
+        }
         DType::Utf8(_) => matches!(value, ScalarValue::Utf8(_)),
         DType::Binary(_) => matches!(value, ScalarValue::Binary(_)),
         DType::List(elem_dtype, _) => {

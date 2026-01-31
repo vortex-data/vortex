@@ -8,6 +8,7 @@
 //! ([`DType`](vortex_dtype::DType)) and a value ([`ScalarValue`]).
 
 #![deny(missing_docs)]
+extern crate core;
 
 // #[cfg(feature = "arbitrary")]
 // pub mod arbitrary;

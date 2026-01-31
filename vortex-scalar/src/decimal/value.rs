@@ -4,7 +4,6 @@
 //! Additional trait implementations for decimal types to ensure consistency.
 
 use std::cmp::Ordering;
-use std::fmt;
 use std::hash::Hash;
 
 use num_traits::CheckedAdd;
@@ -18,11 +17,8 @@ use vortex_dtype::Nullability;
 use vortex_dtype::ToI256;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
-use vortex_error::vortex_err;
 
-use crate::DecimalScalar;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -33,10 +29,12 @@ impl Scalar {
         decimal_type: DecimalDType,
         nullability: Nullability,
     ) -> Self {
-        Self::new(
+        // We try_new here so the precision/scale checks are enforced.
+        Self::try_new(
             DType::Decimal(decimal_type, nullability),
-            ScalarValue(InnerScalarValue::Decimal(value)),
+            ScalarValue::Decimal(value),
         )
+        .vortex_expect("Decimal value should be valid")
     }
 }
 
@@ -180,34 +178,6 @@ impl Hash for DecimalValue {
     }
 }
 
-use super::macros::decimal_scalar_pack;
-use super::macros::decimal_scalar_unpack;
-
-decimal_scalar_unpack!(i8, I8);
-decimal_scalar_unpack!(i16, I16);
-decimal_scalar_unpack!(i32, I32);
-decimal_scalar_unpack!(i64, I64);
-decimal_scalar_unpack!(i128, I128);
-decimal_scalar_unpack!(i256, I256);
-
-decimal_scalar_pack!(i8, i8, I8);
-decimal_scalar_pack!(i16, i16, I16);
-decimal_scalar_pack!(i32, i32, I32);
-decimal_scalar_pack!(i64, i64, I64);
-decimal_scalar_pack!(i128, i128, I128);
-decimal_scalar_pack!(i256, i256, I256);
-
-decimal_scalar_pack!(u8, i16, I16);
-decimal_scalar_pack!(u16, i32, I32);
-decimal_scalar_pack!(u32, i64, I64);
-decimal_scalar_pack!(u64, i128, I128);
-
-impl From<DecimalValue> for ScalarValue {
-    fn from(value: DecimalValue) -> Self {
-        Self(InnerScalarValue::Decimal(value))
-    }
-}
-
 // Add From<DecimalValue> for Scalar to match other types
 impl From<DecimalValue> for Scalar {
     fn from(value: DecimalValue) -> Self {
@@ -222,61 +192,6 @@ impl From<DecimalValue> for Scalar {
             DecimalValue::I256(_) => DecimalDType::new(76, 0),
         };
         Scalar::decimal(value, dtype, Nullability::NonNullable)
-    }
-}
-
-// Add TryFrom<&Scalar> for DecimalValue
-impl TryFrom<&Scalar> for DecimalValue {
-    type Error = VortexError;
-
-    fn try_from(scalar: &Scalar) -> Result<Self, Self::Error> {
-        let decimal_scalar = DecimalScalar::try_from(scalar)?;
-        decimal_scalar
-            .decimal_value()
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| vortex_err!("Cannot extract DecimalValue from null decimal"))
-    }
-}
-
-// Add TryFrom<Scalar> for DecimalValue (delegates to &Scalar)
-impl TryFrom<Scalar> for DecimalValue {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        DecimalValue::try_from(&scalar)
-    }
-}
-
-// Add TryFrom<&Scalar> for Option<DecimalValue>
-impl TryFrom<&Scalar> for Option<DecimalValue> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &Scalar) -> Result<Self, Self::Error> {
-        let decimal_scalar = DecimalScalar::try_from(scalar)?;
-        Ok(decimal_scalar.decimal_value())
-    }
-}
-
-// Add TryFrom<Scalar> for Option<DecimalValue> (delegates to &Scalar)
-impl TryFrom<Scalar> for Option<DecimalValue> {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Option::<DecimalValue>::try_from(&scalar)
-    }
-}
-
-impl fmt::Display for DecimalValue {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DecimalValue::I8(v8) => write!(f, "decimal8({v8})"),
-            DecimalValue::I16(v16) => write!(f, "decimal16({v16})"),
-            DecimalValue::I32(v32) => write!(f, "decimal32({v32})"),
-            DecimalValue::I64(v32) => write!(f, "decimal64({v32})"),
-            DecimalValue::I128(v128) => write!(f, "decimal128({v128})"),
-            DecimalValue::I256(v256) => write!(f, "decimal256({v256})"),
-        }
     }
 }
 
