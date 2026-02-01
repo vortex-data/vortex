@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Extension scalar definitions.
+
 mod matcher;
 mod vtable;
 
@@ -11,7 +13,6 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::mem::discriminant;
 use std::sync::Arc;
 
 pub use matcher::*;
@@ -19,24 +20,19 @@ use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
 use vortex_dtype::ExtDTypeRef;
 use vortex_dtype::ExtID;
-use vortex_dtype::Nullability;
-use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
-use vortex_session::VortexSession;
 pub use vtable::*;
 
 use crate::Scalar;
 use crate::ScalarValue;
-use crate::session::ScalarSessionExt;
 
 /// A type-erased reference to an extension scalar's storage.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtensionScalar<'a> {
     pub(super) ext_dtype: &'a ExtDTypeRef,
-    pub(super) storage: &'a ScalarValue,
+    pub(super) ext_scalar: Option<&'a ExtScalarRef>,
 }
 
 impl ExtensionScalar<'_> {
@@ -45,98 +41,61 @@ impl ExtensionScalar<'_> {
         self.ext_dtype
     }
 
-    /// Return the typed dtype of the extension scalar.
-    pub fn typed_dtype<V: ExtDTypeVTable>(&self) -> VortexResult<ExtDType<V>> {
-        self.ext_dtype.clone().try_downcast::<V>().map_err(|_| {
-            vortex_err!(
-                "Failed to downcast ExtDTypeRef {} to {}",
-                self.ext_dtype.id(),
-                type_name::<V>()
-            )
-        })
+    /// Return the typed-erased storage scalar value of the extension scalar.
+    pub fn ext_scalar(&self) -> Option<&ExtScalarRef> {
+        self.ext_scalar
     }
 
-    /// Return the storage scalar value of the extension scalar.
-    pub fn storage(&self) -> &ScalarValue {
-        self.storage
+    /// Extract the value of the extension scalar per the given [`Matcher`].
+    ///
+    /// Returns `None` if the extension scalar is null.
+    /// Panics if the match fails.
+    pub fn value<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        self.ext_scalar.map(|scalar| scalar.value::<M>())
     }
 
-    /// Return the typed scalar value of the extension scalar.
-    pub fn typed_storage<V: ExtScalarVTable>(&self) -> VortexResult<Option<V::Value>> {
-        let ext_dtype = self.typed_dtype::<V>()?;
-        Ok(match self.storage {
-            ScalarValue::Null => None,
-            _ => Some(ext_dtype.vtable().unpack(&ext_dtype, self.storage)?),
-        })
+    /// Pack the value into a storage scalar.
+    pub fn to_storage_scalar(&self) -> VortexResult<Scalar> {
+        let scalar_value = match self.ext_scalar {
+            None => ScalarValue::Null,
+            Some(ext_scalar) => ext_scalar.0.pack(self.ext_dtype)?,
+        };
+        // NOTE(ngates): we wrap up as a Scalar here to ensure the result of `pack` is compatible
+        //  with the actual storage DType. Returning ScalarValue directly would skip this check.
+        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), scalar_value)
     }
 }
 
-/// A typed extension scalar.
+/// A typed extension scalar value.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtScalar<V: ExtScalarVTable>(Arc<ExtScalarAdapter<V>>);
 
 impl<V: ExtScalarVTable + Default> ExtScalar<V> {
     /// Creates a new extension scalar from a scalar value.
-    pub fn try_new(
-        metadata: V::Metadata,
-        value: Option<V::Value>,
-        nullability: Nullability,
-    ) -> VortexResult<Self> {
-        let vtable = V::default();
-        let storage_scalar = vtable.pack(&metadata, value.as_ref(), nullability)?;
-        let ext_dtype = ExtDType::try_new(metadata, storage_scalar.dtype().clone())?;
-        Self::try_with_vtable(V::default(), ext_dtype, value)
-    }
-
-    /// Creates a new extension scalar from a type-erased dtype and scalar value.
-    pub fn try_from_scalar(dtype: ExtDTypeRef, value: &ScalarValue) -> VortexResult<Self> {
-        let vtable = V::default();
-        let dtype = dtype
-            .try_downcast::<V>()
-            .map_err(|_| vortex_err!("Failed to downcast ExtDTypeRef to {}", type_name::<V>()))?;
-
-        let value = match value {
-            ScalarValue::Null => None,
-            _ => Some(dtype.vtable().unpack(&dtype, value)?),
-        };
-
-        Ok(Self(Arc::new(ExtScalarAdapter::<V> {
-            vtable,
-            dtype,
-            value,
-        })))
+    pub fn new(value: V::Value) -> Self {
+        Self::new_with_vtable(V::default(), value)
     }
 }
 
 impl<V: ExtScalarVTable> ExtScalar<V> {
     /// Creates a new extension scalar from a vtable, metadata, and scalar value.
-    pub fn try_with_vtable(
-        vtable: V,
-        dtype: ExtDType<V>,
-        value: Option<V::Value>,
-    ) -> VortexResult<Self> {
-        // Ensure the value is permitted by the dtype's metadata and nullability
-        let _storage_scalar = vtable.pack(dtype.metadata(), value.as_ref(), dtype.nullability())?;
-        Ok(Self(Arc::new(ExtScalarAdapter::<V> {
-            vtable,
-            dtype,
-            value,
-        })))
+    pub fn new_with_vtable(vtable: V, value: V::Value) -> Self {
+        Self(Arc::new(ExtScalarAdapter::<V> { vtable, value }))
     }
 
     /// Returns the identifier of the extension scalar.
     pub fn id(&self) -> ExtID {
-        self.0.dtype.id()
+        self.0.vtable.id()
     }
 
     /// Returns the vtable of this extension scalar.
     pub fn vtable(&self) -> &V {
-        self.0.dtype.vtable()
+        &self.0.vtable
     }
 
     /// Returns the value of this extension scalar.
-    pub fn value(&self) -> Option<&V::Value> {
-        self.0.value.as_ref()
+    pub fn value(&self) -> &V::Value {
+        &self.0.value
     }
 
     /// Erase the concrete type information, returning a type-erased extension scalar.
@@ -178,26 +137,6 @@ impl<V: ExtScalarVTable> ExtScalar<V> {
 #[derive(Clone)]
 pub struct ExtScalarRef(Arc<dyn ExtScalarImpl>);
 
-impl ExtScalarRef {
-    pub fn try_from_scalar(
-        dtype: ExtDTypeRef,
-        value: &ScalarValue,
-        session: &VortexSession,
-    ) -> VortexResult<Self> {
-        let vtable = session
-            .scalars()
-            .registry()
-            .find(&dtype.id())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "No registered vtable for extension scalar with id {}",
-                    dtype.id()
-                )
-            })?;
-        vtable.unpack(&dtype, value)
-    }
-}
-
 impl Display for ExtScalarRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.0.value_display(f)
@@ -207,7 +146,6 @@ impl Display for ExtScalarRef {
 impl Debug for ExtScalarRef {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExtScalar")
-            .field("dtype", &self.dtype())
             .field("value", &self.value_erased())
             .finish()
     }
@@ -215,15 +153,14 @@ impl Debug for ExtScalarRef {
 
 impl PartialEq for ExtScalarRef {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype() == other.dtype() && self.0.value_eq(other.0.value_any())
+        self.0.value_eq(other.0.value_any())
     }
 }
 impl Eq for ExtScalarRef {}
 
 impl Hash for ExtScalarRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.dtype().hash(state);
-        self.value_erased().hash(state);
+        self.0.value_hash(state)
     }
 }
 
@@ -231,11 +168,6 @@ impl ExtScalarRef {
     /// Returns the identifier of the extension scalar.
     pub fn id(&self) -> ExtID {
         self.0.id()
-    }
-
-    /// Returns the type-erased dtype of this extension scalar.
-    pub fn dtype(&self) -> ExtDTypeRef {
-        self.0.dtype()
     }
 
     /// Returns the type-erased value of this extension scalar.
@@ -332,19 +264,18 @@ impl Hash for ExtScalarValue<'_> {
 trait ExtScalarImpl: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtID;
-    fn dtype(&self) -> ExtDTypeRef;
-    fn value_any(&self) -> Option<&dyn Any>;
+    fn value_any(&self) -> &dyn Any;
     fn value_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
     fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
-    fn value_eq(&self, other: Option<&dyn Any>) -> bool;
+    fn value_eq(&self, other: &dyn Any) -> bool;
     fn value_hash(&self, state: &mut dyn Hasher);
+    fn pack(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<ScalarValue>;
 }
 
 #[derive(Debug, Hash, PartialEq, Eq)]
 struct ExtScalarAdapter<V: ExtScalarVTable> {
     vtable: V,
-    dtype: ExtDType<V>,
-    value: Option<V::Value>,
+    value: V::Value,
 }
 
 impl<V: ExtScalarVTable> ExtScalarImpl for ExtScalarAdapter<V> {
@@ -353,75 +284,54 @@ impl<V: ExtScalarVTable> ExtScalarImpl for ExtScalarAdapter<V> {
     }
 
     fn id(&self) -> ExtID {
-        self.dtype.id()
+        self.vtable.id()
     }
 
-    fn dtype(&self) -> ExtDTypeRef {
-        self.dtype.clone().erased()
-    }
-
-    fn value_any(&self) -> Option<&dyn Any> {
-        self.value.as_ref().map(|v| v as &dyn Any)
+    fn value_any(&self) -> &dyn Any {
+        &self.value
     }
 
     fn value_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.value {
-            None => return write!(f, "null"),
-            Some(value) => <V::Value as Debug>::fmt(value, f),
-        }
+        Debug::fmt(&self.value, f)
     }
 
     fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.value {
-            None => write!(f, "null"),
-            Some(value) => <V::Value as Display>::fmt(value, f),
-        }
+        Display::fmt(&self.value, f)
     }
 
-    fn value_eq(&self, other: Option<&dyn Any>) -> bool {
-        match (&self.value, other) {
-            (None, None) => true,
-            (Some(_), None) | (None, Some(_)) => false,
-            (Some(value), Some(other)) => {
-                let Some(other) = other.downcast_ref::<V::Value>() else {
-                    return false;
-                };
-                <V::Value as PartialEq>::eq(value, other)
-            }
-        }
+    fn value_eq(&self, other: &dyn Any) -> bool {
+        let Some(other) = other.downcast_ref::<V::Value>() else {
+            return false;
+        };
+        &self.value == other
     }
 
     fn value_hash(&self, mut state: &mut dyn Hasher) {
-        self.dtype.hash(&mut state);
-        discriminant(&self.value).hash(&mut state);
-        if let Some(value) = self.value.as_ref() {
-            <V::Value as Hash>::hash(value, &mut state);
-        }
+        self.value.hash(&mut state);
+    }
+
+    fn pack(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<ScalarValue> {
+        let ext_dtype = ext_dtype.clone().try_downcast::<V>().map_err(|_| {
+            vortex_err!(
+                "DTypeRef is not of expected extension type {}",
+                self.vtable.id()
+            )
+        })?;
+        self.vtable.pack(&ext_dtype, &self.value)
     }
 }
 
 impl Scalar {
     /// Creates a new extension scalar wrapping the given storage value.
     pub fn extension<V: ExtScalarVTable + Default>(
-        metadata: V::Metadata,
+        ext_dtype: ExtDType<V>,
         value: Option<V::Value>,
-        nullability: Nullability,
     ) -> VortexResult<Self> {
-        if value.is_none() && nullability == Nullability::NonNullable {
-            vortex_bail!(
-                "Cannot create non-nullable extension scalar of type {} with null value",
-                type_name::<V>(),
-            );
-        }
-
-        let vtable = V::default();
-        let (storage_dtype, storage_value) = vtable
-            .pack(&metadata, value.as_ref(), nullability)?
-            .into_parts();
-
-        let ext_dtype = ExtDType::try_with_vtable(vtable, metadata, storage_dtype)?;
-
-        Ok(unsafe { Self::new_unchecked(DType::Extension(ext_dtype.erased()), storage_value) })
+        let storage_value = match value {
+            None => ScalarValue::Null,
+            Some(v) => ScalarValue::Extension(ExtScalar::<V>::new(v).erased()),
+        };
+        Self::try_new(DType::Extension(ext_dtype.erased()), storage_value)
     }
 
     /// Creates a new extension scalar wrapping the given storage value.

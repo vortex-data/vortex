@@ -7,15 +7,15 @@
 //! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type
 //! ([`DType`](vortex_dtype::DType)) and a value ([`ScalarValue`]).
 
-#![deny(missing_docs)]
-extern crate core;
+// FIXME(ngates): Re-enable
+// #![deny(missing_docs)]
 
 // #[cfg(feature = "arbitrary")]
 // pub mod arbitrary;
 mod arrow;
 mod binary;
 mod bool;
-// pub mod datetime;
+pub mod datetime;
 mod decimal;
 mod display;
 pub mod extension;

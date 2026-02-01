@@ -13,9 +13,9 @@ use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::Scalar;
+use crate::ScalarValue;
 use crate::decimal::DecimalValue;
 
 macro_rules! value_to_arrow_scalar {
@@ -128,14 +128,15 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
-                let storage_scalar = value.as_extension().storage;
-                let primitive = storage_scalar
-                    .as_primitive_opt()
-                    .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
+                let pvalue = match value.as_extension().to_storage_scalar()?.into_value() {
+                    ScalarValue::Null => None,
+                    ScalarValue::Primitive(pvalue) => Some(pvalue),
+                    _ => unreachable!(),
+                };
 
                 match temporal {
                     TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
-                        let value = primitive.as_::<i64>();
+                        let value = pvalue.map(|p| p.cast::<i64>());
                         match unit {
                             TimeUnit::Nanoseconds => {
                                 timestamp_to_arrow_scalar!(
@@ -168,10 +169,10 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     }
                     TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Milliseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Date64Array)
+                            value_to_arrow_scalar!(pvalue.map(|p| p.cast::<i64>()), Date64Array)
                         }
                         TimeUnit::Days => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
+                            value_to_arrow_scalar!(pvalue.map(|p| p.cast::<i32>()), Date32Array)
                         }
                         TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
                             vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())
@@ -179,16 +180,28 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     },
                     TemporalMetadata::Time(unit) => match unit {
                         TimeUnit::Nanoseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Time64NanosecondArray)
+                            value_to_arrow_scalar!(
+                                pvalue.map(|p| p.cast::<i64>()),
+                                Time64NanosecondArray
+                            )
                         }
                         TimeUnit::Microseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Time64MicrosecondArray)
+                            value_to_arrow_scalar!(
+                                pvalue.map(|p| p.cast::<i64>()),
+                                Time64MicrosecondArray
+                            )
                         }
                         TimeUnit::Milliseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Time32MillisecondArray)
+                            value_to_arrow_scalar!(
+                                pvalue.map(|p| p.cast::<i32>()),
+                                Time32MillisecondArray
+                            )
                         }
                         TimeUnit::Seconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
+                            value_to_arrow_scalar!(
+                                pvalue.map(|p| p.cast::<i32>()),
+                                Time32SecondArray
+                            )
                         }
                         TimeUnit::Days => {
                             vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())

@@ -20,7 +20,7 @@ pub trait Matcher {
 }
 
 impl<V: ExtScalarVTable> Matcher for V {
-    type Match<'a> = Option<&'a V::Value>;
+    type Match<'a> = &'a V::Value;
 
     fn matches(item: &ExtScalarRef) -> bool {
         item.0.as_any().is::<ExtScalarAdapter<V>>()
@@ -30,6 +30,6 @@ impl<V: ExtScalarVTable> Matcher for V {
         item.0
             .as_any()
             .downcast_ref::<ExtScalarAdapter<V>>()
-            .map(|adapter| adapter.value.as_ref())
+            .map(|adapter| &adapter.value)
     }
 }

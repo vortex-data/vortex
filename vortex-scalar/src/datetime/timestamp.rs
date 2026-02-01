@@ -6,22 +6,22 @@ use std::fmt::Formatter;
 use std::ops::Sub;
 
 use jiff::Span;
-use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
-use vortex_dtype::Nullability;
-use vortex_dtype::PType;
 use vortex_dtype::datetime::Timestamp;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 
-use crate::Scalar;
+use crate::PValue;
 use crate::ScalarValue;
 use crate::datetime::SpanExt;
 use crate::extension::ExtScalarVTable;
 
+/// Value for Timestamp extension scalar.
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub enum TimestampValue {
+    /// Timestamp with time zone.
     Zoned(jiff::Zoned),
+    /// Timestamp without time zone.
     Unzoned(jiff::Timestamp),
 }
 
@@ -38,10 +38,10 @@ impl ExtScalarVTable for Timestamp {
     type Value = TimestampValue;
 
     fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value> {
-        let v = storage
-            .as_pvalue()?
-            .vortex_expect("storage is non-null")
-            .cast::<i64>();
+        let ScalarValue::Primitive(pvalue) = storage else {
+            vortex_bail!("expected primitive scalar value for Timestamp dtype");
+        };
+        let v = pvalue.cast::<i64>();
 
         Ok(match &dtype.metadata().tz {
             None => {
@@ -57,30 +57,26 @@ impl ExtScalarVTable for Timestamp {
         })
     }
 
-    fn pack(
-        &self,
-        metadata: &Self::Metadata,
-        value: Option<&Self::Value>,
-        nullability: Nullability,
-    ) -> VortexResult<Scalar> {
-        let Some(value) = value else {
-            return Ok(Scalar::null(DType::Primitive(
-                PType::I64,
-                Nullability::Nullable,
-            )));
+    fn pack(&self, dtype: &ExtDType<Self>, value: &Self::Value) -> VortexResult<ScalarValue> {
+        let span = match value {
+            TimestampValue::Zoned(zoned) => zoned.timestamp().sub(jiff::Timestamp::UNIX_EPOCH),
+            TimestampValue::Unzoned(datetime) => datetime.sub(jiff::Timestamp::UNIX_EPOCH),
         };
+        let length = span.get_unit_length(dtype.metadata().unit);
+        Ok(ScalarValue::Primitive(PValue::I64(length)))
+    }
 
-        match value {
-            TimestampValue::Zoned(zoned) => {
-                let span = zoned.timestamp() - jiff::Timestamp::UNIX_EPOCH;
-                let length = span.get_unit_length(metadata.unit);
-                Ok(Scalar::primitive(length, nullability))
+    fn validate(&self, value: &Self::Value, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
+        // NOTE(ngates): this really is indicative that timestamp and timestamp_tz should be two
+        //  different extension types, but we'll keep this for back compatibility for now.
+        match (value, &ext_dtype.metadata().tz) {
+            (TimestampValue::Zoned(_), None) => {
+                vortex_bail!("expected unzoned timestamp value for unzoned timestamp dtype")
             }
-            TimestampValue::Unzoned(datetime) => {
-                let span = datetime.sub(jiff::Timestamp::UNIX_EPOCH);
-                let length = span.get_unit_length(metadata.unit);
-                Ok(Scalar::primitive(length, nullability))
+            (TimestampValue::Unzoned(_), Some(_)) => {
+                vortex_bail!("expected zoned timestamp value for zoned timestamp dtype")
             }
+            _ => Ok(()),
         }
     }
 }
