@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "config.cuh"
 #include <stdint.h>
+
+#define MIN(a, b) (((a) < (b)) : (a) : (b))
 
 template<typename ValueT>
 __device__ void sequence(
@@ -10,12 +13,14 @@ __device__ void sequence(
     ValueT multiplier,
     uint64_t len
 ) {
-    const uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= len) {
-        return;
-    }
+    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
 
-    output[idx] = static_cast<ValueT>(idx) * multiplier + base;
+    const uint64_t elemStart = MIN(worker * ELEMENTS_PER_THREAD, len);
+    const uint64_t elemEnd = MIN(elemStart + ELEMENTS_PER_THREAD, len);
+
+    for (uint64_t idx = elemStart; idx < elemEnd; idx++) {
+        output[idx] = static_cast<ValueT>(idx) * multiplier + base;
+    }
 }
 
 #define GENERATE_KERNEL(ValueT, suffix) \
