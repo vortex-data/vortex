@@ -23,29 +23,16 @@ use crate::ScalarValue;
 use crate::pvalue::PValue;
 
 impl From<&Scalar> for pb::Scalar {
-    fn from(value: &Scalar) -> Self {
-        pb::Scalar {
-            dtype: Some(
-                (value.dtype())
-                    .try_into()
-                    .vortex_expect("Failed to convert DType to proto"),
-            ),
-            value: Some((value.value()).into()),
-        }
-    }
-}
-
-impl From<&ScalarValue> for pb::ScalarValue {
-    fn from(value: &ScalarValue) -> Self {
-        match value {
-            ScalarValue(InnerScalarValue::Null) => pb::ScalarValue {
+    fn from(scalar: &Scalar) -> Self {
+        let pb_value: pb::ScalarValue = match scalar.value() {
+            ScalarValue::Null => pb::ScalarValue {
                 kind: Some(Kind::NullValue(0)),
             },
-            ScalarValue(InnerScalarValue::Bool(v)) => pb::ScalarValue {
+            ScalarValue::Bool(v) => pb::ScalarValue {
                 kind: Some(Kind::BoolValue(*v)),
             },
-            ScalarValue(InnerScalarValue::Primitive(v)) => v.into(),
-            ScalarValue(InnerScalarValue::Decimal(v)) => {
+            ScalarValue::Primitive(v) => v.into(),
+            ScalarValue::Decimal(v) => {
                 let inner_value = match v {
                     DecimalValue::I8(v) => v.to_le_bytes().to_vec(),
                     DecimalValue::I16(v) => v.to_le_bytes().to_vec(),
@@ -54,18 +41,17 @@ impl From<&ScalarValue> for pb::ScalarValue {
                     DecimalValue::I128(v128) => v128.to_le_bytes().to_vec(),
                     DecimalValue::I256(v256) => v256.to_le_bytes().to_vec(),
                 };
-
                 pb::ScalarValue {
                     kind: Some(Kind::BytesValue(inner_value)),
                 }
             }
-            ScalarValue(InnerScalarValue::Buffer(v)) => pb::ScalarValue {
+            ScalarValue::Binary(v) => pb::ScalarValue {
                 kind: Some(Kind::BytesValue(v.as_slice().to_vec())),
             },
-            ScalarValue(InnerScalarValue::BufferString(v)) => pb::ScalarValue {
+            ScalarValue::Utf8(v) => pb::ScalarValue {
                 kind: Some(Kind::StringValue(v.as_str().to_string())),
             },
-            ScalarValue(InnerScalarValue::List(v)) => {
+            ScalarValue::List(v) => {
                 let mut values = Vec::with_capacity(v.len());
                 for elem in v.iter() {
                     values.push(pb::ScalarValue::from(elem));
@@ -74,8 +60,28 @@ impl From<&ScalarValue> for pb::ScalarValue {
                     kind: Some(Kind::ListValue(ListValue { values })),
                 }
             }
+            ScalarValue::Extension(v) => {
+                scalar
+                    .as_extension()
+                    .to_storage_scalar()
+                    .vortex_expect("Failed to pack extension scalar");
+                // FIXME(ngates): Implement extension scalar serialization.
+            }
+        };
+
+        pb::Scalar {
+            dtype: Some(
+                (scalar.dtype())
+                    .try_into()
+                    .vortex_expect("Failed to convert DType to proto"),
+            ),
+            value: Some(pb_value),
         }
     }
+}
+
+impl From<&ScalarValue> for pb::ScalarValue {
+    fn from(value: &ScalarValue) -> Self {}
 }
 
 impl From<&PValue> for pb::ScalarValue {

@@ -23,7 +23,7 @@ mod fixed_list;
 mod list;
 mod null;
 mod primitive;
-// mod proto;
+mod proto;
 mod pvalue;
 // mod scalar;
 // mod scalar_value;
