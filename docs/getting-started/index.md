@@ -22,7 +22,7 @@ maxdepth: 2
 caption: Language Libraries
 ---
 
-python
-rust
-java
+Python Quickstart <python>
+Rust Quickstart <rust>
+Java Quickstart <java>
 ```
