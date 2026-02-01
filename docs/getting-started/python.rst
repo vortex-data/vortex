@@ -1,7 +1,7 @@
 :tocdepth: 1
 
-Python Quickstart
-=================
+Python
+======
 
 Install
 -------

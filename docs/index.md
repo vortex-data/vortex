@@ -84,7 +84,7 @@ getting-started/index
 concepts/index
 guides/index
 specs/index
-api/index
 internals/index
 project/index
+api/index
 ```

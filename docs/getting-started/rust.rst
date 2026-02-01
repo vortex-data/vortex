@@ -1,7 +1,7 @@
 :tocdepth: 1
 
-Rust Quickstart
-===============
+Rust
+====
 
 Install
 -------

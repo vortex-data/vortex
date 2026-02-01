@@ -1,4 +1,4 @@
-# Getting Started with Java
+# Java
 
 :::{warning}
 This page is under construction.
