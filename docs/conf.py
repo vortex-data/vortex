@@ -72,14 +72,15 @@ myst_heading_anchors = 3
 
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
-html_css_files = ["style.css"]  # relative to _static/
+html_css_files = ["style.css"]
+html_favicon = "_static/vortex_logo.svg"  # relative to _static/
 
 # -- Options for PyData Sphinx Theme ----------------------------------------
 
 html_theme_options = {
     "logo": {
-        "image_light": "_static/vortex_spiral_logo.svg",
-        "image_dark": "_static/vortex_spiral_logo_dark_theme.svg",
+        "image_light": "_static/vortex_logo.svg",
+        "image_dark": "_static/vortex_logo_dark_theme.svg",
     },
     "github_url": "https://github.com/vortex-data/vortex",
     "icon_links": [
@@ -104,7 +105,7 @@ html_theme_options = {
 # -- Options for OpenGraph ---------------------------------------------------
 
 ogp_site_url = "https://docs.vortex.dev"
-ogp_image = "https://docs.vortex.dev/_static/vortex_spiral_logo.svg"
+ogp_image = "https://docs.vortex.dev/_static/vortex_logo.svg"
 
 # -- Options for Sphinx BibTEX -------------------------------------------
 

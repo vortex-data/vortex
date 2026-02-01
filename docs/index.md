@@ -1,6 +1,22 @@
+---
+sd_hide_title: true
+---
+
 # Vortex
 
-Vortex is an extensible ecosystem for compressed columnar data. It spans in-memory arrays,
+:::{image} _static/vortex_wordmark.svg
+:class: only-light vortex-wordmark
+:alt: Vortex
+:align: center
+:::
+
+:::{image} _static/vortex_wordmark_dark_theme.svg
+:class: only-dark vortex-wordmark
+:alt: Vortex
+:align: center
+:::
+
+An extensible ecosystem for compressed columnar data. Spans in-memory arrays,
 on-disk file formats, over-the-wire protocols, and integrations with query engines — all built
 around the latest research from the database community.
 
