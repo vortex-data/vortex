@@ -32,6 +32,10 @@ jobs:
         with:
           sync: false
           prune-cache: false
+      - name: Generate changelog from GitHub releases
+        run: python docs/generate_changelog.py
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Doxygen
         run: sudo apt-get install -y doxygen
       - name: Generate Javadoc for Java projects

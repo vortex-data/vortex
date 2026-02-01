@@ -7,7 +7,7 @@ maxdepth: 2
 
 roadmap
 contributing
-changelog
+changelog/index
 ../references
 ```
 

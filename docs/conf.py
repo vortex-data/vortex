@@ -148,11 +148,6 @@ nitpick_ignore_regex = [
     # cxx bridge internals that will never be resolvable in Sphinx.
     (r"cpp:identifier", r"rust::.*"),
     (r"cpp:identifier", r"ffi::.*"),
-    # Breathe emits cross-namespace parameter types as relative names (e.g. "scalar::Scalar"
-    # instead of "vortex::scalar::Scalar"), which Sphinx cannot resolve. These are our own
-    # types — the suppression is a workaround for a Breathe limitation.
-    (r"cpp:identifier", r"(dtype|scalar|expr)::.*"),
-    (r"cpp:identifier", r"ScanBuilder"),
     # Doxygen file-level labels (e.g. "dtype_8hpp") that we don't generate pages for.
     (r"ref", r".*_8hpp"),
 ]
@@ -318,7 +313,29 @@ def _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks(app, what, name
             in_block = False
 
 
+def _resolve_breathe_cpp_references(app, env, node, contnode):
+    """Resolve relative C++ references emitted by Breathe.
+
+    Breathe emits cross-namespace parameter types with relative qualifiers (e.g. ``scalar::Scalar``
+    instead of ``vortex::scalar::Scalar``). This handler intercepts unresolved references and
+    re-resolves them under the ``vortex::`` namespace.
+    """
+    if node.get("refdomain") != "cpp" or node.get("reftype") != "identifier":
+        return None
+
+    target = node.get("reftarget", "")
+    if not target or target.startswith("vortex::"):
+        return None
+
+    cpp_domain = env.get_domain("cpp")
+    # Try resolving with the vortex:: prefix.
+    node = node.deepcopy()
+    node["reftarget"] = f"vortex::{target}"
+    return cpp_domain.resolve_xref(env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode)
+
+
 def setup(app):
     app.connect("hawkmoth-process-docstring", _replace_rust_references)
     app.connect("write-started", _post_process)
     app.connect("autodoc-process-docstring", _convert_python_fenced_blocks_from_rust_to_valid_reST_blocks)
+    app.connect("missing-reference", _resolve_breathe_cpp_references)
