@@ -280,12 +280,12 @@ vortex-zstd = { version = "0.1.0", path = "./encodings/zstd", default-features =
 
 # No version constraints for unpublished crates.
 vortex-bench = { path = "./vortex-bench", default-features = false }
-vortex-tui = { path = "./vortex-tui" }
 vortex-cuda = { path = "./vortex-cuda", default-features = false }
 vortex-cuda-macros = { path = "./vortex-cuda/macros" }
 vortex-duckdb = { path = "./vortex-duckdb", default-features = false }
 vortex-test-e2e = { path = "./vortex-test/e2e", default-features = false }
 vortex-test-e2e-cuda = { path = "./vortex-test/e2e-cuda", default-features = false }
+vortex-tui = { path = "./vortex-tui" }
 
 [workspace.dependencies.getrandom_v03]
 features = ["wasm_js"]
