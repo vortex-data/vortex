@@ -12,6 +12,8 @@ use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
+use vortex_error::VortexError;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::Scalar;
@@ -252,6 +254,42 @@ impl Scalar {
 
 macro_rules! primitive_scalar {
     ($T:ty) => {
+        impl TryFrom<&Scalar> for $T {
+            type Error = VortexError;
+
+            fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
+                <Option<$T>>::try_from(value)?
+                    .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+            }
+        }
+
+        impl TryFrom<Scalar> for $T {
+            type Error = VortexError;
+
+            fn try_from(value: Scalar) -> Result<Self, Self::Error> {
+                <$T>::try_from(&value)
+            }
+        }
+
+        impl TryFrom<&Scalar> for Option<$T> {
+            type Error = VortexError;
+
+            fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
+                Ok(value
+                    .as_primitive_opt()
+                    .ok_or_else(|| vortex_err!("Expected primitive scalar"))?
+                    .typed_value::<$T>())
+            }
+        }
+
+        impl TryFrom<Scalar> for Option<$T> {
+            type Error = VortexError;
+
+            fn try_from(value: Scalar) -> Result<Self, Self::Error> {
+                <Option<$T>>::try_from(&value)
+            }
+        }
+
         impl From<$T> for Scalar {
             fn from(value: $T) -> Self {
                 unsafe {
@@ -296,6 +334,33 @@ primitive_scalar!(i64);
 primitive_scalar!(f16);
 primitive_scalar!(f32);
 primitive_scalar!(f64);
+
+/// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
+impl TryFrom<&Scalar> for usize {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
+        let prim = value
+            .as_primitive_opt()
+            .ok_or_else(|| vortex_err!("Expected primitive"))?
+            .as_::<u64>()
+            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?;
+        Ok(usize::try_from(prim)?)
+    }
+}
+
+impl TryFrom<&Scalar> for Option<usize> {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> Result<Self, Self::Error> {
+        Ok(value
+            .as_primitive_opt()
+            .ok_or_else(|| vortex_err!("cannot convert Null to usize"))?
+            .as_::<u64>()
+            .map(usize::try_from)
+            .transpose()?)
+    }
+}
 
 /// Read a scalar as usize. For usize only, we implicitly cast for better ergonomics.
 impl From<usize> for Scalar {

@@ -5,6 +5,9 @@ use std::marker::PhantomData;
 
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
+use vortex_error::VortexError;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::Scalar;
 use crate::ScalarValue;
@@ -64,6 +67,42 @@ impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
         unsafe { Scalar::new_unchecked(DType::Bool(nullability), ScalarValue::Bool(value)) }
+    }
+}
+
+impl TryFrom<&Scalar> for bool {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> VortexResult<Self> {
+        <Option<bool>>::try_from(value)?
+            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
+    }
+}
+
+impl TryFrom<&Scalar> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: &Scalar) -> VortexResult<Self> {
+        Ok(value
+            .as_bool_opt()
+            .ok_or_else(|| vortex_err!("Expected bool scalar"))?
+            .value())
+    }
+}
+
+impl TryFrom<Scalar> for bool {
+    type Error = VortexError;
+
+    fn try_from(value: Scalar) -> VortexResult<Self> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<Scalar> for Option<bool> {
+    type Error = VortexError;
+
+    fn try_from(value: Scalar) -> VortexResult<Self> {
+        Self::try_from(&value)
     }
 }
 
