@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use vortex_dtype::DType;
@@ -22,18 +23,40 @@ use crate::ScalarValue;
 /// [`FixedSizeList`]: DType::FixedSizeList
 #[derive(Debug, Clone)]
 pub struct FixedSizeListScalar<'a> {
-    pub(super) element_size: u32,
+    pub(super) list_size: u32,
     pub(super) element_dtype: &'a Arc<DType>,
     pub(super) nullability: Nullability,
     pub(super) elements: Option<&'a [ScalarValue]>,
 }
 
+impl FixedSizeListScalar<'_> {
+    /// Returns the number of elements in the list.
+    pub fn list_size(&self) -> u32 {
+        self.list_size
+    }
+
+    /// Returns all elements as a slice of scalars, or `None` if null.
+    pub fn elements(&self) -> Option<&[ScalarValue]> {
+        self.elements
+    }
+
+    /// Returns the elements as an iterator of scalars, or `None` if null.
+    pub fn elements_iter(&self) -> Option<impl Iterator<Item = Scalar>> {
+        self.elements.as_ref().map(|elems| {
+            elems
+                .iter()
+                .cloned()
+                .map(|sv| unsafe { Scalar::new_unchecked(self.element_dtype.deref().clone(), sv) })
+        })
+    }
+}
+
 /// Helper functions to create a [`ListScalar`] as a [`Scalar`].
 impl Scalar {
-    fn fixed_size_list(
+    pub fn fixed_size_list(
         element_dtype: Arc<DType>,
-        nullability: Nullability,
         children: Vec<ScalarValue>,
+        nullability: Nullability,
     ) -> Self {
         let size = u32::try_from(children.len())
             .vortex_expect("tried to create a fixed-size list that was larger than u32");

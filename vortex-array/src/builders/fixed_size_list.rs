@@ -8,11 +8,10 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
-use vortex_scalar::ListScalar;
+use vortex_scalar::FixedSizeListScalar;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -101,31 +100,23 @@ impl FixedSizeListBuilder {
     }
 
     /// Appends a fixed-size list `value` to the builder.
-    ///
-    /// Note that a [`ListScalar`] can represent both a [`ListArray`] scalar **and** a
-    /// [`FixedSizeListArray`] scalar (since a single list cannot know the size of other lists in
-    /// fixed-size list arrays without accompanying metadata).
-    ///
-    /// [`ListArray`]: crate::arrays::ListArray
-    pub fn append_value(&mut self, value: ListScalar) -> VortexResult<()> {
-        let Some(elements) = value.elements() else {
+    pub fn append_value(&mut self, value: FixedSizeListScalar) -> VortexResult<()> {
+        let Some(elements) = value.elements_iter() else {
             // If `elements` is `None`, then the `value` is a null value.
             self.append_null();
             return Ok(());
         };
 
-        if value.len() != self.list_size() as usize {
-            vortex_bail!(
-                "Tried to append a `ListScalar` with length {} to a `FixedSizeListScalar` \
-                    with fixed size of {}",
-                value.len(),
-                self.list_size()
-            );
-        }
+        vortex_ensure!(
+            value.list_size() == self.list_size(),
+            "Tried to append a `FixedSizeListScalar` with list size {} to a `FixedSizeListScalar` with fixed size of {}",
+            value.list_size(),
+            self.list_size()
+        );
 
         for scalar in elements {
             // TODO(connor): This is slow, we should be able to append multiple values at once, or
-            // the list scalar should hold an Array
+            //  the list scalar should hold an Array
             self.elements_builder.append_scalar(&scalar)?;
         }
         self.nulls.append_non_null();
@@ -228,7 +219,7 @@ impl ArrayBuilder for FixedSizeListBuilder {
             scalar.dtype()
         );
 
-        let list_scalar = scalar.as_list();
+        let list_scalar = scalar.as_fixed_size_list();
         self.append_value(list_scalar)
     }
 
@@ -310,7 +301,7 @@ mod tests {
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
                 )
-                .as_list(),
+                .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -321,7 +312,7 @@ mod tests {
                     vec![4i32.into(), 5i32.into(), 6i32.into()],
                     NonNullable,
                 )
-                .as_list(),
+                .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -342,7 +333,10 @@ mod tests {
         // Append multiple "empty" lists.
         for _ in 0..100 {
             builder
-                .append_value(Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable).as_list())
+                .append_value(
+                    Scalar::fixed_size_list(dtype.clone(), vec![], NonNullable)
+                        .as_fixed_size_list(),
+                )
                 .unwrap();
         }
 
@@ -366,7 +360,8 @@ mod tests {
             if i % 2 == 0 {
                 builder
                     .append_value(
-                        Scalar::fixed_size_list(dtype.clone(), vec![], Nullable).as_list(),
+                        Scalar::fixed_size_list(dtype.clone(), vec![], Nullable)
+                            .as_fixed_size_list(),
                     )
                     .unwrap();
             } else {
@@ -397,7 +392,7 @@ mod tests {
                         vec![(i * 2).into(), (i * 2 + 1).into()],
                         NonNullable,
                     )
-                    .as_list(),
+                    .as_fixed_size_list(),
                 )
                 .unwrap();
         }
@@ -431,7 +426,7 @@ mod tests {
         builder
             .append_value(
                 Scalar::fixed_size_list(dtype.clone(), vec![1i32.into(), 2i32.into()], Nullable)
-                    .as_list(),
+                    .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -439,7 +434,8 @@ mod tests {
 
         builder
             .append_value(
-                Scalar::fixed_size_list(dtype, vec![3i32.into(), 4i32.into()], Nullable).as_list(),
+                Scalar::fixed_size_list(dtype, vec![3i32.into(), 4i32.into()], Nullable)
+                    .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -468,7 +464,7 @@ mod tests {
                     ],
                     NonNullable,
                 )
-                .as_list(),
+                .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -483,7 +479,7 @@ mod tests {
                     ],
                     NonNullable,
                 )
-                .as_list(),
+                .as_fixed_size_list(),
             )
             .unwrap();
 
@@ -587,7 +583,7 @@ mod tests {
                 vec![1i32.into(), 2i32.into()], // Only 2 elements, not 3.
                 NonNullable,
             )
-            .as_list(),
+            .as_fixed_size_list(),
         );
 
         assert!(result.is_err());
@@ -693,7 +689,7 @@ mod tests {
                     vec![1i32.into(), 2i32.into(), 3i32.into()],
                     NonNullable,
                 )
-                .as_list(),
+                .as_fixed_size_list(),
             )
             .unwrap();
 

@@ -36,7 +36,7 @@ impl VTable for Literal {
     fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::LiteralOpts {
-                value: Some(instance.as_ref().into()),
+                value: Some(instance.into()),
             }
             .encode_to_vec(),
         ))

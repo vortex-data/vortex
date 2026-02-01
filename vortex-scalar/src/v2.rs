@@ -171,7 +171,7 @@ impl Scalar {
     }
 
     /// Attempts to convert the Scalar into a BoolScalar.
-    pub fn as_bool_opt(&self) -> Option<BoolScalar> {
+    pub fn as_bool_opt(&self) -> Option<BoolScalar<'_>> {
         let DType::Bool(n) = &self.dtype else {
             return None;
         };
@@ -305,7 +305,7 @@ impl Scalar {
             _ => unreachable!(),
         };
         Some(FixedSizeListScalar {
-            element_size: *element_size,
+            list_size: *element_size,
             element_dtype,
             nullability: *n,
             elements,

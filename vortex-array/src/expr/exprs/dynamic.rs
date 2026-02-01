@@ -105,11 +105,11 @@ impl VTable for DynamicComparison {
                 ctx: args.ctx,
             });
         }
-        let ret_dtype =
-            DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
+
+        let nullability = args.inputs[0].dtype().nullability();
 
         Ok(ExecutionResult::Scalar(ConstantArray::new(
-            Scalar::new(ret_dtype, data.default.into()),
+            Scalar::bool(data.default, nullability),
             args.row_count,
         )))
     }
@@ -194,7 +194,9 @@ pub struct DynamicComparisonExpr {
 
 impl DynamicComparisonExpr {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
+        (self.rhs.value)().map(|v| {
+            Scalar::try_new(self.rhs.dtype.clone(), v).vortex_expect("Rhs value should match dtype")
+        })
     }
 }
 
@@ -238,7 +240,9 @@ struct Rhs {
 
 impl Rhs {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.value)().map(|v| Scalar::new(self.dtype.clone(), v))
+        (self.value)().map(|v| {
+            Scalar::try_new(self.dtype.clone(), v).vortex_expect("Rhs value should match dtype")
+        })
     }
 }
 
@@ -284,7 +288,12 @@ impl DynamicExprUpdates {
         let exprs = visitor.0.into_boxed_slice();
         let prev_versions = exprs
             .iter()
-            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v)))
+            .map(|expr| {
+                (expr.rhs.value)().map(|v| {
+                    Scalar::try_new(expr.rhs.dtype.clone(), v)
+                        .vortex_expect("Rhs value should match dtype")
+                })
+            })
             .collect();
 
         Some(Self {

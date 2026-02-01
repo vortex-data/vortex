@@ -155,10 +155,10 @@ impl VTable for Like {
         }
 
         // Extract the pattern out
-        let pat = expr.child(1).as_::<Literal>();
+        let pat = expr.child(1).as_::<Literal>().as_utf8();
 
         // LIKE NULL is nonsensical, don't try to handle it
-        let pat_str = pat.as_utf8().value()?;
+        let pat_str = pat.value()?;
 
         let src = expr.child(0).clone();
         let src_min = src.stat_min(catalog)?;

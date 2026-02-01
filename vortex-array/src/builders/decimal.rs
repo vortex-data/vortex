@@ -180,7 +180,7 @@ impl ArrayBuilder for DecimalBuilder {
         match scalar.as_decimal().decimal_value() {
             None => self.append_null(),
             Some(v) => match_each_decimal_value!(v, |dec_val| {
-                self.append_value(dec_val);
+                self.append_value(*dec_val);
             }),
         }
 
