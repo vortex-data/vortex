@@ -8,6 +8,7 @@ mod vtable;
 
 use std::any::Any;
 use std::any::type_name;
+use std::cmp::Ordering;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -158,6 +159,15 @@ impl PartialEq for ExtScalarRef {
 }
 impl Eq for ExtScalarRef {}
 
+impl PartialOrd for ExtScalarRef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.0.id() != other.0.id() {
+            return None;
+        }
+        self.0.value_partial_cmp(other.0.value_any())
+    }
+}
+
 impl Hash for ExtScalarRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.value_hash(state)
@@ -268,6 +278,7 @@ trait ExtScalarImpl: 'static + Send + Sync {
     fn value_debug(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
     fn value_display(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
     fn value_eq(&self, other: &dyn Any) -> bool;
+    fn value_partial_cmp(&self, other: &dyn Any) -> Option<Ordering>;
     fn value_hash(&self, state: &mut dyn Hasher);
     fn pack(&self, ext_dtype: &ExtDTypeRef) -> VortexResult<ScalarValue>;
 }
@@ -304,6 +315,13 @@ impl<V: ExtScalarVTable> ExtScalarImpl for ExtScalarAdapter<V> {
             return false;
         };
         &self.value == other
+    }
+
+    fn value_partial_cmp(&self, other: &dyn Any) -> Option<Ordering> {
+        let Some(other) = other.downcast_ref::<V::Value>() else {
+            return None;
+        };
+        self.value.partial_cmp(other)
     }
 
     fn value_hash(&self, mut state: &mut dyn Hasher) {

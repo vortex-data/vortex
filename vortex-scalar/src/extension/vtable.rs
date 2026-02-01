@@ -17,7 +17,7 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
     /// The native value type for this extension scalar.
     /// The `Default` trait should return a value representing `zero`.
     // TODO(ngates): require total ordering?
-    type Value: 'static + Send + Sync + Clone + Debug + Display + Eq + Hash;
+    type Value: 'static + Send + Sync + Clone + Debug + Display + Eq + PartialOrd + Hash;
 
     /// Unpack the native value from the given scalar.
     ///

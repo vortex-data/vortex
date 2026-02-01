@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -354,6 +355,43 @@ impl Scalar {
     }
 }
 
+impl PartialOrd for Scalar {
+    /// Compares two scalar values for ordering.
+    ///
+    /// # Returns
+    /// - `Some(Ordering)` if both scalars have the same data type (ignoring nullability)
+    /// - `None` if the scalars have different data types
+    ///
+    /// # Ordering Rules
+    /// When types match, the ordering follows these rules:
+    /// - Null values are considered less than all non-null values
+    /// - Non-null values are compared according to their natural ordering
+    ///
+    /// # Examples
+    /// ```ignore
+    /// // Same types compare successfully
+    /// let a = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let b = Scalar::primitive(20i32, Nullability::NonNullable);
+    /// assert_eq!(a.partial_cmp(&b), Some(Ordering::Less));
+    ///
+    /// // Different types return None
+    /// let int_scalar = Scalar::primitive(10i32, Nullability::NonNullable);
+    /// let str_scalar = Scalar::utf8("hello", Nullability::NonNullable);
+    /// assert_eq!(int_scalar.partial_cmp(&str_scalar), None);
+    ///
+    /// // Nulls are less than non-nulls
+    /// let null = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
+    /// let value = Scalar::primitive(0i32, Nullability::Nullable);
+    /// assert_eq!(null.partial_cmp(&value), Some(Ordering::Less));
+    /// ```
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if !self.dtype().eq_ignore_nullability(other.dtype()) {
+            return None;
+        }
+        self.value().partial_cmp(&other.value())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScalarValue {
     Null,
@@ -364,6 +402,24 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     List(Vec<ScalarValue>),
     Extension(ExtScalarRef),
+}
+
+impl PartialOrd for ScalarValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match (self, other) {
+            (ScalarValue::Null, ScalarValue::Null) => Some(Ordering::Equal),
+            (ScalarValue::Null, _) => Some(Ordering::Less),
+            (_, ScalarValue::Null) => Some(Ordering::Greater),
+            (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a.partial_cmp(b),
+            (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a.partial_cmp(b),
+            (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
+            (ScalarValue::Utf8(a), ScalarValue::Utf8(b)) => a.partial_cmp(b),
+            (ScalarValue::Binary(a), ScalarValue::Binary(b)) => a.partial_cmp(b),
+            (ScalarValue::List(a), ScalarValue::List(b)) => a.partial_cmp(b),
+            (ScalarValue::Extension(a), ScalarValue::Extension(b)) => a.partial_cmp(b),
+            _ => None,
+        }
+    }
 }
 
 impl Display for ScalarValue {

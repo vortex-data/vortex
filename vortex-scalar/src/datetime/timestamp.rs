@@ -25,6 +25,16 @@ pub enum TimestampValue {
     Unzoned(jiff::Timestamp),
 }
 
+impl PartialOrd for TimestampValue {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (TimestampValue::Zoned(a), TimestampValue::Zoned(b)) => a.partial_cmp(b),
+            (TimestampValue::Unzoned(a), TimestampValue::Unzoned(b)) => a.partial_cmp(b),
+            _ => None,
+        }
+    }
+}
+
 impl Display for TimestampValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {

@@ -27,6 +27,7 @@ mod primitive;
 mod pvalue;
 // mod scalar;
 // mod scalar_value;
+mod cast;
 pub mod session;
 mod struct_;
 mod utf8;
