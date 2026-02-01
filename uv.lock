@@ -101,6 +101,18 @@ wheels = [
 ]
 
 [[package]]
+name = "breathe"
+version = "4.36.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "sphinx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/01/56/99bf7d0799d95ad485d95596dc01c2a5b3dda58ebf50a94f6f73b33bacdf/breathe-4.36.0.tar.gz", hash = "sha256:14860b73118ac140b7a3f55446890c777d1b67149cb024279fe3710dad7f535c", size = 154842, upload-time = "2025-02-22T18:36:03.36Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2c/bc/d67ef1e11ed6e6343c135bf605aa9d5734ff0cc77eb42a2a41f182abc9d9/breathe-4.36.0-py3-none-any.whl", hash = "sha256:af85436f1f09e842bd1fd95617281211c635f8768d245ff830c59b979888d1d5", size = 97231, upload-time = "2025-02-22T18:36:01.087Z" },
+]
+
+[[package]]
 name = "certifi"
 version = "2025.10.5"
 source = { registry = "https://pypi.org/simple" }
@@ -197,6 +209,7 @@ name = "docs"
 version = "0.1.0"
 source = { virtual = "docs" }
 dependencies = [
+    { name = "breathe" },
     { name = "hawkmoth" },
     { name = "libclang" },
     { name = "myst-parser" },
@@ -215,6 +228,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "breathe", specifier = ">=4.35.0" },
     { name = "hawkmoth", specifier = ">=0.20.0" },
     { name = "libclang", specifier = ">=18.1.1" },
     { name = "myst-parser", specifier = ">=4.0.0" },

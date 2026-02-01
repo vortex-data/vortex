@@ -16,6 +16,7 @@ dependencies = [
     "sphinxcontrib-bibtex>=2.6.3",
     "sphinxcontrib-mermaid>=1.0.0",
     "sphinxext-opengraph>=0.9.1",
+    "breathe>=4.35.0",
     "vortex-data",
     "libclang>=18.1.1",
 ]

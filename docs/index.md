@@ -97,8 +97,8 @@ hidden:
 ---
 
 getting-started/index
-concepts/index
 guides/index
+concepts/index
 specs/index
 internals/index
 project/index

@@ -6,7 +6,7 @@
 
 namespace vortex::expr {
 
-Expr literal(Scalar scalar) {
+Expr literal(scalar::Scalar scalar) {
     return Expr(ffi::literal(std::move(scalar).IntoImpl()));
 }
 

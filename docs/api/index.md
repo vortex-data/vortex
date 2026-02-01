@@ -11,5 +11,6 @@ maxdepth: 2
 python/index
 Rust API <https://docs.rs/vortex>
 c/index
+cpp/index
 java/index
 ```

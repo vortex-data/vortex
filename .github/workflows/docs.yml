@@ -32,6 +32,8 @@ jobs:
         with:
           sync: false
           prune-cache: false
+      - name: Install Doxygen
+        run: sudo apt-get install -y doxygen
       - name: Generate Javadoc for Java projects
         run: |
           cd java

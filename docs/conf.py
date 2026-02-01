@@ -1,6 +1,8 @@
 import doctest
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import hawkmoth.docstring
@@ -23,6 +25,7 @@ author = "Vortex contributors"
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = [
+    "breathe",  # C++ API (Doxygen -> Sphinx bridge)
     "hawkmoth",  # C API
     "myst_parser",  # Markdown support
     "sphinx.ext.autodoc",
@@ -110,6 +113,49 @@ ogp_image = "https://docs.vortex.dev/_static/vortex_logo.svg"
 # -- Options for Sphinx BibTEX -------------------------------------------
 
 bibtex_bibfiles = ["references.bib"]
+
+# -- Options for Breathe C++ API gen ------------------------------------
+
+_doxygen_xml_dir = str(Path(__file__).parent / "_build" / "doxygen-cpp" / "xml")
+
+if not shutil.which("doxygen"):
+    raise RuntimeError("doxygen is required to build the docs but was not found on PATH")
+subprocess.run(["doxygen", "Doxyfile.cpp"], cwd=Path(__file__).parent, check=True)
+
+breathe_projects = {"vortex-cpp": _doxygen_xml_dir}
+breathe_default_project = "vortex-cpp"
+
+# C++ types from cxx bridge and standard library that Sphinx cannot resolve.
+nitpick_ignore += [
+    ("cpp:identifier", t)
+    for t in [
+        "vortex",
+        "rust",
+        "ffi",
+        "uint8_t",
+        "uint16_t",
+        "uint32_t",
+        "uint64_t",
+        "int8_t",
+        "int16_t",
+        "int32_t",
+        "int64_t",
+        "size_t",
+        "std::size_t",
+    ]
+]
+nitpick_ignore_regex = [
+    # cxx bridge internals that will never be resolvable in Sphinx.
+    (r"cpp:identifier", r"rust::.*"),
+    (r"cpp:identifier", r"ffi::.*"),
+    # Breathe emits cross-namespace parameter types as relative names (e.g. "scalar::Scalar"
+    # instead of "vortex::scalar::Scalar"), which Sphinx cannot resolve. These are our own
+    # types — the suppression is a workaround for a Breathe limitation.
+    (r"cpp:identifier", r"(dtype|scalar|expr)::.*"),
+    (r"cpp:identifier", r"ScanBuilder"),
+    # Doxygen file-level labels (e.g. "dtype_8hpp") that we don't generate pages for.
+    (r"ref", r".*_8hpp"),
+]
 
 # -- Options for hawkmoth C API gen ----------------------------
 
