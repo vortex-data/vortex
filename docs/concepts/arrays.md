@@ -62,7 +62,7 @@ is an overview:
 Encoding vtables can even be constructed from non-static sources, such as _WebAssembly_ modules, which enables the
 [forward compatibility](/specs/file-format.md#forward-compatibility) feature of the Vortex File Format.
 
-See the [Writing an Encoding](/guides/writing-an-encoding) guide for more information.
+See the [Writing an Encoding](/guides/extending/writing-an-encoding) guide for more information.
 
 ### Canonical Encodings
 

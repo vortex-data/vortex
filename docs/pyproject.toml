@@ -13,6 +13,7 @@ dependencies = [
     "sphinx-inline-tabs>=2023.4.21",
     "sphinx>=8.0.2",
     "sphinxcontrib-bibtex>=2.6.3",
+    "sphinxcontrib-mermaid>=1.0.0",
     "sphinxext-opengraph>=0.9.1",
     "vortex-data",
     "libclang>=18.1.1",
