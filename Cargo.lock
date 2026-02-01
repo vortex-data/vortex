@@ -10928,6 +10928,7 @@ dependencies = [
  "url",
  "vortex",
  "vortex-array",
+ "vortex-tui",
 ]
 
 [[package]]
