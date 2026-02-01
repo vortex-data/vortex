@@ -31,6 +31,7 @@ extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.napoleon",
     "sphinx_copybutton",
+    "sphinx_design",
     "sphinx_inline_tabs",
     "sphinxcontrib.bibtex",
     "sphinxcontrib.mermaid",
@@ -38,6 +39,7 @@ extensions = [
 ]
 
 templates_path = ["_templates"]
+html_show_sourcelink = False
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store", "README.md"]
 
 intersphinx_mapping = {
@@ -68,15 +70,35 @@ myst_heading_anchors = 3
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "furo"
+html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_css_files = ["style.css"]  # relative to _static/
 
-# -- Options for Furo Theme ------------------------------------------------
+# -- Options for PyData Sphinx Theme ----------------------------------------
 
 html_theme_options = {
-    "light_logo": "vortex_spiral_logo.svg",
-    "dark_logo": "vortex_spiral_logo_dark_theme.svg",
+    "logo": {
+        "image_light": "_static/vortex_spiral_logo.svg",
+        "image_dark": "_static/vortex_spiral_logo_dark_theme.svg",
+    },
+    "github_url": "https://github.com/vortex-data/vortex",
+    "icon_links": [
+        {
+            "name": "PyPI",
+            "url": "https://pypi.org/project/vortex-data",
+            "icon": "fa-brands fa-python",
+        },
+        {
+            "name": "Crates.io",
+            "url": "https://crates.io/crates/vortex",
+            "icon": "fa-brands fa-rust",
+        },
+    ],
+    "header_links_before_dropdown": 7,
+    "navbar_align": "left",
+    "show_nav_level": 2,
+    "navigation_depth": 3,
+    "show_toc_level": 2,
 }
 
 # -- Options for OpenGraph ---------------------------------------------------
