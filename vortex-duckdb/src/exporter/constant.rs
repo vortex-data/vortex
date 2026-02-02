@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex::array::Canonical;
+use vortex::array::ExecutionCtx;
+use vortex::array::IntoArray;
 use vortex::array::arrays::ConstantArray;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
@@ -18,9 +21,10 @@ struct ConstantExporter {
 }
 
 pub fn new_exporter_with_mask(
-    array: &ConstantArray,
+    array: ConstantArray,
     mask: Mask,
     cache: &ConversionCache,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
     if mask.all_false() {
         return Ok(Box::new(ConstantExporter { value: None }));
@@ -31,14 +35,18 @@ pub fn new_exporter_with_mask(
         // TODO(joe): we can splat the constant in a specific exporter and save a copy.
         return Ok(validity::new_exporter(
             mask,
-            new_array_exporter(array.to_canonical()?.as_ref(), cache)?,
+            new_array_exporter(
+                array.into_array().execute::<Canonical>(ctx)?.into_array(),
+                cache,
+                ctx,
+            )?,
         ));
     }
 
     new_exporter(array)
 }
 
-pub(crate) fn new_exporter(array: &ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
+pub(crate) fn new_exporter(array: ConstantArray) -> VortexResult<Box<dyn ColumnExporter>> {
     let value = if array.scalar().is_null() {
         // If the scalar is null and _not_ of type Null, then we cannot assign a null DuckDB value
         // to a constant vector since DuckDB will complain about a type-mismatch. In these cases,

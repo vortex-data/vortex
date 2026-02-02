@@ -46,14 +46,16 @@ impl ZipKernel for VarBinViewVTable {
         // build buffer lookup tables for both arrays, these map from the original buffer idx
         // to the new buffer index in the result array
         let mut buffers = DeduplicatedBuffers::default();
-        let true_lookup = buffers.extend_from_slice(if_true.buffers());
-        let false_lookup = buffers.extend_from_slice(if_false.buffers());
+        let true_lookup =
+            buffers.extend_from_iter(if_true.buffers().iter().map(|b| b.as_host().clone()));
+        let false_lookup =
+            buffers.extend_from_iter(if_false.buffers().iter().map(|b| b.as_host().clone()));
 
         let mut views_builder = BufferMut::<BinaryView>::with_capacity(len);
         let mut validity_builder = LazyBitBufferBuilder::new(len);
 
-        let true_validity = if_true.validity_mask();
-        let false_validity = if_false.validity_mask();
+        let true_validity = if_true.validity_mask()?;
+        let false_validity = if_false.validity_mask()?;
 
         match mask.slices() {
             AllOr::All => push_range(

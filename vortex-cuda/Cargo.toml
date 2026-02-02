@@ -16,24 +16,62 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+default = []
+_test-harness = []
+
 [dependencies]
+arc-swap = { workspace = true }
 async-trait = { workspace = true }
-cudarc = { workspace = true }
+cudarc = { workspace = true, features = ["f16"] }
+fastlanes = { workspace = true }
+futures = { workspace = true, features = ["executor"] }
+kanal = { workspace = true }
+paste = { workspace = true }
 tracing = { workspace = true }
+vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
-vortex-dtype = { workspace = true }
+vortex-cub = { path = "cub" }
+vortex-cuda-macros = { workspace = true }
+vortex-decimal-byte-parts = { workspace = true }
+vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
+vortex-io = { workspace = true }
+vortex-mask = { workspace = true }
+vortex-nvcomp = { path = "nvcomp" }
+vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
+vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true }
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion = { package = "codspeed-criterion-compat-walltime", version = "4.3.0" }
+futures = { workspace = true, features = ["executor"] }
+rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
+vortex-array = { workspace = true, features = ["_test-harness"] }
+vortex-cuda = { path = ".", features = ["_test-harness"] }
+vortex-dtype = { workspace = true, features = ["cudarc"] }
+vortex-scalar = { workspace = true }
 
 [build-dependencies]
+fastlanes = { workspace = true }
 
 [[bench]]
 name = "for_cuda"
+harness = false
+
+[[bench]]
+name = "dict_cuda"
+harness = false
+
+[[bench]]
+name = "zstd_cuda"
+harness = false
+
+[[bench]]
+name = "filter_cuda"
 harness = false

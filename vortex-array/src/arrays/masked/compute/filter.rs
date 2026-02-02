@@ -10,7 +10,6 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
 use crate::register_kernel;
 use crate::vtable::ValidityHelper;
 
@@ -21,7 +20,7 @@ impl FilterKernel for MaskedVTable {
 
         // Filter the child array
         // The child is guaranteed to have no nulls, so filtering it is straightforward
-        let filtered_child = filter(&array.child, mask)?;
+        let filtered_child = array.child.filter(mask.clone())?;
 
         // Construct new MaskedArray
         Ok(MaskedArray::try_new(filtered_child, filtered_validity)?.into_array())

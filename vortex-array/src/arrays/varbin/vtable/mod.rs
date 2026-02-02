@@ -102,7 +102,7 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone().try_to_host()?;
+        let bytes = buffers[0].clone().try_to_host_sync()?;
 
         VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }
@@ -133,17 +133,17 @@ impl VTable for VarBinVTable {
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(unsafe {
             VarBinArray::new_unchecked(
-                array.offsets().slice(range.start..range.end + 1),
+                array.offsets().slice(range.start..range.end + 1)?,
                 array.bytes().clone(),
                 array.dtype().clone(),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array()
         }))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        varbin_to_canonical(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        varbin_to_canonical(array, ctx)
     }
 }
 

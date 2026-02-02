@@ -392,7 +392,7 @@ fn arrow_compare(
             Operator::Lte => cmp::lt_eq(&lhs, &rhs)?,
         }
     };
-    Ok(from_arrow_array_with_len(&array, left.len(), nullable))
+    from_arrow_array_with_len(&array, left.len(), nullable)
 }
 
 pub fn scalar_cmp(lhs: &Scalar, rhs: &Scalar, operator: Operator) -> Scalar {
@@ -429,6 +429,7 @@ mod tests {
     use crate::arrays::StructArray;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::expr::get_item;
     use crate::expr::lt;
     use crate::expr::root;
@@ -437,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_bool_basic_comparisons() {
-        let arr = BoolArray::from_bit_buffer(
+        let arr = BoolArray::new(
             BitBuffer::from_iter([true, true, false, true, false]),
             Validity::from_iter([false, true, true, true, true]),
         );
@@ -454,7 +455,7 @@ mod tests {
         let empty: [u64; 0] = [];
         assert_eq!(to_int_indices(matches).unwrap(), empty);
 
-        let other = BoolArray::from_bit_buffer(
+        let other = BoolArray::new(
             BitBuffer::from_iter([false, false, false, true, true]),
             Validity::from_iter([false, true, true, true, true]),
         );
@@ -517,7 +518,8 @@ mod tests {
     #[case(VarBinViewArray::from_iter_bin(["a".as_bytes(), "b".as_bytes()]).into_array(), VarBinArray::from(vec!["a".as_bytes(), "b".as_bytes()]).into_array())]
     fn arrow_compare_different_encodings(#[case] left: ArrayRef, #[case] right: ArrayRef) {
         let res = compare(&left, &right, Operator::Eq).unwrap();
-        assert_eq!(res.to_bool().bit_buffer().true_count(), left.len());
+        let expected = BoolArray::from_iter([true, true]);
+        assert_arrays_eq!(res, expected);
     }
 
     #[ignore = "Arrow's ListView cannot be compared"]
@@ -544,24 +546,18 @@ mod tests {
 
         // Test equality - first two lists should be equal, third should be different
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(bool_result.bit_buffer().value(0)); // [1,2] == [1,2]
-        assert!(bool_result.bit_buffer().value(1)); // [3,4] == [3,4]
-        assert!(!bool_result.bit_buffer().value(2)); // [5,6] != [7,8]
+        let expected = BoolArray::from_iter([true, true, false]);
+        assert_arrays_eq!(result, expected);
 
         // Test inequality
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::NotEq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.bit_buffer().value(0));
-        assert!(!bool_result.bit_buffer().value(1));
-        assert!(bool_result.bit_buffer().value(2));
+        let expected = BoolArray::from_iter([false, false, true]);
+        assert_arrays_eq!(result, expected);
 
         // Test less than
         let result = compare(list1.as_ref(), list2.as_ref(), Operator::Lt).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.bit_buffer().value(0)); // [1,2] < [1,2] = false
-        assert!(!bool_result.bit_buffer().value(1)); // [3,4] < [3,4] = false
-        assert!(bool_result.bit_buffer().value(2)); // [5,6] < [7,8] = true
+        let expected = BoolArray::from_iter([false, false, true]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[ignore = "Arrow's ListView cannot be compared"]
@@ -592,10 +588,8 @@ mod tests {
 
         // Compare list with constant - all should be compared to [3,4]
         let result = compare(list.as_ref(), constant.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.bit_buffer().value(0)); // [1,2] != [3,4]
-        assert!(bool_result.bit_buffer().value(1)); // [3,4] == [3,4]
-        assert!(!bool_result.bit_buffer().value(2)); // [5,6] != [3,4]
+        let expected = BoolArray::from_iter([false, true, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -621,17 +615,13 @@ mod tests {
 
         // Test equality
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Eq).unwrap();
-        let bool_result = result.to_bool();
-        assert!(bool_result.bit_buffer().value(0)); // {true, 1} == {true, 1}
-        assert!(bool_result.bit_buffer().value(1)); // {false, 2} == {false, 2}
-        assert!(!bool_result.bit_buffer().value(2)); // {true, 3} != {false, 4}
+        let expected = BoolArray::from_iter([true, true, false]);
+        assert_arrays_eq!(result, expected);
 
         // Test greater than
         let result = compare(struct1.as_ref(), struct2.as_ref(), Operator::Gt).unwrap();
-        let bool_result = result.to_bool();
-        assert!(!bool_result.bit_buffer().value(0)); // {true, 1} > {true, 1} = false
-        assert!(!bool_result.bit_buffer().value(1)); // {false, 2} > {false, 2} = false
-        assert!(bool_result.bit_buffer().value(2)); // {true, 3} > {false, 4} = true (bool field takes precedence)
+        let expected = BoolArray::from_iter([false, false, true]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -653,11 +643,8 @@ mod tests {
         .unwrap();
 
         let result = compare(empty1.as_ref(), empty2.as_ref(), Operator::Eq).unwrap();
-        let result = result.to_bool();
-
-        for idx in 0..5 {
-            assert!(result.bit_buffer().value(idx));
-        }
+        let expected = BoolArray::from_iter([true, true, true, true, true]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -671,9 +658,9 @@ mod tests {
 
         // Compare two lists together
         let result = compare(list.as_ref(), list.as_ref(), Operator::Eq).unwrap();
-        assert!(result.scalar_at(0).is_valid());
-        assert!(result.scalar_at(1).is_valid());
-        assert!(result.scalar_at(2).is_valid());
+        assert!(result.scalar_at(0).unwrap().is_valid());
+        assert!(result.scalar_at(1).unwrap().is_valid());
+        assert!(result.scalar_at(2).unwrap().is_valid());
     }
 
     #[test]
@@ -689,14 +676,14 @@ mod tests {
         }));
 
         let expr = lt(get_item("l", root()), get_item("r", root()));
-        let result = expr.evaluate(
-            &StructArray::from_fields(&[
-                ("l", buffer![0.0f32].into_array()),
-                ("r", buffer![0.0f64].into_array()),
-            ])
-            .unwrap()
-            .into_array(),
-        );
+        let array = StructArray::from_fields(&[
+            ("l", buffer![0.0f32].into_array()),
+            ("r", buffer![0.0f64].into_array()),
+        ])
+        .unwrap()
+        .into_array();
+        // Force evaluation by calling scalar_at
+        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
         assert!(result.as_ref().is_err_and(|err| {
             err.to_string()
                 .contains("Cannot compare different floating-point types")
@@ -716,14 +703,14 @@ mod tests {
         }));
 
         let expr = lt(get_item("l", root()), get_item("r", root()));
-        let result = expr.evaluate(
-            &StructArray::from_fields(&[
-                ("l", buffer![0u8].into_array()),
-                ("r", buffer![0u16].into_array()),
-            ])
-            .unwrap()
-            .into_array(),
-        );
+        let array = StructArray::from_fields(&[
+            ("l", buffer![0u8].into_array()),
+            ("r", buffer![0u16].into_array()),
+        ])
+        .unwrap()
+        .into_array();
+        // Force evaluation by calling scalar_at
+        let result = array.apply(&expr).and_then(|arr| arr.scalar_at(0));
         assert!(result.as_ref().is_err_and(|err| {
             err.to_string()
                 .contains("Cannot compare different fixed-width types")

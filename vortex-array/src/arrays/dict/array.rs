@@ -45,6 +45,12 @@ pub struct DictArray {
     pub(super) all_values_referenced: bool,
 }
 
+pub struct DictArrayParts {
+    pub codes: ArrayRef,
+    pub values: ArrayRef,
+    pub dtype: DType,
+}
+
 impl DictArray {
     /// Build a new `DictArray` without validating the codes or values.
     ///
@@ -114,8 +120,12 @@ impl DictArray {
         Ok(unsafe { Self::new_unchecked(codes, values) })
     }
 
-    pub fn into_parts(self) -> (ArrayRef, ArrayRef) {
-        (self.codes, self.values)
+    pub fn into_parts(self) -> DictArrayParts {
+        DictArrayParts {
+            codes: self.codes,
+            values: self.values,
+            dtype: self.dtype,
+        }
     }
 
     #[inline]
@@ -146,6 +156,16 @@ impl DictArray {
     /// This is primarily useful for testing and debugging.
     pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
         if self.all_values_referenced {
+            // Skip host-only validation when buffers are on the GPU.
+            let codes_on_device = self
+                .codes()
+                .buffer_handles()
+                .iter()
+                .any(|h| h.is_on_device());
+            if codes_on_device {
+                return Ok(());
+            }
+
             let referenced_mask = self.compute_referenced_values_mask(true)?;
             let all_referenced = referenced_mask.iter().all(|v| v);
 
@@ -166,7 +186,7 @@ impl DictArray {
     ///
     /// This is useful for operations like min/max that need to ignore unreferenced values.
     pub fn compute_referenced_values_mask(&self, referenced: bool) -> VortexResult<BitBuffer> {
-        let codes_validity = self.codes().validity_mask();
+        let codes_validity = self.codes().validity_mask()?;
         let codes_primitive = self.codes().to_primitive();
         let values_len = self.values().len();
 
@@ -226,7 +246,9 @@ mod test {
     use crate::Array;
     use crate::ArrayRef;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::ToCanonical;
+    use crate::VortexSessionExecute;
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
@@ -245,7 +267,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::AllValid).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -263,7 +285,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -285,7 +307,7 @@ mod test {
             .into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -303,7 +325,7 @@ mod test {
             PrimitiveArray::new(buffer![3, 6, 9], Validity::NonNullable).into_array(),
         )
         .unwrap();
-        let mask = dict.validity_mask();
+        let mask = dict.validity_mask().unwrap();
         let AllOr::Some(indices) = mask.indices() else {
             vortex_panic!("Expected indices from mask")
         };
@@ -349,7 +371,9 @@ mod test {
             &DType::Primitive(PType::U64, NonNullable),
             len * chunk_count,
         );
-        array.clone().append_to_builder(builder.as_mut())?;
+        array
+            .clone()
+            .append_to_builder(builder.as_mut(), &mut LEGACY_SESSION.create_execution_ctx())?;
 
         let into_prim = array.to_primitive();
         let prim_into = builder.finish_into_canonical().into_primitive();

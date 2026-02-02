@@ -35,7 +35,7 @@ impl Iterator for ArrowArrayStreamAdapter {
     fn next(&mut self) -> Option<Self::Item> {
         let batch = self.stream.next()?;
 
-        Some(batch.map_err(VortexError::from).map(|b| {
+        Some(batch.map_err(VortexError::from).and_then(|b| {
             debug_assert_eq!(&self.dtype, &DType::from_arrow(b.schema()));
             ArrayRef::from_arrow(b, false)
         }))

@@ -65,21 +65,21 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     // TODO(joe): use the validity mask to skip search sorted.
     let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
         let end_slices = ends.as_slice::<I>();
-        let buffer = Buffer::from_trusted_len_iter(
-            indices
-                .iter()
-                .map(|idx| idx.as_() + array.offset())
-                .map(|idx| {
-                    match <I as NumCast>::from(idx) {
-                        Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
-                        None => {
-                            // The idx is too large for I, therefore it's out of bounds.
-                            SearchResult::NotFound(ends_len)
-                        }
+        let physical_indices_vec: Vec<u64> = indices
+            .iter()
+            .map(|idx| idx.as_() + array.offset())
+            .map(|idx| {
+                match <I as NumCast>::from(idx) {
+                    Some(idx) => end_slices.search_sorted(&idx, SearchSortedSide::Right),
+                    None => {
+                        // The idx is too large for I, therefore it's out of bounds.
+                        Ok(SearchResult::NotFound(ends_len))
                     }
-                })
-                .map(|result| result.to_ends_index(ends_len) as u64),
-        );
+                }
+            })
+            .map(|result| result.map(|r| r.to_ends_index(ends_len) as u64))
+            .collect::<VortexResult<Vec<_>>>()?;
+        let buffer = Buffer::from(physical_indices_vec);
 
         PrimitiveArray::new(buffer, validity.clone())
     });
@@ -131,7 +131,7 @@ mod test {
 
     #[test]
     fn sliced_take() {
-        let sliced = ree_array().slice(4..9);
+        let sliced = ree_array().slice(4..9).unwrap();
         let taken = take(sliced.as_ref(), buffer![1, 3, 4].into_array().as_ref()).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![4i32, 2, 5]).into_array();
@@ -186,13 +186,13 @@ mod test {
     }
 
     #[rstest]
-    #[case(ree_array().slice(3..6))]
+    #[case(ree_array().slice(3..6).unwrap())]
     #[case({
         let array = RunEndArray::encode(
             buffer![1i32, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3].into_array(),
         )
         .unwrap();
-        array.slice(2..8)
+        array.slice(2..8).unwrap()
     })]
     fn test_take_sliced_runend_conformance(#[case] sliced: ArrayRef) {
         test_take_conformance(sliced.as_ref());

@@ -26,12 +26,12 @@ impl IsConstantKernel for FixedSizeListVTable {
             array.len() > 1,
             "precondition for `is_constant` is incorrect"
         );
-        let first_scalar = array.scalar_at(0); // We checked the array length above.
+        let first_scalar = array.scalar_at(0)?; // We checked the array length above.
 
         // TODO(connor): There must be a more efficient way to do this. Each `scalar_at()` call
         // makes several allocations...
         for i in 1..array.len() {
-            let current_scalar = array.scalar_at(i);
+            let current_scalar = array.scalar_at(i)?;
             if current_scalar != first_scalar {
                 return Ok(Some(false));
             }

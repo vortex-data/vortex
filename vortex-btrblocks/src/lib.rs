@@ -52,7 +52,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -93,7 +93,15 @@ impl Default for GenerateStatsOptions {
     }
 }
 
+/// The size of each sampled run.
 const SAMPLE_SIZE: u32 = 64;
+/// The number of sampled runs.
+///
+/// # Warning
+///
+/// The product of SAMPLE_SIZE and SAMPLE_COUNT should be (roughly) a multiple of 1024 so that
+/// fastlanes bitpacking of sampled vectors does not introduce (large amounts of) padding.
+const SAMPLE_COUNT: u32 = 16;
 
 /// Stats for the compressor.
 pub trait CompressorStats: Debug + Clone {
@@ -186,25 +194,26 @@ fn estimate_compression_ratio_with_sampling<T: Scheme + ?Sized>(
         // We want to sample about 1% of data
         let source_len = stats.source().len();
 
-        // We want to sample about 1% of data, while keeping a minimal sample of 640 values.
-        let sample_count = usize::max(
-            (source_len / 100)
-                / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize"),
-            10,
+        // We want to sample about 1% of data, while keeping a minimal sample of 1024 values.
+        let approximately_one_percent = (source_len / 100)
+            / usize::try_from(SAMPLE_SIZE).vortex_expect("SAMPLE_SIZE must fit in usize");
+        let sample_count = u32::max(
+            u32::next_multiple_of(
+                approximately_one_percent
+                    .try_into()
+                    .vortex_expect("sample count must fit in u32"),
+                16,
+            ),
+            SAMPLE_COUNT,
         );
 
         tracing::trace!(
             "Sampling {} values out of {}",
-            SAMPLE_SIZE as usize * sample_count,
+            SAMPLE_SIZE as u64 * sample_count as u64,
             source_len
         );
 
-        stats.sample(
-            SAMPLE_SIZE,
-            sample_count
-                .try_into()
-                .vortex_expect("sample count must fit in u32"),
-        )
+        stats.sample(SAMPLE_SIZE, sample_count)
     };
 
     let after = compressor
@@ -415,7 +424,7 @@ impl BtrBlocksCompressor {
             Canonical::Decimal(decimal) => compress_decimal(&decimal),
             Canonical::Struct(struct_array) => {
                 let fields = struct_array
-                    .fields()
+                    .unmasked_fields()
                     .iter()
                     .map(|field| self.compress(field))
                     .collect::<Result<Vec<_>, _>>()?;
@@ -482,11 +491,9 @@ impl BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
-                    && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
-                {
+                if ext_array.ext_dtype().is::<Timestamp>() {
                     if is_constant_opts(
-                        temporal_array.as_ref(),
+                        ext_array.as_ref(),
                         &IsConstantOpts {
                             cost: Cost::Canonicalize,
                         },
@@ -494,11 +501,13 @@ impl BtrBlocksCompressor {
                     .unwrap_or_default()
                     {
                         return Ok(ConstantArray::new(
-                            temporal_array.as_ref().scalar_at(0),
+                            ext_array.as_ref().scalar_at(0)?,
                             ext_array.len(),
                         )
                         .into_array());
                     }
+
+                    let temporal_array = TemporalArray::try_from(ext_array)?;
                     return compress_temporal(temporal_array);
                 }
 

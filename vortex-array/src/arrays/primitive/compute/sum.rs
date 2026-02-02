@@ -21,7 +21,7 @@ use crate::register_kernel;
 
 impl SumKernel for PrimitiveVTable {
     fn sum(&self, array: &PrimitiveArray, accumulator: &Scalar) -> VortexResult<Scalar> {
-        let array_sum_scalar = match array.validity_mask().bit_buffer() {
+        let array_sum_scalar = match array.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 // All-valid
                 match_each_native_ptype!(

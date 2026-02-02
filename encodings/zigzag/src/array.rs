@@ -15,7 +15,6 @@ use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
-use vortex_array::ToCanonical;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
@@ -101,13 +100,13 @@ impl VTable for ZigZagVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            ZigZagArray::new(array.encoded().slice(range)).into_array(),
+            ZigZagArray::new(array.encoded().slice(range)?).into_array(),
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().to_primitive(),
+            array.encoded().clone().execute(ctx)?,
         )))
     }
 }
@@ -180,14 +179,14 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 }
 
 impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn scalar_at(array: &ZigZagArray, index: usize) -> Scalar {
-        let scalar = array.encoded().scalar_at(index);
+    fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
+        let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
-            return scalar.reinterpret_cast(array.ptype());
+            return Ok(scalar.reinterpret_cast(array.ptype()));
         }
 
         let pscalar = scalar.as_primitive();
-        match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
+        Ok(match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
             Scalar::primitive(
                 <<P as ZigZagEncoded>::Int>::decode(
                     pscalar
@@ -196,7 +195,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
                 ),
                 array.dtype().nullability(),
             )
-        })
+        }))
     }
 }
 
@@ -217,6 +216,7 @@ impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
 #[cfg(test)]
 mod test {
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_buffer::buffer;
     use vortex_scalar::Scalar;
 
@@ -243,9 +243,12 @@ mod test {
             array.statistics().compute_is_constant()
         );
 
-        let sliced = zigzag.slice(0..2);
+        let sliced = zigzag.slice(0..2).unwrap();
         let sliced = sliced.as_::<ZigZagVTable>();
-        assert_eq!(sliced.scalar_at(sliced.len() - 1), Scalar::from(-5i32));
+        assert_eq!(
+            sliced.scalar_at(sliced.len() - 1).unwrap(),
+            Scalar::from(-5i32)
+        );
 
         assert_eq!(
             sliced.statistics().compute_min::<i32>(),

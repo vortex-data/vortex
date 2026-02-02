@@ -25,7 +25,7 @@ impl FillNullKernel for DecimalVTable {
 
         Ok(match array.validity() {
             Validity::Array(is_valid) => {
-                let is_invalid = is_valid.to_bool().bit_buffer().not();
+                let is_invalid = is_valid.to_bool().to_bit_buffer().not();
                 match_each_decimal_value_type!(array.values_type(), |T| {
                     let mut buffer = array.buffer::<T>().into_mut();
                     let decimal_scalar = fill_value.as_decimal();
@@ -88,7 +88,7 @@ mod tests {
             p.buffer::<i128>().as_slice(),
             vec![4200, 800, 4200, 1000, 4200]
         );
-        assert!(p.validity_mask().all_true());
+        assert!(p.validity_mask().unwrap().all_true());
     }
 
     #[test]

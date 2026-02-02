@@ -124,6 +124,14 @@ impl BitBufferMut {
         }
     }
 
+    /// Create a bit buffer of `len` with `indices` set as true.
+    pub fn from_indices(len: usize, indices: &[usize]) -> BitBufferMut {
+        let mut buf = BitBufferMut::new_unset(len);
+        // TODO(ngates): for dense indices, we can do better by collecting into u64s.
+        indices.iter().for_each(|&idx| buf.set(idx));
+        buf
+    }
+
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
         let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);

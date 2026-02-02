@@ -78,15 +78,15 @@ impl VTable for RLEVTable {
             array.values().len()
         };
 
-        let sliced_values = array.values().slice(values_start_idx..values_end_idx);
+        let sliced_values = array.values().slice(values_start_idx..values_end_idx)?;
 
         let sliced_values_idx_offsets = array
             .values_idx_offsets()
-            .slice(chunk_start_idx..chunk_end_idx);
+            .slice(chunk_start_idx..chunk_end_idx)?;
 
         let sliced_indices = array
             .indices()
-            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE);
+            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE)?;
 
         // SAFETY: Slicing preserves all invariants.
         Ok(Some(unsafe {
@@ -188,8 +188,8 @@ impl VTable for RLEVTable {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(rle_decompress(array)))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(rle_decompress(array, ctx)?))
     }
 
     fn reduce_parent(

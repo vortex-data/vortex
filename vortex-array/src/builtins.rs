@@ -84,7 +84,7 @@ pub trait ArrayBuiltins: Sized {
     /// Mask the array using the given boolean mask.
     /// The resulting array's validity is the intersection of the original array's validity
     /// and the mask's validity.
-    fn mask(&self, mask: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn mask(self, mask: ArrayRef) -> VortexResult<ArrayRef>;
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<ArrayRef>;

@@ -10,7 +10,6 @@ use flatbuffers::WIPOffset;
 use flatbuffers::root_with_opts;
 use vortex_array::ArrayContext;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
@@ -113,12 +112,9 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         // First we recurse into the children and write them out
-        let child_layouts = self
-            .layout
-            .children()
-            .vortex_expect("Failed to load layout children");
+        let child_layouts = self.layout.children()?;
         let children = child_layouts
             .iter()
             .map(|layout| {
@@ -128,7 +124,7 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 }
                 .write_flatbuffer(fbb)
             })
-            .collect::<Vec<_>>();
+            .collect::<VortexResult<Vec<_>>>()?;
         let children = (!children.is_empty()).then(|| fbb.create_vector(&children));
 
         // Next we write out the metadata if it's non-empty.
@@ -144,18 +140,14 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
         let segments = (!segments.is_empty()).then(|| fbb.create_vector(&segments));
 
         // Dictionary-encode the layout ID
-        let encoding = self
-            .ctx
-            .intern(&self.layout.encoding_id())
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Failed to intern layout encoding ID: {}",
-                    self.layout.encoding_id()
-                )
-            })
-            .vortex_expect("layout encoding ID should intern successfully");
+        let encoding = self.ctx.intern(&self.layout.encoding_id()).ok_or_else(|| {
+            vortex_err!(
+                "Failed to intern layout encoding ID: {}",
+                self.layout.encoding_id()
+            )
+        })?;
 
-        layout::Layout::create(
+        Ok(layout::Layout::create(
             fbb,
             &layout::LayoutArgs {
                 encoding,
@@ -164,6 +156,6 @@ impl WriteFlatBuffer for LayoutFlatBufferWriter<'_> {
                 children,
                 segments,
             },
-        )
+        ))
     }
 }

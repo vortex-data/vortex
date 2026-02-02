@@ -9,6 +9,7 @@ mod kernel;
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::SequenceArray;
+pub use array::SequenceArrayParts;
 /// Represents the equation A\[i\] = a * i + b.
 /// This can be used for compression, fast comparisons and also for row ids.
 pub use array::SequenceVTable;

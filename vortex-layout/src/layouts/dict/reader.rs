@@ -116,6 +116,12 @@ impl DictReader {
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
+
+        // Check cache first with read-only lock
+        if let Some(fut) = self.values_evals.get(&expr) {
+            return fut.clone();
+        }
+
         let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
@@ -245,6 +251,7 @@ mod tests {
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
+    use vortex_array::arrays::BoolArray;
     use vortex_array::arrays::StructArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::assert_arrays_eq;
@@ -417,7 +424,7 @@ mod tests {
                 .await
                 .unwrap();
 
-            assert_eq!(mask.to_bit_buffer().iter().collect::<Vec<_>>(), expected);
+            assert_arrays_eq!(mask.into_array(), BoolArray::from_iter(expected));
         })
     }
 
@@ -479,7 +486,7 @@ mod tests {
                 .unwrap()
                 .await
                 .unwrap();
-            let expected = array.validity_mask().into_array();
+            let expected = array.validity_mask().unwrap().into_array();
             assert_arrays_eq!(
                 actual
                     .to_canonical()

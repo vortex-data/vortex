@@ -31,13 +31,13 @@ impl CastKernel for BitPackedVTable {
                         .patches()
                         .map(|patches| {
                             let new_values = cast(patches.values(), dtype)?;
-                            VortexResult::Ok(Patches::new(
+                            Patches::new(
                                 patches.array_len(),
                                 patches.offset(),
                                 patches.indices().clone(),
                                 new_values,
                                 patches.chunk_offsets().clone(),
-                            ))
+                            )
                         })
                         .transpose()?,
                     array.bit_width(),

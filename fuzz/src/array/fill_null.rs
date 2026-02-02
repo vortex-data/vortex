@@ -59,22 +59,21 @@ fn fill_bool_array(
 
     match array.validity() {
         Validity::NonNullable | Validity::AllValid => {
-            BoolArray::from_bit_buffer(array.bit_buffer().clone(), result_nullability.into())
-                .into_array()
+            BoolArray::new(array.to_bit_buffer(), result_nullability.into()).into_array()
         }
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
             let validity_bool_array = validity_array.to_bool();
-            let validity_bits = validity_bool_array.bit_buffer();
-            let data_bits = array.bit_buffer();
+            let validity_bits = validity_bool_array.to_bit_buffer();
+            let data_bits = array.to_bit_buffer();
 
-            let mut new_bits = data_bits.clone().into_mut();
+            let mut new_bits = data_bits.into_mut();
 
             (!validity_bits)
                 .set_indices()
                 .for_each(|i| new_bits.set_to(i, fill_bool));
 
-            BoolArray::from_bit_buffer(new_bits.freeze(), result_nullability.into()).into_array()
+            BoolArray::new(new_bits.freeze(), result_nullability.into()).into_array()
         }
     }
 }
@@ -98,7 +97,7 @@ fn fill_primitive_array(
             }
             Validity::Array(validity_array) => {
                 let validity_bool_array = validity_array.to_bool();
-                let validity_bits = validity_bool_array.bit_buffer();
+                let validity_bits = validity_bool_array.to_bit_buffer();
                 let data_slice = array.as_slice::<T>();
 
                 let mut new_data = Vec::with_capacity(array.len());
@@ -141,7 +140,7 @@ fn fill_decimal_array(
             }
             Validity::Array(validity_array) => {
                 let validity_bool_array = validity_array.to_bool();
-                let validity_bits = validity_bool_array.bit_buffer();
+                let validity_bits = validity_bool_array.to_bit_buffer();
                 let data_buffer = array.buffer::<D>();
 
                 let mut new_data = BufferMut::with_capacity(array.len());
@@ -171,7 +170,7 @@ fn fill_varbinview_array(
         Validity::AllInvalid => ConstantArray::new(fill_value.clone(), array.len()).into_array(),
         Validity::Array(validity_array) => {
             let validity_bool_array = validity_array.to_bool();
-            let validity_bits = validity_bool_array.bit_buffer();
+            let validity_bits = validity_bool_array.to_bit_buffer();
 
             match array.dtype() {
                 DType::Utf8(_) => {
@@ -184,6 +183,7 @@ fn fill_varbinview_array(
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
+                                    .vortex_expect("scalar_at")
                                     .as_utf8()
                                     .value()
                                     .vortex_expect("cannot have null valid value")
@@ -196,8 +196,8 @@ fn fill_varbinview_array(
                     let string_refs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
                     let result = VarBinViewArray::from_iter_str(string_refs).into_array();
                     if result_nullability == Nullability::Nullable {
-                        VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
+                        VarBinViewArray::new_handle(
+                            result.to_varbinview().views_handle().clone(),
                             result.to_varbinview().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
@@ -217,6 +217,7 @@ fn fill_varbinview_array(
                             if validity_bits.value(i) {
                                 array
                                     .scalar_at(i)
+                                    .vortex_expect("scalar_at")
                                     .as_binary()
                                     .value()
                                     .vortex_expect("cannot have null valid value")
@@ -229,8 +230,8 @@ fn fill_varbinview_array(
                     let binary_refs: Vec<&[u8]> = binaries.iter().map(|b| b.as_slice()).collect();
                     let result = VarBinViewArray::from_iter_bin(binary_refs).into_array();
                     if result_nullability == Nullability::Nullable {
-                        VarBinViewArray::new(
-                            result.to_varbinview().views().clone(),
+                        VarBinViewArray::new_handle(
+                            result.to_varbinview().views_handle().clone(),
                             result.to_varbinview().buffers().clone(),
                             result.dtype().as_nullable(),
                             result_nullability.into(),
@@ -282,7 +283,7 @@ mod tests {
     fn test_fill_null_bool() {
         let data_buffer = BitBuffer::from(vec![true, false, false, false]);
         let validity_buffer = BitBuffer::from(vec![true, false, true, false]);
-        let array = BoolArray::from_bit_buffer(data_buffer, Validity::from(validity_buffer));
+        let array = BoolArray::new(data_buffer, Validity::from(validity_buffer));
         let fill_value = Scalar::from(true);
 
         let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();

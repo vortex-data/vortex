@@ -117,7 +117,7 @@ mod tests {
             345_600_000, // 4 days in ms
         ].into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         PrimitiveArray::from_option_iter([
@@ -128,12 +128,12 @@ mod tests {
             None,
         ]).into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     #[case(DateTimePartsArray::try_from(TemporalArray::new_timestamp(
         buffer![86_400_000i64].into_array(),
         TimeUnit::Milliseconds,
-        Some("UTC".to_string())
+        Some("UTC".into())
     )).unwrap())]
     fn test_take_datetime_parts_conformance(#[case] array: DateTimePartsArray) {
         test_take_conformance(array.as_ref());

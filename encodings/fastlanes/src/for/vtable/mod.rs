@@ -113,15 +113,15 @@ impl VTable for FoRVTable {
         // SAFETY: Just slicing encoded data does not affect FOR.
         Ok(Some(unsafe {
             FoRArray::new_unchecked(
-                array.encoded().slice(range),
+                array.encoded().slice(range)?,
                 array.reference_scalar().clone(),
             )
             .into_array()
         }))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress(array)))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::Primitive(decompress(array, ctx)?))
     }
 }
 

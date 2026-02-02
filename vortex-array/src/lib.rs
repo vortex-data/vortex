@@ -50,6 +50,7 @@ pub mod mask;
 mod mask_future;
 pub mod matchers;
 mod metadata;
+pub mod normalize;
 pub mod optimizer;
 mod partial_ord;
 pub mod patches;

@@ -26,9 +26,11 @@ vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-compute = { workspace = true }
+
+vortex-cuda-macros = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
-vortex-dtype = { workspace = true, default-features = true }
+vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-file = { workspace = true, optional = true, default-features = true }
@@ -48,9 +50,11 @@ vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-vector = { workspace = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+vortex-cuda = { workspace = true, optional = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
@@ -72,7 +76,6 @@ default = ["files", "zstd"]
 files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file/object_store", "vortex-io/object_store"]
-python = ["vortex-error/python"]
 tokio = ["vortex-file/tokio"]
 zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]
 pretty = ["vortex-array/table-display"]
@@ -85,6 +88,7 @@ serde = [
 ]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = ["vortex-btrblocks/unstable_encodings"]
+cuda = ["dep:vortex-cuda"]
 
 [[bench]]
 name = "single_encoding_throughput"

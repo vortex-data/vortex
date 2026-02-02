@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -18,6 +17,7 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
+use vortex_array::arrays::SliceVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -34,7 +34,6 @@ use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -101,20 +100,14 @@ impl VTable for ALPVTable {
         let patches = metadata
             .patches
             .map(|p| {
-                let indices = children.get(1, &p.indices_dtype(), p.len())?;
-                let values = children.get(2, dtype, p.len())?;
+                let indices = children.get(1, &p.indices_dtype()?, p.len()?)?;
+                let values = children.get(2, dtype, p.len()?)?;
                 let chunk_offsets = p
-                    .chunk_offsets_dtype()
+                    .chunk_offsets_dtype()?
                     .map(|dtype| children.get(3, &dtype, usize::try_from(p.chunk_offsets_len())?))
                     .transpose()?;
 
-                Ok::<_, VortexError>(Patches::new(
-                    len,
-                    p.offset(),
-                    indices,
-                    values,
-                    chunk_offsets,
-                ))
+                Patches::new(len, p.offset()?, indices, values, chunk_offsets)
             })
             .transpose()?;
 
@@ -167,7 +160,7 @@ impl VTable for ALPVTable {
                 indices,
                 values,
                 chunk_offsets,
-            ));
+            )?);
         }
 
         Ok(())
@@ -181,15 +174,31 @@ impl VTable for ALPVTable {
         )?))
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ALPArray::new(
-                array.encoded().slice(range.clone()),
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        _child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<Canonical>> {
+        // CPU-only: if parent is SliceArray, perform slicing of the buffer and any patches
+        // Note that this triggers compute (binary searching Patches) which we cannot do when the
+        // buffers live in GPU memory.
+        if let Some(slice_array) = parent.as_opt::<SliceVTable>() {
+            let range = slice_array.slice_range().clone();
+            let sliced_alp = ALPArray::new(
+                array.encoded().slice(range.clone())?,
                 array.exponents(),
-                array.patches().and_then(|p| p.slice(range)),
+                array
+                    .patches()
+                    .map(|p| p.slice(range))
+                    .transpose()?
+                    .flatten(),
             )
-            .into_array(),
-        ))
+            .into_array();
+            return Ok(Some(sliced_alp.execute::<Canonical>(ctx)?));
+        }
+
+        Ok(None)
     }
 }
 
@@ -349,7 +358,7 @@ impl ALPArray {
     ///     None
     /// ).unwrap();
     ///
-    /// assert_eq!(value.scalar_at(0), 0f32.into());
+    /// assert_eq!(value.scalar_at(0).unwrap(), 0f32.into());
     /// ```
     pub fn try_new(
         encoded: ArrayRef,
@@ -502,7 +511,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -526,7 +535,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -556,7 +565,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -584,7 +593,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -615,7 +624,7 @@ mod tests {
             encoded.to_array().execute::<Canonical>(&mut ctx).unwrap()
         };
         // Compare against the traditional array-based decompress path
-        let expected = decompress_into_array(encoded);
+        let expected = decompress_into_array(encoded).unwrap();
 
         assert_arrays_eq!(result_canonical.into_array(), expected);
     }
@@ -642,7 +651,7 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_canonical = {
             let mut ctx = SESSION.create_execution_ctx();
@@ -653,7 +662,7 @@ mod tests {
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity().is_valid(idx);
+            let result_valid = result_primitive.validity().is_valid(idx).unwrap();
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -689,14 +698,14 @@ mod tests {
 
         let slice_end = size - slice_start;
         let slice_len = slice_end - slice_start;
-        let sliced_encoded = encoded.slice(slice_start..slice_end);
+        let sliced_encoded = encoded.slice(slice_start..slice_end).unwrap();
 
         let result_primitive = sliced_encoded.to_primitive();
 
         for idx in 0..slice_len {
             let expected_value = values[slice_start + idx];
 
-            let result_valid = result_primitive.validity_mask().value(idx);
+            let result_valid = result_primitive.validity_mask().unwrap().value(idx);
             assert_eq!(
                 result_valid,
                 expected_value.is_some(),
@@ -745,7 +754,8 @@ mod tests {
             original_patches.indices().clone(),
             original_patches.values().clone(),
             None, // NO chunk_offsets - this triggers the bug!
-        );
+        )
+        .unwrap();
 
         // Build a new ALPArray with the same encoded data but patches without chunk_offsets.
         let alp_without_chunk_offsets = ALPArray::new(
@@ -755,7 +765,7 @@ mod tests {
         );
 
         // The legacy decompress_into_array path should work correctly.
-        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone());
+        let result_legacy = decompress_into_array(alp_without_chunk_offsets.clone()).unwrap();
         let legacy_slice = result_legacy.as_slice::<f64>();
 
         // Verify the legacy path produces correct values.

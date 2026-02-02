@@ -151,7 +151,7 @@ mod tests {
         );
 
         // Convert to Vortex
-        Ok(ArrayRef::from_arrow(&struct_array, true))
+        ArrayRef::from_arrow(&struct_array, true)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

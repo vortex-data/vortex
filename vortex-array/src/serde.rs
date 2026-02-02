@@ -239,7 +239,7 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
         let children = Some(fbb.create_vector(children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
 
         Ok(fba::ArrayNode::create(
             fbb,
@@ -490,10 +490,9 @@ impl ArrayParts {
         array_tree: ByteBuffer,
         segment: BufferHandle,
     ) -> VortexResult<Self> {
-        // TODO: this can also work with device buffers.
-        let segment = segment.try_to_host()?;
-        // We align each buffer individually, so we remove alignment requirements on the buffer.
-        let segment = segment.aligned(Alignment::none());
+        // We align each buffer individually, so we remove alignment requirements on the segment
+        // for host-resident buffers. Device buffers are sliced directly.
+        let segment = segment.ensure_aligned(Alignment::none())?;
 
         let fb_buffer = FlatBuffer::align_from(array_tree);
 
@@ -504,7 +503,7 @@ impl ArrayParts {
             let flatbuffer_loc = fb_root._tab.loc();
 
             let mut offset = 0;
-            let buffers: Arc<[_]> = fb_array
+            let buffers = fb_array
                 .buffers()
                 .unwrap_or_default()
                 .iter()
@@ -515,15 +514,13 @@ impl ArrayParts {
                     let buffer_len = fb_buf.length() as usize;
 
                     // Extract a buffer and ensure it's aligned, copying if necessary
-                    let buffer = segment
-                        .slice(offset..(offset + buffer_len))
-                        .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
-
+                    let buffer = segment.slice(offset..(offset + buffer_len));
+                    let buffer = buffer
+                        .ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
                     offset += buffer_len;
-                    BufferHandle::new_host(buffer)
+                    Ok(buffer)
                 })
-                .collect();
-
+                .collect::<VortexResult<Arc<[_]>>>()?;
             (flatbuffer_loc, buffers)
         };
 
@@ -612,6 +609,6 @@ impl TryFrom<BufferHandle> for ArrayParts {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
-        Self::try_from(value.try_to_host()?)
+        Self::try_from(value.try_to_host_sync()?)
     }
 }

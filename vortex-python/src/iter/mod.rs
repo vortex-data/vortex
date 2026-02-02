@@ -29,6 +29,7 @@ use vortex::dtype::DType;
 use crate::arrays::PyArrayRef;
 use crate::arrow::IntoPyArrow;
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::install_module;
 use crate::iter::python::PythonArrayIterator;
 
@@ -81,7 +82,7 @@ impl PyArrayIterator {
     }
 
     /// Returns the next chunk from the iterator.
-    fn __next__(&self, py: Python) -> PyResult<Option<PyArrayRef>> {
+    fn __next__(&self, py: Python) -> PyVortexResult<Option<PyArrayRef>> {
         py.detach(|| {
             Ok(self
                 .iter
@@ -95,7 +96,7 @@ impl PyArrayIterator {
 
     /// Read all chunks into a single :class:`vortex.Array`. If there are multiple chunks,
     /// this will be a :class:`vortex.ChunkedArray`, otherwise it will be a single array.
-    fn read_all(&self, py: Python) -> PyResult<PyArrayRef> {
+    fn read_all(&self, py: Python) -> PyVortexResult<PyArrayRef> {
         let array = py.detach(|| {
             if let Some(iter) = self.iter.lock().take() {
                 iter.read_all()
@@ -110,7 +111,7 @@ impl PyArrayIterator {
     /// Convert the :class:`vortex.ArrayIterator` into a :class:`pyarrow.RecordBatchReader`.
     ///
     /// Note that this performs the conversion on the current thread.
-    fn to_arrow(slf: Bound<Self>) -> PyResult<Py<PyAny>> {
+    fn to_arrow(slf: Bound<Self>) -> PyVortexResult<Py<PyAny>> {
         let schema = Arc::new(slf.get().dtype().to_arrow_schema()?);
         let data_type = DataType::Struct(schema.fields().clone());
 
@@ -132,7 +133,7 @@ impl PyArrayIterator {
                 schema,
             ));
 
-        record_batch_reader.into_pyarrow(slf.py())
+        Ok(record_batch_reader.into_pyarrow(slf.py())?)
     }
 
     /// Create a :class:`vortex.ArrayIterator` from an iterator of :class:`vortex.Array`.

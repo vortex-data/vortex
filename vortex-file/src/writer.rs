@@ -69,9 +69,10 @@ pub struct VortexWriteOptions {
 pub trait WriteOptionsSessionExt: SessionExt {
     /// Create [`VortexWriteOptions`] for writing to a Vortex file.
     fn write_options(&self) -> VortexWriteOptions {
+        let session = self.session();
         VortexWriteOptions {
-            session: self.session(),
-            strategy: WriteStrategyBuilder::new().build(),
+            strategy: WriteStrategyBuilder::default().build(),
+            session,
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,
@@ -84,8 +85,8 @@ impl VortexWriteOptions {
     /// Create a new [`VortexWriteOptions`] with the given session.
     pub fn new(session: VortexSession) -> Self {
         VortexWriteOptions {
+            strategy: WriteStrategyBuilder::default().build(),
             session,
-            strategy: WriteStrategyBuilder::new().build(),
             exclude_dtype: false,
             file_statistics: PRUNING_STATS.to_vec(),
             max_variable_length_statistics_size: 64,

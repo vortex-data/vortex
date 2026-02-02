@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-from importlib import metadata as _metadata
+import importlib.metadata
 
 from . import _lib, arrays, dataset, expr, file, io, ray, registry, scan
 from ._lib.arrays import (  # pyright: ignore[reportMissingModuleSource]
@@ -47,13 +47,15 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     Utf8DType,
     binary,
     bool_,
-    ext,
+    date,
     fixed_size_list,
     float_,
     int_,
     list_,
     null,
     struct,
+    time,
+    timestamp,
     uint,
     utf8,
 )
@@ -84,11 +86,12 @@ from .scan import RepeatedScan
 assert _lib, "Ensure we eagerly import the Vortex native library"
 
 # Resolve the installed distribution version so it is available as vortex.__version__.
+
 __version__ = "unknown"
 try:
     # Try to read the installed distribution version for the Python package name.
-    __version__ = _metadata.version("vortex-data")
-except _metadata.PackageNotFoundError:
+    __version__ = importlib.metadata.version("vortex-data")
+except importlib.metadata.PackageNotFoundError:
     # If the distribution is not installed, keep the unknown fallback.
     pass
 
@@ -131,7 +134,9 @@ __all__ = [
     "struct",
     "list_",
     "fixed_size_list",
-    "ext",
+    "date",
+    "time",
+    "timestamp",
     # Encodings
     "ConstantArray",
     "ChunkedArray",

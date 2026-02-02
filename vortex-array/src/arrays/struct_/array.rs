@@ -63,11 +63,11 @@ use crate::vtable::ValidityHelper;
 /// ).unwrap();
 ///
 /// // Row 0 is valid - returns a struct scalar with field values
-/// let row0 = struct_array.scalar_at(0);
+/// let row0 = struct_array.scalar_at(0).unwrap();
 /// assert!(!row0.is_null());
 ///
 /// // Row 1 is null at struct level - returns null even though fields have values
-/// let row1 = struct_array.scalar_at(1);
+/// let row1 = struct_array.scalar_at(1).unwrap();
 /// assert!(row1.is_null());
 /// ```
 ///
@@ -95,8 +95,8 @@ use crate::vtable::ValidityHelper;
 /// ).unwrap();
 ///
 /// // field_by_name returns the FIRST "data" field
-/// let first_data = struct_array.field_by_name("data").unwrap();
-/// assert_eq!(first_data.scalar_at(0), 1i32.into());
+/// let first_data = struct_array.unmasked_field_by_name("data").unwrap();
+/// assert_eq!(first_data.scalar_at(0).unwrap(), 1i32.into());
 /// ```
 ///
 /// ## Field Operations
@@ -139,7 +139,7 @@ use crate::vtable::ValidityHelper;
 /// assert_eq!(struct_array.names().len(), 2);
 ///
 /// // Access field by name
-/// let id_field = struct_array.field_by_name("id").unwrap();
+/// let id_field = struct_array.unmasked_field_by_name("id").unwrap();
 /// assert_eq!(id_field.len(), 3);
 /// ```
 #[derive(Clone, Debug)]
@@ -151,14 +151,23 @@ pub struct StructArray {
     pub(super) stats_set: ArrayStats,
 }
 
+pub struct StructArrayParts {
+    pub struct_fields: StructFields,
+    pub nullability: Nullability,
+    pub fields: Arc<[ArrayRef]>,
+    pub validity: Validity,
+}
+
 impl StructArray {
-    pub fn fields(&self) -> &Arc<[ArrayRef]> {
+    /// Return the struct fields without the validity of the struct applied
+    pub fn unmasked_fields(&self) -> &Arc<[ArrayRef]> {
         &self.fields
     }
 
-    pub fn field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
+    /// Return the struct field without the validity of the struct applied
+    pub fn unmasked_field_by_name(&self, name: impl AsRef<str>) -> VortexResult<&ArrayRef> {
         let name = name.as_ref();
-        self.field_by_name_opt(name).ok_or_else(|| {
+        self.unmasked_field_by_name_opt(name).ok_or_else(|| {
             vortex_err!(
                 "Field {name} not found in struct array with names {:?}",
                 self.names()
@@ -166,7 +175,8 @@ impl StructArray {
         })
     }
 
-    pub fn field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
+    /// Return the struct field without the validity of the struct applied
+    pub fn unmasked_field_by_name_opt(&self, name: impl AsRef<str>) -> Option<&ArrayRef> {
         let name = name.as_ref();
         self.struct_fields().find(name).map(|idx| &self.fields[idx])
     }
@@ -347,8 +357,19 @@ impl StructArray {
         Ok(unsafe { Self::new_unchecked(fields, dtype, length, validity) })
     }
 
+    pub fn into_parts(self) -> StructArrayParts {
+        let nullability = self.dtype.nullability();
+        let struct_fields = self.dtype.into_struct_fields();
+        StructArrayParts {
+            struct_fields,
+            nullability,
+            fields: self.fields,
+            validity: self.validity,
+        }
+    }
+
     pub fn into_fields(self) -> Vec<ArrayRef> {
-        self.fields.to_vec()
+        self.into_parts().fields.to_vec()
     }
 
     pub fn from_fields<N: AsRef<str>>(items: &[(N, ArrayRef)]) -> VortexResult<Self> {
@@ -404,7 +425,7 @@ impl StructArray {
         let mut children = Vec::with_capacity(projection.len());
         let mut names = Vec::with_capacity(projection.len());
 
-        let fields = self.fields();
+        let fields = self.unmasked_fields();
         for f_name in projection.iter() {
             let idx = self
                 .names()

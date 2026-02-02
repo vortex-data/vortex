@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Deref;
 
 use prost::Message;
 use vortex_dtype::DType;
@@ -10,13 +9,13 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
-use vortex_vector::Datum;
+use vortex_session::VortexSession;
 
-use crate::ArrayRef;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -41,18 +40,24 @@ impl VTable for Cast {
     fn serialize(&self, dtype: &DType) -> VortexResult<Option<Vec<u8>>> {
         Ok(Some(
             pb::CastOpts {
-                target: Some(dtype.into()),
+                target: Some(dtype.try_into()?),
             }
             .encode_to_vec(),
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<DType> {
-        pb::CastOpts::decode(metadata)?
-            .target
-            .as_ref()
-            .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?
-            .try_into()
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let proto = pb::CastOpts::decode(_metadata)?.target;
+        DType::from_proto(
+            proto
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Missing target dtype in Cast expression"))?,
+            session,
+        )
     }
 
     fn arity(&self, _options: &DType) -> Arity {
@@ -77,28 +82,16 @@ impl VTable for Cast {
         Ok(dtype.clone())
     }
 
-    fn evaluate(
+    fn execute(
         &self,
-        dtype: &DType,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let array = expr.children()[0].evaluate(scope)?;
-        compute_cast(&array, dtype).map_err(|e| {
-            e.with_context(format!(
-                "Failed to cast array of dtype {} to {}",
-                array.dtype(),
-                expr.deref()
-            ))
-        })
-    }
-
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Datum> {
+        target_dtype: &DType,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
         let input = args
-            .datums
+            .inputs
             .pop()
             .vortex_expect("missing input for Cast expression");
-        vortex_compute::cast::Cast::cast(&input, target_dtype)
+        compute_cast(input.as_ref(), target_dtype)?.execute(args.ctx)
     }
 
     fn reduce(
@@ -223,7 +216,7 @@ mod tests {
             get_item("a", root()),
             DType::Primitive(PType::I64, Nullability::NonNullable),
         );
-        let result = expr.evaluate(&test_array).unwrap();
+        let result = test_array.apply(&expr).unwrap();
 
         assert_eq!(
             result.dtype(),

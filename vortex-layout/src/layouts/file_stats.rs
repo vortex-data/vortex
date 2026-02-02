@@ -97,7 +97,7 @@ impl FileStatsAccumulator {
                 .accumulators
                 .lock()
                 .iter_mut()
-                .zip_eq(chunk.fields().iter())
+                .zip_eq(chunk.unmasked_fields().iter())
             {
                 acc.push_chunk(field)?;
             }
@@ -113,6 +113,7 @@ impl FileStatsAccumulator {
             .iter_mut()
             .map(|acc| {
                 acc.as_stats_table()
+                    .vortex_expect("as_stats_table should not fail")
                     .map(|table| {
                         table
                             .to_stats_set(&self.stats)

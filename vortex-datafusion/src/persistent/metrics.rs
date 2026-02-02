@@ -17,7 +17,6 @@ use datafusion_physical_plan::metrics::MetricValue as DatafusionMetricValue;
 use datafusion_physical_plan::metrics::MetricsSet;
 use vortex::metrics::Metric;
 use vortex::metrics::MetricId;
-use vortex::metrics::MetricsSessionExt;
 use vortex::metrics::Tags;
 
 use crate::persistent::source::VortexSource;
@@ -57,8 +56,7 @@ impl ExecutionPlanVisitor for VortexMetricsFinder {
             {
                 let mut set = MetricsSet::new();
                 for metric in scan
-                    .session
-                    .metrics()
+                    .vx_metrics()
                     .snapshot()
                     .iter()
                     .flat_map(|(id, metric)| metric_to_datafusion(id, metric))

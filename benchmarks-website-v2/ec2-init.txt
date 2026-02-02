@@ -1,0 +1,17 @@
+  1. Install Docker
+  # Amazon Linux 2023
+  sudo yum install -y docker
+  sudo systemctl enable --now docker
+  sudo usermod -aG docker $USER
+  newgrp docker
+
+  2. Install Docker Compose plugin
+  sudo mkdir -p /usr/local/lib/docker/cli-plugins
+  sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-aarch64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+  sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+  3. Set up and start the app
+  sudo mkdir -p /opt/benchmarks-website
+  sudo cp docker-compose.yml /opt/benchmarks-website/
+  cd /opt/benchmarks-website
+  docker compose up -d

@@ -31,6 +31,15 @@ pub trait ArrayVisitor {
     /// Returns the buffers of the array.
     fn buffers(&self) -> Vec<ByteBuffer>;
 
+    /// Returns the buffer handles of the array.
+    fn buffer_handles(&self) -> Vec<BufferHandle>;
+
+    /// Returns the names of the buffers of the array.
+    fn buffer_names(&self) -> Vec<String>;
+
+    /// Returns the array's buffers with their names.
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)>;
+
     /// Returns the number of buffers of the array.
     fn nbuffers(&self) -> usize;
 
@@ -40,6 +49,11 @@ pub trait ArrayVisitor {
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+
+    /// Checks if all buffers in the array tree are host-resident.
+    ///
+    /// This will fail if any buffers of self or child arrays are GPU-resident.
+    fn is_host(&self) -> bool;
 }
 
 impl ArrayVisitor for Arc<dyn Array> {
@@ -63,6 +77,18 @@ impl ArrayVisitor for Arc<dyn Array> {
         self.as_ref().buffers()
     }
 
+    fn buffer_handles(&self) -> Vec<BufferHandle> {
+        self.as_ref().buffer_handles()
+    }
+
+    fn buffer_names(&self) -> Vec<String> {
+        self.as_ref().buffer_names()
+    }
+
+    fn named_buffers(&self) -> Vec<(String, BufferHandle)> {
+        self.as_ref().named_buffers()
+    }
+
     fn nbuffers(&self) -> usize {
         self.as_ref().nbuffers()
     }
@@ -73,6 +99,10 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.as_ref().metadata_fmt(f)
+    }
+
+    fn is_host(&self) -> bool {
+        self.as_ref().is_host()
     }
 }
 
@@ -114,11 +144,7 @@ pub trait ArrayVisitorExt: Array {
 impl<A: Array + ?Sized> ArrayVisitorExt for A {}
 
 pub trait ArrayBufferVisitor {
-    fn visit_buffer_handle(&mut self, handle: &BufferHandle) -> VortexResult<()> {
-        self.visit_buffer(&handle.clone().try_to_host()?);
-        Ok(())
-    }
-    fn visit_buffer(&mut self, buffer: &ByteBuffer);
+    fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
 }
 
 pub trait ArrayChildVisitor {

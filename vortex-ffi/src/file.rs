@@ -32,9 +32,6 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 use vortex::expr::Expression;
-use vortex::expr::proto::deserialize_expr_proto;
-use vortex::expr::session::ExprRegistry;
-use vortex::expr::session::ExprSessionExt;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::WriteOptionsSessionExt;
@@ -108,16 +105,16 @@ pub struct vx_file_scan_options {
 }
 
 fn extract_expression(
-    registry: &ExprRegistry,
+    session: &VortexSession,
     expression: *const c_char,
     expression_len: c_uint,
 ) -> VortexResult<Option<Expression>> {
     Ok((!expression.is_null() && expression_len > 0).then_some({
         let bytes =
-            unsafe { slice::from_raw_parts(expression as *const u8, expression_len as usize) };
+            unsafe { slice::from_raw_parts(expression.cast::<u8>(), expression_len as usize) };
 
         // Decode the protobuf message.
-        deserialize_expr_proto(&Expr::decode(bytes)?, registry)
+        Expression::from_proto(&Expr::decode(bytes)?, session)
             .map_err(|e| e.with_context("deserializing expr"))?
     }))
 }
@@ -129,16 +126,13 @@ impl vx_file_scan_options {
     fn process_scan_options(&self, session: &VortexSession) -> VortexResult<ScanOptions> {
         // Extract field names for projection.
         let projection_expr = extract_expression(
-            session.expressions().registry(),
+            session,
             self.projection_expression,
             self.projection_expr_len,
         )?;
 
-        let filter_expr = extract_expression(
-            session.expressions().registry(),
-            self.filter_expression,
-            self.filter_expression_len,
-        )?;
+        let filter_expr =
+            extract_expression(session, self.filter_expression, self.filter_expression_len)?;
 
         // On Windows, c_ulong is u32, so we need to convert to u64
         // On Unix, c_ulong is already u64, so we can use it directly
@@ -267,11 +261,7 @@ pub unsafe extern "C-unwind" fn vx_file_can_prune(
     try_or_default(error_out, || {
         let session = vx_session::as_ref(session);
         let file = vx_file::as_ref(file);
-        let filter_expr = extract_expression(
-            session.expressions().registry(),
-            filter_expression,
-            filter_expression_len,
-        )?;
+        let filter_expr = extract_expression(session, filter_expression, filter_expression_len)?;
         Ok(filter_expr
             .map(|expr| file.can_prune(&expr))
             .transpose()?

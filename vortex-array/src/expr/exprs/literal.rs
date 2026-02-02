@@ -10,15 +10,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
-use vortex_vector::Datum;
+use vortex_session::VortexSession;
 
-use crate::Array;
-use crate::ArrayRef;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -45,12 +42,18 @@ impl VTable for Literal {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let ops = pb::LiteralOpts::decode(metadata)?;
-        ops.value
-            .as_ref()
-            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
-            .try_into()
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let ops = pb::LiteralOpts::decode(_metadata)?;
+        Scalar::from_proto(
+            ops.value
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Literal metadata missing value"))?,
+            session,
+        )
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {
@@ -74,18 +77,8 @@ impl VTable for Literal {
         Ok(options.dtype().clone())
     }
 
-    fn evaluate(
-        &self,
-        scalar: &Scalar,
-        _expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        Ok(ConstantArray::new(scalar.clone(), scope.len()).into_array())
-    }
-
-    fn execute(&self, scalar: &Scalar, _args: ExecutionArgs) -> VortexResult<Datum> {
-        let vector_scalar = scalar.to_vector_scalar();
-        Ok(Datum::Scalar(vector_scalar))
+    fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+        Ok(ExecutionResult::constant(scalar.clone(), args.row_count))
     }
 
     fn stat_expression(

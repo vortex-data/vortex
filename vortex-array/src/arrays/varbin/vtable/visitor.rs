@@ -10,7 +10,8 @@ use crate::vtable::VisitorVTable;
 
 impl VisitorVTable<VarBinVTable> for VarBinVTable {
     fn visit_buffers(array: &VarBinArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(array.bytes()); // TODO(ngates): sliced bytes?
+        // TODO(ngates): sliced bytes?
+        visitor.visit_buffer_handle("bytes", array.bytes_handle());
     }
 
     fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {

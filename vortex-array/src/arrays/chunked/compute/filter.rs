@@ -15,7 +15,6 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::compute::FilterKernel;
 use crate::compute::FilterKernelAdapter;
-use crate::compute::filter;
 use crate::compute::take;
 use crate::register_kernel;
 use crate::search_sorted::SearchSorted;
@@ -75,7 +74,7 @@ fn filter_slices(
             ChunkFilter::None => {}
             // Slices => turn the slices into a boolean buffer.
             ChunkFilter::Slices(slices) => {
-                result.push(filter(chunk, &Mask::from_slices(chunk.len(), slices))?);
+                result.push(chunk.filter(Mask::from_slices(chunk.len(), slices))?);
             }
         }
     }
@@ -92,10 +91,10 @@ pub(crate) fn chunk_filters(
     let mut chunk_filters = vec![ChunkFilter::None; array.nchunks()];
 
     for (slice_start, slice_end) in slices {
-        let (start_chunk, start_idx) = find_chunk_idx(slice_start, &chunk_offsets);
+        let (start_chunk, start_idx) = find_chunk_idx(slice_start, &chunk_offsets)?;
         // NOTE: we adjust slice end back by one, in case it ends on a chunk boundary, we do not
         // want to index into the unused chunk.
-        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, &chunk_offsets);
+        let (end_chunk, end_idx) = find_chunk_idx(slice_end - 1, &chunk_offsets)?;
         // Adjust back to an exclusive range
         let end_idx = end_idx + 1;
 
@@ -142,7 +141,6 @@ pub(crate) fn chunk_filters(
 }
 
 /// Filter the chunks using indices.
-#[allow(deprecated)]
 fn filter_indices(
     array: &ChunkedArray,
     indices: impl Iterator<Item = usize>,
@@ -154,7 +152,7 @@ fn filter_indices(
     let chunk_offsets = array.chunk_offsets();
 
     for set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets);
+        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets)?;
         if chunk_id != current_chunk_id {
             // Push the chunk we've accumulated.
             if !chunk_indices.is_empty() {
@@ -189,9 +187,9 @@ fn filter_indices(
 
 /// Mirrors the find_chunk_idx method on ChunkedArray, but avoids all of the overhead
 /// from scalars, dtypes, and metadata cloning.
-pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
+pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> VortexResult<(usize, usize)> {
     let chunk_id = chunk_ends
-        .search_sorted(&(idx as u64), SearchSortedSide::Right)
+        .search_sorted(&(idx as u64), SearchSortedSide::Right)?
         .to_ends_index(chunk_ends.len())
         .saturating_sub(1);
     let chunk_begin: usize = chunk_ends[chunk_id]
@@ -199,7 +197,7 @@ pub(crate) fn find_chunk_idx(idx: usize, chunk_ends: &[u64]) -> (usize, usize) {
         .vortex_expect("chunk end must fit in usize");
     let chunk_offset = idx - chunk_begin;
 
-    (chunk_id, chunk_offset)
+    Ok((chunk_id, chunk_offset))
 }
 
 #[cfg(test)]
@@ -216,7 +214,6 @@ mod test {
     use crate::arrays::ChunkedArray;
     use crate::arrays::PrimitiveArray;
     use crate::compute::conformance::filter::test_filter_conformance;
-    use crate::compute::filter;
 
     #[test]
     fn filter_chunked_floats() {
@@ -246,7 +243,7 @@ mod test {
         let mask = Mask::from_iter([
             true, false, false, true, true, true, true, true, true, true, true,
         ]);
-        let filtered = filter(chunked.as_ref(), &mask).unwrap();
+        let filtered = chunked.filter(mask).unwrap();
         assert_eq!(filtered.len(), 9);
     }
 

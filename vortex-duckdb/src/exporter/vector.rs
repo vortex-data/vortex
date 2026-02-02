@@ -22,7 +22,7 @@ impl Vector {
                 true
             }
             Mask::Values(arr) => {
-                let true_count = arr.bit_buffer().true_count();
+                let true_count = arr.bit_buffer().slice(offset..(offset + len)).true_count();
                 if true_count == len {
                     unsafe { self.set_all_true_validity(len) }
                 } else if true_count == 0 {

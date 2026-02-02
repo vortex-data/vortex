@@ -23,6 +23,7 @@ arc_wrapper!(
 /// Return the number of fields in the struct dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_struct_fields_nfields(dtype: *const vx_struct_fields) -> u64 {
+    // TODO(joe): propagate this error up instead of expecting
     unsafe { dtype.as_ref() }
         .vortex_expect("null ptr")
         .0
@@ -39,6 +40,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_name(
     dtype: *const vx_struct_fields,
     idx: usize,
 ) -> *const vx_string {
+    // TODO(joe): propagate this error up instead of expecting
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
     if idx >= struct_dtype.nfields() {
@@ -60,6 +62,7 @@ pub unsafe extern "C-unwind" fn vx_struct_fields_field_dtype(
     dtype: *const vx_struct_fields,
     idx: usize,
 ) -> *const vx_dtype {
+    // TODO(joe): propagate this error up instead of expecting
     let ptr = unsafe { dtype.as_ref() }.vortex_expect("null ptr");
     let struct_dtype = &ptr.0;
 

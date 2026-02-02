@@ -4,7 +4,6 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
-mod canonical;
 mod compute;
 mod dyn_;
 mod operations;
@@ -16,7 +15,6 @@ use std::ops::Deref;
 use std::ops::Range;
 
 pub use array::*;
-pub use canonical::*;
 pub use compute::*;
 pub use dyn_::*;
 pub use operations::*;
@@ -29,8 +27,6 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::executor::ExecutionCtx;
@@ -87,8 +83,12 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// ## Post-conditions
     /// - The length of the builder is incremented by the length of the input array.
-    fn append_to_builder(array: &Self::Array, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        let canonical = Self::execute(array, &mut LEGACY_SESSION.create_execution_ctx())?;
+    fn append_to_builder(
+        array: &Self::Array,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
+        let canonical = Self::execute(array, ctx)?;
         builder.extend_from_array(canonical.as_ref());
         Ok(())
     }

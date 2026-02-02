@@ -212,7 +212,7 @@ impl CompactionStrategy {
     pub fn apply_options(&self, options: VortexWriteOptions) -> VortexWriteOptions {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
-                WriteStrategyBuilder::new()
+                WriteStrategyBuilder::default()
                     .with_compressor(CompactCompressor::default())
                     .build(),
             ),

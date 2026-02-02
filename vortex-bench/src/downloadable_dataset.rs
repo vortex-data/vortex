@@ -10,7 +10,7 @@ use vortex::file::WriteOptionsSessionExt;
 
 use crate::IdempotentPath;
 use crate::SESSION;
-use crate::conversions::parquet_to_vortex;
+use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
@@ -61,7 +61,7 @@ impl Dataset for DownloadableDataset {
         let dir = format!("{}/", self.name()).to_data_path();
         let vortex = dir.join(format!("{}.vortex", self.name()));
 
-        let data = parquet_to_vortex(parquet).await?;
+        let data = parquet_to_vortex_chunks(parquet).await?;
         idempotent_async(&vortex, async |path| -> anyhow::Result<()> {
             SESSION
                 .write_options()

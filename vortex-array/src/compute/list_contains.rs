@@ -100,8 +100,10 @@ pub(crate) fn warm_up_vtable() -> usize {
 ///     list_array.len()).as_ref()
 /// ).unwrap();
 ///
-/// assert_eq!(matches.to_bool().bit_buffer(), &bitbuffer![false, true, false]);
+/// assert_eq!(matches.to_bool().to_bit_buffer(), bitbuffer![false, true, false]);
 /// ```
+// TODO(joe): ensure that list_contains_scalar from (548303761b4270b583ef34f6ca6e3c2b134a242a)
+// is implemented here.
 pub fn list_contains(array: &dyn Array, value: &dyn Array) -> VortexResult<ArrayRef> {
     LIST_CONTAINS_FN
         .invoke(&InvocationArgs {
@@ -136,7 +138,7 @@ impl ComputeFnVTable for ListContains {
             );
         };
 
-        if value.all_invalid() || array.all_invalid() {
+        if value.all_invalid()? || array.all_invalid()? {
             return Ok(Output::Array(
                 ConstantArray::new(
                     Scalar::null(DType::Bool(Nullability::Nullable)),
@@ -257,8 +259,8 @@ fn list_contains_scalar(
 ) -> VortexResult<ArrayRef> {
     // If the list array is constant, we perform a single comparison.
     if array.len() > 1 && array.is::<ConstantVTable>() {
-        let contains = list_contains_scalar(&array.slice(0..1), value, nullability)?;
-        return Ok(ConstantArray::new(contains.scalar_at(0), array.len()).into_array());
+        let contains = list_contains_scalar(&array.slice(0..1)?, value, nullability)?;
+        return Ok(ConstantArray::new(contains.scalar_at(0)?, array.len()).into_array());
     }
 
     let list_array = array.to_listview();
@@ -313,7 +315,7 @@ fn list_contains_scalar(
         })
     });
 
-    Ok(BoolArray::from_bit_buffer(
+    Ok(BoolArray::new(
         list_matches,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -342,8 +344,8 @@ where
 
             // BitIndexIterator yields indices of true bits only. If `.next()` returns
             // `Some(_)`, at least one element in this list's range matches.
-            let mut set_bits =
-                BitIndexIterator::new(matches.bit_buffer().inner().as_ref(), offset, size);
+            let bits = matches.to_bit_buffer();
+            let mut set_bits = BitIndexIterator::new(bits.inner().as_ref(), offset, size);
             set_bits.next().is_some()
         })
         .collect::<BitBuffer>()
@@ -378,10 +380,7 @@ fn list_false_or_null(
         Validity::Array(validity_array) => {
             // Create a new bool array with false, and the provided nulls
             let buffer = BitBuffer::new_unset(list_array.len());
-            Ok(
-                BoolArray::from_bit_buffer(buffer, Validity::Array(validity_array.clone()))
-                    .into_array(),
-            )
+            Ok(BoolArray::new(buffer, Validity::Array(validity_array.clone())).into_array())
         }
     }
 }
@@ -407,7 +406,7 @@ fn list_is_not_empty(
     });
 
     // Copy over the validity mask from the input.
-    Ok(BoolArray::from_bit_buffer(
+    Ok(BoolArray::new(
         buffer,
         list_array.validity().clone().union_nullability(nullability),
     )
@@ -421,7 +420,6 @@ mod tests {
     use itertools::Itertools;
     use rstest::rstest;
     use vortex_buffer::Buffer;
-    use vortex_buffer::bitbuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
@@ -438,23 +436,17 @@ mod tests {
     use crate::arrays::ListViewArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::list_view_from_list;
+    use crate::assert_arrays_eq;
     use crate::canonical::ToCanonical;
     use crate::compute::list_contains;
     use crate::validity::Validity;
-    use crate::vtable::ValidityHelper;
 
     fn nonnull_strings(values: Vec<Vec<&str>>) -> ArrayRef {
-        list_view_from_list(
-            ListArray::from_iter_slow::<u64, _>(
-                values,
-                Arc::new(DType::Utf8(Nullability::NonNullable)),
-            )
+        ListArray::from_iter_slow::<u64, _>(values, Arc::new(DType::Utf8(Nullability::NonNullable)))
             .unwrap()
             .as_::<ListVTable>()
-            .clone(),
-        )
-        .into_array()
+            .to_listview()
+            .into_array()
     }
 
     fn null_strings(values: Vec<Vec<Option<&str>>>) -> ArrayRef {
@@ -473,12 +465,14 @@ mod tests {
         let elements =
             VarBinArray::from_iter(elements, DType::Utf8(Nullability::Nullable)).into_array();
 
-        list_view_from_list(ListArray::try_new(elements, offsets, Validity::NonNullable).unwrap())
+        ListArray::try_new(elements, offsets, Validity::NonNullable)
+            .unwrap()
+            .to_listview()
             .into_array()
     }
 
     fn bool_array(values: Vec<bool>, validity: Validity) -> BoolArray {
-        BoolArray::from_bit_buffer(values.into_iter().collect(), validity)
+        BoolArray::new(values.into_iter().collect(), validity)
     }
 
     #[rstest]
@@ -545,9 +539,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
-        let bool_result = result.to_bool();
-        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
-        assert_eq!(bool_result.validity(), expected.validity());
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -576,9 +568,7 @@ mod tests {
         };
         let elem = ConstantArray::new(scalar, list_array.len());
         let result = list_contains(&list_array, elem.as_ref()).expect("list_contains failed");
-        let bool_result = result.to_bool();
-        assert_eq!(bool_result.opt_bool_vec(), expected.opt_bool_vec());
-        assert_eq!(bool_result.validity(), expected.validity());
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -599,7 +589,8 @@ mod tests {
         )
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
-        assert_eq!(contains.to_bool().bit_buffer(), &bitbuffer![true, true],);
+        let expected = BoolArray::from_iter([true, true]);
+        assert_arrays_eq!(contains, expected);
     }
 
     #[test]
@@ -620,8 +611,11 @@ mod tests {
         .unwrap();
         assert!(contains.is::<ConstantVTable>(), "Expected constant result");
 
-        assert_eq!(contains.len(), 5);
-        assert_eq!(contains.to_bool().validity(), &Validity::AllInvalid);
+        let expected = BoolArray::new(
+            [false, false, false, false, false].into_iter().collect(),
+            Validity::AllInvalid,
+        );
+        assert_arrays_eq!(contains, expected);
     }
 
     #[test]
@@ -638,19 +632,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(contains.len(), 7);
-        assert_eq!(
-            contains.to_bool().opt_bool_vec(),
-            vec![
-                Some(false),
-                Some(true),
-                Some(false),
-                Some(true),
-                Some(false),
-                Some(false),
-                Some(true)
-            ]
-        );
+        let expected = BoolArray::from_iter([false, true, false, true, false, false, true]);
+        assert_arrays_eq!(contains, expected);
     }
 
     #[test]
@@ -675,11 +658,8 @@ mod tests {
         let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
 
         // All lists are empty, so all should return false
-        assert_eq!(result.len(), 4);
-        assert_eq!(
-            result.to_bool().bool_vec(),
-            vec![false, false, false, false]
-        );
+        let expected = BoolArray::from_iter([false, false, false, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -707,16 +687,19 @@ mod tests {
         let result = list_contains(list_array.as_ref(), null_search.as_ref()).unwrap();
 
         // Searching for null in lists with null elements should return null
-        assert_eq!(result.len(), 3);
-        assert_eq!(result.to_bool().validity(), &Validity::AllInvalid);
+        let expected = BoolArray::new(
+            [false, false, false].into_iter().collect(),
+            Validity::AllInvalid,
+        );
+        assert_arrays_eq!(result, expected);
 
         // Test searching for a non-null value
         let non_null_search = ConstantArray::new(Scalar::from(42i32), list_array.len());
         let result2 = list_contains(list_array.as_ref(), non_null_search.as_ref()).unwrap();
 
         // All comparisons result in null, but search is not null, so should return false
-        assert_eq!(result2.len(), 3);
-        assert_eq!(result2.to_bool().bool_vec(), vec![false, false, false]);
+        let expected2 = BoolArray::from_iter([false, false, false]);
+        assert_arrays_eq!(result2, expected2);
     }
 
     #[test]
@@ -740,20 +723,17 @@ mod tests {
         let search = ConstantArray::new(Scalar::from(2i32), list_array.len());
         let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
 
-        assert_eq!(result.len(), 4);
-        assert_eq!(
-            result.to_bool().bool_vec(),
-            vec![false, true, false, false] // Value 2 is only in list 1
-        );
+        // Value 2 is only in list 1
+        let expected = BoolArray::from_iter([false, true, false, false]);
+        assert_arrays_eq!(result, expected);
 
         // Test searching for value 5, which appears only in list 2
         let search5 = ConstantArray::new(Scalar::from(5i32), list_array.len());
         let result5 = list_contains(list_array.as_ref(), search5.as_ref()).unwrap();
 
-        assert_eq!(
-            result5.to_bool().bool_vec(),
-            vec![false, false, true, false] // Value 5 is only in list 2
-        );
+        // Value 5 is only in list 2
+        let expected5 = BoolArray::from_iter([false, false, true, false]);
+        assert_arrays_eq!(result5, expected5);
     }
 
     #[test]
@@ -773,16 +753,14 @@ mod tests {
         let search = ConstantArray::new(Scalar::from(255i32), list_array.len());
         let result = list_contains(list_array.as_ref(), search.as_ref()).unwrap();
 
-        assert_eq!(result.len(), 4);
-        assert_eq!(result.to_bool().bool_vec(), vec![false, false, false, true]);
+        let expected = BoolArray::from_iter([false, false, false, true]);
+        assert_arrays_eq!(result, expected);
 
         // Search for value 0 which should only be in the first list
         let search_zero = ConstantArray::new(Scalar::from(0i32), list_array.len());
         let result_zero = list_contains(list_array.as_ref(), search_zero.as_ref()).unwrap();
 
-        assert_eq!(
-            result_zero.to_bool().bool_vec(),
-            vec![true, false, false, false]
-        );
+        let expected_zero = BoolArray::from_iter([true, false, false, false]);
+        assert_arrays_eq!(result_zero, expected_zero);
     }
 }

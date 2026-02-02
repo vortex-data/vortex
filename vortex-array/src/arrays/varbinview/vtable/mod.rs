@@ -82,7 +82,7 @@ impl VTable for VarBinViewVTable {
         }
         let mut buffers: Vec<ByteBuffer> = buffers
             .iter()
-            .map(|b| b.clone().try_to_host())
+            .map(|b| b.clone().try_to_host_sync())
             .collect::<VortexResult<Vec<_>>>()?;
         let views = buffers.pop().vortex_expect("buffers non-empty");
 
@@ -123,11 +123,13 @@ impl VTable for VarBinViewVTable {
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
         Ok(Some(
-            VarBinViewArray::new(
-                array.views().slice(range.clone()),
-                array.buffers().clone(),
+            VarBinViewArray::new_handle(
+                array
+                    .views_handle()
+                    .slice_typed::<BinaryView>(range.clone()),
+                Arc::clone(array.buffers()),
                 array.dtype().clone(),
-                array.validity().slice(range),
+                array.validity().slice(range)?,
             )
             .into_array(),
         ))

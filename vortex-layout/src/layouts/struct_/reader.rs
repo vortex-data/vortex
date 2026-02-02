@@ -347,13 +347,13 @@ impl LayoutReader for StructReader {
         Ok(Box::pin(async move {
             if let Some(validity_fut) = validity_fut {
                 let (array, validity) = try_join!(projected, validity_fut)?;
-                let mask = Mask::from_buffer(validity.to_bool().bit_buffer().not());
+                let mask = Mask::from_buffer(validity.to_bool().to_bit_buffer().not());
 
                 // If root expression was a pack, then we apply the validity to each child field
                 if is_pack_merge {
                     let struct_array = array.to_struct();
                     let masked_fields: Vec<ArrayRef> = struct_array
-                        .fields()
+                        .unmasked_fields()
                         .iter()
                         .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
                         .try_collect()?;
@@ -381,7 +381,6 @@ impl LayoutReader for StructReader {
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use rstest::fixture;
     use rstest::rstest;
     use vortex_array::Array;
@@ -390,7 +389,9 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::StructArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::expr::Expression;
     use vortex_array::expr::col;
@@ -594,10 +595,7 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, true, true],
-            result.to_bit_buffer().iter().collect_vec()
-        );
+        assert_eq!(result, Mask::from_iter([true, true, true]));
     }
 
     #[rstest]
@@ -612,10 +610,8 @@ mod tests {
                 .unwrap()
         })
         .unwrap();
-        assert_eq!(
-            vec![true, false, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
-        );
+        let expected = BoolArray::from_iter([true, false, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]
@@ -635,12 +631,8 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(result.len(), 2);
-
-        assert_eq!(
-            vec![true, false],
-            result.to_bool().bit_buffer().iter().collect::<Vec<_>>()
-        );
+        let expected = BoolArray::from_iter([true, false]);
+        assert_arrays_eq!(result, expected);
     }
 
     #[rstest]
@@ -666,24 +658,16 @@ mod tests {
 
         assert_eq!(result.len(), 2);
 
-        assert_eq!(
-            result
-                .to_struct()
-                .field_by_name("a")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [7, 2].as_slice()
+        let expected_a = PrimitiveArray::from_iter([7i32, 2]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("a").unwrap(),
+            expected_a
         );
 
-        assert_eq!(
-            result
-                .to_struct()
-                .field_by_name("b")
-                .unwrap()
-                .to_primitive()
-                .as_slice::<i32>(),
-            [4, 5].as_slice()
+        let expected_b = PrimitiveArray::from_iter([4i32, 5]);
+        assert_arrays_eq!(
+            result.to_struct().unmasked_field_by_name("b").unwrap(),
+            expected_b
         );
     }
 
@@ -706,7 +690,10 @@ mod tests {
         );
 
         // ...and the result is masked with the validity of the parent StructArray
-        assert_eq!(result.scalar_at(0), Scalar::null(result.dtype().clone()),);
+        assert_eq!(
+            result.scalar_at(0).unwrap(),
+            Scalar::null(result.dtype().clone()),
+        );
         assert_nth_scalar!(result, 1, 2);
         assert_nth_scalar!(result, 2, 3);
     }
@@ -733,19 +720,30 @@ mod tests {
 
         // Struct scalars holding the "c" field value scalars
         assert_eq!(
-            result.scalar_at(0).as_struct().field_by_idx(0).unwrap(),
+            result
+                .scalar_at(0)
+                .unwrap()
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap(),
             Scalar::primitive(4, Nullability::Nullable)
         );
         assert!(
             result
                 .scalar_at(1)
+                .unwrap()
                 .as_struct()
                 .field_by_idx(0)
                 .unwrap()
                 .is_null(),
         );
         assert_eq!(
-            result.scalar_at(2).as_struct().field_by_idx(0).unwrap(),
+            result
+                .scalar_at(2)
+                .unwrap()
+                .as_struct()
+                .field_by_idx(0)
+                .unwrap(),
             Scalar::primitive(6, Nullability::Nullable)
         );
     }

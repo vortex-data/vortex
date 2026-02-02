@@ -35,7 +35,7 @@ impl Executable for Mask {
             }
             CanonicalOutput::Array(a) => {
                 let bool = a.into_array().execute::<BoolArray>(ctx)?;
-                let mask = bool.validity_mask();
+                let mask = bool.validity_mask()?;
                 let bits = bool.into_bit_buffer();
                 // To handle nullable boolean arrays, we treat nulls as false in the mask.
                 // TODO(ngates): is this correct? Feels like we should just force the caller to

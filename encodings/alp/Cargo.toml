@@ -30,7 +30,6 @@ vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
-vortex-vector = { workspace = true }
 
 [dev-dependencies]
 divan = { workspace = true }

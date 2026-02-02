@@ -46,7 +46,7 @@ mod tests {
     fn test_string_new() {
         unsafe {
             let test_str = "hello world";
-            let ptr = test_str.as_ptr() as *const c_char;
+            let ptr = test_str.as_ptr().cast();
             let len = test_str.len();
 
             let vx_str = vx_binary_new(ptr, len);
@@ -66,7 +66,7 @@ mod tests {
             let ptr = vx_binary_ptr(vx_str);
             let len = vx_binary_len(vx_str);
 
-            let slice = slice::from_raw_parts(ptr as *const u8, len);
+            let slice = slice::from_raw_parts(ptr.cast::<u8>(), len);
             assert_eq!(slice, "testing".as_bytes());
 
             vx_binary_free(vx_str);
@@ -77,7 +77,7 @@ mod tests {
     fn test_empty_string() {
         unsafe {
             let empty = "";
-            let ptr = empty.as_ptr() as *const c_char;
+            let ptr = empty.as_ptr().cast();
             let vx_str = vx_binary_new(ptr, 0);
 
             assert_eq!(vx_binary_len(vx_str), 0);
@@ -91,7 +91,7 @@ mod tests {
     fn test_unicode_string() {
         unsafe {
             let unicode_str = "Hello 世界 🌍";
-            let ptr = unicode_str.as_ptr() as *const c_char;
+            let ptr = unicode_str.as_ptr().cast();
             let len = unicode_str.len();
 
             let vx_str = vx_binary_new(ptr, len);

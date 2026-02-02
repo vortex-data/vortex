@@ -111,8 +111,8 @@ impl VTable for FSSTVTable {
         if buffers.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 buffers, got {}", buffers.len());
         }
-        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host()?);
-        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host()?);
+        let symbols = Buffer::<Symbol>::from_byte_buffer(buffers[0].clone().try_to_host_sync()?);
+        let symbol_lengths = Buffer::<u8>::from_byte_buffer(buffers[1].clone().try_to_host_sync()?);
 
         if children.len() != 2 {
             vortex_bail!(InvalidArgument: "Expected 2 children, got {}", children.len());
@@ -176,22 +176,26 @@ impl VTable for FSSTVTable {
         Ok(())
     }
 
-    fn append_to_builder(array: &FSSTArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
+    fn append_to_builder(
+        array: &FSSTArray,
+        builder: &mut dyn ArrayBuilder,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<()> {
         let Some(builder) = builder.as_any_mut().downcast_mut::<VarBinViewBuilder>() else {
-            builder.extend_from_array(&array.to_canonical()?.into_array());
+            builder.extend_from_array(&array.to_array().execute::<Canonical>(ctx)?.into_array());
             return Ok(());
         };
 
         // Decompress the whole block of data into a new buffer, and create some views
         // from it instead.
-        let (buffer, views) = fsst_decode_views(array, builder.completed_block_count());
+        let (buffers, views) = fsst_decode_views(array, builder.completed_block_count(), ctx)?;
 
-        builder.push_buffer_and_adjusted_views(&[buffer], &views, array.validity_mask());
+        builder.push_buffer_and_adjusted_views(&buffers, &views, array.validity_mask()?);
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        canonicalize_fsst(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        canonicalize_fsst(array, ctx)
     }
 
     fn execute_parent(
@@ -215,7 +219,7 @@ impl VTable for FSSTVTable {
                         .vortex_expect("varbin slice cannot fail")
                         .as_::<VarBinVTable>()
                         .clone(),
-                    array.uncompressed_lengths().slice(range),
+                    array.uncompressed_lengths().slice(range)?,
                 )
             }
             .into_array(),
@@ -423,8 +427,14 @@ impl ValidityChild<FSSTVTable> for FSSTVTable {
 
 impl VisitorVTable<FSSTVTable> for FSSTVTable {
     fn visit_buffers(array: &FSSTArray, visitor: &mut dyn ArrayBufferVisitor) {
-        visitor.visit_buffer(&array.symbols().clone().into_byte_buffer());
-        visitor.visit_buffer(&array.symbol_lengths().clone().into_byte_buffer());
+        visitor.visit_buffer_handle(
+            "symbols",
+            &BufferHandle::new_host(array.symbols().clone().into_byte_buffer()),
+        );
+        visitor.visit_buffer_handle(
+            "symbol_lengths",
+            &BufferHandle::new_host(array.symbol_lengths().clone().into_byte_buffer()),
+        );
     }
 
     fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {

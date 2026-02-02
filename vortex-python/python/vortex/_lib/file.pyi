@@ -14,6 +14,7 @@ from .dtype import DType
 from .expr import Expr
 from .iter import ArrayIterator
 from .scan import RepeatedScan
+from .store import ObjectStore
 
 @final
 class VortexFile:
@@ -25,6 +26,7 @@ class VortexFile:
         projection: IntoProjection = None,
         *,
         expr: Expr | None = None,
+        limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> ArrayIterator: ...
@@ -33,6 +35,7 @@ class VortexFile:
         projection: IntoProjection = None,
         *,
         expr: Expr | None = None,
+        limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> RepeatedScan: ...
@@ -41,10 +44,11 @@ class VortexFile:
         projection: IntoProjection = None,
         *,
         expr: Expr | None = None,
+        limit: int | None = None,
         batch_size: int | None = None,
     ) -> pa.RecordBatchReader: ...
     def to_dataset(self) -> VortexDataset: ...
     def to_polars(self) -> pl.LazyFrame: ...
     def splits(self) -> list[tuple[int, int]]: ...
 
-def open(path: str, *, without_segment_cache: bool = False) -> VortexFile: ...
+def open(path: str, *, store: ObjectStore | None = None, without_segment_cache: bool = False) -> VortexFile: ...

@@ -15,6 +15,11 @@ pub struct SliceArray {
     pub(super) stats: ArrayStats,
 }
 
+pub struct SliceArrayParts {
+    pub child: ArrayRef,
+    pub range: Range<usize>,
+}
+
 impl SliceArray {
     pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
         if range.end > child.len() {
@@ -39,5 +44,13 @@ impl SliceArray {
     /// The child array being sliced.
     pub fn child(&self) -> &ArrayRef {
         &self.child
+    }
+
+    /// Consume the slice array and return its components.
+    pub fn into_parts(self) -> SliceArrayParts {
+        SliceArrayParts {
+            child: self.child,
+            range: self.range,
+        }
     }
 }

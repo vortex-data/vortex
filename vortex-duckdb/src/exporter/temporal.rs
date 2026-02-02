@@ -3,7 +3,6 @@
 
 use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
-use vortex::array::ToCanonical;
 use vortex::array::arrays::TemporalArray;
 use vortex::error::VortexResult;
 
@@ -15,21 +14,14 @@ struct TemporalExporter {
     storage_type_exporter: Box<dyn ColumnExporter>,
 }
 
-pub(crate) fn new_exporter(array: &TemporalArray) -> VortexResult<Box<dyn ColumnExporter>> {
-    Ok(Box::new(TemporalExporter {
-        storage_type_exporter: primitive::new_exporter(
-            array.temporal_values().clone().to_primitive(),
-        )?,
-    }))
-}
-
 impl ColumnExporter for TemporalExporter {
     fn export(&self, offset: usize, len: usize, vector: &mut Vector) -> VortexResult<()> {
         self.storage_type_exporter.export(offset, len, vector)
     }
 }
 
-pub(crate) fn new_operator_exporter(
+// TODO(joe): into_parts
+pub(crate) fn new_exporter(
     array: TemporalArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Box<dyn ColumnExporter>> {
@@ -40,6 +32,7 @@ pub(crate) fn new_operator_exporter(
                 .clone()
                 .execute::<Canonical>(ctx)?
                 .into_primitive(),
+            ctx,
         )?,
     }))
 }
@@ -51,7 +44,9 @@ mod tests {
     use vortex::array::arrays::TemporalArray;
     use vortex::buffer::buffer;
     use vortex::dtype::datetime::TimeUnit;
+    use vortex_array::VortexSessionExecute;
 
+    use crate::SESSION;
     use crate::cpp;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
@@ -67,7 +62,7 @@ mod tests {
         let mut chunk =
             DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP_S)]);
 
-        new_exporter(&arr)
+        new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
             .export(1, 5, &mut chunk.get_vector(0))
             .unwrap();
@@ -91,7 +86,7 @@ mod tests {
         );
         let mut chunk = DataChunk::new([LogicalType::new(cpp::duckdb_type::DUCKDB_TYPE_TIMESTAMP)]);
 
-        new_exporter(&arr)
+        new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
             .export(1, 5, &mut chunk.get_vector(0))
             .unwrap();
@@ -114,7 +109,7 @@ mod tests {
 
         let mut chunk = DataChunk::new([LogicalType::try_from(arr.dtype()).unwrap()]);
 
-        new_exporter(&arr)
+        new_exporter(arr, &mut SESSION.create_execution_ctx())
             .unwrap()
             .export(1, 5, &mut chunk.get_vector(0))
             .unwrap();

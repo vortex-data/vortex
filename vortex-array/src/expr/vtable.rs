@@ -15,11 +15,16 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
-use vortex_vector::Datum;
-use vortex_vector::VectorOps;
+use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::Executable;
+use crate::ExecutionCtx;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -54,7 +59,11 @@ pub trait VTable: 'static + Sized + Send + Sync {
     }
 
     /// Deserialize the options of this expression.
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         vortex_bail!("Expression {} is not deserializable", self.id());
     }
 
@@ -78,29 +87,14 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
 
-    /// Evaluate the expression in the given scope.
-    ///
-    /// This function will be deprecated in a future release in favor of [`VTable::execute`].
-    fn evaluate(
-        &self,
-        options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        _ = options;
-        _ = expr;
-        _ = scope;
-        vortex_bail!("Expression {} does not support evaluation", self.id());
-    }
-
     /// Execute the expression on the given vector with the given dtype.
     ///
     /// This function will become required in a future release.
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        _ = options;
-        drop(args);
-        vortex_bail!("Expression {} does not support execution", self.id());
-    }
+    fn execute(
+        &self,
+        options: &Self::Options,
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -305,23 +299,64 @@ pub trait SimplifyCtx {
 }
 
 /// Arguments for expression execution.
-pub struct ExecutionArgs {
-    /// The input datums for the expression, one per child.
-    pub datums: Vec<Datum>,
-    /// The input dtypes for the expression, one per child.
-    pub dtypes: Vec<DType>,
+pub struct ExecutionArgs<'a> {
+    /// The inputs for the expression, one per child.
+    pub inputs: Vec<ArrayRef>,
     /// The row count of the execution scope.
     pub row_count: usize,
-    /// The expected return dtype of the expression, as computed by [`Expression::return_dtype`].
-    pub return_dtype: DType,
+    /// The execution context.
+    pub ctx: &'a mut ExecutionCtx,
 }
 
-/// Arguments for expression validity execution.
-pub struct ValidityExecutionArgs {
-    /// The input masks for the expression, one per child.
-    pub inputs: Vec<Mask>,
-    /// The row count of the execution scope.
-    pub row_count: usize,
+/// The result of expression execution.
+pub enum ExecutionResult {
+    Array(Canonical),
+    Scalar(ConstantArray),
+}
+
+impl ExecutionResult {
+    pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
+        ExecutionResult::Scalar(ConstantArray::new(scalar.into(), len))
+    }
+
+    /// Returns the length of this execution result.
+    pub fn len(&self) -> usize {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.len(),
+            ExecutionResult::Scalar(constant) => constant.len(),
+        }
+    }
+
+    /// Returns true if this execution result has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the data type of this execution result.
+    pub fn dtype(&self) -> &DType {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.dtype(),
+            ExecutionResult::Scalar(constant) => constant.dtype(),
+        }
+    }
+}
+
+impl Executable for ExecutionResult {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        Ok(match array.as_opt::<ConstantVTable>() {
+            None => ExecutionResult::Array(array.execute::<Canonical>(ctx)?),
+            Some(constant) => ExecutionResult::Scalar(constant.clone()),
+        })
+    }
+}
+
+impl IntoArray for ExecutionResult {
+    fn into_array(self) -> ArrayRef {
+        match self {
+            ExecutionResult::Array(canonical) => canonical.into_array(),
+            ExecutionResult::Scalar(constant) => constant.into_array(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -376,7 +411,11 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     fn fmt_sql(&self, expression: &Expression, f: &mut Formatter<'_>) -> fmt::Result;
 
     fn options_serialize(&self, options: &dyn Any) -> VortexResult<Option<Vec<u8>>>;
-    fn options_deserialize(&self, metadata: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>>;
+    fn options_deserialize(
+        &self,
+        metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Box<dyn Any + Send + Sync>>;
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync>;
     fn options_eq(&self, a: &dyn Any, b: &dyn Any) -> bool;
     fn options_hash(&self, options: &dyn Any, hasher: &mut dyn Hasher);
@@ -391,8 +430,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum>;
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult>;
     fn reduce(
         &self,
         options: &dyn Any,
@@ -444,8 +482,12 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         V::serialize(&self.0, downcast::<V>(options))
     }
 
-    fn options_deserialize(&self, bytes: &[u8]) -> VortexResult<Box<dyn Any + Send + Sync>> {
-        Ok(Box::new(V::deserialize(&self.0, bytes)?))
+    fn options_deserialize(
+        &self,
+        bytes: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Box<dyn Any + Send + Sync>> {
+        Ok(Box::new(V::deserialize(&self.0, bytes, session)?))
     }
 
     fn options_clone(&self, options: &dyn Any) -> Box<dyn Any + Send + Sync> {
@@ -504,50 +546,44 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Datum> {
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
         let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;
         #[cfg(debug_assertions)]
-        let expected_dtype = args.return_dtype.clone();
+        let expected_dtype = {
+            let args_dtypes: Vec<DType> = args
+                .inputs
+                .iter()
+                .map(|array| array.dtype().clone())
+                .collect();
+            V::return_dtype(&self.0, options, &args_dtypes)
+        }?;
 
         let result = V::execute(&self.0, options, args)?;
 
-        if let Datum::Vector(v) = &result {
-            assert_eq!(
-                v.len(),
-                expected_row_count,
-                "Expression execution {} returned vector of length {}, but expected {}",
-                self.0.id(),
-                v.len(),
-                expected_row_count,
-            );
-        }
+        assert_eq!(
+            result.len(),
+            expected_row_count,
+            "Expression execution {} returned vector of length {}, but expected {}",
+            self.0.id(),
+            result.len(),
+            expected_row_count,
+        );
 
         // In debug mode, validate that the output dtype matches the expected return dtype.
         #[cfg(debug_assertions)]
         {
-            use vortex_vector::datum_matches_dtype;
-
-            if !datum_matches_dtype(&result, &expected_dtype) {
-                vortex_bail!(
-                    "Expression execution returned datum of invalid dtype. Expected {}, got {:?}",
-                    expected_dtype,
-                    result
-                );
-            }
+            vortex_error::vortex_ensure!(
+                result.dtype() == &expected_dtype,
+                "Expression execution {} returned vector of invalid dtype. Expected {}, got {}",
+                self.0.id(),
+                expected_dtype,
+                result.dtype(),
+            );
         }
 
         Ok(result)
-    }
-
-    fn evaluate(&self, expression: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        V::evaluate(
-            &self.0,
-            downcast::<V>(expression.options().as_any()),
-            expression,
-            scope,
-        )
     }
 
     fn reduce(
@@ -658,9 +694,12 @@ impl ExprVTable {
     }
 
     /// Deserialize an options of this expression vtable from metadata.
-    pub fn deserialize(&self, metadata: &[u8]) -> VortexResult<ScalarFn> {
+    pub fn deserialize(&self, metadata: &[u8], session: &VortexSession) -> VortexResult<ScalarFn> {
         Ok(unsafe {
-            ScalarFn::new_unchecked(self.clone(), self.as_dyn().options_deserialize(metadata)?)
+            ScalarFn::new_unchecked(
+                self.clone(),
+                self.as_dyn().options_deserialize(metadata, session)?,
+            )
         })
     }
 }
@@ -692,10 +731,10 @@ impl Debug for ExprVTable {
 
 #[cfg(test)]
 mod tests {
-    use rstest::fixture;
     use rstest::rstest;
 
     use super::*;
+    use crate::LEGACY_SESSION;
     use crate::expr::exprs::between::between;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::binary::checked_add;
@@ -719,15 +758,6 @@ mod tests {
     use crate::expr::exprs::select::select;
     use crate::expr::exprs::select::select_exclude;
     use crate::expr::proto::ExprSerializeProtoExt;
-    use crate::expr::proto::deserialize_expr_proto;
-    use crate::expr::session::ExprRegistry;
-    use crate::expr::session::ExprSession;
-
-    #[fixture]
-    #[once]
-    fn registry() -> ExprRegistry {
-        ExprSession::default().registry().clone()
-    }
 
     #[rstest]
     // Root and selection expressions
@@ -780,12 +810,9 @@ mod tests {
     #[case(and(gt(col("a"), lit(0)), lt(col("a"), lit(100))))]
     #[case(or(is_null(col("a")), eq(col("a"), lit(0))))]
     #[case(not(and(eq(col("status"), lit("active")), gt(col("age"), lit(18)))))]
-    fn text_expr_serde_round_trip(
-        registry: &ExprRegistry,
-        #[case] expr: Expression,
-    ) -> VortexResult<()> {
+    fn text_expr_serde_round_trip(#[case] expr: Expression) -> VortexResult<()> {
         let serialized_pb = expr.serialize_proto()?;
-        let deserialized_expr = deserialize_expr_proto(&serialized_pb, registry)?;
+        let deserialized_expr = Expression::from_proto(&serialized_pb, &LEGACY_SESSION)?;
 
         assert_eq!(&expr, &deserialized_expr);
 

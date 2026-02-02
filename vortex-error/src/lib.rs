@@ -6,9 +6,6 @@
 //! This crate defines error & result types for Vortex.
 //! It also contains a variety of useful macros for error handling.
 
-#[cfg(feature = "python")]
-pub mod python;
-
 use std::backtrace::Backtrace;
 use std::borrow::Cow;
 use std::convert::Infallible;
@@ -126,18 +123,11 @@ pub enum VortexError {
     UrlError(url::ParseError, Box<Backtrace>),
     /// Wrap errors for fallible integer casting.
     TryFromInt(TryFromIntError, Box<Backtrace>),
+    /// Wrap protobuf-related errors
+    Prost(Box<dyn Error + Send + Sync + 'static>, Box<Backtrace>),
     /// Wrap serde and serde json errors
     #[cfg(feature = "serde")]
     SerdeJsonError(serde_json::Error, Box<Backtrace>),
-    /// Wrap prost encode error
-    #[cfg(feature = "prost")]
-    ProstEncodeError(prost::EncodeError, Box<Backtrace>),
-    /// Wrap prost decode error
-    #[cfg(feature = "prost")]
-    ProstDecodeError(prost::DecodeError, Box<Backtrace>),
-    /// Wrap prost unknown enum value
-    #[cfg(feature = "prost")]
-    ProstUnknownEnumValue(prost::UnknownEnumValue, Box<Backtrace>),
 }
 
 impl VortexError {
@@ -232,17 +222,8 @@ impl Display for VortexError {
             VortexError::SerdeJsonError(err, backtrace) => {
                 write!(f, "{err}\nBacktrace:\n{backtrace}")
             }
-            #[cfg(feature = "prost")]
-            VortexError::ProstEncodeError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "prost")]
-            VortexError::ProstDecodeError(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
-            }
-            #[cfg(feature = "prost")]
-            VortexError::ProstUnknownEnumValue(err, backtrace) => {
-                write!(f, "{err}\nBacktrace:\n{backtrace}")
+            VortexError::Prost(err, backtrace) => {
+                write!(f, "Protobuf error: {err}\nBacktrace:\n{backtrace}")
             }
         }
     }
@@ -266,12 +247,7 @@ impl Error for VortexError {
             VortexError::UrlError(err, _) => Some(err),
             #[cfg(feature = "serde")]
             VortexError::SerdeJsonError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstEncodeError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstDecodeError(err, _) => Some(err),
-            #[cfg(feature = "prost")]
-            VortexError::ProstUnknownEnumValue(err, _) => Some(err),
+            VortexError::Prost(err, _) => Some(err.as_ref()),
             _ => None,
         }
     }
@@ -433,6 +409,20 @@ macro_rules! vortex_ensure {
     };
 }
 
+/// A macro that mirrors `assert_eq!` but instead of panicking when left != right,
+/// it will immediately return an erroneous `VortexResult` to the calling context.
+#[macro_export]
+macro_rules! vortex_ensure_eq {
+    ($left:expr, $right:expr) => {
+        $crate::vortex_ensure_eq!($left, $right, AssertionFailed: "{} != {}: {:?} != {:?}", stringify!($left), stringify!($right), $left, $right);
+    };
+    ($left:expr, $right:expr, $($tt:tt)*) => {
+        if $left != $right {
+            $crate::vortex_bail!($($tt)*);
+        }
+    };
+}
+
 /// A convenient macro for panicking with a VortexError in the presence of a programmer error
 /// (e.g., an invariant has been violated).
 #[macro_export]
@@ -536,24 +526,21 @@ impl From<serde_json::Error> for VortexError {
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::EncodeError> for VortexError {
     fn from(value: prost::EncodeError) -> Self {
-        VortexError::ProstEncodeError(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::DecodeError> for VortexError {
     fn from(value: prost::DecodeError) -> Self {
-        VortexError::ProstDecodeError(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 
-#[cfg(feature = "prost")]
 impl From<prost::UnknownEnumValue> for VortexError {
     fn from(value: prost::UnknownEnumValue) -> Self {
-        VortexError::ProstUnknownEnumValue(value, Box::new(Backtrace::capture()))
+        Self::Prost(Box::new(value), Box::new(Backtrace::capture()))
     }
 }
 

@@ -25,7 +25,7 @@ use crate::vtable::ValidityHelper;
 
 impl TakeKernel for BoolVTable {
     fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices_nulls_zeroed = match indices.validity_mask() {
+        let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
                 return Ok(ConstantArray::new(
@@ -38,10 +38,10 @@ impl TakeKernel for BoolVTable {
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {
-            take_valid_indices(array.bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
+            take_valid_indices(&array.to_bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
 
-        Ok(BoolArray::from_bit_buffer(buffer, array.validity().take(indices)?).to_array())
+        Ok(BoolArray::new(buffer, array.validity().take(indices)?).to_array())
     }
 }
 
@@ -103,8 +103,8 @@ mod test {
             .unwrap()
             .to_bool();
         assert_eq!(
-            b.bit_buffer(),
-            BoolArray::from_iter([Some(false), None, Some(false)]).bit_buffer()
+            b.to_bit_buffer(),
+            BoolArray::from_iter([Some(false), None, Some(false)]).to_bit_buffer()
         );
 
         let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);

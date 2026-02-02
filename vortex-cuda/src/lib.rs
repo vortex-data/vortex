@@ -3,22 +3,54 @@
 
 //! CUDA support for Vortex arrays.
 
-mod device_buffer;
-pub mod executor;
-mod for_;
-mod kernel;
-mod session;
-
 use std::process::Command;
 
+mod canonical;
+mod device_buffer;
+pub mod executor;
+mod host_to_device_allocator;
+mod kernel;
+mod session;
+mod stream;
+mod stream_pool;
+
+pub use canonical::CanonicalCudaExt;
+pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
-use for_::ForExecutor;
+pub use host_to_device_allocator::CopyDeviceReadAt;
+use kernel::ALPExecutor;
+use kernel::BitPackedExecutor;
+use kernel::DecimalBytePartsExecutor;
+use kernel::DictExecutor;
+use kernel::FilterExecutor;
+use kernel::FoRExecutor;
+use kernel::ZigZagExecutor;
+use kernel::ZstdExecutor;
+pub use kernel::ZstdKernelPrep;
+pub use kernel::launch_cuda_kernel_impl;
+pub use kernel::zstd_kernel_prepare;
 pub use session::CudaSession;
+pub use session::CudaSessionExt;
+pub use stream_pool::VortexCudaStreamPool;
+use vortex_alp::ALPVTable;
+use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::SliceVTable;
+use vortex_decimal_byte_parts::DecimalBytePartsVTable;
+use vortex_fastlanes::BitPackedVTable;
+use vortex_fastlanes::FoRVTable;
+pub use vortex_nvcomp as nvcomp;
+use vortex_sequence::SequenceVTable;
+use vortex_zigzag::ZigZagVTable;
+use vortex_zstd::ZstdVTable;
 
-/// Check if the NVIDIA CUDA Compiler is available.
-pub fn has_nvcc() -> bool {
+use crate::kernel::SequenceExecutor;
+use crate::kernel::SliceExecutor;
+
+/// Checks if CUDA is available on the system by looking for nvcc.
+pub fn cuda_available() -> bool {
     Command::new("nvcc")
         .arg("--version")
         .output()
@@ -28,6 +60,16 @@ pub fn has_nvcc() -> bool {
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
     tracing::info!("Registering CUDA kernels");
-    session.register_kernel("fastlanes.for".into(), &ForExecutor);
-    // TODO(0ax1): Register additional executors
+    session.register_kernel(ALPVTable::ID, &ALPExecutor);
+    session.register_kernel(BitPackedVTable::ID, &BitPackedExecutor);
+    session.register_kernel(DecimalBytePartsVTable::ID, &DecimalBytePartsExecutor);
+    session.register_kernel(DictVTable::ID, &DictExecutor);
+    session.register_kernel(FoRVTable::ID, &FoRExecutor);
+    session.register_kernel(SequenceVTable::ID, &SequenceExecutor);
+    session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
+    session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
+
+    // Operation kernels
+    session.register_kernel(FilterVTable::ID, &FilterExecutor);
+    session.register_kernel(SliceVTable::ID, &SliceExecutor);
 }

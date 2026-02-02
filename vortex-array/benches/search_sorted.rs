@@ -28,7 +28,7 @@ fn binary_search_vortex(bencher: Bencher) {
     let (sorted_array, target) = fixture();
     bencher
         .with_inputs(|| (&sorted_array, &target))
-        .bench_refs(|(array, target)| array.search_sorted(target, SearchSortedSide::Left));
+        .bench_refs(|(array, target)| array.search_sorted(target, SearchSortedSide::Left).unwrap());
 }
 
 fn fixture() -> (Vec<i32>, i32) {

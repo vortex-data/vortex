@@ -13,27 +13,21 @@ use vortex_array::vtable::ArrayId;
 use vortex_buffer::AlignedBuf;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBuffer;
-use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::dtype as fbd;
 use vortex_flatbuffers::message as fb;
 use vortex_flatbuffers::message::MessageHeader;
 use vortex_flatbuffers::message::MessageVersion;
 
 /// A message decoded from an IPC stream.
-///
-/// Note that the `Array` variant cannot fully decode into an [`vortex_array::ArrayRef`] without
-/// a [`vortex_array::ArrayContext`] and a [`DType`]. As such, we partially decode into an
-/// [`ArrayParts`] and allow the caller to finish the decoding.
 #[derive(Debug)]
 pub enum DecoderMessage {
     Array((ArrayParts, ArrayContext, usize)),
     Buffer(ByteBuffer),
-    DType(DType),
+    DType(FlatBuffer),
 }
 
 #[derive(Default)]
@@ -156,10 +150,7 @@ impl MessageDecoder {
                             return Ok(PollRead::Some(DecoderMessage::Buffer(body)));
                         }
                         MessageHeader::DTypeMessage => {
-                            let body: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
-                            let fb_dtype = root::<fbd::DType>(body.as_ref())?;
-                            let dtype = DType::try_from_view(fb_dtype, body.clone())?;
-
+                            let dtype: FlatBuffer = bytes.copy_to_const_aligned::<8>(body_length);
                             self.state = Default::default();
                             return Ok(PollRead::Some(DecoderMessage::DType(dtype)));
                         }
@@ -190,7 +181,7 @@ mod test {
     fn write_and_read(expected: &dyn Array) {
         let mut ipc_bytes = BytesMut::new();
         let mut encoder = MessageEncoder::default();
-        for buf in encoder.encode(EncoderMessage::Array(expected)) {
+        for buf in encoder.encode(EncoderMessage::Array(expected)).unwrap() {
             ipc_bytes.extend_from_slice(buf.as_ref());
         }
 

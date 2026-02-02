@@ -23,7 +23,7 @@ use crate::array::take_canonical_array_non_nullable_indices;
 
 pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResult<ArrayRef> {
     let validity = if array.dtype().is_nullable() {
-        let validity_buff = array.validity_mask().to_bit_buffer();
+        let validity_buff = array.validity_mask()?.to_bit_buffer();
         Validity::from_iter(
             filter
                 .iter()
@@ -38,11 +38,11 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
     match array.dtype() {
         DType::Bool(_) => {
             let bool_array = array.to_bool();
-            Ok(BoolArray::from_bit_buffer(
+            Ok(BoolArray::new(
                 BitBuffer::from_iter(
                     filter
                         .iter()
-                        .zip(bool_array.bit_buffer().iter())
+                        .zip(bool_array.to_bit_buffer().iter())
                         .filter(|(f, _)| **f)
                         .map(|(_, v)| v),
                 ),
@@ -93,7 +93,7 @@ pub fn filter_canonical_array(array: &dyn Array, filter: &[bool]) -> VortexResul
         DType::Struct(..) => {
             let struct_array = array.to_struct();
             let filtered_children = struct_array
-                .fields()
+                .unmasked_fields()
                 .iter()
                 .map(|c| filter_canonical_array(c, filter))
                 .collect::<VortexResult<Vec<_>>>()?;

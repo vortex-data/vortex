@@ -4,6 +4,7 @@
 use std::hash::Hash;
 
 use vortex_dtype::DType;
+use vortex_vector::binaryview::BinaryView;
 
 use crate::Precision;
 use crate::arrays::varbinview::VarBinViewArray;
@@ -15,7 +16,7 @@ use crate::vtable::BaseArrayVTable;
 
 impl BaseArrayVTable<VarBinViewVTable> for VarBinViewVTable {
     fn len(array: &VarBinViewArray) -> usize {
-        array.views.len()
+        array.views_handle().len() / size_of::<BinaryView>()
     }
 
     fn dtype(array: &VarBinViewArray) -> &DType {

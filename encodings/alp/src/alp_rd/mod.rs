@@ -4,6 +4,7 @@
 #![allow(clippy::cast_possible_truncation)]
 
 pub use array::*;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -22,7 +23,6 @@ use num_traits::One;
 use num_traits::PrimInt;
 use rustc_hash::FxBuildHasher;
 use vortex_array::Array;
-use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -31,6 +31,7 @@ use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -177,6 +178,7 @@ impl RDEncoder {
     /// Encode a set of floating point values with ALP-RD.
     ///
     /// Each value will be split into a left and right component, which are compressed individually.
+    // TODO(joe): make fallible
     pub fn encode(&self, array: &PrimitiveArray) -> ALPRDArray {
         match_each_alp_float_ptype!(array.ptype(), |P| { self.encode_generic::<P>(array) })
     }
@@ -265,6 +267,7 @@ impl RDEncoder {
                 // TODO(0ax1): handle chunk offsets
                 None,
             )
+            .vortex_expect("Patches construction in encode")
         });
 
         ALPRDArray::try_new(
@@ -290,7 +293,8 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
     right_bit_width: u8,
     right_parts: BufferMut<T::UINT>,
     left_parts_patches: Option<&Patches>,
-) -> Buffer<T> {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Buffer<T>> {
     if left_parts.len() != right_parts.len() {
         vortex_panic!("alp_rd_decode: left_parts.len != right_parts.len");
     }
@@ -304,19 +308,45 @@ pub fn alp_rd_decode<T: ALPRDFloat>(
 
     // Apply any patches
     if let Some(patches) = left_parts_patches {
-        let indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_primitive();
-        match_each_integer_ptype!(indices.ptype(), |T| {
-            indices
-                .as_slice::<T>()
-                .iter()
-                .copied()
-                .map(|idx| idx - patches.offset() as T)
-                .zip(patch_values.as_slice::<u16>().iter())
-                .for_each(|(idx, v)| values[idx as usize] = *v);
-        })
+        let indices = patches.indices().clone().execute::<PrimitiveArray>(ctx)?;
+        let patch_values = patches.values().clone().execute::<PrimitiveArray>(ctx)?;
+        alp_rd_apply_patches(&mut values, &indices, &patch_values, patches.offset());
     }
 
+    // Shift the left-parts and add in the right-parts.
+    Ok(alp_rd_decode_core(
+        left_parts_dict,
+        right_bit_width,
+        right_parts,
+        values,
+    ))
+}
+
+/// Apply patches to the decoded left-parts values.
+fn alp_rd_apply_patches(
+    values: &mut BufferMut<u16>,
+    indices: &PrimitiveArray,
+    patch_values: &PrimitiveArray,
+    offset: usize,
+) {
+    match_each_integer_ptype!(indices.ptype(), |T| {
+        indices
+            .as_slice::<T>()
+            .iter()
+            .copied()
+            .map(|idx| idx - offset as T)
+            .zip(patch_values.as_slice::<u16>().iter())
+            .for_each(|(idx, v)| values[idx as usize] = *v);
+    })
+}
+
+/// Core decode logic shared between `alp_rd_decode` and `execute_alp_rd_decode`.
+fn alp_rd_decode_core<T: ALPRDFloat>(
+    _left_parts_dict: &[u16],
+    right_bit_width: u8,
+    right_parts: BufferMut<T::UINT>,
+    values: BufferMut<u16>,
+) -> Buffer<T> {
     // Shift the left-parts and add in the right-parts.
     let mut index = 0;
     right_parts

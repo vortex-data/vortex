@@ -4,7 +4,7 @@
 use fastlanes::FoR;
 use num_traits::PrimInt;
 use num_traits::WrappingAdd;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::builders::PrimitiveBuilder;
 use vortex_array::vtable::ValidityHelper;
@@ -16,6 +16,7 @@ use vortex_dtype::UnsignedPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
@@ -44,7 +45,7 @@ impl<T: PhysicalPType<Physical = T> + FoR> UnpackStrategy<T> for FoRStrategy<T> 
     }
 }
 
-pub fn decompress(array: &FoRArray) -> PrimitiveArray {
+pub fn decompress(array: &FoRArray, ctx: &mut ExecutionCtx) -> VortexResult<PrimitiveArray> {
     let ptype = array.ptype();
 
     // Try to do fused unpack.
@@ -52,15 +53,15 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
         && let Some(bp) = array.encoded().as_opt::<BitPackedVTable>()
     {
         return match_each_unsigned_integer_ptype!(array.ptype(), |T| {
-            fused_decompress::<T>(array, bp)
+            fused_decompress::<T>(array, bp, ctx)
         });
     }
 
     // TODO(ngates): Do we need this to be into_encoded() somehow?
-    let encoded = array.encoded().to_primitive();
+    let encoded = array.encoded().clone().execute::<PrimitiveArray>(ctx)?;
     let validity = encoded.validity().clone();
 
-    match_each_integer_ptype!(ptype, |T| {
+    Ok(match_each_integer_ptype!(ptype, |T| {
         let min = array
             .reference_scalar()
             .as_primitive()
@@ -74,7 +75,7 @@ pub fn decompress(array: &FoRArray) -> PrimitiveArray {
                 validity,
             )
         }
-    })
+    }))
 }
 
 pub(crate) fn fused_decompress<
@@ -82,7 +83,8 @@ pub(crate) fn fused_decompress<
 >(
     for_: &FoRArray,
     bp: &BitPackedArray,
-) -> PrimitiveArray {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
     let ref_ = for_
         .reference_scalar()
         .as_primitive()
@@ -94,7 +96,7 @@ pub(crate) fn fused_decompress<
     // Create [`UnpackedChunks`] with FoR strategy.
     let mut unpacked = UnpackedChunks::new_with_strategy(
         strategy,
-        bp.packed().clone(),
+        bp.packed().as_host().clone(),
         bp.bit_width() as usize,
         bp.offset() as usize,
         bp.len(),
@@ -107,7 +109,7 @@ pub(crate) fn fused_decompress<
     let mut uninit_range = builder.uninit_range(bp.len());
     unsafe {
         // Append a dense null Mask.
-        uninit_range.append_mask(bp.validity_mask());
+        uninit_range.append_mask(bp.validity_mask()?);
     }
 
     // SAFETY: `decode_into` will initialize all values in this range.
@@ -117,9 +119,12 @@ pub(crate) fn fused_decompress<
     unpacked.decode_into(uninit_slice);
 
     if let Some(patches) = bp.patches() {
-        bitpack_decompress::apply_patches_to_uninit_range_fn(&mut uninit_range, patches, |v| {
-            v.wrapping_add(&ref_)
-        });
+        bitpack_decompress::apply_patches_to_uninit_range_fn(
+            &mut uninit_range,
+            patches,
+            ctx,
+            |v| v.wrapping_add(&ref_),
+        )?;
     };
 
     // SAFETY: We have set a correct validity mask via `append_mask` with `array.len()` values and
@@ -128,7 +133,7 @@ pub(crate) fn fused_decompress<
         uninit_range.finish();
     }
 
-    builder.finish_into_primitive()
+    Ok(builder.finish_into_primitive())
 }
 
 fn decompress_primitive<T: NativePType + WrappingAdd + PrimInt>(

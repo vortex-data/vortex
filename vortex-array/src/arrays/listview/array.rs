@@ -6,6 +6,7 @@ use std::sync::Arc;
 use num_traits::AsPrimitive;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
+use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -47,6 +48,7 @@ use crate::validity::Validity;
 /// # Examples
 ///
 /// ```
+/// # fn main() -> vortex_error::VortexResult<()> {
 /// # use vortex_array::arrays::{ListViewArray, PrimitiveArray};
 /// # use vortex_array::validity::Validity;
 /// # use vortex_array::IntoArray;
@@ -70,7 +72,7 @@ use crate::validity::Validity;
 /// assert_eq!(list_view.len(), 3);
 ///
 /// // Access individual lists
-/// let first_list = list_view.list_elements_at(0);
+/// let first_list = list_view.list_elements_at(0)?;
 /// assert_eq!(first_list.len(), 2);
 /// // First list contains elements[2..4] = [3, 4]
 ///
@@ -78,6 +80,8 @@ use crate::validity::Validity;
 /// let first_size = list_view.size_at(0);
 /// assert_eq!(first_offset, 2);
 /// assert_eq!(first_size, 2);
+/// # Ok(())
+/// # }
 /// ```
 ///
 /// [`ListArray`]: crate::arrays::ListArray
@@ -122,6 +126,24 @@ pub struct ListViewArray {
 
     /// The stats for this array.
     pub(super) stats_set: ArrayStats,
+}
+
+pub struct ListViewArrayParts {
+    pub nullability: Nullability,
+
+    pub elements_dtype: Arc<DType>,
+
+    /// See `ListViewArray::elements`
+    pub elements: ArrayRef,
+
+    /// See `ListViewArray::offsets`
+    pub offsets: ArrayRef,
+
+    /// See `ListViewArray::sizes`
+    pub sizes: ArrayRef,
+
+    /// See `ListViewArray::validity`
+    pub validity: Validity,
 }
 
 impl ListViewArray {
@@ -242,22 +264,28 @@ impl ListViewArray {
             );
         }
 
-        let offsets_primitive = offsets.to_primitive();
-        let sizes_primitive = sizes.to_primitive();
+        // Skip host-only validation when buffers are on the GPU.
+        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
+        let sizes_on_device = sizes.buffer_handles().iter().any(|h| h.is_on_device());
 
-        // Validate the `offsets` and `sizes` arrays.
-        match_each_integer_ptype!(offset_ptype, |O| {
-            match_each_integer_ptype!(size_ptype, |S| {
-                let offsets_slice = offsets_primitive.as_slice::<O>();
-                let sizes_slice = sizes_primitive.as_slice::<S>();
+        if !offsets_on_device && !sizes_on_device {
+            let offsets_primitive = offsets.to_primitive();
+            let sizes_primitive = sizes.to_primitive();
 
-                validate_offsets_and_sizes::<O, S>(
-                    offsets_slice,
-                    sizes_slice,
-                    elements.len() as u64,
-                )?;
-            })
-        });
+            // Validate the `offsets` and `sizes` arrays.
+            match_each_integer_ptype!(offset_ptype, |O| {
+                match_each_integer_ptype!(size_ptype, |S| {
+                    let offsets_slice = offsets_primitive.as_slice::<O>();
+                    let sizes_slice = sizes_primitive.as_slice::<S>();
+
+                    validate_offsets_and_sizes::<O, S>(
+                        offsets_slice,
+                        sizes_slice,
+                        elements.len() as u64,
+                    )?;
+                })
+            });
+        }
 
         Ok(())
     }
@@ -319,8 +347,17 @@ impl ListViewArray {
         .is_ok()
     }
 
-    pub fn into_parts(self) -> (ArrayRef, ArrayRef, ArrayRef, Validity) {
-        (self.elements, self.offsets, self.sizes, self.validity)
+    pub fn into_parts(self) -> ListViewArrayParts {
+        let nullability = self.dtype.nullability();
+        let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
+        ListViewArrayParts {
+            nullability,
+            elements_dtype: dtype,
+            elements: self.elements,
+            offsets: self.offsets,
+            sizes: self.sizes,
+            validity: self.validity,
+        }
     }
 
     /// Returns the offset at the given index.
@@ -343,6 +380,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.offsets
                     .scalar_at(index)
+                    .vortex_expect("offsets must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("offset must fit in usize")
@@ -370,6 +408,7 @@ impl ListViewArray {
                 // Slow path: use `scalar_at` if we can't downcast directly to `PrimitiveArray`.
                 self.sizes
                     .scalar_at(index)
+                    .vortex_expect("sizes must support scalar_at")
                     .as_primitive()
                     .as_::<usize>()
                     .vortex_expect("size must fit in usize")
@@ -377,7 +416,11 @@ impl ListViewArray {
     }
 
     /// Returns the elements at the given index from the list array.
-    pub fn list_elements_at(&self, index: usize) -> ArrayRef {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slice operation fails.
+    pub fn list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         let offset = self.offset_at(index);
         let size = self.size_at(index);
         self.elements().slice(offset..offset + size)

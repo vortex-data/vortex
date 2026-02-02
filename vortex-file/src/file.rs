@@ -24,7 +24,6 @@ use vortex_dtype::FieldPathSet;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
 use vortex_layout::segments::SegmentSource;
-use vortex_metrics::VortexMetrics;
 use vortex_scan::ScanBuilder;
 use vortex_scan::SplitBy;
 use vortex_session::VortexSession;
@@ -44,8 +43,6 @@ pub struct VortexFile {
     pub(crate) footer: Footer,
     /// The segment source used to read segments from this file.
     pub(crate) segment_source: Arc<dyn SegmentSource>,
-    /// Metrics tied to the file.
-    pub(crate) metrics: VortexMetrics,
     /// The Vortex session used to open this file
     pub(crate) session: VortexSession,
 }
@@ -73,11 +70,6 @@ impl VortexFile {
         self.footer.statistics()
     }
 
-    /// Returns a reference to the file's metrics.
-    pub fn metrics(&self) -> &VortexMetrics {
-        &self.metrics
-    }
-
     /// Create a new segment source for reading from the file.
     ///
     /// This may spawn a background I/O driver that will exit when the returned segment source
@@ -97,26 +89,9 @@ impl VortexFile {
 
     /// Initiate a scan of the file, returning a builder for configuring the scan.
     pub fn scan(&self) -> VortexResult<ScanBuilder<ArrayRef>> {
-        Ok(
-            ScanBuilder::new(self.session.clone(), self.layout_reader()?)
-                .with_metrics(self.metrics.clone()),
-        )
-    }
-
-    #[cfg(gpu_unstable)]
-    pub fn gpu_scan(
-        &self,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<vortex_scan::gpu::GpuScanBuilder<vortex_gpu::GpuVector>> {
-        let segment_source = self.segment_source();
-        let gpu_reader = self
-            .footer
-            .layout()
-            .new_gpu_reader("".into(), segment_source, ctx)?;
-
-        Ok(vortex_scan::gpu::GpuScanBuilder::new(
+        Ok(ScanBuilder::new(
             self.session.clone(),
-            gpu_reader,
+            self.layout_reader()?,
         ))
     }
 
