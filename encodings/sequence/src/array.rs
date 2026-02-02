@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -306,7 +307,7 @@ impl VTable for SequenceVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // Try parent kernels first (e.g., comparison fusion)
         if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
             return Ok(Some(result));
@@ -319,16 +320,17 @@ impl VTable for SequenceVTable {
 
         match filter.filter_mask().indices() {
             AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(Canonical::empty(array.dtype()))),
+            AllOr::None => Ok(Some(Canonical::empty(array.dtype()).into_array())),
             AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
                 let base = array.base().cast::<P>();
                 let multiplier = array.multiplier().cast::<P>();
-                Canonical::Primitive(execute_iter(
+                execute_iter(
                     base,
                     multiplier,
                     indices.iter().copied(),
                     array.dtype().nullability(),
-                ))
+                )
+                .into_array()
             }))),
         }
     }

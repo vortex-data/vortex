@@ -5,8 +5,9 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use fastlanes::BitPacking;
-use vortex_array::Canonical;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
@@ -65,7 +66,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
         parent: &FilterArray,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let values = match parent.filter_mask() {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -98,7 +99,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             primitive = primitive.patch(&patches)?;
         }
 
-        Ok(Some(Canonical::Primitive(primitive)))
+        Ok(Some(primitive.into_array()))
     }
 }
 

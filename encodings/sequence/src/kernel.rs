@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Canonical;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::BoolArray;
@@ -50,7 +50,7 @@ impl ExecuteParentKernel<SequenceVTable> for SequenceCompareKernel {
         parent: ScalarFnArrayView<'_, Binary>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // Only handle comparison operators
         let Some(cmp_op) = parent.options.maybe_cmp_operator() else {
             return Ok(None);
@@ -90,7 +90,7 @@ impl ExecuteParentKernel<SequenceVTable> for SequenceCompareKernel {
             let nullability = array.dtype().nullability() | constant.dtype().nullability();
             let result_array =
                 ConstantArray::new(Scalar::null(DType::Bool(nullability)), array.len).to_array();
-            return Ok(Some(result_array.execute(ctx)?));
+            return Ok(Some(result_array));
         };
 
         let nullability = array.dtype().nullability() | constant.dtype().nullability();
@@ -116,8 +116,8 @@ fn compare_eq_neq(
     constant: PValue,
     nullability: Nullability,
     negate: bool,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
+    _ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     // For Eq: match_val=true, default_val=false
     // For NotEq: match_val=false, default_val=true
     let match_val = !negate;
@@ -127,12 +127,13 @@ fn compare_eq_neq(
     let Some(set_idx) =
         find_intersection_scalar(array.base(), array.multiplier(), array.len, constant)
     else {
-        let result_array = ConstantArray::new(
-            Scalar::new(DType::Bool(nullability), not_match_val.into()),
-            array.len,
-        )
-        .to_array();
-        return Ok(Some(result_array.execute(ctx)?));
+        return Ok(Some(
+            ConstantArray::new(
+                Scalar::new(DType::Bool(nullability), not_match_val.into()),
+                array.len,
+            )
+            .into_array(),
+        ));
     };
     let idx = set_idx as u64;
     let len = array.len as u64;
@@ -143,7 +144,7 @@ fn compare_eq_neq(
             array.len,
         )
         .to_array();
-        return Ok(Some(result_array.execute(ctx)?));
+        return Ok(Some(result_array));
     }
 
     let (ends, values) = if idx == 0 {
@@ -165,8 +166,7 @@ fn compare_eq_neq(
         .into_array();
         (ends, values)
     };
-    let result_array = RunEndArray::try_new(ends, values)?.into_array();
-    Ok(Some(result_array.execute(ctx)?))
+    Ok(Some(RunEndArray::try_new(ends, values)?.into_array()))
 }
 
 fn compare_ordering(
@@ -174,8 +174,8 @@ fn compare_ordering(
     constant: PValue,
     operator: Operator,
     nullability: Nullability,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
+    _ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     let transition = find_transition_point(
         array.base(),
         array.multiplier(),
@@ -209,7 +209,7 @@ fn compare_ordering(
         }
     };
 
-    Ok(Some(result_array.execute(ctx)?))
+    Ok(Some(result_array))
 }
 
 enum Transition {
