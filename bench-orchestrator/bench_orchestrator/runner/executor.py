@@ -77,10 +77,12 @@ class BenchmarkExecutor:
                 cmd.extend(["--opt", f"{k}={v}"])
 
         if samply:
+            cmd = ["--"] + cmd
+            cmd_prefix = ["samply", "record"]
             if sample_rate:
-                cmd = ["samply", "record", "--rate", sample_rate, "--"] + cmd
+                cmd = cmd_prefix + ["--rate", sample_rate] + cmd
             else:
-                cmd = ["samply", "record", "--"] + cmd
+                cmd = cmd_prefix + cmd
 
         if self.verbose:
             console.print(f"[dim]$ {' '.join(cmd)}[/dim]")
