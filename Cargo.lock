@@ -10422,6 +10422,7 @@ dependencies = [
  "vortex-io",
  "vortex-mask",
  "vortex-nvcomp",
+ "vortex-runend",
  "vortex-scalar",
  "vortex-sequence",
  "vortex-session",

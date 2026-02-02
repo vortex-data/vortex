@@ -409,8 +409,8 @@ impl RunEndArray {
     #[inline]
     pub fn into_parts(self) -> RunEndArrayParts {
         RunEndArrayParts {
-            values: self.values,
             ends: self.ends,
+            values: self.values,
         }
     }
 }
