@@ -205,4 +205,74 @@ mod tests {
 
         Ok(())
     }
+
+    /// Doc example: demonstrates creating, writing, reading, and filtering a Vortex table.
+    #[tokio::test]
+    async fn doc_example() -> anyhow::Result<()> {
+        // [setup]
+        use std::sync::Arc;
+
+        use datafusion::datasource::provider::DefaultTableFactory;
+        use datafusion::execution::SessionStateBuilder;
+        use datafusion::prelude::SessionContext;
+        use datafusion_common::GetExt;
+        use object_store::memory::InMemory;
+
+        use crate::VortexFormatFactory;
+
+        let factory = Arc::new(VortexFormatFactory::new());
+        let state = SessionStateBuilder::new()
+            .with_default_features()
+            .with_table_factory(
+                factory.get_ext().to_uppercase(),
+                Arc::new(DefaultTableFactory::new()),
+            )
+            .with_file_formats(vec![factory])
+            .build();
+        let ctx = SessionContext::new_with_state(state).enable_url_table();
+        // [setup]
+
+        // Register an in-memory object store for the test.
+        let store = Arc::new(InMemory::new());
+        ctx.register_object_store(&url::Url::try_from("file://").unwrap(), store);
+
+        // [create]
+        ctx.sql(
+            "CREATE EXTERNAL TABLE my_table \
+                (name VARCHAR NOT NULL, age INT NOT NULL) \
+            STORED AS vortex \
+            LOCATION '/demo/'",
+        )
+        .await?;
+        // [create]
+
+        // [write]
+        ctx.sql(
+            "INSERT INTO my_table VALUES \
+                ('Alice', 30), ('Bob', 25), ('Charlie', 35), ('Diana', 28)",
+        )
+        .await?
+        .collect()
+        .await?;
+        // [write]
+
+        // [query]
+        let result = ctx
+            .sql("SELECT name, age FROM my_table WHERE age > 28 ORDER BY age")
+            .await?
+            .collect()
+            .await?;
+        // [query]
+
+        assert_snapshot!(pretty_format_batches(&result)?, @r"
+        +---------+-----+
+        | name    | age |
+        +---------+-----+
+        | Alice   | 30  |
+        | Charlie | 35  |
+        +---------+-----+
+        ");
+
+        Ok(())
+    }
 }

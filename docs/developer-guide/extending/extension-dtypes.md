@@ -1,4 +1,4 @@
-# Registering Extension Types
+# Extension DTypes
 
 :::{warning}
 This page is under construction.

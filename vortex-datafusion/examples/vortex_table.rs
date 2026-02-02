@@ -61,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
         .write(&mut f, st.to_array_stream())
         .await?;
 
+    // [register]
     let ctx = SessionContext::new();
     let format = Arc::new(VortexFormat::new(session));
     let table_url = ListingTableUrl::parse(
@@ -76,8 +77,8 @@ async fn main() -> anyhow::Result<()> {
         .await?;
 
     let listing_table = Arc::new(ListingTable::try_new(config)?);
-
     ctx.register_table("vortex_tbl", listing_table as _)?;
+    // [register]
 
     run_query(&ctx, "SELECT * FROM vortex_tbl").await?;
 
