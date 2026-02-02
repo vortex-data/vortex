@@ -34,7 +34,7 @@ your data, and query it.
 :::
 
 :::{grid-item-card} Use with a query engine
-:link: guides/index
+:link: user-guides/index
 :link-type: doc
 
 Integrate Vortex with **DataFusion**, **DuckDB**, **Spark**, **Trino**, or **Ray** for
@@ -50,23 +50,23 @@ as building blocks.
 :::
 
 :::{grid-item-card} Extend Vortex
-:link: guides/index
+:link: developer-guides/index
 :link-type: doc
 
-Write your own **encodings**, **layouts**, **compute functions**, or **extension types** and
-plug them into the ecosystem.
+Write your own **encodings**, **layouts**, **compute functions**, or **extension types** from
+Rust or Python.
 :::
 
-:::{grid-item-card} Embed Vortex in your system
-:link: guides/index
+:::{grid-item-card} Create an engine integration
+:link: developer-guides/index
 :link-type: doc
 
-Use the **C FFI**, **C++ wrapper**, **Scan API**, or **GPU acceleration** to embed Vortex
-in your own application or storage system.
+Build a **query engine connector** or **data source** using the **Scan API**, **C FFI**, or
+**C++ wrapper**.
 :::
 
-:::{grid-item-card} Contribute
-:link: internals/index
+:::{grid-item-card} Internals
+:link: developer-guides/index
 :link-type: doc
 
 Explore the **crate architecture**, **async runtime**, **session system**, and integration
@@ -97,10 +97,10 @@ hidden:
 ---
 
 getting-started/index
-guides/index
 concepts/index
+user-guides/index
+developer-guides/index
 specs/index
-internals/index
-project/index
 api/index
+project/index
 ```

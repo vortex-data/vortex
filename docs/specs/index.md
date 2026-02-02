@@ -9,6 +9,6 @@ maxdepth: 2
 
 file-format
 ipc-format
-wire-format
 dtype-format
+scalar-format
 ```
