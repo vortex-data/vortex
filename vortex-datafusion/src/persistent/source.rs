@@ -157,7 +157,7 @@ impl FileSource for VortexSource {
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
             batch_size,
-            limit: base_config.limit,
+            limit: base_config.limit.map(|l| l as u64),
             metrics: partition_metrics,
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
