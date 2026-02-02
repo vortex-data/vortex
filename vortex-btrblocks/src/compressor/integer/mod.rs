@@ -790,7 +790,7 @@ impl Scheme for SequenceScheme {
         }
 
         // If the distinct_values_count was computed (!= u32::MAX)
-        // Then all values in a sequence must be unqiue.
+        // Then all values in a sequence must be unique.
         if stats.distinct_values_count != u32::MAX
             && stats.distinct_values_count as usize != stats.src.len()
         {
