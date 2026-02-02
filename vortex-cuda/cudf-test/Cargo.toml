@@ -20,6 +20,13 @@ version = { workspace = true }
 workspace = true
 
 [dependencies]
+arrow-array = { workspace = true, features = ["ffi"] }
+arrow-schema = { workspace = true, features = ["ffi"] }
+futures = { workspace = true, features = ["executor"] }
+vortex-array = { workspace = true }
+vortex-buffer = { workspace = true }
+vortex-cuda = { path = "..", features = ["_test-harness"] }
+vortex-session = { workspace = true }
 
 [build-dependencies]
 bindgen = { workspace = true }

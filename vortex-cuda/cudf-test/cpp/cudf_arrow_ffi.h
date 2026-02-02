@@ -61,6 +61,7 @@ struct ArrowDeviceArray {
     int64_t device_id;
     ArrowDeviceType device_type;
     void* sync_event;
+    int64_t reserved[3];
 };
 
 // Error type: NULL on success, pointer to error string on failure.

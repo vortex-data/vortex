@@ -10467,7 +10467,14 @@ dependencies = [
 name = "vortex-cudf-test"
 version = "0.1.0"
 dependencies = [
+ "arrow-array 57.2.0",
+ "arrow-schema 57.2.0",
  "bindgen",
+ "futures",
+ "vortex-array",
+ "vortex-buffer",
+ "vortex-cuda",
+ "vortex-session",
 ]
 
 [[package]]

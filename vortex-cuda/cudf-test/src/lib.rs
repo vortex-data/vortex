@@ -195,6 +195,19 @@ impl Drop for CudfColumnView {
 
 #[cfg(test)]
 mod tests {
+    use arrow_array::ffi::FFI_ArrowSchema;
+    use arrow_schema::DataType;
+    use futures::executor::block_on;
+    use vortex_array::Canonical;
+    use vortex_array::IntoArray;
+    use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::validity::Validity;
+    use vortex_buffer::Buffer;
+    use vortex_cuda::CudaSession;
+    use vortex_cuda::arrow::CudaDeviceArrayExecute;
+    use vortex_cuda::executor::CudaArrayExt;
+    use vortex_session::VortexSession;
+
     use super::*;
 
     #[test]
@@ -209,5 +222,64 @@ mod tests {
                 Ok(())
             }
         }
+    }
+
+    #[test]
+    fn test_primitive_array_to_cudf_tableview() -> Result<()> {
+        // Create a PrimitiveArray with 100 i64 values
+        let data: Vec<i64> = (0..100).collect();
+        let expected_len = data.len();
+        let primitive_array =
+            PrimitiveArray::new(Buffer::from(data), Validity::NonNullable).into_array();
+
+        // Create CUDA execution context
+        let mut cuda_ctx = match CudaSession::create_execution_ctx(&VortexSession::empty()).unwrap();
+
+        // Export as ArrowDeviceArray using CudaDeviceArrayExecute
+        let device_array = block_on(Canonical::execute(
+            &primitive_array,
+            primitive_array.clone(),
+            &mut cuda_ctx,
+        ))
+        .unwrap();
+
+        // Synchronize the CUDA stream to ensure the data is ready
+        cuda_ctx.synchronize_stream().map_err(|e| CudfError {
+            message: e.to_string(),
+        })?;
+
+        // Create FFI_ArrowSchema from the data type
+        let mut ffi_schema =
+            FFI_ArrowSchema::try_from(&DataType::Int64).map_err(|e| CudfError {
+                message: format!("Failed to create FFI schema: {}", e),
+            })?;
+
+        // Create cudf context
+        let cudf_ctx = CudfContext::new()?;
+
+        // Import into cudf tableview
+        let tableview = unsafe {
+            cudf_ctx.tableview_from_device(
+                (&raw mut ffi_schema).cast::<ArrowSchema>(),
+                (&raw const device_array).cast::<ArrowDeviceArray>(),
+            )?
+        };
+
+        // Verify row count
+        let num_rows = tableview.num_rows()?;
+        assert_eq!(num_rows, expected_len as i64, "Row count mismatch");
+        println!(
+            "Successfully imported PrimitiveArray into cudf tableview with {} rows",
+            num_rows
+        );
+
+        // Verify column count (should be 1 for a primitive array)
+        let num_columns = tableview.num_columns()?;
+        assert_eq!(num_columns, 1, "Column count mismatch");
+        println!("Tableview has {} column(s)", num_columns);
+
+        // Tableview and cudf_ctx will be deallocated automatically via Drop
+
+        Ok(())
     }
 }

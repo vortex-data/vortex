@@ -14,17 +14,15 @@ use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
 use vortex_array::ArrayRef;
-use vortex_array::Executable;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
 
 use crate::CudaExecutionCtx;
-use crate::executor::CudaArrayExt;
-use crate::executor::CudaExecute;
 
 #[derive(Debug, Copy, Clone)]
 #[repr(i32)]
@@ -53,7 +51,7 @@ pub type SyncEvent = Option<NonNull<cudaEvent_t>>;
 /// event that the client must wait on.
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct ArrowDeviceArray {
+pub struct ArrowDeviceArray {
     array: ArrowArray,
     device_id: i64,
     device_type: DeviceType,
@@ -85,6 +83,7 @@ pub(crate) struct ArrowArray {
 }
 
 impl ArrowArray {
+    #[allow(unused)]
     pub fn empty() -> Self {
         Self {
             length: 0,
@@ -101,6 +100,7 @@ impl ArrowArray {
     }
 }
 
+#[expect(unused, reason = "cuda_stream and cuda_buffers need to have deferred drop")]
 pub(crate) struct CudaPrivateData {
     /// Hold a reference to the CudaStream so that it stays alive even after CudaExecutionCtx
     /// has been dropped.
@@ -113,7 +113,8 @@ pub(crate) struct CudaPrivateData {
 }
 
 /// Trait implemented for types that can be exported to [`ArrowDeviceArray`].
-pub(crate) trait CudaDeviceArrayExecute {
+#[async_trait]
+pub trait CudaDeviceArrayExecute {
     async fn execute(
         &self,
         array: ArrayRef,

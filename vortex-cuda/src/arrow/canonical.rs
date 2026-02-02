@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use cudarc::driver::sys;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -22,7 +23,7 @@ use crate::arrow::CudaPrivateData;
 use crate::arrow::DeviceType;
 use crate::executor::CudaArrayExt;
 
-// Impl it for the execution context instead here...I think this is right?
+#[async_trait]
 impl CudaDeviceArrayExecute for Canonical {
     async fn execute(
         &self,
@@ -32,7 +33,7 @@ impl CudaDeviceArrayExecute for Canonical {
         let cuda_array = array.execute_cuda(ctx).await?;
 
         let arrow_array = match cuda_array {
-            Canonical::Primitive(primitive) => export_primitive(primitive, ctx)?,
+            Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await?,
             c => todo!("implement support for exporting {}", c.dtype()),
         };
 
@@ -46,19 +47,25 @@ impl CudaDeviceArrayExecute for Canonical {
     }
 }
 
-fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowArray> {
-    let len = array.len();
-    let PrimitiveArrayParts {
-        buffer,
-        ptype,
-        validity,
-        ..
-    } = array.into_parts();
-
+async fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowArray> {
     unsafe extern "C" fn release(array: *mut ArrowArray) {
         // SAFETY: this is only safe if the caller provides a valid pointer to an `ArrowArray`.
         drop(unsafe { Box::from_raw(array) });
     }
+
+    let len = array.len();
+    let PrimitiveArrayParts {
+        buffer,
+        validity,
+        ..
+    } = array.into_parts();
+
+    let buffer = if buffer.is_on_device() {
+        buffer
+    } else {
+        // TODO(aduffy): I don't think this type parameter does anything
+        ctx.move_to_device::<u8>(buffer)?.await?
+    };
 
     let null_count = match validity {
         Validity::NonNullable | Validity::AllValid => 0,
@@ -106,4 +113,3 @@ fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> Vortex
         private_data: Box::into_raw(private_data).cast(),
     })
 }
-

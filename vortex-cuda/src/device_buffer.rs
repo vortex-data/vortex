@@ -12,7 +12,6 @@ use cudarc::driver::DevicePtr;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys;
 use futures::future::BoxFuture;
-use futures::future::ok;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;

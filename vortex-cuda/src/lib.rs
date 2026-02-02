@@ -5,7 +5,7 @@
 
 use std::process::Command;
 
-mod arrow;
+pub mod arrow;
 mod canonical;
 mod device_buffer;
 pub mod executor;
