@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+// TODO(aduffy): this is very naive. In the future we need to
+//   transpose the patches, see G-ALP paper.
 // Apply patches to a source array
 template<typename ValueT, typename IndexT>
 __device__ void patches(
@@ -13,7 +15,7 @@ __device__ void patches(
 ) {
     const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
 
-    if (idx > patchesLen) {
+    if (idx >= patchesLen) {
         return;
     }
 
