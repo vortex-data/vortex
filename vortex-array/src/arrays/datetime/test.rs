@@ -161,7 +161,7 @@ fn test_timestamp() {
             );
             assert_eq!(
                 temporal_array.temporal_metadata(),
-                TemporalMetadata::Timestamp(&TimestampOptions { unit, tz })
+                TemporalMetadata::Timestamp((&unit, &tz))
             );
         }
     }
