@@ -17,12 +17,15 @@ pub use serde::*;
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
+    use serde::de::DeserializeSeed;
     use serde_test::Token;
     use serde_test::assert_tokens;
 
     use crate::DType;
     use crate::Nullability;
     use crate::PType;
+    use crate::serde::DTypeSerde;
+    use crate::test::SESSION;
 
     #[test]
     fn test_serde_ptype_json() {
@@ -117,7 +120,10 @@ mod test {
         "#);
 
         // Deserialize back and verify round-trip
-        let deserialized: DType = serde_json::from_str(&json).unwrap();
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
         assert_eq!(struct_dtype, deserialized);
     }
 }

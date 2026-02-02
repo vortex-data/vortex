@@ -19,6 +19,7 @@ use serde::de::VariantAccess;
 use serde::de::Visitor;
 use serde::ser::SerializeStruct;
 use serde::ser::SerializeTupleVariant;
+use vortex_session::VortexSession;
 
 use crate::DType;
 use crate::ExtID;
@@ -28,7 +29,7 @@ use crate::PType;
 use crate::StructFields;
 use crate::decimal::DecimalDType;
 use crate::extension::ExtDTypeRef;
-use crate::session::DTypeSession;
+use crate::session::DTypeSessionExt;
 
 /// Serialize Nullability as a boolean
 impl Serialize for Nullability {
@@ -52,13 +53,13 @@ impl<'de> Deserialize<'de> for Nullability {
 
 /// Seed for deserializing DType references that require session context.
 pub struct DTypeSerde<'a, T> {
-    session: &'a DTypeSession,
+    session: &'a VortexSession,
     _marker: PhantomData<T>,
 }
 
 impl<'a, T> DTypeSerde<'a, T> {
     /// Create a new DTypeSerde seed.
-    pub fn new(session: &'a DTypeSession) -> Self {
+    pub fn new(session: &'a VortexSession) -> Self {
         Self {
             session,
             _marker: PhantomData,
@@ -133,121 +134,6 @@ impl Serialize for StructFields {
 }
 
 // ============================================================================
-// DType Deserialization (without session - errors on Extension types)
-// ============================================================================
-
-impl<'de> Deserialize<'de> for DType {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        const VARIANTS: &[&str] = &[
-            "Null",
-            "Bool",
-            "Primitive",
-            "Decimal",
-            "Utf8",
-            "Binary",
-            "List",
-            "FixedSizeList",
-            "Struct",
-            "Extension",
-        ];
-
-        struct DTypeVisitor;
-
-        impl<'de> Visitor<'de> for DTypeVisitor {
-            type Value = DType;
-
-            fn expecting(&self, f: &mut Formatter) -> fmt::Result {
-                f.write_str("enum DType")
-            }
-
-            fn visit_enum<A>(self, data: A) -> Result<Self::Value, A::Error>
-            where
-                A: EnumAccess<'de>,
-            {
-                let (variant, access) = data.variant::<&str>()?;
-                match variant {
-                    "Null" => {
-                        access.unit_variant()?;
-                        Ok(DType::Null)
-                    }
-                    "Bool" => {
-                        let n = access.newtype_variant()?;
-                        Ok(DType::Bool(n))
-                    }
-                    "Primitive" => {
-                        #[derive(Deserialize)]
-                        struct Fields(PType, Nullability);
-                        let Fields(ptype, n) = access.newtype_variant()?;
-                        Ok(DType::Primitive(ptype, n))
-                    }
-                    "Decimal" => {
-                        #[derive(Deserialize)]
-                        struct Fields(DecimalDType, Nullability);
-                        let Fields(decimal, n) = access.newtype_variant()?;
-                        Ok(DType::Decimal(decimal, n))
-                    }
-                    "Utf8" => {
-                        let n = access.newtype_variant()?;
-                        Ok(DType::Utf8(n))
-                    }
-                    "Binary" => {
-                        let n = access.newtype_variant()?;
-                        Ok(DType::Binary(n))
-                    }
-                    "List" => {
-                        #[derive(Deserialize)]
-                        struct Fields(Box<DType>, Nullability);
-                        let Fields(element, n) = access.newtype_variant()?;
-                        Ok(DType::List(Arc::from(*element), n))
-                    }
-                    "FixedSizeList" => {
-                        #[derive(Deserialize)]
-                        struct Fields(Box<DType>, u32, Nullability);
-                        let Fields(element, size, n) = access.newtype_variant()?;
-                        Ok(DType::FixedSizeList(Arc::from(*element), size, n))
-                    }
-                    "Struct" => {
-                        #[derive(Deserialize)]
-                        struct Fields(StructFieldsDeserialize, Nullability);
-                        let Fields(fields, n) = access.newtype_variant()?;
-                        Ok(DType::Struct(fields.0, n))
-                    }
-                    "Extension" => Err(de::Error::custom(
-                        "Extension types require a session context for deserialization. \
-                         Use DTypeSerde::new(session) with DeserializeSeed instead.",
-                    )),
-                    _ => Err(de::Error::unknown_variant(variant, VARIANTS)),
-                }
-            }
-        }
-
-        deserializer.deserialize_enum("DType", VARIANTS, DTypeVisitor)
-    }
-}
-
-// Helper for deserializing StructFields without session
-#[derive(Deserialize)]
-struct StructFieldsDeserialize(
-    #[serde(deserialize_with = "deserialize_struct_fields")] StructFields,
-);
-
-fn deserialize_struct_fields<'de, D>(deserializer: D) -> Result<StructFields, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    #[derive(Deserialize)]
-    struct Inner {
-        names: FieldNames,
-        dtypes: Vec<DType>,
-    }
-    let inner = Inner::deserialize(deserializer)?;
-    Ok(StructFields::new(inner.names, inner.dtypes))
-}
-
-// ============================================================================
 // DType Deserialization with session context (DeserializeSeed)
 // ============================================================================
 
@@ -272,7 +158,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
         ];
 
         struct DTypeVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for DTypeVisitor<'_> {
@@ -350,7 +236,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
 // ============================================================================
 
 struct ListFieldsSeed<'a> {
-    session: &'a DTypeSession,
+    session: &'a VortexSession,
 }
 
 impl<'de> DeserializeSeed<'de> for ListFieldsSeed<'_> {
@@ -361,7 +247,7 @@ impl<'de> DeserializeSeed<'de> for ListFieldsSeed<'_> {
         D: Deserializer<'de>,
     {
         struct ListVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for ListVisitor<'_> {
@@ -395,7 +281,7 @@ impl<'de> DeserializeSeed<'de> for ListFieldsSeed<'_> {
 }
 
 struct FixedSizeListFieldsSeed<'a> {
-    session: &'a DTypeSession,
+    session: &'a VortexSession,
 }
 
 impl<'de> DeserializeSeed<'de> for FixedSizeListFieldsSeed<'_> {
@@ -406,7 +292,7 @@ impl<'de> DeserializeSeed<'de> for FixedSizeListFieldsSeed<'_> {
         D: Deserializer<'de>,
     {
         struct FixedSizeListVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for FixedSizeListVisitor<'_> {
@@ -447,7 +333,7 @@ impl<'de> DeserializeSeed<'de> for FixedSizeListFieldsSeed<'_> {
 }
 
 struct StructFieldsSeed<'a> {
-    session: &'a DTypeSession,
+    session: &'a VortexSession,
 }
 
 impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
@@ -458,7 +344,7 @@ impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
         D: Deserializer<'de>,
     {
         struct StructVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for StructVisitor<'_> {
@@ -473,9 +359,7 @@ impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
                 A: SeqAccess<'de>,
             {
                 let fields = seq
-                    .next_element_seed(StructFieldsDeserializeSeed {
-                        session: self.session,
-                    })?
+                    .next_element_seed(DTypeSerde::<StructFields>::new(self.session))?
                     .ok_or_else(|| de::Error::invalid_length(0, &self))?;
                 let nullability = seq
                     .next_element()?
@@ -493,11 +377,7 @@ impl<'de> DeserializeSeed<'de> for StructFieldsSeed<'_> {
     }
 }
 
-struct StructFieldsDeserializeSeed<'a> {
-    session: &'a DTypeSession,
-}
-
-impl<'de> DeserializeSeed<'de> for StructFieldsDeserializeSeed<'_> {
+impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, StructFields> {
     type Value = StructFields;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -507,7 +387,7 @@ impl<'de> DeserializeSeed<'de> for StructFieldsDeserializeSeed<'_> {
         const FIELDS: &[&str] = &["names", "dtypes"];
 
         struct StructFieldsInnerVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for StructFieldsInnerVisitor<'_> {
@@ -536,9 +416,9 @@ impl<'de> DeserializeSeed<'de> for StructFieldsDeserializeSeed<'_> {
                             if dtypes.is_some() {
                                 return Err(de::Error::duplicate_field("dtypes"));
                             }
-                            dtypes = Some(map.next_value_seed(DTypeVecSeed {
-                                session: self.session,
-                            })?);
+                            dtypes = Some(
+                                map.next_value_seed(DTypeSerde::<Vec<DType>>::new(self.session))?,
+                            );
                         }
                         _ => {
                             let _ = map.next_value::<de::IgnoredAny>()?;
@@ -563,11 +443,7 @@ impl<'de> DeserializeSeed<'de> for StructFieldsDeserializeSeed<'_> {
     }
 }
 
-struct DTypeVecSeed<'a> {
-    session: &'a DTypeSession,
-}
-
-impl<'de> DeserializeSeed<'de> for DTypeVecSeed<'_> {
+impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, Vec<DType>> {
     type Value = Vec<DType>;
 
     fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
@@ -575,7 +451,7 @@ impl<'de> DeserializeSeed<'de> for DTypeVecSeed<'_> {
         D: Deserializer<'de>,
     {
         struct DTypeVecVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for DTypeVecVisitor<'_> {
@@ -642,7 +518,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
         const FIELDS: &[&str] = &["id", "storage_dtype", "metadata"];
 
         struct ExtDTypeVisitor<'a> {
-            session: &'a DTypeSession,
+            session: &'a VortexSession,
         }
 
         impl<'de> Visitor<'de> for ExtDTypeVisitor<'_> {
@@ -689,7 +565,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
 
                 let id = id.ok_or_else(|| de::Error::missing_field("id"))?;
                 let id = ExtID::new_arc(id);
-                let vtable = self.session.registry().find(&id).ok_or_else(|| {
+                let vtable = self.session.dtypes().registry().find(&id).ok_or_else(|| {
                     de::Error::custom(format!("unknown extension dtype id: {}", id))
                 })?;
 
