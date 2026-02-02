@@ -70,7 +70,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     let _events = launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "sequence",
-        ptypes: &[T::PTYPE.to_string().as_str()],
+        ptypes: &[T::PTYPE],
         launch_args: [buffer, base, multiplier, len_u64],
         event_recording: CU_EVENT_DISABLE_TIMING,
         array_len: len

@@ -2,9 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "config.cuh"
-#include <stdint.h>
-
-#define MIN(a, b) (((a) < (b)) : (a) : (b))
 
 template<typename ValueT>
 __device__ void sequence(
@@ -15,10 +12,10 @@ __device__ void sequence(
 ) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
 
-    const uint64_t elemStart = MIN(worker * ELEMENTS_PER_THREAD, len);
-    const uint64_t elemEnd = MIN(elemStart + ELEMENTS_PER_THREAD, len);
+    const uint64_t startElem = START_ELEM(worker, len);
+    const uint64_t stopElem = STOP_ELEM(worker, len);
 
-    for (uint64_t idx = elemStart; idx < elemEnd; idx++) {
+    for (uint64_t idx = startElem; idx < stopElem; idx++) {
         output[idx] = static_cast<ValueT>(idx) * multiplier + base;
     }
 }

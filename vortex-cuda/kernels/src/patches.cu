@@ -15,7 +15,7 @@ __device__ void patches(
 ) {
     const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
     const uint64_t startElem = START_ELEM(worker, patchesLen);
-    const uint64_t stopElem = START_ELEM(worker, patchesLen);
+    const uint64_t stopElem = STOP_ELEM(worker, patchesLen);
 
     if (startElem >= patchesLen) {
         return;
