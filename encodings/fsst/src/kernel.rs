@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::VarBinVTable;
+use vortex_array::compute::FilterKernel;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
@@ -36,16 +37,18 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(ngates): pass execution context when we update the FilterKernel trait.
+        let filtered_codes =
+            FilterKernel::filter(&VarBinVTable, array.codes(), parent.filter_mask())?
+                .as_::<VarBinVTable>()
+                .clone();
+
         Ok(Some(
             FSSTArray::try_new(
                 array.dtype().clone(),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                array
-                    .codes()
-                    .filter(parent.filter_mask().clone())?
-                    .as_::<VarBinVTable>()
-                    .clone(),
+                filtered_codes,
                 array
                     .uncompressed_lengths()
                     .filter(parent.filter_mask().clone())?,
