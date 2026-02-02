@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "config.cuh"
+#include "types.cuh"
 
 // TODO(aduffy): this is very naive. In the future we need to
 //   transpose the patches, see G-ALP paper.
@@ -40,22 +41,12 @@ extern "C" __global__ void patches_##value_suffix##_##index_suffix( \
     patches(values, patchIndices, patchValues, patchesLen); \
 }
 
-#define GENERATE_PATCHES_KERNEL_FOR_VALUE(ValueT, value_suffix) \
-     GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint8_t, u8) \
-     GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint16_t, u16) \
-     GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint32_t, u32) \
-     GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint64_t, u64)
+// Generate patches kernel for all index types (unsigned integers) for a given value type
+#define GENERATE_PATCHES_FOR_ALL_INDICES(value_suffix, ValueT) \
+    GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint8_t, u8) \
+    GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint16_t, u16) \
+    GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint32_t, u32) \
+    GENERATE_PATCHES_KERNEL(ValueT, value_suffix, uint64_t, u64)
 
-
-GENERATE_PATCHES_KERNEL_FOR_VALUE(uint8_t, u8)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(uint16_t, u16)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(uint32_t, u32)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(uint64_t, u64)
-
-GENERATE_PATCHES_KERNEL_FOR_VALUE(int8_t, i8)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(int16_t, i16)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(int32_t, i32)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(int64_t, i64)
-
-GENERATE_PATCHES_KERNEL_FOR_VALUE(float, f32)
-GENERATE_PATCHES_KERNEL_FOR_VALUE(double, f64)
+// Generate for all native SIMD ptypes
+FOR_EACH_NATIVE_SIMD_PTYPE(GENERATE_PATCHES_FOR_ALL_INDICES)

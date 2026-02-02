@@ -26,6 +26,7 @@ mod filter;
 mod patches;
 mod slice;
 
+pub use arrays::ConstantNumericExecutor;
 pub use arrays::DictExecutor;
 pub use encodings::*;
 pub use filter::FilterExecutor;
