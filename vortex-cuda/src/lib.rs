@@ -42,9 +42,11 @@ use vortex_decimal_byte_parts::DecimalBytePartsVTable;
 use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::FoRVTable;
 pub use vortex_nvcomp as nvcomp;
+use vortex_sequence::SequenceVTable;
 use vortex_zigzag::ZigZagVTable;
 use vortex_zstd::ZstdVTable;
 
+use crate::kernel::SequenceExecutor;
 use crate::kernel::SliceExecutor;
 
 /// Checks if CUDA is available on the system by looking for nvcc.
@@ -63,6 +65,7 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(DecimalBytePartsVTable::ID, &DecimalBytePartsExecutor);
     session.register_kernel(DictVTable::ID, &DictExecutor);
     session.register_kernel(FoRVTable::ID, &FoRExecutor);
+    session.register_kernel(SequenceVTable::ID, &SequenceExecutor);
     session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
     session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
 

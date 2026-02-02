@@ -150,6 +150,11 @@ impl ZonedReader {
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
+        // Check cache first with read-only lock
+        if let Some(result) = self.pruning_result.get(&expr) {
+            return result.value().clone();
+        }
+
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {

@@ -63,8 +63,15 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &Expression) -> Partitioning {
+        let key = ExactExpr(expr.clone());
+
+        // Check cache first with read-only lock.
+        if let Some(partitioning) = self.partition_cache.get(&key) {
+            return partitioning.clone();
+        }
+
         self.partition_cache
-            .entry(ExactExpr(expr.clone()))
+            .entry(key)
             .or_insert_with(|| {
                 // Partition the expression into row idx and child expressions.
                 let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {

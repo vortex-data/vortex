@@ -89,7 +89,7 @@ fn launch_for_kernel_timed_u8(
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "for",
-        ptypes: &[for_array.ptype().to_string().as_str()],
+        ptypes: &[for_array.ptype()],
         launch_args: [device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
@@ -110,7 +110,7 @@ fn launch_for_kernel_timed_u16(
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "for",
-        ptypes: &[for_array.ptype().to_string().as_str()],
+        ptypes: &[for_array.ptype()],
         launch_args: [device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
@@ -131,7 +131,7 @@ fn launch_for_kernel_timed_u32(
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "for",
-        ptypes: &[for_array.ptype().to_string().as_str()],
+        ptypes: &[for_array.ptype()],
         launch_args: [device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
@@ -152,7 +152,7 @@ fn launch_for_kernel_timed_u64(
     let events = vortex_cuda::launch_cuda_kernel!(
         execution_ctx: cuda_ctx,
         module: "for",
-        ptypes: &[for_array.ptype().to_string().as_str()],
+        ptypes: &[for_array.ptype()],
         launch_args: [device_data, reference, array_len_u64],
         event_recording: CU_EVENT_BLOCKING_SYNC,
         array_len: for_array.len()
