@@ -1,79 +1,78 @@
 # PyArrow
 
-## Getting Started
+Vortex integrates with PyArrow for reading and writing Vortex files using Arrow tables and record
+batch readers.
 
-First, install if you haven't already:
+## Writing Vortex Files
 
-````{tab} pip
-```bash
-pip install vortex-data
-```
-````
-
-````{tab} uv
-```bash
-uv add vortex-data
-```
-````
-
-Construct a Vortex array from lists of simple Python values:
+Use {func}`~vortex.io.write` to convert a Parquet file to Vortex. The write function accepts
+anything that implements `IntoArrayIterator`, including {class}`pyarrow.Table` and
+{class}`pyarrow.RecordBatchReader`:
 
 ```{doctest} pycon
+>>> import pyarrow.parquet as pq
 >>> import vortex as vx
->>> arr = vx.array([1, 2, 3, 4])
->>> arr.dtype
-int(64, nullable=False)
+>>>
+>>> table = pq.read_table("_static/example.parquet")
+>>> vx.io.write(table, 'example.vortex')
 ```
 
-Python's {obj}`None` represents a missing or null value and changes the dtype of the array from
-non-nullable 64-bit integers to nullable 64-bit integers:
+## Reading Vortex Files
+
+Use {func}`~vortex.open` to lazily open a Vortex file:
 
 ```{doctest} pycon
->>> arr = vx.array([1, 2, None, 4])
->>> arr.dtype
-int(64, nullable=True)
+>>> f = vx.open('example.vortex')
+>>> len(f)
+1000
 ```
 
-A list of {class}`dict` is converted to an array of structures. Missing values may appear at any
-level:
+### As an Arrow Table
+
+{meth}`.VortexFile.to_arrow` returns a {class}`pyarrow.RecordBatchReader`. Call
+{meth}`~pyarrow.RecordBatchReader.read_all` to collect into a {class}`pyarrow.Table`:
 
 ```{doctest} pycon
-
->>> arr = vx.array([
-...   {'name': 'Joseph', 'age': 25},
-...   {'name': None, 'age': 31},
-...   {'name': 'Angela', 'age': None},
-...   {'name': 'Mikhail', 'age': 57},
-...   {'name': None, 'age': None},
-...   None,
-... ])
->>> arr.dtype
-struct({"age": int(64, nullable=True), "name": utf8(nullable=True)}, nullable=True)
+>>> table = f.to_arrow().read_all()
+>>> table.num_rows
+1000
 ```
 
-{meth}`.Array.to_pylist` converts a Vortex array into a list of Python values.
+### Column Projection
+
+Read only the columns you need:
 
 ```{doctest} pycon
->>> arr.to_pylist()
-[{'age': 25, 'name': 'Joseph'}, {'age': 31, 'name': None}, {'age': None, 'name': 'Angela'}, {'age': 57, 'name': 'Mikhail'}, {'age': None, 'name': None}, {'age': None, 'name': None}]
+>>> table = f.to_arrow(['tip_amount', 'fare_amount']).read_all()
+>>> table.column_names
+['tip_amount', 'fare_amount']
 ```
 
-## Arrow
+### Streaming Record Batches
 
-The {func}`~vortex.array` function constructs a Vortex array from an Arrow one without any
-copies:
+Iterate over record batches for streaming processing:
+
+```{doctest} pycon
+>>> total = 0
+>>> for batch in f.to_arrow():
+...     total += batch.num_rows
+>>> total
+1000
+```
+
+## Arrow Interop
+
+The {func}`~vortex.array` function constructs a Vortex array from an Arrow array without copies:
 
 ```{doctest} pycon
 >>> import pyarrow as pa
 >>> arrow = pa.array([1, 2, None, 3])
->>> arrow.type
-DataType(int64)
 >>> arr = vx.array(arrow)
 >>> arr.dtype
 int(64, nullable=True)
 ```
 
-{meth}`.Array.to_arrow_array` converts back to an Arrow array:
+{meth}`.Array.to_arrow_array` converts back:
 
 ```{doctest} pycon
 >>> arr.to_arrow_array()
@@ -86,7 +85,7 @@ null,
 ]
 ```
 
-If you have a struct array, use {meth}`.Array.to_arrow_table` to construct an Arrow table:
+Struct arrays convert to Arrow tables with {meth}`.Array.to_arrow_table`:
 
 ```{doctest} pycon
 >>> struct_arr = vx.array([
@@ -103,4 +102,3 @@ name: string
 age: [[25,31,33,57]]
 name: [["Joseph","Narendra","Angela","Mikhail"]]
 ```
-

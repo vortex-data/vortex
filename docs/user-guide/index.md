@@ -14,5 +14,6 @@ polars
 pyarrow
 ray
 spark
+vortex-python
 work-in-progress
 ```

@@ -48,6 +48,7 @@ from ._lib.dtype import (  # pyright: ignore[reportMissingModuleSource]
     binary,
     bool_,
     date,
+    decimal,
     fixed_size_list,
     float_,
     int_,
