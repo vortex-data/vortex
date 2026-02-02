@@ -20,11 +20,12 @@ pub mod cuda_kernel_generator;
 
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
+    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
 
     // Source directory for kernels (hand-written and generated .cu/.cuh files)
     let kernels_src = Path::new(&manifest_dir).join("kernels/src");
-    // Output directory for compiled .ptx files
-    let kernels_gen = Path::new(&manifest_dir).join("kernels/gen");
+    // Output directory for compiled .ptx files - separate by profile.
+    let kernels_gen = Path::new(&manifest_dir).join("kernels/gen").join(&profile);
 
     std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
 
@@ -36,6 +37,8 @@ fn main() {
         "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
         kernels_gen.display()
     );
+
+    println!("cargo:rerun-if-env-changed=PROFILE");
 
     // Regenerate bit_unpack kernels only when the generator changes
     for entry in std::fs::read_dir(Path::new(&manifest_dir).join("cuda_kernel_generator"))
@@ -70,7 +73,7 @@ fn main() {
                         println!("cargo:rerun-if-changed={}", path.display());
                     }
                     // Compile all .cu files to PTX in gen directory
-                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path)
+                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
                         })
@@ -88,12 +91,14 @@ fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::
     generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
 }
 
-fn nvcc_compile_ptx(include_dir: &Path, output_dir: &Path, cu_path: &Path) -> io::Result<()> {
-    // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
-    let profile = env::var("PROFILE").unwrap();
-
+fn nvcc_compile_ptx(
+    include_dir: &Path,
+    output_dir: &Path,
+    cu_path: &Path,
+    profile: &str,
+) -> io::Result<()> {
     let mut cmd = Command::new("nvcc");
-    if profile.as_str() == "debug" {
+    if profile == "debug" {
         cmd.arg("-O0");
 
         // NVCC debugging options:
