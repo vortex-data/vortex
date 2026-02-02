@@ -50,7 +50,6 @@ use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::ExtDType;
@@ -1639,83 +1638,4 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
     assert!(results.is_err());
 
     Ok(())
-}
-
-#[cuda_tests]
-#[cfg(not(target_arch = "wasm32"))]
-mod tests {
-    use std::sync::Arc;
-
-    use futures::StreamExt;
-    use vortex_array::IntoArray;
-    use vortex_array::arrays::PrimitiveArray;
-    use vortex_cuda::CanonicalCudaExt;
-    use vortex_cuda::CopyDeviceReadAt;
-    use vortex_cuda::CudaSession;
-    use vortex_cuda::CudaSessionExt;
-    use vortex_cuda::executor::CudaArrayExt;
-    use vortex_error::VortexResult;
-    use vortex_io::file::std_file::FileReadAdapter;
-    use vortex_io::session::RuntimeSessionExt;
-
-    use crate::OpenOptionsSessionExt;
-    use crate::WriteOptionsSessionExt;
-    use crate::tests::SESSION;
-
-    #[tokio::test]
-    async fn gpu_scan() -> VortexResult<()> {
-        use vortex_alp::alp_encode;
-
-        // Create an ALP-encoded array from primitive f64 values
-        let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
-        let alp_array = alp_encode(&primitive, None)?;
-
-        // Write to a buffer, then to a temp file
-        let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
-        let mut buf = Vec::new();
-        SESSION
-            .write_options()
-            .write(&mut buf, alp_array.to_array_stream())
-            .await?;
-        std::fs::write(&temp_path, &buf)?;
-
-        // Read back via GPU
-        let handle = SESSION.handle();
-        let source = Arc::new(FileReadAdapter::open(&temp_path, handle)?);
-        let gpu_reader =
-            CopyDeviceReadAt::new(source.clone(), SESSION.cuda_session().new_stream()?);
-        let cpu_reader = source;
-
-        let cpu_file = SESSION.open_options().open_read(cpu_reader).await?;
-
-        let gpu_file = SESSION
-            .open_options()
-            .with_footer(cpu_file.footer)
-            .open_read(gpu_reader)
-            .await?;
-
-        let mut cuda_ctx = CudaSession::create_execution_ctx(&SESSION)?;
-
-        let mut res = Vec::new();
-        let mut stream = gpu_file.scan()?.into_array_stream()?;
-        while let Some(a) = stream.next().await {
-            let a = a?;
-            let array = a
-                .execute_cuda(&mut cuda_ctx)
-                .await?
-                .into_host()
-                .await?
-                .into_array();
-            res.push(array);
-        }
-
-        for a in res {
-            println!("a {} ", a.display_tree())
-        }
-
-        // Cleanup
-        std::fs::remove_file(&temp_path)?;
-
-        Ok(())
-    }
 }

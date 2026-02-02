@@ -317,7 +317,7 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::new()
+                WriteStrategyBuilder::default()
                     .with_compressor(CompactCompressor::default())
                     .build(),
             )

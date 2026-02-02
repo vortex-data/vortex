@@ -4,8 +4,37 @@
 //! This module defines the default layout strategy for a Vortex file.
 
 use std::sync::Arc;
+use std::sync::LazyLock;
 
+// Compressed encodings from encoding crates
+use vortex_alp::ALPRDVTable;
+use vortex_alp::ALPVTable;
+// Canonical array encodings from vortex-array
+use vortex_array::arrays::BoolVTable;
+use vortex_array::arrays::ChunkedVTable;
+use vortex_array::arrays::ConstantVTable;
+use vortex_array::arrays::DecimalVTable;
+use vortex_array::arrays::DictVTable;
+use vortex_array::arrays::ExtensionVTable;
+use vortex_array::arrays::FixedSizeListVTable;
+use vortex_array::arrays::ListVTable;
+use vortex_array::arrays::ListViewVTable;
+use vortex_array::arrays::MaskedVTable;
+use vortex_array::arrays::NullVTable;
+use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::arrays::StructVTable;
+use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::VarBinViewVTable;
+use vortex_array::session::ArrayRegistry;
+use vortex_bytebool::ByteBoolVTable;
+use vortex_datetime_parts::DateTimePartsVTable;
+use vortex_decimal_byte_parts::DecimalBytePartsVTable;
 use vortex_dtype::FieldPath;
+use vortex_fastlanes::BitPackedVTable;
+use vortex_fastlanes::DeltaVTable;
+use vortex_fastlanes::FoRVTable;
+use vortex_fastlanes::RLEVTable;
+use vortex_fsst::FSSTVTable;
 use vortex_layout::LayoutStrategy;
 use vortex_layout::layouts::buffered::BufferedStrategy;
 use vortex_layout::layouts::chunked::writer::ChunkedLayoutStrategy;
@@ -19,9 +48,63 @@ use vortex_layout::layouts::repartition::RepartitionWriterOptions;
 use vortex_layout::layouts::table::TableStrategy;
 use vortex_layout::layouts::zoned::writer::ZonedLayoutOptions;
 use vortex_layout::layouts::zoned::writer::ZonedStrategy;
+use vortex_pco::PcoVTable;
+use vortex_runend::RunEndVTable;
+use vortex_sequence::SequenceVTable;
+use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_map::HashMap;
+use vortex_zigzag::ZigZagVTable;
+#[cfg(feature = "zstd")]
+use vortex_zstd::ZstdVTable;
 
 const ONE_MEG: u64 = 1 << 20;
+
+/// Static registry of all allowed array encodings for file writing.
+///
+/// This includes all canonical encodings from vortex-array plus all compressed
+/// encodings from the various encoding crates.
+pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
+    let registry = ArrayRegistry::default();
+
+    // Canonical encodings from vortex-array
+    registry.register(NullVTable::ID, NullVTable);
+    registry.register(BoolVTable::ID, BoolVTable);
+    registry.register(PrimitiveVTable::ID, PrimitiveVTable);
+    registry.register(DecimalVTable::ID, DecimalVTable);
+    registry.register(VarBinVTable::ID, VarBinVTable);
+    registry.register(VarBinViewVTable::ID, VarBinViewVTable);
+    registry.register(ListVTable::ID, ListVTable);
+    registry.register(ListViewVTable::ID, ListViewVTable);
+    registry.register(FixedSizeListVTable::ID, FixedSizeListVTable);
+    registry.register(StructVTable::ID, StructVTable);
+    registry.register(ExtensionVTable::ID, ExtensionVTable);
+    registry.register(ChunkedVTable::ID, ChunkedVTable);
+    registry.register(ConstantVTable::ID, ConstantVTable);
+    registry.register(MaskedVTable::ID, MaskedVTable);
+    registry.register(DictVTable::ID, DictVTable);
+
+    // Compressed encodings from encoding crates
+    registry.register(ALPVTable::ID, ALPVTable);
+    registry.register(ALPRDVTable::ID, ALPRDVTable);
+    registry.register(BitPackedVTable::ID, BitPackedVTable);
+    registry.register(ByteBoolVTable::ID, ByteBoolVTable);
+    registry.register(DateTimePartsVTable::ID, DateTimePartsVTable);
+    registry.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
+    registry.register(DeltaVTable::ID, DeltaVTable);
+    registry.register(FoRVTable::ID, FoRVTable);
+    registry.register(FSSTVTable::ID, FSSTVTable);
+    registry.register(PcoVTable::ID, PcoVTable);
+    registry.register(RLEVTable::ID, RLEVTable);
+    registry.register(RunEndVTable::ID, RunEndVTable);
+    registry.register(SequenceVTable::ID, SequenceVTable);
+    registry.register(SparseVTable::ID, SparseVTable);
+    registry.register(ZigZagVTable::ID, ZigZagVTable);
+
+    #[cfg(feature = "zstd")]
+    registry.register(ZstdVTable::ID, ZstdVTable);
+
+    registry
+});
 
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.
 ///
@@ -32,25 +115,23 @@ pub struct WriteStrategyBuilder {
     compressor: Option<Arc<dyn CompressorPlugin>>,
     row_block_size: usize,
     field_writers: HashMap<FieldPath, Arc<dyn LayoutStrategy>>,
+    allow_encodings: Option<ArrayRegistry>,
 }
 
 impl Default for WriteStrategyBuilder {
+    /// Create a new empty builder. It can be further configured,
+    /// and then finally built yielding the [`LayoutStrategy`].
     fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl WriteStrategyBuilder {
-    /// Create a new empty builder. It can be further configured, and then finally built
-    /// yielding the [`LayoutStrategy`].
-    pub fn new() -> Self {
         Self {
             compressor: None,
             row_block_size: 8192,
             field_writers: HashMap::new(),
+            allow_encodings: None,
         }
     }
+}
 
+impl WriteStrategyBuilder {
     /// Override the [compressor][CompressorPlugin] used for compressing chunks in the file.
     ///
     /// If not provided, this will use a BtrBlocks-style cascading compressor that tries to balance
@@ -77,11 +158,23 @@ impl WriteStrategyBuilder {
         self
     }
 
+    /// Override the allowed array encodings for normalization.
+    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+        self.allow_encodings = Some(allow_encodings);
+        self
+    }
+
     /// Builds the canonical [`LayoutStrategy`] implementation, with the configured overrides
     /// applied.
     pub fn build(self) -> Arc<dyn LayoutStrategy> {
+        let flat = if let Some(allow_encodings) = self.allow_encodings {
+            FlatLayoutStrategy::default().with_allow_encodings(allow_encodings)
+        } else {
+            FlatLayoutStrategy::default()
+        };
+
         // 7. for each chunk create a flat layout
-        let chunked = ChunkedLayoutStrategy::new(FlatLayoutStrategy::default());
+        let chunked = ChunkedLayoutStrategy::new(flat.clone());
         // 6. buffer chunks so they end up with closer segment ids physically
         let buffered = BufferedStrategy::new(chunked, 2 * ONE_MEG); // 2MB
         // 5. compress each chunk
@@ -110,9 +203,9 @@ impl WriteStrategyBuilder {
 
         // 2.1. | 3.1. compress stats tables and dict values.
         let compress_then_flat = if let Some(ref compressor) = self.compressor {
-            CompressingStrategy::new_opaque(FlatLayoutStrategy::default(), compressor.clone())
+            CompressingStrategy::new_opaque(flat, compressor.clone())
         } else {
-            CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), false)
+            CompressingStrategy::new_btrblocks(flat, false)
         };
 
         // 3. apply dict encoding or fallback

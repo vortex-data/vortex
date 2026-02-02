@@ -8,7 +8,10 @@ use vortex_array::ArrayContext;
 use vortex_array::expr::stats::Precision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
+use vortex_array::normalize::NormalizeOptions;
+use vortex_array::normalize::Operation;
 use vortex_array::serde::SerializeOptions;
+use vortex_array::session::ArrayRegistry;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -31,6 +34,9 @@ pub struct FlatLayoutStrategy {
     pub include_padding: bool,
     /// Maximum length of variable length statistics
     pub max_variable_length_statistics_size: usize,
+    /// Optional set of allowed array encodings for normalization.
+    /// If None, then all are allowed.
+    pub allowed_encodings: Option<ArrayRegistry>,
 }
 
 impl Default for FlatLayoutStrategy {
@@ -38,7 +44,28 @@ impl Default for FlatLayoutStrategy {
         Self {
             include_padding: true,
             max_variable_length_statistics_size: 64,
+            allowed_encodings: None,
         }
+    }
+}
+
+impl FlatLayoutStrategy {
+    /// Set whether to include padding for memory-mapped reads.
+    pub fn with_include_padding(mut self, include_padding: bool) -> Self {
+        self.include_padding = include_padding;
+        self
+    }
+
+    /// Set the maximum length of variable length statistics.
+    pub fn with_max_variable_length_statistics_size(mut self, size: usize) -> Self {
+        self.max_variable_length_statistics_size = size;
+        self
+    }
+
+    /// Set the allowed array encodings for normalization.
+    pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
+        self.allowed_encodings = Some(allow_encodings);
+        self
     }
 }
 
@@ -123,6 +150,15 @@ impl LayoutStrategy for FlatLayoutStrategy {
             _ => {}
         }
 
+        let chunk = if let Some(allowed) = &options.allowed_encodings {
+            chunk.normalize(&mut NormalizeOptions {
+                allowed,
+                operation: Operation::Error,
+            })?
+        } else {
+            chunk
+        };
+
         let buffers = chunk.serialize(
             &ctx,
             &SerializeOptions {
@@ -166,7 +202,10 @@ mod tests {
     use vortex_array::MaskFuture;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::BoolArray;
+    use vortex_array::arrays::DictArray;
+    use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::PrimitiveVTable;
     use vortex_array::arrays::StructArray;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::VarBinViewBuilder;
@@ -174,6 +213,7 @@ mod tests {
     use vortex_array::expr::stats::Precision;
     use vortex_array::expr::stats::Stat;
     use vortex_array::expr::stats::StatsProviderExt;
+    use vortex_array::session::ArrayRegistry;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBufferMut;
     use vortex_buffer::buffer;
@@ -182,8 +222,10 @@ mod tests {
     use vortex_dtype::FieldNames;
     use vortex_dtype::Nullability;
     use vortex_error::VortexExpect;
+    use vortex_error::VortexResult;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::AllOr;
+    use vortex_mask::Mask;
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
@@ -367,6 +409,83 @@ mod tests {
                     .as_slice::<u64>(),
                 &[3, 4]
             );
+        })
+    }
+
+    #[test]
+    fn flat_invalid_array_fails() -> VortexResult<()> {
+        block_on(|handle| async {
+            let prim: PrimitiveArray = (0..10).collect();
+            let filter = prim.filter(Mask::from_indices(10, vec![2, 3]))?;
+
+            let ctx = ArrayContext::empty();
+
+            // Write the array into a byte buffer.
+            let (layout, _segments) = {
+                let segments = Arc::new(TestSegments::default());
+                let (ptr, eof) = SequenceId::root().split();
+                // Only allow primitive encodings - filter arrays should fail.
+                let allowed = ArrayRegistry::default();
+                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
+                let layout = FlatLayoutStrategy::default()
+                    .with_allow_encodings(allowed)
+                    .write_stream(
+                        ctx,
+                        segments.clone(),
+                        filter.to_array_stream().sequenced(ptr),
+                        eof,
+                        handle,
+                    )
+                    .await;
+
+                (layout, segments)
+            };
+
+            let err = layout.expect_err("expected error");
+            assert!(
+                err.to_string()
+                    .contains("normalize forbids encoding (vortex.filter)"),
+                "unexpected error: {err}"
+            );
+
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn flat_valid_array_writes() -> VortexResult<()> {
+        block_on(|handle| async {
+            let codes: PrimitiveArray = (0u32..10).collect();
+            let values: PrimitiveArray = (0..10).collect();
+            let dict = DictArray::new(codes.into_array(), values.into_array());
+
+            let ctx = ArrayContext::empty();
+
+            // Write the array into a byte buffer.
+            let (layout, _segments) = {
+                let segments = Arc::new(TestSegments::default());
+                let (ptr, eof) = SequenceId::root().split();
+                // Only allow primitive encodings - filter arrays should fail.
+                let allowed = ArrayRegistry::default();
+                allowed.register(PrimitiveVTable::ID, PrimitiveVTable);
+                allowed.register(DictVTable::ID, DictVTable);
+                let layout = FlatLayoutStrategy::default()
+                    .with_allow_encodings(allowed)
+                    .write_stream(
+                        ctx,
+                        segments.clone(),
+                        dict.to_array_stream().sequenced(ptr),
+                        eof,
+                        handle,
+                    )
+                    .await;
+
+                (layout, segments)
+            };
+
+            assert!(layout.is_ok());
+
+            Ok(())
         })
     }
 }
