@@ -235,14 +235,14 @@ impl TryFrom<&DType> for LogicalType {
                 };
 
                 match temporal {
-                    TemporalMetadata::Timestamp((unit, None)) => match unit {
+                    TemporalMetadata::Timestamp(unit, None) => match unit {
                         TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
                         TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
                         TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
                         TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
                         _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
                     },
-                    TemporalMetadata::Timestamp((unit, Some(tz))) => {
+                    TemporalMetadata::Timestamp(unit, Some(tz)) => {
                         if tz.as_ref() != "UTC" {
                             vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
                         }

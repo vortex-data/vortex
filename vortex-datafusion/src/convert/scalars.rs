@@ -125,7 +125,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 // temporal physical types.
                 let pv = storage_scalar.as_primitive();
                 match temporal {
-                    TemporalMetadata::Timestamp((unit, tz)) => match unit {
+                    TemporalMetadata::Timestamp(unit, tz) => match unit {
                         TimeUnit::Nanoseconds => {
                             ScalarValue::TimestampNanosecond(pv.as_::<i64>(), tz.clone())
                         }
