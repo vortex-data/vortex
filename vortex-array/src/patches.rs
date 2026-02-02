@@ -36,6 +36,7 @@ use vortex_vector::primitive::PrimitiveVectorMut;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
@@ -171,25 +172,30 @@ impl Patches {
             "Patch indices must be non-nullable unsigned integers, got {:?}",
             indices.dtype()
         );
+
         vortex_ensure!(
             indices.len() <= array_len,
             "Patch indices must be shorter than the array length"
         );
         vortex_ensure!(!indices.is_empty(), "Patch indices must not be empty");
 
-        let max = usize::try_from(&indices.scalar_at(indices.len() - 1)?)
-            .map_err(|_| vortex_err!("indices must be a number"))?;
-        vortex_ensure!(
-            max - offset < array_len,
-            "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
-        );
+        // Perform validation of components when they are host-resident.
+        // This is not possible to do eagerly when the data is on GPU memory.
+        if indices.is_host() && values.is_host() {
+            let max = usize::try_from(&indices.scalar_at(indices.len() - 1)?)
+                .map_err(|_| vortex_err!("indices must be a number"))?;
+            vortex_ensure!(
+                max - offset < array_len,
+                "Patch indices {max:?}, offset {offset} are longer than the array length {array_len}"
+            );
 
-        debug_assert!(
-            is_sorted(indices.as_ref())
-                .unwrap_or(Some(false))
-                .unwrap_or(false),
-            "Patch indices must be sorted"
-        );
+            debug_assert!(
+                is_sorted(indices.as_ref())
+                    .unwrap_or(Some(false))
+                    .unwrap_or(false),
+                "Patch indices must be sorted"
+            );
+        }
 
         Ok(Self {
             array_len,

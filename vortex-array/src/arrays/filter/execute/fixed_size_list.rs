@@ -34,7 +34,8 @@ pub fn filter_fixed_size_list(
     let new_elements = {
         // We want to create a new mask specialized to the underlying `elements` of the array.
         if list_size != 0 {
-            // TODO(connor): Is this something we may want to compute up front (before execute)?
+            // TODO(connor): If we can push down a "indices" or "slices" selection instead that
+            // would be much more performant.
             let elements_mask = compute_mask_for_fsl_elements(selection_mask, list_size as usize);
 
             // Allow the child array to filter itself.

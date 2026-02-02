@@ -26,36 +26,40 @@ pub use buf_mut::*;
 pub use view::*;
 
 /// Get the bit value at `index` out of `buf`.
+///
+/// # Panics
+///
+/// Panics if `index` is not between 0 and length of `buf * 8`.
 #[inline(always)]
 pub fn get_bit(buf: &[u8], index: usize) -> bool {
     buf[index / 8] & (1 << (index % 8)) != 0
 }
 
-/// Get the bit value at `index` out of `buf` without bounds checking
+/// Get the bit value at `index` out of `buf` without bounds checking.
 ///
 /// # Safety
 ///
-/// `index` must be between 0 and length of `buf`
+/// `index` must be between 0 and length of `buf * 8`.
 #[inline(always)]
 pub unsafe fn get_bit_unchecked(buf: *const u8, index: usize) -> bool {
     (unsafe { *buf.add(index / 8) } & (1 << (index % 8))) != 0
 }
 
-/// Set the bit value at `index` in `buf` without bounds checking
+/// Set the bit value at `index` in `buf` without bounds checking.
 ///
 /// # Safety
 ///
-/// `index` must be between 0 and length of `buf`
+/// `index` must be between 0 and length of `buf * 8`.
 #[inline(always)]
 pub unsafe fn set_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) |= 1 << (index % 8) };
 }
 
-/// Unset the bit value at `index` in `buf` without bounds checking
+/// Unset the bit value at `index` in `buf` without bounds checking.
 ///
 /// # Safety
 ///
-/// `index` must be between 0 and length of `buf`
+/// `index` must be between 0 and length of `buf * 8`.
 #[inline(always)]
 pub unsafe fn unset_bit_unchecked(buf: *mut u8, index: usize) {
     unsafe { *buf.add(index / 8) &= !(1 << (index % 8)) };

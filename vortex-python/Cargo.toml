@@ -52,6 +52,7 @@ tokio = { workspace = true, features = ["fs", "rt-multi-thread"] }
 tracing = { workspace = true, features = ["std", "log"] }
 url = { workspace = true }
 vortex = { workspace = true, features = ["object_store", "tokio"] }
+vortex-tui = { workspace = true }
 
 [dev-dependencies]
 vortex-array = { workspace = true, features = ["_test-harness"] }

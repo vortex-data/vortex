@@ -40,6 +40,7 @@ pub mod compressor {
 pub mod dtype {
     pub use vortex_dtype::*;
 }
+
 pub mod error {
     pub use vortex_error::*;
 }

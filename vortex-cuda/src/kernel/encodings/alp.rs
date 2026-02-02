@@ -34,12 +34,6 @@ use crate::launch_cuda_kernel_impl;
 #[derive(Debug)]
 pub struct ALPExecutor;
 
-impl ALPExecutor {
-    fn try_specialize(array: ArrayRef) -> Option<ALPArray> {
-        array.try_into::<ALPVTable>().ok()
-    }
-}
-
 #[async_trait]
 impl CudaExecute for ALPExecutor {
     async fn execute(
@@ -47,7 +41,9 @@ impl CudaExecute for ALPExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ALPArray"))?;
+        let array = array
+            .try_into::<ALPVTable>()
+            .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
         match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })
     }
@@ -85,7 +81,7 @@ where
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(array_len)?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view();
+    let output_view = output_buf.as_view::<A>();
 
     let array_len_u64 = array_len as u64;
 

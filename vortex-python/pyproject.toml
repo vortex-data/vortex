@@ -33,6 +33,9 @@ classifiers = [
     "Topic :: Scientific/Engineering",
 ]
 
+[project.scripts]
+vx = "vortex.cli:main"
+
 [project.optional-dependencies]
 polars = ["polars>=1.31.0"]
 pandas = ["pandas>=2.2.0"]

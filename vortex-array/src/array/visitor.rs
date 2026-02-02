@@ -49,6 +49,11 @@ pub trait ArrayVisitor {
 
     /// Formats a human-readable metadata description.
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result;
+
+    /// Checks if all buffers in the array tree are host-resident.
+    ///
+    /// This will fail if any buffers of self or child arrays are GPU-resident.
+    fn is_host(&self) -> bool;
 }
 
 impl ArrayVisitor for Arc<dyn Array> {
@@ -94,6 +99,10 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn metadata_fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         self.as_ref().metadata_fmt(f)
+    }
+
+    fn is_host(&self) -> bool {
+        self.as_ref().is_host()
     }
 }
 

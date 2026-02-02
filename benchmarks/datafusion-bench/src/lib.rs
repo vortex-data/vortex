@@ -46,7 +46,7 @@ pub fn get_session_context() -> SessionContext {
     let factory = VortexFormatFactory::new();
 
     let mut session_state_builder = SessionStateBuilder::new()
-        .with_config(SessionConfig::default())
+        .with_config(SessionConfig::from_env().expect("shouldn't fail"))
         .with_runtime_env(rt)
         .with_default_features();
 

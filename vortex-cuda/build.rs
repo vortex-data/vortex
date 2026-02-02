@@ -20,36 +20,57 @@ pub mod cuda_kernel_generator;
 
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
-    let kernels_dir = Path::new(&manifest_dir).join("kernels");
 
-    // Always emit the kernels directory path as a compile-time env var so any binary
+    // Source directory for kernels (hand-written and generated .cu/.cuh files)
+    let kernels_src = Path::new(&manifest_dir).join("kernels/src");
+    // Output directory for compiled .ptx files
+    let kernels_gen = Path::new(&manifest_dir).join("kernels/gen");
+
+    std::fs::create_dir_all(&kernels_gen).expect("Failed to create kernels/gen directory");
+
+    // Always emit the kernels output directory path as a compile-time env var so any binary
     // linking against vortex-cuda can find the PTX files. This must be set regardless
     // of CUDA availability since the code using env!() is always compiled.
     // At runtime, VORTEX_CUDA_KERNELS_DIR can be set to override this path.
     println!(
         "cargo:rustc-env=VORTEX_CUDA_KERNELS_DIR={}",
-        kernels_dir.display()
+        kernels_gen.display()
     );
 
-    println!("cargo:rerun-if-changed={}", kernels_dir.to_str().unwrap());
-
-    generate_unpack::<u8>(&kernels_dir, 32).expect("Failed to generate unpack for u8");
-    generate_unpack::<u16>(&kernels_dir, 32).expect("Failed to generate unpack for u16");
-    generate_unpack::<u32>(&kernels_dir, 32).expect("Failed to generate unpack for u32");
-    generate_unpack::<u64>(&kernels_dir, 16).expect("Failed to generate unpack for u64");
+    // Regenerate bit_unpack kernels only when the generator changes
+    for entry in std::fs::read_dir(Path::new(&manifest_dir).join("cuda_kernel_generator"))
+        .expect("Failed to read cuda_kernel_generator directory")
+        .flatten()
+    {
+        println!("cargo:rerun-if-changed={}", entry.path().display());
+    }
+    generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8");
+    generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16");
+    generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");
+    generate_unpack::<u64>(&kernels_src, 16).expect("Failed to generate unpack for u64");
 
     if !is_cuda_available() {
         return;
     }
 
-    if let Ok(entries) = std::fs::read_dir(&kernels_dir) {
+    // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
+    if let Ok(entries) = std::fs::read_dir(&kernels_src) {
         for path in entries.flatten().map(|entry| entry.path()) {
+            let is_generated = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("bit_unpack_"));
+
             match path.extension().and_then(|e| e.to_str()) {
                 Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
                 Some("cu") => {
-                    println!("cargo:rerun-if-changed={}", path.display());
-                    // Compile .cu files to PTX
-                    nvcc_compile_ptx(&kernels_dir, &path)
+                    // Only watch hand-written .cu files, not generated ones
+                    // (generated files are rebuilt when cuda_kernel_generator changes)
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
+                    }
+                    // Compile all .cu files to PTX in gen directory
+                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path)
                         .map_err(|e| {
                             format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
                         })
@@ -67,7 +88,7 @@ fn generate_unpack<T: FastLanes>(output_dir: &Path, thread_count: usize) -> io::
     generate_cuda_unpack_for_width::<T, _>(&mut cu_writer, thread_count)
 }
 
-fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> io::Result<()> {
+fn nvcc_compile_ptx(include_dir: &Path, output_dir: &Path, cu_path: &Path) -> io::Result<()> {
     // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
     let profile = env::var("PROFILE").unwrap();
 
@@ -98,6 +119,11 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> io::Result<()> {
         cmd.arg("-O3");
     }
 
+    // Output PTX file goes to output_dir with same base name
+    let ptx_path = output_dir
+        .join(cu_path.file_name().unwrap())
+        .with_extension("ptx");
+
     cmd.arg("-std=c++17")
         .arg("-arch=native")
         // Flags forwarded to Clang.
@@ -105,11 +131,11 @@ fn nvcc_compile_ptx(kernel_dir: &Path, cu_path: &Path) -> io::Result<()> {
         .arg("--restrict")
         .arg("--ptx")
         .arg("--include-path")
-        .arg(kernel_dir)
+        .arg(include_dir)
         .arg("-c")
         .arg(cu_path)
         .arg("-o")
-        .arg(cu_path.with_extension("ptx"));
+        .arg(&ptx_path);
 
     let res = cmd.output()?;
 

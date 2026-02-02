@@ -503,59 +503,45 @@ impl FileFormat for VortexFormat {
 
 #[cfg(test)]
 mod tests {
-    use datafusion::execution::SessionStateBuilder;
-    use datafusion::prelude::SessionContext;
-    use tempfile::TempDir;
 
     use super::*;
-    use crate::persistent::register_vortex_format_factory;
+    use crate::common_tests::TestSessionContext;
 
     #[tokio::test]
-    async fn create_table() {
-        let dir = TempDir::new().unwrap();
+    async fn create_table() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
 
-        let factory: VortexFormatFactory = VortexFormatFactory::new();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        let df = session
-            .sql(&format!(
+        ctx.session
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex  \
-                LOCATION '{}'",
-                dir.path().to_str().unwrap()
-            ))
-            .await
-            .unwrap();
+                LOCATION 'table/'",
+            )
+            .await?;
 
-        assert_eq!(df.count().await.unwrap(), 0);
+        assert!(ctx.session.table_exist("my_tbl")?);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn configure_format_source() {
-        let dir = TempDir::new().unwrap();
+    async fn configure_format_source() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
 
-        let factory = VortexFormatFactory::new();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        session
-            .sql(&format!(
+        ctx.session
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
-                LOCATION '{}' \
+                LOCATION 'table/' \
                 OPTIONS( footer_initial_read_size_bytes '12345' );",
-                dir.path().to_str().unwrap()
-            ))
-            .await
-            .unwrap()
+            )
+            .await?
             .collect()
-            .await
-            .unwrap();
+            .await?;
+
+        Ok(())
     }
 
     #[test]

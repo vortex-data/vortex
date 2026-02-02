@@ -8,6 +8,8 @@ use std::path::PathBuf;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use parquet::arrow::async_reader::ParquetRecordBatchStream;
+use sysinfo::System;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
@@ -20,6 +22,12 @@ use vortex::array::VortexSessionExecute;
 use vortex::array::arrays::ChunkedArray;
 use vortex::array::arrow::FromArrowArray;
 use vortex::array::builders::builder_with_capacity;
+use vortex::array::stream::ArrayStreamAdapter;
+use vortex::array::stream::ArrayStreamExt;
+use vortex::dtype::DType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::error::VortexError;
+use vortex::error::VortexResult;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 
@@ -28,37 +36,115 @@ use crate::Format;
 use crate::SESSION;
 use crate::utils::file::idempotent_async;
 
-/// Read a Parquet file and return it as a Vortex ArrayStream.
-pub async fn parquet_to_vortex(parquet_path: PathBuf) -> anyhow::Result<ChunkedArray> {
+/// Memory budget per concurrent conversion stream in GB. This is somewhat arbitary.
+const MEMORY_PER_STREAM_GB: u64 = 4;
+
+/// Minimum number of concurrent conversion streams.
+const MIN_CONCURRENCY: u64 = 1;
+
+/// Maximum number of concurrent conversion streams. This is somewhat arbitary.
+const MAX_CONCURRENCY: u64 = 16;
+
+/// Returns the available system memory in bytes.
+fn available_memory_bytes() -> u64 {
+    System::new_all().available_memory()
+}
+
+/// Calculate appropriate concurrency based on available memory.
+fn calculate_concurrency() -> usize {
+    let available_gb = available_memory_bytes() / (1024 * 1024 * 1024);
+    let concurrency = (available_gb / MEMORY_PER_STREAM_GB).clamp(MIN_CONCURRENCY, MAX_CONCURRENCY);
+
+    info!(
+        "Available memory: {}GB, maximum concurrency is: {}",
+        available_gb, concurrency
+    );
+
+    concurrency as usize
+}
+
+/// Read a Parquet file and return it as a Vortex [`ChunkedArray`].
+///
+/// Note: This loads the entire file into memory. For large files, use the streaming conversion like
+/// in [`parquet_to_vortex_stream`] instead.
+pub async fn parquet_to_vortex_chunks(parquet_path: PathBuf) -> anyhow::Result<ChunkedArray> {
     let file = File::open(parquet_path).await?;
-    let mut reader = ParquetRecordBatchStreamBuilder::new(file).await?.build()?;
-    let mut chunks = vec![];
+    let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+    let reader = builder.build()?;
 
-    while let Some(rb) = reader.next().await {
-        let rb = rb?;
-        let chunk = ArrayRef::from_arrow(rb, false)?;
-
-        // Make sure data is uncompressed and canonicalized
-        let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
-        chunk.append_to_builder(
-            builder.as_mut(),
-            &mut VortexSession::default().create_execution_ctx(),
-        )?;
-        let chunk = builder.finish();
-        chunks.push(chunk);
-    }
+    let chunks: Vec<ArrayRef> = parquet_to_vortex_stream(reader)
+        .map(|r| r.map_err(anyhow::Error::from))
+        .try_collect()
+        .await?;
 
     Ok(ChunkedArray::from_iter(chunks))
 }
 
+/// Create a streaming Vortex array from a Parquet reader.
+///
+/// Streams record batches and converts them to Vortex arrays on-the-fly, avoiding loading the
+/// entire file into memory.
+pub fn parquet_to_vortex_stream(
+    reader: ParquetRecordBatchStream<File>,
+) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
+    reader.map(move |result| {
+        result
+            .map_err(|e| VortexError::generic(e.into()))
+            .and_then(|rb| {
+                let chunk = ArrayRef::from_arrow(rb, false)?;
+                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+
+                // Canonicalize the chunk.
+                chunk.append_to_builder(
+                    builder.as_mut(),
+                    &mut VortexSession::default().create_execution_ctx(),
+                )?;
+
+                Ok(builder.finish())
+            })
+    })
+}
+
+/// Convert a single Parquet file to Vortex format using streaming.
+///
+/// Streams data directly from Parquet to Vortex without loading the entire file into memory.
+pub async fn convert_parquet_file_to_vortex(
+    parquet_path: &Path,
+    output_path: &Path,
+    compaction: CompactionStrategy,
+) -> anyhow::Result<()> {
+    let file = File::open(parquet_path).await?;
+    let builder = ParquetRecordBatchStreamBuilder::new(file).await?;
+    let dtype = DType::from_arrow(builder.schema().as_ref());
+
+    let stream = parquet_to_vortex_stream(builder.build()?);
+
+    let mut output_file = OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .create(true)
+        .open(output_path)
+        .await?;
+
+    compaction
+        .apply_options(SESSION.write_options())
+        .write(
+            &mut output_file,
+            ArrayStreamExt::boxed(ArrayStreamAdapter::new(dtype, stream)),
+        )
+        .await?;
+
+    Ok(())
+}
+
 /// Convert all Parquet files in a directory to Vortex format.
 ///
-/// This function reads Parquet files from `{input_path}/parquet/` and writes
-/// Vortex files to `{input_path}/vortex-file-compressed/` (for Default compaction)
-/// or `{input_path}/vortex-compact/` (for Compact compaction).
+/// This function reads Parquet files from `{input_path}/parquet/` and writes Vortex files to
+/// `{input_path}/vortex-file-compressed/` (for Default compaction) or
+/// `{input_path}/vortex-compact/` (for Compact compaction).
 ///
-/// The conversion is idempotent - existing Vortex files will not be regenerated.
-pub async fn convert_parquet_to_vortex(
+/// The conversion is idempotent: existing Vortex files will not be regenerated.
+pub async fn convert_parquet_directory_to_vortex(
     input_path: &Path,
     compaction: CompactionStrategy,
 ) -> anyhow::Result<()> {
@@ -72,7 +158,6 @@ pub async fn convert_parquet_to_vortex(
     create_dir_all(&vortex_dir).await?;
 
     let parquet_inputs = fs::read_dir(&parquet_path)?.collect::<std::io::Result<Vec<_>>>()?;
-
     trace!(
         "Found {} parquet files in {}",
         parquet_inputs.len(),
@@ -83,6 +168,7 @@ pub async fn convert_parquet_to_vortex(
         .iter()
         .filter(|entry| entry.path().extension().is_some_and(|e| e == "parquet"));
 
+    let concurrency = calculate_concurrency();
     futures::stream::iter(iter)
         .map(|dir_entry| {
             let filename = {
@@ -100,21 +186,8 @@ pub async fn convert_parquet_to_vortex(
                             "Processing file '{filename}' with {:?} strategy",
                             compaction
                         );
-                        let chunked_array = parquet_to_vortex(parquet_file_path).await?;
-                        let mut f = OpenOptions::new()
-                            .write(true)
-                            .truncate(true)
-                            .create(true)
-                            .open(&vtx_file)
-                            .await?;
-
-                        let write_options = compaction.apply_options(SESSION.write_options());
-
-                        write_options
-                            .write(&mut f, chunked_array.to_array_stream())
-                            .await?;
-
-                        anyhow::Ok(())
+                        convert_parquet_file_to_vortex(&parquet_file_path, &vtx_file, compaction)
+                            .await
                     })
                     .await
                     .expect("Failed to write Vortex file")
@@ -122,8 +195,9 @@ pub async fn convert_parquet_to_vortex(
                 .in_current_span(),
             )
         })
-        .buffer_unordered(16)
+        .buffer_unordered(concurrency)
         .try_collect::<Vec<_>>()
         .await?;
+
     Ok(())
 }

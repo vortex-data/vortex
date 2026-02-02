@@ -164,5 +164,9 @@ harness = false
 name = "take_struct"
 harness = false
 
+[[bench]]
+name = "take_fsl"
+harness = false
+
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03"]

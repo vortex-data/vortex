@@ -74,7 +74,7 @@ pub(crate) struct VortexOpener {
     /// A hint for the desired row count of record batches returned from the scan.
     pub batch_size: usize,
     /// If provided, the scan will not return more than this many rows.
-    pub limit: Option<usize>,
+    pub limit: Option<u64>,
     /// A metrics object for tracking performance of the scan.
     pub metrics: VortexMetrics,
     /// A shared cache of file readers.

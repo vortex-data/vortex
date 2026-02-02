@@ -15,8 +15,8 @@ use futures::future::BoxFuture;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
-use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
+use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -24,24 +24,77 @@ use vortex_error::vortex_panic;
 
 use crate::stream::await_stream_callback;
 
-/// A CUDA device buffer with offset and length tracking.
-pub struct CudaDeviceBuffer<T> {
-    inner: Arc<CudaSlice<T>>,
+/// A [`DeviceBuffer`] wrapping a CUDA GPU allocation.
+///
+/// Like the host `BufferHandle` variant, all slicing/referencing works in terms of byte units.
+pub struct CudaDeviceBuffer {
+    allocation: Arc<dyn private::DeviceAllocation>,
+    /// Offset in bytes from the start of the allocation
     offset: usize,
+    /// Length in bytes
     len: usize,
+    /// CUDA device pointer
     device_ptr: u64,
-    // This is the min required alignment of the buffer.
+    /// Minimum required alignment of the buffer.
     alignment: Alignment,
 }
 
-impl<T: DeviceRepr> CudaDeviceBuffer<T> {
-    /// Creates a new CUDA device buffer from a [`CudaSlice`].
-    pub fn new(cuda_slice: CudaSlice<T>) -> Self {
-        let len = cuda_slice.len();
-        let device_ptr = cuda_slice.device_ptr(cuda_slice.stream()).0;
+// We can call the sys methods, it's just a lot of extra code...fuck that lol
+
+mod private {
+    use std::fmt::Debug;
+    use std::sync::Arc;
+
+    use cudarc::driver::CudaSlice;
+    use cudarc::driver::CudaStream;
+    use cudarc::driver::CudaView;
+    use cudarc::driver::DeviceRepr;
+    use vortex_buffer::Alignment;
+    use vortex_error::VortexExpect;
+
+    pub trait DeviceAllocation: Debug + Send + Sync + 'static {
+        /// Get the minimum alignment of the allocation.
+        fn alignment(&self) -> Alignment;
+
+        /// Get a reference to the underlying cuStream.
+        fn stream(&self) -> &Arc<CudaStream>;
+
+        /// Access the values as a bytes view
+        fn as_bytes_view(&self) -> CudaView<'_, u8>;
+    }
+
+    // CudaSlice needs to be held by the CudaDeviceBuffer
+    impl<T: DeviceRepr + Debug + Send + Sync + 'static> DeviceAllocation for CudaSlice<T> {
+        fn alignment(&self) -> Alignment {
+            Alignment::of::<T>()
+        }
+
+        fn stream(&self) -> &Arc<CudaStream> {
+            self.stream()
+        }
+
+        fn as_bytes_view(&self) -> CudaView<'_, u8> {
+            let bytes_len = self.len() * size_of::<T>();
+            // SAFETY: all types can be reinterpreted as a byte slice
+            let result = unsafe { self.as_view().transmute::<u8>(bytes_len) };
+            result.vortex_expect("Downcasting CudaSlice<T> => CudaSlice<u8> must succeed")
+        }
+    }
+}
+
+// Get it back out as a View of u8
+
+impl CudaDeviceBuffer {
+    /// Creates a new CUDA device buffer from a [`CudaSlice<T>`].
+    ///
+    /// The device buffer itself is type-erased and only works in terms of bytes, similar to the
+    /// `BufferHandle` interface that it implements.
+    pub fn new<T: DeviceRepr + Debug + Send + Sync + 'static>(cuda_slice: CudaSlice<T>) -> Self {
+        let len = cuda_slice.len() * size_of::<T>();
+        let (device_ptr, _) = cuda_slice.device_ptr(cuda_slice.stream());
 
         Self {
-            inner: Arc::new(cuda_slice),
+            allocation: Arc::new(cuda_slice),
             offset: 0,
             len,
             device_ptr,
@@ -50,8 +103,19 @@ impl<T: DeviceRepr> CudaDeviceBuffer<T> {
     }
 
     /// Returns a [`CudaView`] to the CUDA device buffer.
-    pub fn as_view(&self) -> CudaView<'_, T> {
-        self.inner.slice(self.offset..self.offset + self.len)
+    pub fn as_view<T: DeviceRepr + 'static>(&self) -> CudaView<'_, T> {
+        // Return a new &[T]
+        let new_len = self.len / size_of::<T>();
+
+        // SAFETY: All DeviecRepr types are aligned to < 256 bytes, which is what CUDA allocator
+        //  gives us back. So we should not suffer any alignment issues at runtime.
+        unsafe {
+            self.allocation
+                .as_bytes_view()
+                .slice(self.offset..self.offset + self.len)
+                .transmute::<T>(new_len)
+                .vortex_expect("Failed to transmute from CudaView<u8> to CudaView<T>")
+        }
     }
 }
 
@@ -73,21 +137,17 @@ impl CudaBufferExt for BufferHandle {
 
         let cuda_buf = device_buffer
             .as_any()
-            .downcast_ref::<CudaDeviceBuffer<T>>()
-            .ok_or_else(|| {
-                vortex_err!(
-                    "Device buffer is not a CUDA device buffer for type {}",
-                    std::any::type_name::<T>()
-                )
-            })?;
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
 
-        Ok(cuda_buf.as_view())
+        Ok(cuda_buf.as_view::<T>())
     }
 }
 
-impl<T: DeviceRepr> Debug for CudaDeviceBuffer<T> {
+impl Debug for CudaDeviceBuffer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CudaDeviceBuffer")
+            .field("allocation", &self.allocation)
             .field("device_ptr", &self.device_ptr)
             .field("offset", &self.offset)
             .field("len", &self.len)
@@ -95,7 +155,7 @@ impl<T: DeviceRepr> Debug for CudaDeviceBuffer<T> {
     }
 }
 
-impl<T: DeviceRepr> std::hash::Hash for CudaDeviceBuffer<T> {
+impl std::hash::Hash for CudaDeviceBuffer {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.device_ptr.hash(state);
         self.len.hash(state);
@@ -103,16 +163,17 @@ impl<T: DeviceRepr> std::hash::Hash for CudaDeviceBuffer<T> {
     }
 }
 
-impl<T: DeviceRepr> PartialEq for CudaDeviceBuffer<T> {
+// CUDA device buffers are equal if they point to the same extent of GPU memory
+impl PartialEq for CudaDeviceBuffer {
     fn eq(&self, other: &Self) -> bool {
         self.device_ptr == other.device_ptr && self.len == other.len && self.offset == other.offset
     }
 }
 
-impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T> {
-    /// Returns the number of elements in the buffer of type T.
+impl DeviceBuffer for CudaDeviceBuffer {
+    /// Returns the number of bytes in the device buffer.
     fn len(&self) -> usize {
-        self.len * size_of::<T>()
+        self.len
     }
 
     fn alignment(&self) -> Alignment {
@@ -153,12 +214,13 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
         &self,
         alignment: Alignment,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
-        let stream = self.inner.stream();
+        let stream = self.allocation.stream();
 
         // Add offset to device pointer to account for any previous slicing operations.
-        let src_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+        let src_ptr = self.device_ptr + self.offset as u64;
 
-        let mut host_buffer: BufferMut<T> = BufferMut::with_capacity_aligned(self.len, alignment);
+        let mut host_buffer: ByteBufferMut =
+            ByteBufferMut::with_capacity_aligned(self.len, alignment);
         let len = self.len;
 
         // SAFETY: We pass a valid pointer to a buffer with sufficient capacity.
@@ -167,14 +229,14 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
             sys::cuMemcpyDtoHAsync_v2(
                 host_buffer.spare_capacity_mut().as_mut_ptr().cast(),
                 src_ptr,
-                len * size_of::<T>(),
+                len,
                 stream.cu_stream(),
             )
             .result()
             .map_err(|e| vortex_err!("Failed to schedule async copy to host: {}", e))?;
         }
 
-        let cuda_slice = Arc::clone(&self.inner);
+        let cuda_slice = Arc::clone(&self.allocation);
 
         Ok(Box::pin(async move {
             await_stream_callback(cuda_slice.stream()).await?;
@@ -192,33 +254,33 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     }
 
     /// Slices the CUDA device buffer to a subrange.
+    ///
+    /// **IMPORTANT**: this is a byte range, not elements range, due to the DeviceBuffer interface.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
-        let new_offset = self.offset + range.start;
-        let new_len = range.end - range.start;
-        let byte_offset = new_offset * size_of::<T>();
-
-        let trailing = (self.device_ptr + byte_offset as u64).trailing_zeros();
-        let exponent =
-            u8::try_from(min(15, trailing)).vortex_expect("min(15, x) always fits in u8");
-        let slice_align = Alignment::from_exponent(exponent);
-        let alignment = Alignment::of::<T>();
-
-        assert!(
-            slice_align.is_aligned_to(alignment),
-            "slice must respect minimum alignment byte {}, min {}",
-            slice_align,
-            alignment
-        );
-
         assert!(
             range.end <= self.len,
-            "Slice range end {} exceeds buffer length {}",
+            "Slice range end {} exceeds allocation size {}",
             range.end,
             self.len
         );
 
+        let new_offset = self.offset + range.start;
+        let new_len = range.end - range.start;
+
+        let trailing = (self.device_ptr + new_offset as u64).trailing_zeros();
+        let exponent =
+            u8::try_from(min(15, trailing)).vortex_expect("min(15, x) always fits in u8");
+        let slice_align = Alignment::from_exponent(exponent);
+
+        assert!(
+            slice_align.is_aligned_to(self.allocation.alignment()),
+            "slice must respect minimum alignment {}, min {}",
+            slice_align,
+            self.allocation.alignment()
+        );
+
         Arc::new(CudaDeviceBuffer {
-            inner: Arc::clone(&self.inner),
+            allocation: Arc::clone(&self.allocation),
             offset: new_offset,
             len: new_len,
             device_ptr: self.device_ptr,
@@ -231,10 +293,10 @@ impl<T: DeviceRepr + Send + Sync + 'static> DeviceBuffer for CudaDeviceBuffer<T>
     }
 
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>> {
-        let effective_ptr = self.device_ptr + (self.offset * size_of::<T>()) as u64;
+        let effective_ptr = self.device_ptr + self.offset as u64;
         if effective_ptr % (*alignment as u64) == 0 {
             Ok(Arc::new(CudaDeviceBuffer {
-                inner: self.inner.clone(),
+                allocation: self.allocation.clone(),
                 offset: self.offset,
                 len: self.len,
                 device_ptr: self.device_ptr,
