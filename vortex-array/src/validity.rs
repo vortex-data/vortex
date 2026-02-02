@@ -461,7 +461,14 @@ impl FromIterator<bool> for Validity {
 impl From<Nullability> for Validity {
     #[inline]
     fn from(value: Nullability) -> Self {
-        match value {
+        Validity::from(&value)
+    }
+}
+
+impl From<&Nullability> for Validity {
+    #[inline]
+    fn from(value: &Nullability) -> Self {
+        match *value {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         }

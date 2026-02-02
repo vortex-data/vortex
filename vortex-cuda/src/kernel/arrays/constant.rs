@@ -18,6 +18,7 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
@@ -62,28 +63,20 @@ impl CudaExecute for ConstantNumericExecutor {
 
         match array.scalar().dtype() {
             DType::Primitive(ptype, nullability) => {
-                let ptype = *ptype;
-                let validity = if nullability.is_nullable() {
-                    Validity::AllValid
-                } else {
-                    Validity::NonNullable
-                };
-
-                match_each_native_simd_ptype!(ptype, |P| {
-                    materialize_constant_primitive::<P>(array, validity, ctx).await
+                match_each_native_simd_ptype!(*ptype, |P| {
+                    materialize_constant_primitive::<P>(array, nullability.into(), ctx).await
                 })
             }
             DType::Decimal(decimal_dtype, nullability) => {
-                let decimal_dtype = *decimal_dtype;
-                let validity = if nullability.is_nullable() {
-                    Validity::AllValid
-                } else {
-                    Validity::NonNullable
-                };
-                let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
-
+                let values_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
                 match_each_decimal_value_type!(values_type, |D| {
-                    materialize_constant_decimal::<D>(array, decimal_dtype, values_type, validity, ctx).await
+                    materialize_constant_decimal::<D>(
+                        array,
+                        *decimal_dtype,
+                        nullability.into(),
+                        ctx,
+                    )
+                    .await
                 })
             }
             dt => vortex_bail!(
@@ -148,8 +141,7 @@ where
 
 async fn materialize_constant_decimal<D>(
     array: ConstantArray,
-    decimal_dtype: vortex_dtype::DecimalDType,
-    values_type: DecimalType,
+    decimal_dtype: DecimalDType,
     validity: Validity,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
@@ -183,18 +175,8 @@ where
     let output_view = output_buffer.as_view();
     let array_len_u64 = array_len as u64;
 
-    // Determine value type suffix for kernel name
-    let value_suffix = match D::DECIMAL_TYPE {
-        DecimalType::I8 => "i8",
-        DecimalType::I16 => "i16",
-        DecimalType::I32 => "i32",
-        DecimalType::I64 => "i64",
-        DecimalType::I128 => "i128",
-        DecimalType::I256 => "i256",
-    };
-
     // Load kernel function
-    let cuda_function = ctx.load_function("constant_numeric", &[value_suffix])?;
+    let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
     let mut launch_builder = ctx.launch_builder(&cuda_function);
 
     // Build launch args: output, value, length
@@ -212,7 +194,7 @@ where
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
         buffer_handle,
-        values_type,
+        D::DECIMAL_TYPE,
         decimal_dtype,
         validity,
     )))
