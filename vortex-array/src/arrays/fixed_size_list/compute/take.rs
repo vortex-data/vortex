@@ -103,6 +103,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
 
         // Expand the list into individual element indices.
         for i in list_start..list_end {
+            // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
             unsafe {
                 elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
             };
@@ -166,6 +167,7 @@ fn take_nullable_fsl<I: IntegerPType>(
 
             // Expand the list into individual element indices.
             for i in list_start..list_end {
+                // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
                 unsafe {
                     elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
                 };
