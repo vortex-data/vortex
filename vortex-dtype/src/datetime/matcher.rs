@@ -22,7 +22,7 @@ impl Matcher for AnyTemporal {
 
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
         if let Some(opts) = item.metadata_opt::<Timestamp>() {
-            return Some(TemporalMetadata::Timestamp((&opts.unit, &opts.tz)));
+            return Some(TemporalMetadata::Timestamp(&opts.unit, &opts.tz));
         }
         if let Some(opts) = item.metadata_opt::<Date>() {
             return Some(TemporalMetadata::Date(opts));
@@ -38,7 +38,7 @@ impl Matcher for AnyTemporal {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TemporalMetadata<'a> {
     /// Metadata for Timestamp dtypes, a tuple of time unit and optional timezone.
-    Timestamp((&'a TimeUnit, &'a Option<Arc<str>>)),
+    Timestamp(&'a TimeUnit, &'a Option<Arc<str>>),
     /// Metadata for Date dtypes
     Date(&'a <Date as ExtDTypeVTable>::Metadata),
     /// Metadata for Time dtypes
@@ -53,7 +53,7 @@ impl TemporalMetadata<'_> {
         match self {
             TemporalMetadata::Time(unit) => **unit,
             TemporalMetadata::Date(unit) => **unit,
-            TemporalMetadata::Timestamp((unit, _tz)) => **unit,
+            TemporalMetadata::Timestamp(unit, _tz) => **unit,
         }
     }
 
@@ -66,7 +66,7 @@ impl TemporalMetadata<'_> {
             TemporalMetadata::Date(unit) => Ok(TemporalJiff::Date(
                 jiff::civil::Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
             )),
-            TemporalMetadata::Timestamp((unit, tz)) => match tz {
+            TemporalMetadata::Timestamp(unit, tz) => match tz {
                 None => Ok(TemporalJiff::Unzoned(
                     jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?
                         .checked_add(unit.to_jiff_span(v)?)?,

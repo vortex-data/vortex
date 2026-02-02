@@ -133,7 +133,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
 
                 match temporal {
-                    TemporalMetadata::Timestamp((unit, tz)) => {
+                    TemporalMetadata::Timestamp(unit, tz) => {
                         let value = primitive.as_::<i64>();
                         match unit {
                             TimeUnit::Nanoseconds => {

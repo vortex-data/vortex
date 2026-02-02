@@ -301,7 +301,7 @@ impl DType {
                 // Try and match against the known extension DTypes.
                 if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
                     return Ok(match temporal {
-                        TemporalMetadata::Timestamp((unit, tz)) => {
+                        TemporalMetadata::Timestamp(unit, tz) => {
                             DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
                         }
                         TemporalMetadata::Date(unit) => match unit {
