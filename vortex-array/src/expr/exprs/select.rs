@@ -47,7 +47,7 @@ impl VTable for Select {
         ExprId::new_ref("vortex.select")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
                 names: fields.iter().map(|f| f.to_string()).collect(),
@@ -65,7 +65,7 @@ impl VTable for Select {
         &self,
         _metadata: &[u8],
         _session: &VortexSession,
-    ) -> VortexResult<Self::Options> {
+    ) -> VortexResult<FieldSelection> {
         let prost_metadata = SelectOpts::decode(_metadata)?;
 
         let select_opts = prost_metadata
@@ -84,11 +84,11 @@ impl VTable for Select {
         Ok(field_selection)
     }
 
-    fn arity(&self, _options: &Self::Options) -> Arity {
+    fn arity(&self, _options: &FieldSelection) -> Arity {
         Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::new_ref("child"),
             _ => unreachable!(),
@@ -165,7 +165,7 @@ impl VTable for Select {
 
     fn simplify(
         &self,
-        options: &Self::Options,
+        selection: &FieldSelection,
         expr: &Expression,
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
@@ -181,12 +181,12 @@ impl VTable for Select {
         })?;
 
         let expr = pack(
-            options
-                .as_include_names(child_dtype.names())
+            selection
+                .normalize_to_included_fields(child_dtype.names())
                 .map_err(|e| {
                     e.with_context(format!(
                         "Select fields {:?} must be a subset of child fields {:?}",
-                        options,
+                        selection,
                         child_dtype.names()
                     ))
                 })?
@@ -198,11 +198,11 @@ impl VTable for Select {
         Ok(Some(expr))
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Options) -> bool {
+    fn is_fallible(&self, _instance: &FieldSelection) -> bool {
         // If this type-checks its infallible.
         false
     }
@@ -260,21 +260,26 @@ impl FieldSelection {
         fields
     }
 
-    pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
+    pub fn normalize_to_included_fields(
+        &self,
+        available_fields: &FieldNames,
+    ) -> VortexResult<FieldNames> {
+        // Check that all of the field names exist in the available fields.
         if self
             .field_names()
             .iter()
-            .any(|f| !field_names.iter().contains(f))
+            .any(|f| !available_fields.iter().contains(f))
         {
             vortex_bail!(
                 "Field {:?} in select not in field names {:?}",
                 self,
-                field_names
+                available_fields
             );
         }
+
         match self {
             FieldSelection::Include(fields) => Ok(fields.clone()),
-            FieldSelection::Exclude(exc_fields) => Ok(field_names
+            FieldSelection::Exclude(exc_fields) => Ok(available_fields
                 .iter()
                 .filter(|f| !exc_fields.iter().contains(f))
                 .cloned()
@@ -393,11 +398,11 @@ mod tests {
         assert_eq!(
             &include
                 .as_::<Select>()
-                .as_include_names(&field_names)
+                .normalize_to_included_fields(&field_names)
                 .unwrap(),
             &exclude
                 .as_::<Select>()
-                .as_include_names(&field_names)
+                .normalize_to_included_fields(&field_names)
                 .unwrap()
         );
     }
