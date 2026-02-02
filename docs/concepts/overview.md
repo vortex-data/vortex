@@ -114,8 +114,8 @@ Vortex integrates with several query engines:
   TableProvider.
 - **[DuckDB](../user-guides/duckdb.md)** — Integration via the Arrow Dataset API in Python.
 - **[Spark](../user-guides/spark.md)** — Apache Spark DataSource V2 connector via JNI.
-- **[Trino](../user-guides/trino.md)** — Trino connector via JNI.
-- **[Ray](../user-guides/ray.md)** — Ray Data integration for distributed processing.
+- **[Trino](../user-guides/work-in-progress.md#trino)** — Trino connector via JNI.
+- **[Ray](../user-guides/work-in-progress.md#ray-data)** — Ray Data integration for distributed processing.
 
 ## Acceleration
 

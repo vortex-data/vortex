@@ -1,4 +1,4 @@
-# DataFusion Integration
+# DataFusion
 
 :::{warning}
 This page is under construction.

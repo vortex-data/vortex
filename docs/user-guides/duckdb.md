@@ -1,4 +1,4 @@
-# DuckDB Integration
+# DuckDB
 
 :::{warning}
 This page is under construction.

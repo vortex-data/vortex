@@ -7,10 +7,9 @@ Using Vortex with query engines, table formats, and data tools.
 maxdepth: 2
 ---
 
-python-integrations
-datafusion
 duckdb
+datafusion
 spark
-trino
-ray
+pyarrow
+work-in-progress
 ```

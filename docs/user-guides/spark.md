@@ -1,4 +1,4 @@
-# Spark Integration
+# Spark
 
 :::{warning}
 This page is under construction.
