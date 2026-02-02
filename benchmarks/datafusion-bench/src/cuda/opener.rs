@@ -48,6 +48,7 @@ use vortex::layout::LayoutReader;
 use vortex::metrics::VortexMetrics;
 use vortex::scan::ScanBuilder;
 use vortex::session::VortexSession;
+use vortex_cuda::CanonicalCudaExt;
 use vortex_cuda::CudaSession;
 use vortex_cuda::executor::CudaArrayExt;
 use vortex_datafusion::ExpressionConvertor;
@@ -305,11 +306,14 @@ impl FileOpener for CudaVortexOpener {
                                 vortex_err!("Failed to create CUDA execution context: {e}")
                             })?;
 
-                        tracing::debug!("Executing array on CUDA device");
+                        tracing::info!("Executing array {} on CUDA device", chunk.encoding_id());
                         let canonical = chunk.execute_cuda(&mut cuda_ctx).await?;
 
+                        // Copy result from GPU back to host memory
+                        let host_canonical = canonical.into_host().await?;
+
                         // Convert canonical result to ArrayRef and then to RecordBatch
-                        let array: ArrayRef = canonical.into_array();
+                        let array: ArrayRef = host_canonical.into_array();
                         let mut cpu_ctx = session.create_execution_ctx();
                         array.execute_record_batch(&stream_schema, &mut cpu_ctx)
                     }
