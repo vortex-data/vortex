@@ -19,18 +19,18 @@ use vortex_session::VortexSession;
 
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
+use crate::expr::Pack;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::get_item;
-use crate::expr::pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -169,33 +169,55 @@ impl VTable for Select {
         expr: &Expression,
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-        let child_dtype = ctx.return_dtype(child)?;
-        let child_nullability = child_dtype.nullability();
+        let child_struct = expr.child(0);
+        let struct_dtype = ctx.return_dtype(child_struct)?;
+        let struct_nullability = struct_dtype.nullability();
 
-        let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
+        let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
             vortex_err!(
                 "Select child must return a struct dtype, however it was a {}",
-                child_dtype
+                struct_dtype
             )
         })?;
 
-        let expr = pack(
-            selection
-                .normalize_to_included_fields(child_dtype.names())
-                .map_err(|e| {
-                    e.with_context(format!(
-                        "Select fields {:?} must be a subset of child fields {:?}",
-                        selection,
-                        child_dtype.names()
-                    ))
-                })?
-                .iter()
-                .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
-            child_nullability,
-        );
+        // "Mask" out the unwanted fields of the child struct `DType`.
+        let included_fields = selection.normalize_to_included_fields(struct_fields.names())?;
+        let all_included_fields_are_nullable = included_fields.iter().all(|name| {
+            struct_fields
+                .field(name)
+                .vortex_expect(
+                    "`normalize_to_included_fields` checks that the included fields already exist \
+                     in `struct_fields`",
+                )
+                .is_nullable()
+        });
 
-        Ok(Some(expr))
+        // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
+        // This is because `get_item` does a validity intersection of the struct validity with its
+        // fields, which is not the same as just "masking" out the unwanted fields (a selection).
+        //
+        // We can, however, make this simplification when the child of the `select` is already a
+        // `pack` and we know that `get_item` will do no validity intersections.
+        let child_is_pack = child_struct.is::<Pack>();
+
+        // `get_item` only performs validity intersection when the struct is nullable but the field
+        // is not. This would change the semantics of a `select`, so we can only simplify when this
+        // won't happen.
+        let would_intersect_validity =
+            struct_nullability.is_nullable() && !all_included_fields_are_nullable;
+
+        if child_is_pack && !would_intersect_validity {
+            let pack_expr = expr::pack(
+                included_fields
+                    .into_iter()
+                    .map(|name| (name.clone(), expr::get_item(name, child_struct.clone()))),
+                struct_nullability,
+            );
+
+            return Ok(Some(pack_expr));
+        }
+
+        Ok(None)
     }
 
     fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
@@ -271,7 +293,7 @@ impl FieldSelection {
             .any(|f| !available_fields.iter().contains(f))
         {
             vortex_bail!(
-                "Field {:?} in select not in field names {:?}",
+                "Select fields {:?} must be a subset of child fields {:?}",
                 self,
                 available_fields
             );
