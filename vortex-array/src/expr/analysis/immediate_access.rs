@@ -38,12 +38,15 @@ pub fn make_free_field_annotator(
     scope: &StructFields,
 ) -> impl AnnotationFn<Annotation = FieldName> {
     move |expr: &Expression| {
-        assert!(
-            !expr.is::<Select>(),
-            "cannot analyse select, simplify the expression"
-        );
-
-        if let Some(field_name) = expr.as_opt::<GetItem>() {
+        if let Some(selection) = expr.as_opt::<Select>() {
+            if expr.child(0).is::<Root>() {
+                return selection
+                    .normalize_to_included_fields(scope.names())
+                    .vortex_expect("Select fields must be valid for scope")
+                    .into_iter()
+                    .collect();
+            }
+        } else if let Some(field_name) = expr.as_opt::<GetItem>() {
             if expr.child(0).is::<Root>() {
                 return vec![field_name.clone()];
             }
