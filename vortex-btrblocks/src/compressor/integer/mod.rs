@@ -789,8 +789,11 @@ impl Scheme for SequenceScheme {
             return Ok(0.0);
         }
 
-        // All values in a seq are unique.
-        if stats.distinct_values_count as usize != stats.src.len() {
+        // If the distinct_values_count was computed (!= u32::MAX)
+        // Then all values in a sequence must be unqiue.
+        if stats.distinct_values_count != u32::MAX
+            && stats.distinct_values_count as usize != stats.src.len()
+        {
             return Ok(0.0);
         }
 
