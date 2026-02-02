@@ -386,9 +386,9 @@ oro:oro:2.0.8 (2 constraints: 1e1d4d7b)
 
 [Test dependencies]
 
-ch.qos.logback:logback-classic:1.5.25 (1 constraints: 3f05403b)
+ch.qos.logback:logback-classic:1.5.27 (1 constraints: 4105423b)
 
-ch.qos.logback:logback-core:1.5.25 (1 constraints: 3e0d452a)
+ch.qos.logback:logback-core:1.5.27 (1 constraints: 400d472a)
 
 org.junit:junit-bom:6.0.2 (7 constraints: 6f74267c)
 
