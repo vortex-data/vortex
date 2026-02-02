@@ -16,8 +16,27 @@ use crate::expr::exprs::select::Select;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
-/// An [`AnnotationFn`] for annotating scope accesses.
-pub fn annotate_scope_access(scope: &StructFields) -> impl AnnotationFn<Annotation = FieldName> {
+/// Creates an [`AnnotationFn`] that annotates each expression node with its "free fields".
+///
+/// A "free field" is a top-level field from the root scope that an expression references. This is
+/// useful for column pruning, where we only read the fields that an expression actually needs.
+///
+/// # Annotation Rules
+///
+/// - **[`GetItem`] on [`Root`]**: Returns `[field_name]`.
+/// - **[`Root`]**: Returns all field names from `scope` (conservative over-approximation).
+/// - **[`Select`]**: Returns the included field names.
+/// - **Everything else**: Returns empty (annotations aggregate from children automatically).
+///
+/// # Example
+///
+/// Given `scope = {a: {b: .., c: ..}, d: ..}` and `expr = root().a.b + root().d`:
+/// - `root().a` has free fields `{a}`
+/// - `root().d` has free fields `{d}`
+/// - The full expression has free fields `{a, d}` (not `b`, only top-level fields are tracked)
+pub fn make_free_field_annotator(
+    scope: &StructFields,
+) -> impl AnnotationFn<Annotation = FieldName> {
     move |expr: &Expression| {
         assert!(
             !expr.is::<Select>(),
@@ -47,7 +66,7 @@ pub fn immediate_scope_accesses<'a>(
     expr: &'a Expression,
     scope: &'a StructFields,
 ) -> FieldAccesses<'a> {
-    descendent_annotations(expr, annotate_scope_access(scope))
+    descendent_annotations(expr, make_free_field_annotator(scope))
 }
 
 /// This returns the immediate scope_access (as explained `immediate_scope_accesses`) for `expr`.

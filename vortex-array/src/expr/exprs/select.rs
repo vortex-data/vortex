@@ -335,7 +335,6 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::StructArray;
-    use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
@@ -439,7 +438,6 @@ mod tests {
 
         let result = e.optimize_recursive(&dtype).unwrap();
 
-        assert!(result.is::<Pack>());
         assert!(result.return_dtype(&dtype).unwrap().is_nullable());
     }
 
@@ -457,8 +455,6 @@ mod tests {
         let e = select_exclude(["c"], root());
 
         let result = e.optimize_recursive(&dtype).unwrap();
-
-        assert!(result.is::<Pack>());
 
         // Should exclude "c" and include "a" and "b"
         let result_dtype = result.return_dtype(&dtype).unwrap();

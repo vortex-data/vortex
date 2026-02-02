@@ -17,8 +17,8 @@ use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
 use vortex_array::expr::Pack;
-use vortex_array::expr::annotate_scope_access;
 use vortex_array::expr::col;
+use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
@@ -166,7 +166,7 @@ impl StructReader {
                 let mut partitioned = partition(
                     expr.clone(),
                     self.dtype(),
-                    annotate_scope_access(
+                    make_free_field_annotator(
                         self.dtype()
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
