@@ -31,17 +31,22 @@ impl CudaDeviceArrayExecute for Canonical {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        match cuda_array {
+        let arrow_array = match cuda_array {
             Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await,
             c => todo!("implement support for exporting {}", c.dtype()),
-        }
+        };
+
+        Ok(ArrowDeviceArray {
+            array: arrow_array,
+            device_id: 0,
+            device_type: DeviceType::Cuda,
+            sync_event: None,
+            _reserved: Default::default(),
+        })
     }
 }
 
-async fn export_primitive(
-    array: PrimitiveArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<ArrowDeviceArray> {
+fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowArray> {
     let len = array.len();
     let PrimitiveArrayParts {
         buffer,
@@ -87,8 +92,8 @@ async fn export_primitive(
         buffer_ptrs,
     });
 
-    let arrow_array = ArrowArray {
-        length: array.len() as i64,
+    Ok(ArrowArray {
+        length: len as i64,
         null_count: null_count as i64,
         offset: 0,
         // 1 (optional) buffer for nulls, one buffer for data
@@ -99,12 +104,15 @@ async fn export_primitive(
         release: Some(release),
         dictionary: std::ptr::null_mut(),
         private_data: Box::into_raw(private_data).cast(),
-    };
-
-    Ok(ArrowDeviceArray {
-        array: arrow_array,
-        device_id: 0,
-        device_type: DeviceType::Cuda,
-        sync_event: None,
     })
+}
+
+// Get the DecimalArray and the VarBinViewArray so we know
+// how to treat all of these timestamps and such.
+
+#[cfg(test)]
+mod tests {
+    #[tokio::test]
+    async fn test_export_primitive() {
+    }
 }

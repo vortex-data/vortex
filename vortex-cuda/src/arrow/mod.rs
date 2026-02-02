@@ -58,6 +58,9 @@ pub(crate) struct ArrowDeviceArray {
     device_id: i64,
     device_type: DeviceType,
     sync_event: SyncEvent,
+
+    // unused space reserved for future fields
+    _reserved: [i64; 3],
 }
 
 /// An FFI-compatible version of the ArrowArray that holds pointers to device buffers.

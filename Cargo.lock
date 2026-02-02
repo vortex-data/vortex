@@ -10464,6 +10464,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-cudf-test"
+version = "0.1.0"
+dependencies = [
+ "bindgen",
+]
+
+[[package]]
 name = "vortex-cxx"
 version = "0.1.0"
 dependencies = [
