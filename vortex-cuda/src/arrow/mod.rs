@@ -100,7 +100,10 @@ impl ArrowArray {
     }
 }
 
-#[expect(unused, reason = "cuda_stream and cuda_buffers need to have deferred drop")]
+#[expect(
+    unused,
+    reason = "cuda_stream and cuda_buffers need to have deferred drop"
+)]
 pub(crate) struct CudaPrivateData {
     /// Hold a reference to the CudaStream so that it stays alive even after CudaExecutionCtx
     /// has been dropped.

@@ -47,7 +47,10 @@ impl CudaDeviceArrayExecute for Canonical {
     }
 }
 
-async fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> VortexResult<ArrowArray> {
+async fn export_primitive(
+    array: PrimitiveArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<ArrowArray> {
     unsafe extern "C" fn release(array: *mut ArrowArray) {
         // SAFETY: this is only safe if the caller provides a valid pointer to an `ArrowArray`.
         drop(unsafe { Box::from_raw(array) });
@@ -55,9 +58,7 @@ async fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> 
 
     let len = array.len();
     let PrimitiveArrayParts {
-        buffer,
-        validity,
-        ..
+        buffer, validity, ..
     } = array.into_parts();
 
     let buffer = if buffer.is_on_device() {
