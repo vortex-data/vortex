@@ -20,7 +20,8 @@ pub mod cuda_kernel_generator;
 
 fn main() {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("Failed to get manifest dir");
-    let profile = env::var("PROFILE").unwrap_or_else(|_| "debug".to_string());
+    // https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
+    let profile = env::var("PROFILE").unwrap();
 
     // Source directory for kernels (hand-written and generated .cu/.cuh files)
     let kernels_src = Path::new(&manifest_dir).join("kernels/src");
