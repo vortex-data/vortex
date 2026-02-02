@@ -10420,6 +10420,8 @@ name = "vortex-cuda"
 version = "0.1.0"
 dependencies = [
  "arc-swap",
+ "arrow-data 57.2.0",
+ "arrow-schema 57.2.0",
  "async-trait",
  "codspeed-criterion-compat-walltime",
  "cudarc",
