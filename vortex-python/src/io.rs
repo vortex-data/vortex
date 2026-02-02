@@ -267,7 +267,6 @@ impl PyVortexWriteOptions {
     /// ```python
     /// >>> import os
     /// >>> import random
-    /// >>> random.seed(42)
     /// >>> sprl = vx.array([random.randint(i, i + 10) for i in range(100_000)])
     /// ```
     ///
