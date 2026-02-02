@@ -1,4 +1,4 @@
-# Vortex Data Types
+# Logical DTypes
 
 A core principle of Vortex is that its data types (or `dtypes`) are _logical_ rather than _physical_.
 This means that the dtype has no bearing on how the data is actually stored in memory, and is instead used to define

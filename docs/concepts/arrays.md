@@ -1,4 +1,4 @@
-# Vortex Arrays
+# Arrays
 
 An array is the in-memory representation of data in Vortex. It has a [length](#length), a [data type](#data-type), an
 [encoding](#encodings), some number of [children](#children), and some number of [buffers](#buffers).
