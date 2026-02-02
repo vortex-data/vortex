@@ -13,132 +13,183 @@
 
 use std::ffi::CStr;
 use std::fmt;
+use std::ptr;
 
 // Include the generated bindings
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
-/// Error type for cudf operations
+/// Error type for cudf operations.
 #[derive(Debug)]
 pub struct CudfError {
-    pub code: CudfErrorCode,
     pub message: String,
 }
 
 impl fmt::Display for CudfError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "CudfError({:?}): {}", self.code, self.message)
+        write!(f, "CudfError: {}", self.message)
     }
 }
 
 impl std::error::Error for CudfError {}
 
-/// Result type for cudf operations
+/// Result type for cudf operations.
 pub type Result<T> = std::result::Result<T, CudfError>;
 
-/// Convert a CudfResult to a Rust Result
-fn check_result(result: CudfResult) -> Result<()> {
-    if result.code == CudfErrorCode_CUDF_SUCCESS {
+/// Check a cudf_err_t and convert to Result.
+fn check_err(err: cudf_err_t) -> Result<()> {
+    if err.is_null() {
         Ok(())
     } else {
-        let message = if result.error_message.is_null() {
-            format!("Unknown error (code: {:?})", result.code)
-        } else {
-            let msg = unsafe { CStr::from_ptr(result.error_message) }
-                .to_string_lossy()
-                .into_owned();
-            // Free the error message
-            unsafe { cudf_free_error(result.error_message) };
-            msg
-        };
-        Err(CudfError {
-            code: result.code,
-            message,
-        })
+        let message = unsafe { CStr::from_ptr(err) }
+            .to_string_lossy()
+            .into_owned();
+        unsafe { cudf_err_free(err) };
+        Err(CudfError { message })
     }
 }
 
-/// Initialize the cudf/RMM runtime.
-///
-/// This must be called before any other cudf operations.
-pub fn init() -> Result<()> {
-    let result = unsafe { cudf_init() };
-    check_result(result)
+/// RAII wrapper for cudf_context_t.
+pub struct CudfContext {
+    ctx: *mut cudf_context_t,
 }
 
-/// Load Arrow data from device memory into cudf.
-///
-/// # Safety
-///
-/// The schema and device_array must be valid Arrow C Data Interface structures
-/// with device memory pointers.
-pub unsafe fn load_from_arrow_device(
-    schema: *const ArrowSchema,
-    device_array: *const ArrowDeviceArray,
-) -> Result<()> {
-    let result = cudf_load_from_arrow_device(schema, device_array);
-    check_result(result)
+impl CudfContext {
+    /// Create a new cudf context and initialize RMM.
+    pub fn new() -> Result<Self> {
+        let mut ctx: *mut cudf_context_t = ptr::null_mut();
+        let err = unsafe { cudf_context_create(&raw mut ctx) };
+        check_err(err)?;
+        Ok(Self { ctx })
+    }
+
+    /// Import an Arrow table from device memory into a cudf table view.
+    ///
+    /// # Safety
+    ///
+    /// The schema and device_array must be valid Arrow C Device Data Interface structures
+    /// with device memory pointers.
+    pub unsafe fn tableview_from_device(
+        &self,
+        schema: *const ArrowSchema,
+        device_array: *const ArrowDeviceArray,
+    ) -> Result<CudfTableView> {
+        let mut tv: *mut cudf_tableview_t = ptr::null_mut();
+        let err =
+            unsafe { cudf_tableview_from_device(self.ctx, schema, device_array, &raw mut tv) };
+        check_err(err)?;
+        Ok(CudfTableView { tv })
+    }
+
+    /// Import an Arrow column from device memory into a cudf column view.
+    ///
+    /// # Safety
+    ///
+    /// The schema and device_array must be valid Arrow C Data Interface structures
+    /// with device memory pointers.
+    pub unsafe fn columnview_from_device(
+        &self,
+        schema: *const ArrowSchema,
+        device_array: *const ArrowDeviceArray,
+    ) -> Result<CudfColumnView> {
+        let mut cv: *mut cudf_columnview_t = ptr::null_mut();
+        let err =
+            unsafe { cudf_columnview_from_device(self.ctx, schema, device_array, &raw mut cv) };
+        check_err(err)?;
+        Ok(CudfColumnView { cv })
+    }
 }
 
-/// Load a single Arrow column from device memory into cudf.
-///
-/// # Safety
-///
-/// The schema and device_array must be valid Arrow C Data Interface structures
-/// with device memory pointers.
-pub unsafe fn load_column_from_arrow_device(
-    schema: *const ArrowSchema,
-    device_array: *const ArrowDeviceArray,
-) -> Result<()> {
-    let result = cudf_load_column_from_arrow_device(schema, device_array);
-    check_result(result)
-}
-
-/// Get the number of rows in the loaded table.
-pub fn get_row_count() -> Result<i64> {
-    let mut count: i64 = 0;
-    let result = unsafe { cudf_get_row_count(&mut count) };
-    check_result(result)?;
-    Ok(count)
-}
-
-/// Get the number of columns in the loaded table.
-pub fn get_column_count() -> Result<i32> {
-    let mut count: i32 = 0;
-    let result = unsafe { cudf_get_column_count(&mut count) };
-    check_result(result)?;
-    Ok(count)
-}
-
-/// Count valid (non-null) values in a column.
-pub fn count_valid(column_index: i32) -> Result<i64> {
-    let mut count: i64 = 0;
-    let result = unsafe { cudf_count_valid(column_index, &mut count) };
-    check_result(result)?;
-    Ok(count)
-}
-
-/// Sum values in an int64 column.
-pub fn sum_int64(column_index: i32) -> Result<i64> {
-    let mut sum: i64 = 0;
-    let result = unsafe { cudf_sum_int64(column_index, &mut sum) };
-    check_result(result)?;
-    Ok(sum)
-}
-
-/// Free the currently loaded table.
-pub fn free_table() -> Result<()> {
-    let result = unsafe { cudf_free_table() };
-    check_result(result)
-}
-
-/// RAII guard for the loaded table.
-///
-/// Automatically frees the table when dropped.
-pub struct TableGuard;
-
-impl Drop for TableGuard {
+impl Drop for CudfContext {
     fn drop(&mut self) {
-        let _ = free_table();
+        if !self.ctx.is_null() {
+            unsafe { cudf_context_free(self.ctx) };
+        }
+    }
+}
+
+/// RAII wrapper for cudf_tableview_t.
+pub struct CudfTableView {
+    tv: *mut cudf_tableview_t,
+}
+
+impl CudfTableView {
+    /// Get the number of rows in the table.
+    pub fn num_rows(&self) -> Result<i64> {
+        let mut count: i64 = 0;
+        let err = unsafe { cudf_tableview_num_rows(self.tv, &raw mut count) };
+        check_err(err)?;
+        Ok(count)
+    }
+
+    /// Get the number of columns in the table.
+    pub fn num_columns(&self) -> Result<i32> {
+        let mut count: i32 = 0;
+        let err = unsafe { cudf_tableview_num_columns(self.tv, &raw mut count) };
+        check_err(err)?;
+        Ok(count)
+    }
+
+    /// Count valid (non-null) values in a column.
+    pub fn count_valid(&self, column_index: i32) -> Result<i64> {
+        let mut count: i64 = 0;
+        let err = unsafe { cudf_tableview_count_valid(self.tv, column_index, &raw mut count) };
+        check_err(err)?;
+        Ok(count)
+    }
+
+    /// Sum values in an int64 column.
+    pub fn sum_int64(&self, column_index: i32) -> Result<i64> {
+        let mut sum: i64 = 0;
+        let err = unsafe { cudf_tableview_sum_int64(self.tv, column_index, &raw mut sum) };
+        check_err(err)?;
+        Ok(sum)
+    }
+}
+
+impl Drop for CudfTableView {
+    fn drop(&mut self) {
+        if !self.tv.is_null() {
+            unsafe { cudf_tableview_free(self.tv) };
+        }
+    }
+}
+
+/// RAII wrapper for cudf_columnview_t.
+pub struct CudfColumnView {
+    cv: *mut cudf_columnview_t,
+}
+
+impl CudfColumnView {
+    /// Get the number of rows in the column.
+    pub fn size(&self) -> Result<i64> {
+        let mut count: i64 = 0;
+        let err = unsafe { cudf_columnview_size(self.cv, &raw mut count) };
+        check_err(err)?;
+        Ok(count)
+    }
+
+    /// Count valid (non-null) values in the column.
+    pub fn count_valid(&self) -> Result<i64> {
+        let mut count: i64 = 0;
+        let err = unsafe { cudf_columnview_count_valid(self.cv, &raw mut count) };
+        check_err(err)?;
+        Ok(count)
+    }
+
+    /// Sum values in the column (int64).
+    pub fn sum_int64(&self) -> Result<i64> {
+        let mut sum: i64 = 0;
+        let err = unsafe { cudf_columnview_sum_int64(self.cv, &raw mut sum) };
+        check_err(err)?;
+        Ok(sum)
+    }
+}
+
+impl Drop for CudfColumnView {
+    fn drop(&mut self) {
+        if !self.cv.is_null() {
+            unsafe { cudf_columnview_free(self.cv) };
+        }
     }
 }
 
@@ -147,35 +198,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_init() -> Result<()> {
-        // This will fail if CUDA/cudf is not available, which is expected
-        // in CI environments without GPU
-        match init() {
-            Ok(()) => {
-                println!("cudf initialized successfully");
+    fn test_context_create() -> Result<()> {
+        match CudfContext::new() {
+            Ok(_ctx) => {
+                println!("cudf context created successfully");
                 Ok(())
             }
             Err(e) => {
-                println!("cudf init failed (expected without GPU): {}", e);
+                println!("cudf context creation failed (expected without GPU): {}", e);
                 Ok(())
-            }
-        }
-    }
-
-    #[test]
-    fn test_no_data_error() {
-        // Without loading data, operations should fail with NO_DATA error
-        let result = get_row_count();
-        match result {
-            Err(e) if e.code == CudfErrorCode_CUDF_ERROR_NO_DATA => {
-                // Expected
-            }
-            Err(e) => {
-                // Also acceptable - might fail for other reasons without GPU
-                println!("Got error (acceptable): {}", e);
-            }
-            Ok(_) => {
-                panic!("Expected error when no data loaded");
             }
         }
     }

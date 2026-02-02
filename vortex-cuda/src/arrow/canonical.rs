@@ -32,7 +32,7 @@ impl CudaDeviceArrayExecute for Canonical {
         let cuda_array = array.execute_cuda(ctx).await?;
 
         let arrow_array = match cuda_array {
-            Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await,
+            Canonical::Primitive(primitive) => export_primitive(primitive, ctx)?,
             c => todo!("implement support for exporting {}", c.dtype()),
         };
 
@@ -107,12 +107,3 @@ fn export_primitive(array: PrimitiveArray, ctx: &mut CudaExecutionCtx) -> Vortex
     })
 }
 
-// Get the DecimalArray and the VarBinViewArray so we know
-// how to treat all of these timestamps and such.
-
-#[cfg(test)]
-mod tests {
-    #[tokio::test]
-    async fn test_export_primitive() {
-    }
-}

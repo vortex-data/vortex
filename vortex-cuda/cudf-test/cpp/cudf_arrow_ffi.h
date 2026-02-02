@@ -63,55 +63,76 @@ struct ArrowDeviceArray {
     void* sync_event;
 };
 
-// Error codes for cudf operations
-typedef enum {
-    CUDF_SUCCESS = 0,
-    CUDF_ERROR_INIT_FAILED = 1,
-    CUDF_ERROR_INVALID_ARGUMENT = 2,
-    CUDF_ERROR_LOAD_FAILED = 3,
-    CUDF_ERROR_NO_DATA = 4,
-    CUDF_ERROR_OPERATION_FAILED = 5,
-} CudfErrorCode;
+// Error type: NULL on success, pointer to error string on failure.
+// Caller must free with cudf_err_free() when non-NULL.
+typedef const char* cudf_err_t;
 
-// Result type for cudf operations
-typedef struct {
-    CudfErrorCode code;
-    const char* error_message;  // NULL on success, caller must free with cudf_free_error
-} CudfResult;
+// Opaque context type that holds CUDA memory resources and global state.
+typedef struct cudf_context cudf_context_t;
 
-// Initialize cudf/RMM runtime
-CudfResult cudf_init(void);
+// Opaque table view type wrapping cudf::unique_table_view_t
+typedef struct cudf_tableview cudf_tableview_t;
 
-// Load Arrow data from device memory into cudf
-// Takes a table (struct of arrays)
-CudfResult cudf_load_from_arrow_device(
+// Opaque column view type wrapping cudf::unique_column_view_t
+typedef struct cudf_columnview cudf_columnview_t;
+
+// Create a new cudf context and initialize RMM.
+// On success, *ctx is set to the new context and NULL is returned.
+// On failure, *ctx is unchanged and an error string is returned.
+cudf_err_t cudf_context_create(cudf_context_t** ctx);
+
+// Free a cudf context and all associated resources.
+void cudf_context_free(cudf_context_t* ctx);
+
+// Import an Arrow table from device memory into a cudf table view.
+// On success, *out is set to the new table view and NULL is returned.
+// On failure, *out is unchanged and an error string is returned.
+cudf_err_t cudf_tableview_from_device(
+    cudf_context_t* ctx,
     const struct ArrowSchema* schema,
-    const struct ArrowDeviceArray* device_array
+    const struct ArrowDeviceArray* device_array,
+    cudf_tableview_t** out
 );
 
-// Load a single Arrow column from device memory into cudf
-CudfResult cudf_load_column_from_arrow_device(
+// Import an Arrow column from device memory into a cudf column view.
+// On success, *out is set to the new column view and NULL is returned.
+// On failure, *out is unchanged and an error string is returned.
+cudf_err_t cudf_columnview_from_device(
+    cudf_context_t* ctx,
     const struct ArrowSchema* schema,
-    const struct ArrowDeviceArray* device_array
+    const struct ArrowDeviceArray* device_array,
+    cudf_columnview_t** out
 );
 
-// Get the number of rows in the loaded table
-CudfResult cudf_get_row_count(int64_t* count);
+// Get the number of rows in a table view.
+cudf_err_t cudf_tableview_num_rows(const cudf_tableview_t* tv, int64_t* count);
 
-// Get the number of columns in the loaded table
-CudfResult cudf_get_column_count(int32_t* count);
+// Get the number of columns in a table view.
+cudf_err_t cudf_tableview_num_columns(const cudf_tableview_t* tv, int32_t* count);
 
-// Count valid (non-null) values in a column
-CudfResult cudf_count_valid(int32_t column_index, int64_t* valid_count);
+// Get the number of rows in a column view.
+cudf_err_t cudf_columnview_size(const cudf_columnview_t* cv, int64_t* count);
 
-// Sum values in an int64 column
-CudfResult cudf_sum_int64(int32_t column_index, int64_t* sum);
+// Count valid (non-null) values in a table column.
+cudf_err_t cudf_tableview_count_valid(const cudf_tableview_t* tv, int32_t column_index, int64_t* valid_count);
 
-// Free the loaded table
-CudfResult cudf_free_table(void);
+// Count valid (non-null) values in a column view.
+cudf_err_t cudf_columnview_count_valid(const cudf_columnview_t* cv, int64_t* valid_count);
 
-// Free an error message returned by a CudfResult
-void cudf_free_error(const char* error_msg);
+// Sum values in an int64 table column.
+cudf_err_t cudf_tableview_sum_int64(const cudf_tableview_t* tv, int32_t column_index, int64_t* sum);
+
+// Sum values in an int64 column view.
+cudf_err_t cudf_columnview_sum_int64(const cudf_columnview_t* cv, int64_t* sum);
+
+// Free a table view.
+void cudf_tableview_free(cudf_tableview_t* tv);
+
+// Free a column view.
+void cudf_columnview_free(cudf_columnview_t* cv);
+
+// Free an error string.
+void cudf_err_free(cudf_err_t err);
 
 #ifdef __cplusplus
 }

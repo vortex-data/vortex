@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+// Build scripts use expect/panic to fail the build with clear error messages
+#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
+
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
@@ -22,20 +25,16 @@ fn main() {
     cmake_cmd
         .current_dir(&build_dir)
         .arg(&cpp_dir)
-        .arg(format!("-DCMAKE_BUILD_TYPE=Release"));
+        .arg("-DCMAKE_BUILD_TYPE=Release");
 
     // Add conda prefix to CMAKE_PREFIX_PATH if available
     if let Some(prefix) = &conda_prefix {
         cmake_cmd.arg(format!("-DCMAKE_PREFIX_PATH={}", prefix));
     }
 
-    let status = cmake_cmd
-        .status()
-        .expect("Failed to run cmake configure");
+    let status = cmake_cmd.status().expect("Failed to run cmake configure");
 
-    if !status.success() {
-        panic!("CMake configure failed");
-    }
+    assert!(status.success(), "CMake configure failed");
 
     // Build
     let status = Command::new("cmake")
@@ -44,9 +43,7 @@ fn main() {
         .status()
         .expect("Failed to run cmake build");
 
-    if !status.success() {
-        panic!("CMake build failed");
-    }
+    assert!(status.success(), "CMake build failed");
 
     // Tell cargo where to find the library
     println!("cargo:rustc-link-search=native={}", build_dir.display());
