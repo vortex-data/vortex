@@ -18,7 +18,6 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;

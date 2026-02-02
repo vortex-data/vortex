@@ -63,20 +63,17 @@ impl CudaExecute for ConstantNumericExecutor {
 
         match array.scalar().dtype() {
             DType::Primitive(ptype, nullability) => {
+                let validity: Validity = nullability.into();
                 match_each_native_simd_ptype!(*ptype, |P| {
-                    materialize_constant_primitive::<P>(array, nullability.into(), ctx).await
+                    materialize_constant_primitive::<P>(array, validity, ctx).await
                 })
             }
             DType::Decimal(decimal_dtype, nullability) => {
-                let values_type = DecimalType::smallest_decimal_value_type(decimal_dtype);
+                let decimal_dtype = *decimal_dtype;
+                let validity: Validity = nullability.into();
+                let values_type = DecimalType::smallest_decimal_value_type(&decimal_dtype);
                 match_each_decimal_value_type!(values_type, |D| {
-                    materialize_constant_decimal::<D>(
-                        array,
-                        *decimal_dtype,
-                        nullability.into(),
-                        ctx,
-                    )
-                    .await
+                    materialize_constant_decimal::<D>(array, decimal_dtype, validity, ctx).await
                 })
             }
             dt => vortex_bail!(
