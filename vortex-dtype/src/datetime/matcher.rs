@@ -8,6 +8,7 @@ use vortex_error::VortexResult;
 
 use crate::datetime::Date;
 use crate::datetime::Time;
+use crate::datetime::TimeUnit;
 use crate::datetime::Timestamp;
 use crate::extension::ExtDTypeRef;
 use crate::extension::ExtDTypeVTable;
@@ -37,7 +38,7 @@ impl Matcher for AnyTemporal {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TemporalMetadata<'a> {
     /// Metadata for Timestamp dtypes, a tuple of time unit and optional timezone.
-    Timestamp((&'a crate::datetime::TimeUnit, &'a Option<Arc<str>>)),
+    Timestamp((&'a TimeUnit, &'a Option<Arc<str>>)),
     /// Metadata for Date dtypes
     Date(&'a <Date as ExtDTypeVTable>::Metadata),
     /// Metadata for Time dtypes
@@ -48,7 +49,7 @@ pub enum TemporalMetadata<'a> {
 //  Currently this is used largely to implement scalar display hacks.
 impl TemporalMetadata<'_> {
     /// Get the time unit of the temporal dtype.
-    pub fn time_unit(&self) -> crate::datetime::TimeUnit {
+    pub fn time_unit(&self) -> TimeUnit {
         match self {
             TemporalMetadata::Time(unit) => **unit,
             TemporalMetadata::Date(unit) => **unit,
