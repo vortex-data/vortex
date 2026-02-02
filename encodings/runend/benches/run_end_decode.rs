@@ -3,6 +3,8 @@
 
 #![allow(clippy::unwrap_used, clippy::cast_possible_truncation)]
 
+use std::fmt;
+
 use divan::Bencher;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
@@ -30,6 +32,35 @@ enum BoolDistribution {
     AllTrue,
     /// All false
     AllFalse,
+}
+
+impl fmt::Display for BoolDistribution {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BoolDistribution::Alternating => write!(f, "alternating"),
+            BoolDistribution::MostlyTrue => write!(f, "mostly_true"),
+            BoolDistribution::MostlyFalse => write!(f, "mostly_false"),
+            BoolDistribution::AllTrue => write!(f, "all_true"),
+            BoolDistribution::AllFalse => write!(f, "all_false"),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct BoolBenchArgs {
+    total_length: usize,
+    avg_run_length: usize,
+    distribution: BoolDistribution,
+}
+
+impl fmt::Display for BoolBenchArgs {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}_{}_{}",
+            self.total_length, self.avg_run_length, self.distribution
+        )
+    }
 }
 
 /// Creates bool test data with configurable distribution
@@ -66,45 +97,121 @@ fn create_bool_test_data(
     )
 }
 
-// Medium size: 10k elements with various run lengths
-const BOOL_ARGS: &[(usize, usize)] = &[
-    (10_000, 2),    // Very short runs (5000 runs)
-    (10_000, 10),   // Short runs (1000 runs)
-    (10_000, 100),  // Medium runs (100 runs)
-    (10_000, 1000), // Long runs (10 runs)
+// Medium size: 10k elements with various run lengths and distributions
+const BOOL_ARGS: &[BoolBenchArgs] = &[
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 2,
+        distribution: BoolDistribution::Alternating,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 10,
+        distribution: BoolDistribution::Alternating,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 100,
+        distribution: BoolDistribution::Alternating,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 1000,
+        distribution: BoolDistribution::Alternating,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 2,
+        distribution: BoolDistribution::MostlyTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 10,
+        distribution: BoolDistribution::MostlyTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 100,
+        distribution: BoolDistribution::MostlyTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 1000,
+        distribution: BoolDistribution::MostlyTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 2,
+        distribution: BoolDistribution::MostlyFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 10,
+        distribution: BoolDistribution::MostlyFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 100,
+        distribution: BoolDistribution::MostlyFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 1000,
+        distribution: BoolDistribution::MostlyFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 2,
+        distribution: BoolDistribution::AllTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 10,
+        distribution: BoolDistribution::AllTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 100,
+        distribution: BoolDistribution::AllTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 1000,
+        distribution: BoolDistribution::AllTrue,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 2,
+        distribution: BoolDistribution::AllFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 10,
+        distribution: BoolDistribution::AllFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 100,
+        distribution: BoolDistribution::AllFalse,
+    },
+    BoolBenchArgs {
+        total_length: 10_000,
+        avg_run_length: 1000,
+        distribution: BoolDistribution::AllFalse,
+    },
 ];
 
 #[divan::bench(args = BOOL_ARGS)]
-fn decode_bool_alternating(bencher: Bencher, (total_length, avg_run_length): (usize, usize)) {
-    let (ends, values) =
-        create_bool_test_data(total_length, avg_run_length, BoolDistribution::Alternating);
-    bencher.bench(|| runend_decode_bools(ends.clone(), values.clone(), 0, total_length));
-}
-
-#[divan::bench(args = BOOL_ARGS)]
-fn decode_bool_mostly_true(bencher: Bencher, (total_length, avg_run_length): (usize, usize)) {
-    let (ends, values) =
-        create_bool_test_data(total_length, avg_run_length, BoolDistribution::MostlyTrue);
-    bencher.bench(|| runend_decode_bools(ends.clone(), values.clone(), 0, total_length));
-}
-
-#[divan::bench(args = BOOL_ARGS)]
-fn decode_bool_mostly_false(bencher: Bencher, (total_length, avg_run_length): (usize, usize)) {
-    let (ends, values) =
-        create_bool_test_data(total_length, avg_run_length, BoolDistribution::MostlyFalse);
-    bencher.bench(|| runend_decode_bools(ends.clone(), values.clone(), 0, total_length));
-}
-
-#[divan::bench(args = BOOL_ARGS)]
-fn decode_bool_all_true(bencher: Bencher, (total_length, avg_run_length): (usize, usize)) {
-    let (ends, values) =
-        create_bool_test_data(total_length, avg_run_length, BoolDistribution::AllTrue);
-    bencher.bench(|| runend_decode_bools(ends.clone(), values.clone(), 0, total_length));
-}
-
-#[divan::bench(args = BOOL_ARGS)]
-fn decode_bool_all_false(bencher: Bencher, (total_length, avg_run_length): (usize, usize)) {
-    let (ends, values) =
-        create_bool_test_data(total_length, avg_run_length, BoolDistribution::AllFalse);
-    bencher.bench(|| runend_decode_bools(ends.clone(), values.clone(), 0, total_length));
+fn decode_bool(bencher: Bencher, args: BoolBenchArgs) {
+    let BoolBenchArgs {
+        total_length,
+        avg_run_length,
+        distribution,
+    } = args;
+    let (bools, indices) = create_bool_test_data(total_length, avg_run_length, distribution);
+    bencher
+        .with_inputs(|| (&bools, &indices))
+        .bench_refs(|(ends, values)| {
+            runend_decode_bools(ends.clone(), values.clone(), 0, total_length)
+        });
 }
