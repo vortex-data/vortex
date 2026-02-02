@@ -116,6 +116,12 @@ impl DictReader {
         // after applying the filter, so if the expression is fallible this might fail when it
         // shouldn't.
         // TODO(joe): fixme
+
+        // Check cache first with read-only lock
+        if let Some(fut) = self.values_evals.get(&expr) {
+            return fut.clone();
+        }
+
         let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
