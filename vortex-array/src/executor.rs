@@ -3,7 +3,10 @@
 
 use std::sync::Arc;
 
+use vortex_buffer::Buffer;
+use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -78,20 +81,25 @@ impl ExecutionCtx {
 /// This will replace the recursive usage of `to_canonical()`.
 /// An `ExecutionCtx` is will be used to limit access to buffers.
 impl Executable for Canonical {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         // Try and dispatch to a child that can optimize execution.
-        for (child_idx, child) in array.children().iter().enumerate() {
-            if let Some(result) = child
-                .vtable()
-                .execute_canonical_parent(child, &array, child_idx, ctx)?
-            {
-                tracing::debug!(
-                    "Executed array {} via child {} optimization.",
-                    array.encoding_id(),
-                    child.encoding_id()
-                );
-                return Ok(result);
+        // TODO(ngates): maybe put a limit on reduce_parent iterations
+        'outer: loop {
+            for (child_idx, child) in array.children().iter().enumerate() {
+                if let Some(result) = child
+                    .vtable()
+                    .execute_parent(child, &array, child_idx, ctx)?
+                {
+                    tracing::debug!(
+                        "Executed array {} via child {} optimization.",
+                        array.encoding_id(),
+                        child.encoding_id()
+                    );
+                    array = result;
+                    continue 'outer;
+                }
             }
+            break;
         }
 
         // Otherwise fall back to the default execution.
@@ -115,6 +123,20 @@ impl Executable for CanonicalOutput {
 
         tracing::debug!("Executing array {}:\n{}", array, array.display_tree());
         Ok(CanonicalOutput::Array(array.execute(ctx)?))
+    }
+}
+
+/// Execute a primitive array into a buffer of native values.
+///
+/// This will error if the array is not all-valid.
+impl<T: NativePType> Executable for Buffer<T> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let array = array.execute::<PrimitiveArray>(ctx)?;
+        vortex_ensure!(
+            array.all_valid()?,
+            "Cannot execute to native buffer: array is not all-valid."
+        );
+        Ok(array.into_buffer())
     }
 }
 
