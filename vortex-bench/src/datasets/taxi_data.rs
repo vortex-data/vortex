@@ -15,7 +15,7 @@ use vortex::file::WriteOptionsSessionExt;
 use crate::CompactionStrategy;
 use crate::IdempotentPath;
 use crate::SESSION;
-use crate::conversions::parquet_to_vortex;
+use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
@@ -61,7 +61,7 @@ pub async fn taxi_data_vortex() -> Result<PathBuf> {
         let buf = output_fname.to_path_buf();
         let mut output_file = TokioFile::create(output_fname).await?;
 
-        let data = parquet_to_vortex(taxi_data_parquet().await?).await?;
+        let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 
         SESSION
             .write_options()
@@ -81,7 +81,7 @@ pub async fn taxi_data_vortex_compact() -> Result<PathBuf> {
         // This is the only difference to `taxi_data_vortex`.
         let write_options = CompactionStrategy::Compact.apply_options(SESSION.write_options());
 
-        let data = parquet_to_vortex(taxi_data_parquet().await?).await?;
+        let data = parquet_to_vortex_chunks(taxi_data_parquet().await?).await?;
 
         write_options
             .write(&mut output_file, data.to_array_stream())

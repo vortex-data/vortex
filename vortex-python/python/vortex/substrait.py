@@ -3,12 +3,31 @@
 
 import operator
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from google.protobuf.internal.containers import RepeatedCompositeFieldContainer
-from substrait.gen.proto.algebra_pb2 import Expression, FunctionArgument
-from substrait.gen.proto.extended_expression_pb2 import ExpressionReference, ExtendedExpression
-from substrait.gen.proto.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI
-from substrait.gen.proto.type_pb2 import NamedStruct
+
+if TYPE_CHECKING:
+    from substrait.algebra_pb2 import Expression, FunctionArgument
+    from substrait.extended_expression_pb2 import ExpressionReference, ExtendedExpression
+    from substrait.extensions.extensions_pb2 import (
+        SimpleExtensionDeclaration,
+        SimpleExtensionURI,  # pyright: ignore[reportDeprecated]
+    )
+    from substrait.type_pb2 import NamedStruct
+else:
+    try:
+        # substrait >= 0.27
+        from substrait.algebra_pb2 import Expression, FunctionArgument
+        from substrait.extended_expression_pb2 import ExpressionReference, ExtendedExpression
+        from substrait.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI
+        from substrait.type_pb2 import NamedStruct
+    except ImportError:
+        # substrait < 0.27
+        from substrait.gen.proto.algebra_pb2 import Expression, FunctionArgument
+        from substrait.gen.proto.extended_expression_pb2 import ExpressionReference, ExtendedExpression
+        from substrait.gen.proto.extensions.extensions_pb2 import SimpleExtensionDeclaration, SimpleExtensionURI
+        from substrait.gen.proto.type_pb2 import NamedStruct
 
 from ._lib import dtype as _dtype  # pyright: ignore[reportMissingModuleSource]
 from ._lib import expr as _expr  # pyright: ignore[reportMissingModuleSource]
@@ -150,7 +169,7 @@ def function_argument(
 
 def extension_function(
     substrait_object: SimpleExtensionDeclaration.ExtensionFunction,
-    extension_uris: RepeatedCompositeFieldContainer[SimpleExtensionURI],
+    extension_uris: RepeatedCompositeFieldContainer[SimpleExtensionURI],  # pyright: ignore[reportDeprecated]
 ) -> Callable[..., _expr.Expr]:
     # https://github.com/substrait-io/substrait/blob/main/proto/substrait/extensions/extensions.proto#L57
     match extension_uris[substrait_object.extension_uri_reference].uri:

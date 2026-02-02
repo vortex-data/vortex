@@ -11,13 +11,12 @@
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
-#[cfg(feature = "arrow")]
 pub mod arrow;
 mod bigint;
 pub mod datetime;
 mod decimal;
 mod dtype;
-mod extension;
+pub mod extension;
 mod f16;
 mod field;
 mod field_mask;
@@ -25,14 +24,17 @@ mod field_names;
 mod native_dtype;
 mod nullability;
 mod ptype;
-mod serde;
+pub mod serde;
+pub mod session;
 mod struct_;
 
 pub use bigint::*;
 pub use decimal::*;
 pub use dtype::DType;
 pub use dtype::NativeDType;
-pub use extension::*;
+pub use extension::ExtDType;
+pub use extension::ExtDTypeRef;
+pub use extension::ExtID;
 pub use f16::*;
 pub use field::*;
 pub use field_mask::*;
@@ -56,6 +58,16 @@ pub mod flatbuffers {
     //! This module contains the code to serialize and deserialize DTypes to and from flatbuffers.
 
     pub use vortex_flatbuffers::dtype::*;
+}
 
-    pub use super::serde::flatbuffers::*;
+#[cfg(test)]
+mod test {
+    use std::sync::LazyLock;
+
+    use vortex_session::VortexSession;
+
+    use crate::session::DTypeSession;
+
+    pub(crate) static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<DTypeSession>());
 }

@@ -126,7 +126,7 @@ impl Scalar {
     pub fn cast(&self, target: &DType) -> VortexResult<Self> {
         if let DType::Extension(ext_dtype) = target {
             let storage_scalar = self.cast_to_non_extension(ext_dtype.storage_dtype())?;
-            Ok(Scalar::extension(ext_dtype.clone(), storage_scalar))
+            Ok(Scalar::extension_ref(ext_dtype.clone(), storage_scalar))
         } else {
             self.cast_to_non_extension(target)
         }
@@ -245,7 +245,7 @@ impl Scalar {
             }
             DType::Extension(dt) => {
                 let scalar = Self::zero_value(dt.storage_dtype().clone());
-                Self::extension(dt, scalar)
+                Self::extension_ref(dt, scalar)
             }
         }
     }
@@ -338,7 +338,7 @@ impl Scalar {
             }
             DType::Extension(dt) => {
                 let scalar = Self::default_value(dt.storage_dtype().clone());
-                Self::extension(dt, scalar)
+                Self::extension_ref(dt, scalar)
             }
         }
     }

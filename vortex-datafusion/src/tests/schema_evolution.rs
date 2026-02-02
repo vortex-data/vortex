@@ -1,16 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(
-    clippy::unwrap_in_result,
-    clippy::unwrap_used,
-    clippy::tests_outside_test_module
-)]
-
 //! Test that checks we can evolve schemas in a compatible way across files.
 
 use std::sync::Arc;
-use std::sync::LazyLock;
 
 use arrow_schema::DataType;
 use arrow_schema::Field;
@@ -24,117 +17,46 @@ use datafusion::arrow::array::StructArray;
 use datafusion::arrow::datatypes::UInt16Type;
 use datafusion::arrow::datatypes::UInt32Type;
 use datafusion::assert_batches_sorted_eq;
-use datafusion::datasource::listing::ListingOptions;
-use datafusion::datasource::listing::ListingTable;
-use datafusion::datasource::listing::ListingTableConfig;
-use datafusion::execution::SessionStateBuilder;
-use datafusion::execution::context::SessionContext;
 use datafusion_common::assert_batches_eq;
 use datafusion_common::create_array;
 use datafusion_common::record_batch;
-use datafusion_datasource::ListingTableUrl;
 use datafusion_expr::col;
 use datafusion_expr::lit;
 use datafusion_functions::expr_fn::get_field;
-use object_store::ObjectStore;
-use object_store::memory::InMemory;
-use object_store::path::Path;
-use url::Url;
-use vortex::VortexSessionDefault;
-use vortex::array::ArrayRef;
-use vortex::array::arrow::FromArrowArray;
-use vortex::file::WriteOptionsSessionExt;
-use vortex::io::ObjectStoreWriter;
-use vortex::io::VortexWrite;
-use vortex::session::VortexSession;
-use vortex_datafusion::VortexFormat;
-use vortex_datafusion::VortexFormatFactory;
 
-static SESSION: LazyLock<VortexSession> = LazyLock::new(VortexSession::default);
-
-fn register_vortex_format_factory(
-    factory: VortexFormatFactory,
-    session_state_builder: &mut SessionStateBuilder,
-) {
-    if let Some(table_factories) = session_state_builder.table_factories() {
-        table_factories.insert(
-            datafusion::common::GetExt::get_ext(&factory).to_uppercase(), // Has to be uppercase
-            Arc::new(datafusion::datasource::provider::DefaultTableFactory::new()),
-        );
-    }
-
-    if let Some(file_formats) = session_state_builder.file_formats() {
-        file_formats.push(Arc::new(factory));
-    }
-}
-
-fn make_session_ctx() -> (SessionContext, Arc<dyn ObjectStore>) {
-    let factory: VortexFormatFactory = VortexFormatFactory::new();
-    let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-    register_vortex_format_factory(factory, &mut session_state_builder);
-    let ctx = SessionContext::new_with_state(session_state_builder.build());
-    let store = Arc::new(InMemory::new());
-    ctx.register_object_store(&Url::parse("s3://in-memory/").unwrap(), store.clone());
-
-    (ctx, store)
-}
-
-async fn write_file(store: &Arc<dyn ObjectStore>, path: &str, records: &RecordBatch) {
-    let array = ArrayRef::from_arrow(records, false).unwrap();
-    let path = Path::from_url_path(path).unwrap();
-    let mut write = ObjectStoreWriter::new(store.clone(), &path).await.unwrap();
-    SESSION
-        .write_options()
-        .write(&mut write, array.to_array_stream())
-        .await
-        .unwrap();
-    write.shutdown().await.unwrap();
-}
+use crate::common_tests::TestSessionContext;
 
 #[tokio::test]
-async fn test_filter_with_schema_evolution() {
-    let (ctx, store) = make_session_ctx();
+async fn test_filter_with_schema_evolution() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
 
     // file1 only contains field "a"
-    write_file(
-        &store,
+    ctx.write_arrow_batch(
         "files/file1.vortex",
-        &record_batch!(("a", Utf8, vec![Some("one"), Some("two"), Some("three")])).unwrap(),
+        &record_batch!(("a", Utf8, vec![Some("one"), Some("two"), Some("three")]))?,
     )
-    .await;
+    .await?;
 
     // file2 only contains field "b"
-    write_file(
-        &store,
+    ctx.write_arrow_batch(
         "files/file2.vortex",
-        &record_batch!(("b", Utf8, vec![Some("four"), Some("five"), Some("six")])).unwrap(),
+        &record_batch!(("b", Utf8, vec![Some("four"), Some("five"), Some("six")]))?,
     )
-    .await;
+    .await?;
 
-    // Read the table back as Vortex
-    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
-    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
-        .with_session_config_options(ctx.state().config())
-        .with_file_extension("vortex");
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE my_tbl \
+                STORED AS vortex  \
+                LOCATION '/files/'",
+        )
+        .await?;
 
-    let table = ListingTable::try_new(
-        ListingTableConfig::new(table_url)
-            .with_listing_options(list_opts)
-            .infer_schema(&ctx.state())
-            .await
-            .unwrap(),
-    )
-    .unwrap();
-
-    let table = Arc::new(table);
-
-    let df = ctx.read_table(table).unwrap();
-
-    let table_schema = Arc::new(df.schema().as_arrow().clone());
+    let table = ctx.session.table("my_tbl").await?;
 
     // Table schema contains both fields
     assert_eq!(
-        table_schema.as_ref(),
+        table.schema().as_arrow(),
         &Schema::new(vec![
             Field::new("a", DataType::Utf8View, true),
             Field::new("b", DataType::Utf8View, true),
@@ -142,12 +64,7 @@ async fn test_filter_with_schema_evolution() {
     );
 
     // Filter the result to only ones with a column, i.e. only file1
-    let result = df
-        .filter(col("a").is_not_null())
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
+    let result = table.filter(col("a").is_not_null())?.collect().await?;
 
     let expected = [
         "+-------+---+",
@@ -159,60 +76,44 @@ async fn test_filter_with_schema_evolution() {
         "+-------+---+",
     ];
     assert_batches_sorted_eq!(expected, &result);
+
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_filter_schema_evolution_order() {
-    let (ctx, store) = make_session_ctx();
+async fn test_filter_schema_evolution_order() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
 
     // file1 only contains field "a"
-    write_file(
-        &store,
+    ctx.write_arrow_batch(
         "files/file1.vortex",
-        &record_batch!(("a", Int32, vec![Some(1), Some(3), Some(5)])).unwrap(),
+        &record_batch!(("a", Int32, vec![Some(1), Some(3), Some(5)]))?,
     )
-    .await;
+    .await?;
 
     // file2 containing fields "b" and "a", where "a" needs to be upcast at scan time.
-    write_file(
-        &store,
+    ctx.write_arrow_batch(
         "files/file2.vortex",
         &record_batch!(
             ("b", Utf8, vec![Some("two"), Some("four"), Some("six")]),
             ("a", Int16, vec![Some(2), Some(4), Some(6)])
+        )?,
+    )
+    .await?;
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE my_tbl (a INT, b STRING) \
+                STORED AS vortex  \
+                LOCATION '/files/'",
         )
-        .unwrap(),
-    )
-    .await;
+        .await?;
 
-    // Read the table back as Vortex
-    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
-    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
-        .with_session_config_options(ctx.state().config())
-        .with_file_extension("vortex");
-
-    // We force the table schema, because file1/file2 have different types for the "a" column
-    let read_schema = Arc::new(Schema::new(vec![
-        Field::new("a", DataType::Int32, true),
-        Field::new("b", DataType::Utf8View, true),
-    ]));
-
-    let table = ListingTable::try_new(
-        ListingTableConfig::new(table_url)
-            .with_listing_options(list_opts)
-            .with_schema(read_schema.clone()),
-    )
-    .unwrap();
-
-    let table = Arc::new(table);
-
-    let df = ctx.read_table(table.clone()).unwrap();
-
-    let table_schema = Arc::new(df.schema().as_arrow().clone());
+    let table = ctx.session.table("my_tbl").await?;
 
     // Table schema contains both fields
     assert_eq!(
-        table_schema.as_ref(),
+        table.schema().as_arrow(),
         &Schema::new(vec![
             Field::new("a", DataType::Int32, true),
             Field::new("b", DataType::Utf8View, true),
@@ -220,12 +121,11 @@ async fn test_filter_schema_evolution_order() {
     );
 
     // Filter referencing the b column, which only appears in file2
-    let result = df
-        .filter(col("b").eq(lit("two")))
-        .unwrap()
+    let result = table
+        .clone()
+        .filter(col("b").eq(lit("two")))?
         .collect()
-        .await
-        .unwrap();
+        .await?;
 
     assert_batches_eq!(
         &[
@@ -239,15 +139,7 @@ async fn test_filter_schema_evolution_order() {
     );
 
     // Filter on the "a" column, which has different types for each file
-    let result = ctx
-        .read_table(table)
-        .unwrap()
-        .filter(col("a").gt_eq(lit(3i16)))
-        .unwrap()
-        .collect()
-        .await
-        .unwrap();
-    // let table = concat_batches(&table_schema, result.iter()).unwrap();
+    let result = table.filter(col("a").gt_eq(lit(3i16)))?.collect().await?;
 
     // a field: present in both files
     // b field: only present in file2, file1 fills with nulls
@@ -264,15 +156,16 @@ async fn test_filter_schema_evolution_order() {
         ],
         &result
     );
+
+    Ok(())
 }
 
+/// Test for correct schema evolution behavior in the presence of nested struct fields.
+/// We use a hypothetical schema of some observability data with "wide records", struct columns
+/// with nullable payloads that may or may not be present for every file.
 #[tokio::test]
-async fn test_filter_schema_evolution_struct_fields() {
-    // Test for correct schema evolution behavior in the presence of nested struct fields.
-    // We use a hypothetical schema of some observability data with "wide records", struct columns
-    // with nullable payloads that may or may not be present for every file.
-
-    let (ctx, store) = make_session_ctx();
+async fn test_filter_schema_evolution_struct_fields() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
 
     fn make_metrics(
         hostname: &str,
@@ -325,36 +218,24 @@ async fn test_filter_schema_evolution_struct_fields() {
     );
 
     // Write metrics files to storage
-    write_file(&store, "files/host01.vortex", &host01).await;
-    write_file(&store, "files/host02.vortex", &host02).await;
+    ctx.write_arrow_batch("files/host01.vortex", &host01)
+        .await?;
+    ctx.write_arrow_batch("files/host02.vortex", &host02)
+        .await?;
 
-    // Read the table back as Vortex
-    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
-    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
-        .with_session_config_options(ctx.state().config())
-        .with_file_extension("vortex");
-
-    // We force the table schema to be the one inclusive of the new instance field.
     let read_schema = host02.schema();
 
-    let table = ListingTable::try_new(
-        ListingTableConfig::new(table_url)
-            .with_listing_options(list_opts)
-            .with_schema(read_schema.clone()),
-    )
-    .unwrap();
+    let provider = ctx
+        .table_provider("tbl", "/files/", read_schema.clone())
+        .await?;
 
-    let table = Arc::new(table);
-
-    let df = ctx.read_table(table.clone()).unwrap();
-
-    let table_schema = Arc::new(df.schema().as_arrow().clone());
+    let table = ctx.session.read_table(provider)?;
 
     // Table schema contains both fields
-    assert_eq!(table_schema.as_ref(), read_schema.as_ref(),);
+    assert_eq!(table.schema().as_arrow(), read_schema.as_ref(),);
 
     // Scan all the records, NULLs are filled in for nested optional fields.
-    let full_scan = df.collect().await.unwrap();
+    let full_scan = table.clone().collect().await?;
 
     assert_batches_sorted_eq!(
         &[
@@ -375,8 +256,7 @@ async fn test_filter_schema_evolution_struct_fields() {
     );
 
     // run a filter that touches both the payload.uptime AND the payload.instance nested fields
-    let df = ctx.read_table(table.clone()).unwrap();
-    let filtered_scan = df
+    let filtered_scan = table
         .filter(
             // payload.instance = 'c6i' OR payload.uptime < 10
             // We need to perform filtering over nested columns which don't exist in every
@@ -384,11 +264,9 @@ async fn test_filter_schema_evolution_struct_fields() {
             get_field(col("payload"), "instance")
                 .eq(lit("c6i"))
                 .or(get_field(col("payload"), "uptime").lt(lit(10))),
-        )
-        .unwrap()
+        )?
         .collect()
-        .await
-        .unwrap();
+        .await?;
 
     assert_batches_sorted_eq!(
         &[
@@ -405,11 +283,13 @@ async fn test_filter_schema_evolution_struct_fields() {
         ],
         &filtered_scan
     );
+
+    Ok(())
 }
 
 #[tokio::test]
 async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
-    let (ctx, store) = make_session_ctx();
+    let ctx = TestSessionContext::default();
 
     // First file
     let struct_fields = Fields::from(vec![
@@ -434,7 +314,7 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
         vec![Arc::new(struct_array)],
     )?;
 
-    write_file(&store, "files/file1.vortex", &batch).await;
+    ctx.write_arrow_batch("files/file1.vortex", &batch).await?;
 
     // Second file
     let struct_fields = Fields::from(vec![
@@ -461,28 +341,19 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
         vec![Arc::new(struct_array)],
     )?;
 
-    write_file(&store, "files/file2.vortex", &batch).await;
+    ctx.write_arrow_batch("files/file2.vortex", &batch).await?;
 
     let read_schema = batch.schema();
 
-    // Read the table back as Vortex
-    let table_url = ListingTableUrl::parse("s3://in-memory/files").unwrap();
-    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
-        .with_session_config_options(ctx.state().config())
-        .with_file_extension("vortex");
+    let provider = ctx
+        .table_provider("tbl", "/files/", read_schema.clone())
+        .await?;
 
-    let table = Arc::new(ListingTable::try_new(
-        ListingTableConfig::new(table_url)
-            .with_listing_options(list_opts)
-            .with_schema(read_schema.clone()),
-    )?);
+    let table = ctx.session.read_table(provider)?;
 
-    let df = ctx.read_table(table.clone()).unwrap();
-    let table_schema = Arc::new(df.schema().as_arrow().clone());
+    assert_eq!(table.schema().as_arrow(), read_schema.as_ref());
 
-    assert_eq!(table_schema.as_ref(), read_schema.as_ref());
-
-    let full_scan = df.collect().await.unwrap();
+    let full_scan = table.clone().collect().await?;
 
     assert_batches_sorted_eq!(
         &[
@@ -505,8 +376,8 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
             .eq(lit("x1"))
             .or(get_field(col("my_struct"), "a").eq(lit("x2")));
     // run a filter that touches both the payload.uptime AND the payload.instance nested fields
-    let df = ctx.read_table(table.clone())?;
-    let filtered_scan = df.filter(filter)?.collect().await?;
+
+    let filtered_scan = table.filter(filter)?.collect().await?;
 
     assert_eq!(filtered_scan[0].schema(), read_schema);
 
@@ -528,8 +399,8 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn test_schema_evolution_struct_field_order() {
-    let (ctx, store) = make_session_ctx();
+async fn test_schema_evolution_struct_field_order() -> anyhow::Result<()> {
+    let ctx = TestSessionContext::default();
 
     // File1: labels = {region, service} - service at position 1
     let file1_labels: ArrowArrayRef = Arc::new(StructArray::new(
@@ -543,12 +414,12 @@ async fn test_schema_evolution_struct_field_order() {
         ],
         None,
     ));
-    write_file(
-        &store,
+
+    ctx.write_arrow_batch(
         "reorder/file1.vortex",
-        &RecordBatch::try_from_iter([("labels", file1_labels)]).unwrap(),
+        &RecordBatch::try_from_iter([("labels", file1_labels)])?,
     )
-    .await;
+    .await?;
 
     // File2: labels = {service, instance, job} - service at position 0
     let file2_labels: ArrowArrayRef = Arc::new(StructArray::new(
@@ -564,12 +435,11 @@ async fn test_schema_evolution_struct_field_order() {
         ],
         None,
     ));
-    write_file(
-        &store,
+    ctx.write_arrow_batch(
         "reorder/file2.vortex",
-        &RecordBatch::try_from_iter([("labels", file2_labels)]).unwrap(),
+        &RecordBatch::try_from_iter([("labels", file2_labels)])?,
     )
-    .await;
+    .await?;
 
     let target_schema = Arc::new(Schema::new(vec![Field::new(
         "labels",
@@ -582,32 +452,19 @@ async fn test_schema_evolution_struct_field_order() {
         true,
     )]));
 
-    let table_url = ListingTableUrl::parse("s3://in-memory/reorder").unwrap();
-    let list_opts = ListingOptions::new(Arc::new(VortexFormat::new(SESSION.clone())))
-        .with_session_config_options(ctx.state().config())
-        .with_file_extension("vortex");
-    let table = Arc::new(
-        ListingTable::try_new(
-            ListingTableConfig::new(table_url)
-                .with_listing_options(list_opts)
-                .with_schema(target_schema),
-        )
-        .unwrap(),
-    );
+    let table = ctx.table_provider("tbl", "/reorder", target_schema).await?;
 
     let result = ctx
-        .read_table(table)
-        .unwrap()
+        .session
+        .read_table(table)?
         .select(vec![
             get_field(col("labels"), "region").alias("region"),
             get_field(col("labels"), "service").alias("service"),
             get_field(col("labels"), "instance").alias("instance"),
             get_field(col("labels"), "job").alias("job"),
-        ])
-        .unwrap()
+        ])?
         .collect()
-        .await
-        .unwrap();
+        .await?;
 
     assert_batches_sorted_eq!(
         [
@@ -622,4 +479,6 @@ async fn test_schema_evolution_struct_field_order() {
         ],
         &result
     );
+
+    Ok(())
 }

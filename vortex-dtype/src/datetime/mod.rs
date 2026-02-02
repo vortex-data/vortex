@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! Module for Vortex datetime extension types.
-#![cfg(feature = "arrow")]
-pub mod arrow;
+//! Datetime extension DTypes, compatible with Apache Arrow.
 
-mod temporal;
+mod date;
+mod matcher;
+mod time;
+mod timestamp;
 mod unit;
 
-pub use temporal::*;
+pub use date::*;
+pub use matcher::*;
+pub use time::*;
+pub use timestamp::*;
 pub use unit::*;

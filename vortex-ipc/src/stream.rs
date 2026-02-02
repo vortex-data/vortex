@@ -17,11 +17,13 @@ use futures::TryStreamExt;
 use pin_project_lite::pin_project;
 use vortex_array::ArrayRef;
 use vortex_array::session::ArrayRegistry;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::stream::ArrayStream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_session::VortexSession;
 
 use crate::messages::AsyncMessageReader;
 use crate::messages::DecoderMessage;
@@ -39,7 +41,7 @@ pin_project! {
 }
 
 impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
-    pub async fn try_new(read: R, registry: ArrayRegistry) -> VortexResult<Self> {
+    pub async fn try_new(read: R, session: &VortexSession) -> VortexResult<Self> {
         let mut reader = AsyncMessageReader::new(read);
 
         let dtype = match reader.next().await.transpose()? {
@@ -52,10 +54,12 @@ impl<R: AsyncRead + Unpin> AsyncIPCReader<R> {
             None => vortex_bail!("Expected DType message, got EOF"),
         };
 
+        let dtype = DType::from_flatbuffer(dtype, session)?;
+
         Ok(AsyncIPCReader {
             reader,
             dtype,
-            registry,
+            registry: session.arrays().registry().clone(),
         })
     }
 }
@@ -216,16 +220,15 @@ mod test {
     use futures::io::Cursor;
     use vortex_array::IntoArray as _;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::session::ArraySession;
     use vortex_array::stream::ArrayStream;
     use vortex_array::stream::ArrayStreamExt;
     use vortex_buffer::buffer;
 
     use super::*;
+    use crate::test::SESSION;
 
     #[tokio::test]
     async fn test_async_stream() {
-        let session = ArraySession::default();
         let array = buffer![1, 2, 3].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -234,7 +237,7 @@ mod test {
             .await
             .unwrap();
 
-        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), session.registry().clone())
+        let reader = AsyncIPCReader::try_new(Cursor::new(ipc_buffer), &SESSION)
             .await
             .unwrap();
 
@@ -262,7 +265,6 @@ mod test {
 
     #[tokio::test]
     async fn test_async_stream_chunked() {
-        let session = ArraySession::default();
         let array = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -276,9 +278,7 @@ mod test {
             chunk_size: 3,
         };
 
-        let reader = AsyncIPCReader::try_new(chunked, session.registry().clone())
-            .await
-            .unwrap();
+        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await.unwrap();
 
         let result = reader.read_all().await.unwrap();
         let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9, 10].into_array();
@@ -288,7 +288,6 @@ mod test {
     /// Test with 1-byte chunks to stress-test partial read handling.
     #[tokio::test]
     async fn test_async_stream_single_byte_chunks() {
-        let session = ArraySession::default();
         let array = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();
         let ipc_buffer = array
             .to_array_stream()
@@ -302,9 +301,7 @@ mod test {
             chunk_size: 1,
         };
 
-        let reader = AsyncIPCReader::try_new(chunked, session.registry().clone())
-            .await
-            .unwrap();
+        let reader = AsyncIPCReader::try_new(chunked, &SESSION).await.unwrap();
 
         let result = reader.read_all().await.unwrap();
         let expected = buffer![42i64, -1, 0, i64::MAX, i64::MIN].into_array();

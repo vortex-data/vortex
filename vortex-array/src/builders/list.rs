@@ -205,7 +205,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "ListBuilder expected scalar with dtype {:?}, got {:?}",
+            "ListBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

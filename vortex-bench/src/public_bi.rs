@@ -39,7 +39,7 @@ use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::TableSpec;
-use crate::conversions::parquet_to_vortex;
+use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::decompress_bz2;
 use crate::datasets::data_downloads::download_data;
@@ -362,7 +362,7 @@ impl PBIData {
             let vortex = self.get_file_path(&table.name, FileType::Vortex);
 
             async move {
-                let data = parquet_to_vortex(parquet).await?;
+                let data = parquet_to_vortex_chunks(parquet).await?;
                 let vortex_file =
                     idempotent_async(&vortex, async |output_path| -> anyhow::Result<()> {
                         SESSION

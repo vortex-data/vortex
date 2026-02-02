@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
@@ -15,7 +14,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::vtable::ValidityHelper;
-use vortex_dtype::ExtDType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -52,8 +50,8 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
         }
         Canonical::VarBinView(array) => {
             let new_validity = array.validity().mask(mask);
-            VarBinViewArray::new(
-                array.views().clone(),
+            VarBinViewArray::new_handle(
+                array.views_handle().clone(),
                 array.buffers().clone(),
                 array.dtype().with_nullability(new_validity.nullability()),
                 new_validity,
@@ -102,19 +100,10 @@ pub fn mask_canonical_array(canonical: Canonical, mask: &Mask) -> VortexResult<A
             let masked_storage = mask_canonical_array(array.storage().to_canonical()?, mask)
                 .vortex_expect("mask_canonical_array should succeed in fuzz test");
 
-            if masked_storage.dtype().nullability()
-                == array.ext_dtype().storage_dtype().nullability()
-            {
-                ExtensionArray::new(array.ext_dtype().clone(), masked_storage).into_array()
-            } else {
-                // The storage dtype changed (i.e., became nullable due to masking)
-                let ext_dtype = Arc::new(ExtDType::new(
-                    array.ext_dtype().id().clone(),
-                    Arc::new(masked_storage.dtype().clone()),
-                    array.ext_dtype().metadata().cloned(),
-                ));
-                ExtensionArray::new(ext_dtype, masked_storage).into_array()
-            }
+            let ext_dtype = array
+                .ext_dtype()
+                .with_nullability(masked_storage.dtype().nullability());
+            ExtensionArray::new(ext_dtype, masked_storage).into_array()
         }
     })
 }

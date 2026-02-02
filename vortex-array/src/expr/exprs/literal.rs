@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -41,12 +42,18 @@ impl VTable for Literal {
         ))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let ops = pb::LiteralOpts::decode(metadata)?;
-        ops.value
-            .as_ref()
-            .ok_or_else(|| vortex_err!("Literal metadata missing value"))?
-            .try_into()
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
+        let ops = pb::LiteralOpts::decode(_metadata)?;
+        Scalar::from_proto(
+            ops.value
+                .as_ref()
+                .ok_or_else(|| vortex_err!("Literal metadata missing value"))?,
+            session,
+        )
     }
 
     fn arity(&self, _options: &Self::Options) -> Arity {

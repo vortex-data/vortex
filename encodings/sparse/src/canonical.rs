@@ -17,6 +17,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::builders::ArrayBuilder;
 use vortex_array::builders::DecimalBuilder;
 use vortex_array::builders::ListViewBuilder;
@@ -480,7 +481,7 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
     let mut buffers = values.buffers().to_vec();
 
     let fill = if let Some(buffer) = &fill_value {
-        buffers.push(buffer.clone());
+        buffers.push(BufferHandle::new_host(buffer.clone()));
         BinaryView::make_view(
             buffer.as_ref(),
             u32::try_from(n_patch_buffers).vortex_expect("too many buffers"),
@@ -498,9 +499,11 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
         views[patch_index_usize] = patch;
     }
 
+    let views = BufferHandle::new_host(views.freeze().into_byte_buffer());
+
     // SAFETY: views are constructed to maintain the invariants
     let array = unsafe {
-        VarBinViewArray::new_unchecked(views.freeze(), Arc::from(buffers), dtype, validity)
+        VarBinViewArray::new_handle_unchecked(views, Arc::from(buffers), dtype, validity)
     };
 
     Canonical::VarBinView(array)

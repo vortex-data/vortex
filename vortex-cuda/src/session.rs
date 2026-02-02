@@ -8,7 +8,6 @@ use cudarc::driver::CudaContext;
 use vortex_array::VortexSessionExecute;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
-use vortex_error::vortex_err;
 use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -17,6 +16,10 @@ use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
 use crate::stream::VortexCudaStream;
+use crate::stream_pool::VortexCudaStreamPool;
+
+/// Default maximum number of streams in the pool.
+const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 
 /// CUDA session for GPU accelerated execution.
 ///
@@ -27,15 +30,29 @@ pub struct CudaSession {
     context: Arc<CudaContext>,
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
     kernel_loader: Arc<KernelLoader>,
+    stream_pool: Arc<VortexCudaStreamPool>,
 }
 
 impl CudaSession {
-    /// Creates a new CUDA session with the provided context.
+    /// Creates a new CUDA session with the provided context and default stream pool capacity.
     pub fn new(context: Arc<CudaContext>) -> Self {
+        Self::with_stream_pool_capacity(context, DEFAULT_STREAM_POOL_CAPACITY)
+    }
+
+    /// Creates a new CUDA session with the provided context and stream pool capacity.
+    pub fn with_stream_pool_capacity(
+        context: Arc<CudaContext>,
+        stream_pool_capacity: usize,
+    ) -> Self {
+        let stream_pool = Arc::new(VortexCudaStreamPool::new(
+            Arc::clone(&context),
+            stream_pool_capacity,
+        ));
         Self {
             context,
             kernels: Arc::new(DashMap::default()),
             kernel_loader: Arc::new(KernelLoader::new()),
+            stream_pool,
         }
     }
 
@@ -50,12 +67,11 @@ impl CudaSession {
         ))
     }
 
-    /// Create a new CUDA stream.
-    // TODO(joe): add a stream pool.
+    /// Gets a CUDA stream from the pool.
+    ///
+    /// The pool reuses existing streams in round-robin fashion.
     pub fn new_stream(&self) -> VortexResult<VortexCudaStream> {
-        Ok(VortexCudaStream(self.context.new_stream().map_err(
-            |e| vortex_err!("Failed to create CUDA stream: {}", e),
-        )?))
+        self.stream_pool.get_stream()
     }
 
     /// Registers CUDA support for an array encoding.

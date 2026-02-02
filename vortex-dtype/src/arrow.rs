@@ -22,10 +22,13 @@ use arrow_schema::Fields;
 use arrow_schema::Schema;
 use arrow_schema::SchemaBuilder;
 use arrow_schema::SchemaRef;
+use arrow_schema::TimeUnit as ArrowTimeUnit;
+use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
 
 use crate::DType;
 use crate::DecimalDType;
@@ -33,9 +36,13 @@ use crate::FieldName;
 use crate::Nullability;
 use crate::PType;
 use crate::StructFields;
-use crate::datetime::arrow::make_arrow_temporal_dtype;
-use crate::datetime::arrow::make_temporal_ext_dtype;
-use crate::datetime::is_temporal_ext_type;
+use crate::datetime::AnyTemporal;
+use crate::datetime::Date;
+use crate::datetime::TemporalMetadata;
+use crate::datetime::Time;
+use crate::datetime::TimeUnit;
+use crate::datetime::Timestamp;
+use crate::datetime::TimestampOptions;
 
 /// Trait for converting Arrow types to Vortex types.
 pub trait FromArrowType<T>: Sized {
@@ -87,6 +94,37 @@ impl TryFromArrowType<&DataType> for DecimalDType {
     }
 }
 
+impl From<&ArrowTimeUnit> for TimeUnit {
+    fn from(value: &ArrowTimeUnit) -> Self {
+        (*value).into()
+    }
+}
+
+impl From<ArrowTimeUnit> for TimeUnit {
+    fn from(value: ArrowTimeUnit) -> Self {
+        match value {
+            ArrowTimeUnit::Second => Self::Seconds,
+            ArrowTimeUnit::Millisecond => Self::Milliseconds,
+            ArrowTimeUnit::Microsecond => Self::Microseconds,
+            ArrowTimeUnit::Nanosecond => Self::Nanoseconds,
+        }
+    }
+}
+
+impl TryFrom<TimeUnit> for ArrowTimeUnit {
+    type Error = VortexError;
+
+    fn try_from(value: TimeUnit) -> VortexResult<Self> {
+        Ok(match value {
+            TimeUnit::Seconds => Self::Second,
+            TimeUnit::Milliseconds => Self::Millisecond,
+            TimeUnit::Microseconds => Self::Microsecond,
+            TimeUnit::Nanoseconds => Self::Nanosecond,
+            _ => vortex_bail!("Cannot convert {value} to Arrow TimeUnit"),
+        })
+    }
+}
+
 impl FromArrowType<SchemaRef> for DType {
     fn from_arrow(value: SchemaRef) -> Self {
         Self::from_arrow(value.as_ref())
@@ -135,13 +173,19 @@ impl FromArrowType<(&DataType, Nullability)> for DType {
             DataType::Binary | DataType::LargeBinary | DataType::BinaryView => {
                 DType::Binary(nullability)
             }
-            DataType::Date32
-            | DataType::Date64
-            | DataType::Time32(_)
-            | DataType::Time64(_)
-            | DataType::Timestamp(..) => DType::Extension(Arc::new(
-                make_temporal_ext_dtype(data_type).with_nullability(nullability),
-            )),
+            DataType::Date32 => DType::Extension(Date::new(TimeUnit::Days, nullability).erased()),
+            DataType::Date64 => {
+                DType::Extension(Date::new(TimeUnit::Milliseconds, nullability).erased())
+            }
+            DataType::Time32(unit) => {
+                DType::Extension(Time::new(unit.into(), nullability).erased())
+            }
+            DataType::Time64(unit) => {
+                DType::Extension(Time::new(unit.into(), nullability).erased())
+            }
+            DataType::Timestamp(unit, tz) => DType::Extension(
+                Timestamp::new_with_tz(unit.into(), tz.clone(), nullability).erased(),
+            ),
             DataType::List(e)
             | DataType::LargeList(e)
             | DataType::ListView(e)
@@ -256,11 +300,31 @@ impl DType {
             }
             DType::Extension(ext_dtype) => {
                 // Try and match against the known extension DTypes.
-                if is_temporal_ext_type(ext_dtype.id()) {
-                    make_arrow_temporal_dtype(ext_dtype)
-                } else {
-                    vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
-                }
+                if let Some(temporal) = ext_dtype.metadata_opt::<AnyTemporal>() {
+                    return Ok(match temporal {
+                        TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
+                            DataType::Timestamp(ArrowTimeUnit::try_from(*unit)?, tz.clone())
+                        }
+                        TemporalMetadata::Date(unit) => match unit {
+                            TimeUnit::Days => DataType::Date32,
+                            TimeUnit::Milliseconds => DataType::Date64,
+                            TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
+                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                            }
+                        },
+                        TemporalMetadata::Time(unit) => match unit {
+                            TimeUnit::Seconds => DataType::Time32(ArrowTimeUnit::Second),
+                            TimeUnit::Milliseconds => DataType::Time32(ArrowTimeUnit::Millisecond),
+                            TimeUnit::Microseconds => DataType::Time64(ArrowTimeUnit::Microsecond),
+                            TimeUnit::Nanoseconds => DataType::Time64(ArrowTimeUnit::Nanosecond),
+                            TimeUnit::Days => {
+                                vortex_panic!(InvalidArgument: "Invalid TimeUnit {} for {}", unit, ext_dtype.id())
+                            }
+                        },
+                    });
+                };
+
+                vortex_bail!("Unsupported extension type \"{}\"", ext_dtype.id())
             }
         })
     }
@@ -278,8 +342,6 @@ mod test {
 
     use super::*;
     use crate::DType;
-    use crate::ExtDType;
-    use crate::ExtID;
     use crate::FieldName;
     use crate::FieldNames;
     use crate::Nullability;
@@ -359,18 +421,6 @@ mod test {
             arrow_list_non_nullable,
             DataType::List(Arc::new(Field::new_list_field(DataType::Int64, false))),
         );
-    }
-
-    #[test]
-    #[should_panic]
-    fn test_dtype_conversion_panics() {
-        DType::Extension(Arc::new(ExtDType::new(
-            ExtID::from("my-fake-ext-dtype"),
-            Arc::new(DType::Utf8(Nullability::NonNullable)),
-            None,
-        )))
-        .to_arrow_dtype()
-        .unwrap();
     }
 
     #[fixture]

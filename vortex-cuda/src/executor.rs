@@ -17,6 +17,10 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::StructArrayParts;
+use vortex_array::arrays::StructVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
@@ -125,7 +129,10 @@ impl CudaExecutionCtx {
     }
 
     /// See `VortexCudaStream::device_alloc`.
-    pub fn device_alloc<T: DeviceRepr>(&self, len: usize) -> VortexResult<CudaSlice<T>> {
+    pub fn device_alloc<T: DeviceRepr + Send + Sync + 'static>(
+        &self,
+        len: usize,
+    ) -> VortexResult<CudaSlice<T>> {
         self.stream.device_alloc(len)
     }
 
@@ -135,14 +142,14 @@ impl CudaExecutionCtx {
         data: D,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
     where
-        T: DeviceRepr + Send + Sync + 'static,
+        T: DeviceRepr + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
     {
         self.stream.copy_to_device(data)
     }
 
     /// See `VortexCudaStream::move_to_device`.
-    pub fn move_to_device<T: DeviceRepr + Send + Sync + 'static>(
+    pub fn move_to_device<T: DeviceRepr + Debug + Send + Sync + 'static>(
         &self,
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
@@ -179,7 +186,30 @@ pub trait CudaArrayExt: Array {
 
 #[async_trait]
 impl CudaArrayExt for ArrayRef {
+    #[allow(clippy::unwrap_in_result, clippy::unwrap_used)]
     async fn execute_cuda(self, ctx: &mut CudaExecutionCtx) -> VortexResult<Canonical> {
+        if self.encoding_id() == StructVTable::ID {
+            let len = self.len();
+            let StructArrayParts {
+                fields,
+                struct_fields,
+                validity,
+                ..
+            } = self.try_into::<StructVTable>().unwrap().into_parts();
+
+            let mut cuda_fields = Vec::with_capacity(fields.len());
+            for field in fields.iter() {
+                cuda_fields.push(field.clone().execute_cuda(ctx).await?.into_array());
+            }
+
+            return Ok(Canonical::Struct(StructArray::new(
+                struct_fields.names().clone(),
+                cuda_fields,
+                len,
+                validity,
+            )));
+        }
+
         if self.is_canonical() || self.is_empty() {
             return self.execute(&mut ctx.ctx);
         }

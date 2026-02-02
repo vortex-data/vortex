@@ -157,7 +157,7 @@ impl ArrayBuilder for StructBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "StructBuilder expected scalar with dtype {:?}, got {:?}",
+            "StructBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

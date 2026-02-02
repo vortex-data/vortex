@@ -3,20 +3,14 @@
 
 use std::sync::Arc;
 
-use vortex_buffer::Buffer;
-use vortex_buffer::BufferMut;
+use vortex_compute::filter::Filter;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
-use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::arrays::PrimitiveArray;
 use crate::arrays::filter::execute::filter_validity;
 
-/// Threshold for choosing between indices vs slices filtering strategy.
-pub const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
-
-// TODO(connor): Use the optimized filters over slices in `vortex-compute`.
 pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> PrimitiveArray {
     let validity = array
         .validity()
@@ -24,43 +18,14 @@ pub fn filter_primitive(array: &PrimitiveArray, mask: &Arc<MaskValues>) -> Primi
     let filtered_validity = filter_validity(validity, mask);
 
     match_each_native_ptype!(array.ptype(), |T| {
-        let filtered_buffer = filter_slice(
-            array.as_slice::<T>(),
-            mask,
-            FILTER_SLICES_SELECTIVITY_THRESHOLD,
-        );
-        PrimitiveArray::new(filtered_buffer, filtered_validity)
-    })
-}
+        // TODO(connor): Ideally we should filter directly on the `BufferHandle` once we implement
+        // `Filter` for that.
+        let filtered_buffer = array.to_buffer::<T>().filter(mask.as_ref());
 
-/// Filter a typed buffer by a mask, returning a new buffer with only the selected elements.
-///
-/// This is the core filtering operation used by both FilterArray execution and the
-/// FilterKernel for primitive arrays.
-///
-/// # Arguments
-/// * `values` - The source slice of values to filter
-/// * `mask` - The mask indicating which elements to keep
-/// * `selectivity_threshold` - Threshold for choosing between indices vs slices strategy
-pub fn filter_slice<T: Copy>(
-    values: &[T],
-    mask: &MaskValues,
-    selectivity_threshold: f64,
-) -> Buffer<T> {
-    match mask.threshold_iter(selectivity_threshold) {
-        MaskIter::Indices(indices) => indices
-            .iter()
-            .copied()
-            .map(|idx| *unsafe { values.get_unchecked(idx) })
-            .collect(),
-        MaskIter::Slices(slices) => {
-            let mut output = BufferMut::with_capacity(mask.true_count());
-            for (start, end) in slices.iter().copied() {
-                output.extend_from_slice(&values[start..end]);
-            }
-            output.freeze()
-        }
-    }
+        // SAFETY: We filter both the validity and the buffer with the same mask, so they must have
+        // the same length.
+        unsafe { PrimitiveArray::new_unchecked(filtered_buffer, filtered_validity) }
+    })
 }
 
 #[cfg(test)]

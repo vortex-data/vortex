@@ -100,7 +100,7 @@ impl ArrayBuilder for BoolBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "BoolBuilder expected scalar with dtype {:?}, got {:?}",
+            "BoolBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );

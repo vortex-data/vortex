@@ -52,7 +52,7 @@ use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -491,11 +491,9 @@ impl BtrBlocksCompressor {
             }
             Canonical::Extension(ext_array) => {
                 // We compress Timestamp-level arrays with DateTimeParts compression
-                if let Ok(temporal_array) = TemporalArray::try_from(ext_array.to_array())
-                    && let TemporalMetadata::Timestamp(..) = temporal_array.temporal_metadata()
-                {
+                if ext_array.ext_dtype().is::<Timestamp>() {
                     if is_constant_opts(
-                        temporal_array.as_ref(),
+                        ext_array.as_ref(),
                         &IsConstantOpts {
                             cost: Cost::Canonicalize,
                         },
@@ -503,11 +501,13 @@ impl BtrBlocksCompressor {
                     .unwrap_or_default()
                     {
                         return Ok(ConstantArray::new(
-                            temporal_array.as_ref().scalar_at(0)?,
+                            ext_array.as_ref().scalar_at(0)?,
                             ext_array.len(),
                         )
                         .into_array());
                     }
+
+                    let temporal_array = TemporalArray::try_from(ext_array)?;
                     return compress_temporal(temporal_array);
                 }
 

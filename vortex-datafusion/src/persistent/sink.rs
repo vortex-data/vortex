@@ -181,45 +181,77 @@ mod tests {
     use arrow_schema::Field;
     use arrow_schema::Schema;
     use datafusion::arrow::array::Int8Array;
+    use datafusion::arrow::array::Int64Array;
     use datafusion::arrow::array::RecordBatch;
+    use datafusion::assert_batches_sorted_eq;
     use datafusion::datasource::DefaultTableSource;
-    use datafusion::execution::SessionStateBuilder;
     use datafusion::logical_expr::Expr;
     use datafusion::logical_expr::LogicalPlan;
     use datafusion::logical_expr::LogicalPlanBuilder;
     use datafusion::logical_expr::Values;
-    use datafusion::prelude::SessionContext;
     use datafusion_common::ScalarValue;
     use datafusion_datasource::file_format::format_as_file_type;
+    use futures::TryStreamExt;
     use rstest::rstest;
-    use tempfile::TempDir;
-    use walkdir::WalkDir;
 
+    use crate::common_tests::TestSessionContext;
     use crate::persistent::VortexFormatFactory;
-    use crate::persistent::register_vortex_format_factory;
 
     #[tokio::test]
-    async fn test_insert_into() {
-        let dir = TempDir::new().unwrap();
+    async fn test_insert_into_sql() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
 
-        let factory = VortexFormatFactory::new();
-
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        session
-            .sql(&format!(
+        ctx.session
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                     (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
-                LOCATION '{}/';",
-                dir.path().to_str().unwrap()
-            ))
-            .await
-            .unwrap();
+                LOCATION 'table/';",
+            )
+            .await?;
 
-        let my_tbl = session.table("my_tbl").await.unwrap();
+        ctx.session
+            .sql("INSERT INTO my_tbl VALUES ('hello', 1), ('world', 2);")
+            .await?
+            .collect()
+            .await?;
+
+        let batches = ctx
+            .session
+            .sql("SELECT * from my_tbl")
+            .await?
+            .collect()
+            .await?;
+
+        assert_batches_sorted_eq!(
+            &[
+                "+-------+----+",
+                "| c1    | c2 |",
+                "+-------+----+",
+                "| hello | 1  |",
+                "| world | 2  |",
+                "+-------+----+",
+            ],
+            &batches
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_insert_into_logical_plan() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+
+        ctx.session
+            .sql(
+                "CREATE EXTERNAL TABLE my_tbl \
+                    (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
+                STORED AS vortex \
+                LOCATION 'table/';",
+            )
+            .await?;
+
+        let my_tbl = ctx.session.table("my_tbl").await?;
 
         // It's valuable to have two insert code paths because they actually behave slightly differently
         let values = Values {
@@ -230,46 +262,36 @@ mod tests {
             ]],
         };
 
-        let tbl_provider = session.table_provider("my_tbl").await.unwrap();
+        let tbl_provider = ctx.session.table_provider("my_tbl").await?;
 
         let logical_plan = LogicalPlanBuilder::insert_into(
             LogicalPlan::Values(values.clone()),
             "my_tbl",
-            Arc::new(DefaultTableSource::new(tbl_provider)),
+            Arc::new(DefaultTableSource::new(tbl_provider.clone())),
             datafusion::logical_expr::dml::InsertOp::Append,
-        )
-        .unwrap()
-        .build()
-        .unwrap();
+        )?
+        .build()?;
 
-        session
+        ctx.session
             .execute_logical_plan(logical_plan)
-            .await
-            .unwrap()
+            .await?
             .collect()
-            .await
-            .unwrap();
+            .await?;
 
-        session
-            .sql("INSERT INTO my_tbl VALUES ('world', 24);")
-            .await
-            .unwrap()
-            .collect()
-            .await
-            .unwrap();
+        let batches = ctx.session.read_table(tbl_provider)?.collect().await?;
 
-        my_tbl.clone().show().await.unwrap();
-
-        assert_eq!(
-            session
-                .table("my_tbl")
-                .await
-                .unwrap()
-                .count()
-                .await
-                .unwrap(),
-            2
+        assert_batches_sorted_eq!(
+            [
+                "+-------+----+",
+                "| c1    | c2 |",
+                "+-------+----+",
+                "| hello | 42 |",
+                "+-------+----+",
+            ],
+            &batches
         );
+
+        Ok(())
     }
 
     /// Reproduction by <https://github.com/vortex-data/vortex/issues/4315>.
@@ -282,49 +304,31 @@ mod tests {
         #[case] entries: usize,
         #[case] expected_files: usize,
     ) -> anyhow::Result<()> {
-        use datafusion::arrow::array::Int64Array;
+        let ctx = TestSessionContext::default();
 
-        let dir = TempDir::new()?;
-
-        let factory = VortexFormatFactory::new();
-
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        let data = session.read_batch(RecordBatch::try_new(
+        let data = ctx.session.read_batch(RecordBatch::try_new(
             Arc::new(Schema::new(vec![Field::new("a", DataType::Int8, false)])),
             vec![Arc::new(Int8Array::from(vec![0i8; entries]))],
         )?)?;
 
         let logical_plan = LogicalPlanBuilder::copy_to(
             data.logical_plan().clone(),
-            dir.path().to_str().unwrap().to_string(),
+            "/table/".to_string(),
             format_as_file_type(Arc::new(VortexFormatFactory::new())),
             Default::default(),
             vec![],
         )?
         .build()?;
 
-        session
+        ctx.session
             .execute_logical_plan(logical_plan)
             .await?
             .collect()
             .await?;
 
-        // Validate the output by reading back the written files
-        session
-            .sql(&format!(
-                "CREATE EXTERNAL TABLE written_data \
-                    (a TINYINT NOT NULL) \
-                STORED AS vortex \
-                LOCATION '{}/';",
-                dir.path().to_str().unwrap()
-            ))
-            .await?;
-
-        let result = session
-            .sql("SELECT COUNT(*) as count FROM written_data")
+        let result = ctx
+            .session
+            .sql("SELECT COUNT(*) as count FROM '/table/'")
             .await?
             .collect()
             .await?;
@@ -346,8 +350,9 @@ mod tests {
             entries, count_value
         );
 
-        let all_data = session
-            .sql("SELECT a FROM written_data")
+        let all_data = ctx
+            .session
+            .sql("SELECT a FROM '/table/'")
             .await?
             .collect()
             .await?;
@@ -378,9 +383,14 @@ mod tests {
             total_rows, entries
         );
 
-        let read_dir = std::fs::read_dir(dir.path())?;
+        let file_metas = ctx
+            .store
+            .list(Some(&"/table".into()))
+            .try_collect::<Vec<_>>()
+            .await?;
+
         assert_eq!(
-            read_dir.count(),
+            file_metas.len(),
             expected_files,
             "Expected {expected_files} files for {entries} values"
         );
@@ -390,43 +400,41 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_partitioned() -> anyhow::Result<()> {
-        let dir = TempDir::new()?;
-        let data_dir = dir.path().to_str().unwrap();
+        let ctx = TestSessionContext::default();
 
-        let factory: VortexFormatFactory = VortexFormatFactory::new();
-        let mut session_state_builder = SessionStateBuilder::new().with_default_features();
-        register_vortex_format_factory(factory, &mut session_state_builder);
-        let session = SessionContext::new_with_state(session_state_builder.build());
-
-        let _unused = session
-            .sql(&format!(
+        let _unused = ctx
+            .session
+            .sql(
                 "CREATE EXTERNAL TABLE my_tbl \
                 (c1 VARCHAR NOT NULL, c2 INT NOT NULL) \
                 STORED AS vortex \
-                LOCATION '{data_dir}' \
-                PARTITIONED BY (c1);"
-            ))
+                LOCATION 'table/' \
+                PARTITIONED BY (c1);",
+            )
             .await?;
 
-        session
+        ctx.session
             .sql("INSERT INTO my_tbl (c1, c2) VALUES ('world', 24), ('world', 25), ('hello', 42);")
             .await?
             .collect()
             .await?;
 
-        let table = session.table("my_tbl").await?;
+        let table = ctx.session.table("my_tbl").await?;
         assert_eq!(table.count().await?, 3);
 
-        for dir in WalkDir::new(data_dir)
-            .into_iter()
-            .filter_entry(|e| e.path().is_dir())
-        {
-            let dir = dir?;
-            if let Ok(path) = dir.path().strip_prefix(data_dir)
-                && !path.as_os_str().is_empty()
-            {
-                assert!(path.starts_with("c1=hello") || path.starts_with("c1=world"),);
-            }
+        let location = object_store::path::Path::parse("table/")?;
+        let file_metas = ctx
+            .store
+            .list(Some(&location))
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        for meta in file_metas.into_iter() {
+            let location = meta.location;
+            assert!(
+                location.prefix_matches(&"c1=hello".into())
+                    || location.prefix_matches(&"c1=world".into())
+            );
         }
 
         Ok(())

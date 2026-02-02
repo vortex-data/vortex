@@ -11,8 +11,8 @@ use vortex_array::validity::Validity;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
-use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::datetime::Timestamp;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
@@ -31,11 +31,11 @@ pub fn decode_to_temporal(
         vortex_panic!(ComputeError: "expected dtype to be DType::Extension variant")
     };
 
-    let Ok(temporal_metadata) = TemporalMetadata::try_from(ext.as_ref()) else {
+    let Some(options) = ext.metadata_opt::<Timestamp>() else {
         vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
     };
 
-    let divisor = match temporal_metadata.time_unit() {
+    let divisor = match options.unit {
         TimeUnit::Nanoseconds => 1_000_000_000,
         TimeUnit::Microseconds => 1_000_000,
         TimeUnit::Milliseconds => 1_000,
@@ -98,8 +98,8 @@ pub fn decode_to_temporal(
     Ok(TemporalArray::new_timestamp(
         PrimitiveArray::new(values.freeze(), Validity::copy_from_array(array.as_ref())?)
             .into_array(),
-        temporal_metadata.time_unit(),
-        temporal_metadata.time_zone().map(ToString::to_string),
+        options.unit,
+        options.tz.clone(),
     ))
 }
 
@@ -142,7 +142,7 @@ mod test {
         let date_times = DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             milliseconds.clone().into_array(),
             TimeUnit::Milliseconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         ))
         .unwrap();
 

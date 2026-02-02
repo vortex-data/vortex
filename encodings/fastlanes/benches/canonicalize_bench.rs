@@ -41,6 +41,7 @@ const BENCH_ARGS: &[(usize, usize, f64)] = &[
 static SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn into_canonical_non_nullable(
     bencher: Bencher,
@@ -59,6 +60,7 @@ fn into_canonical_non_nullable(
         .bench_refs(|chunked| chunked.to_canonical());
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = BENCH_ARGS)]
 fn canonical_into_non_nullable(
     bencher: Bencher,
@@ -99,6 +101,7 @@ const NULLABLE_BENCH_ARGS: &[(usize, usize, f64)] = &[
     (10000, 100, 0.00),
 ];
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn into_canonical_nullable(
     bencher: Bencher,
@@ -118,6 +121,7 @@ fn into_canonical_nullable(
         .bench_values(|chunked| chunked.execute::<Canonical>(&mut SESSION.create_execution_ctx()));
 }
 
+#[cfg(not(codspeed))]
 #[divan::bench(args = NULLABLE_BENCH_ARGS)]
 fn canonical_into_nullable(
     bencher: Bencher,
