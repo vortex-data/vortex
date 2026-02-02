@@ -103,21 +103,21 @@ Vortex provides bindings for multiple languages:
 - **[Python](../getting-started/python.rst)** — Full-featured bindings via PyO3, including
   Arrow/Pandas/Polars interop and the Dataset API.
 - **[Java](../getting-started/java.md)** — JNI bindings with Apache Spark and Trino connectors.
-- **[C / C++](../developer-guides/embedding/ffi.md)** — C FFI for embedding Vortex in any language with
+- **[C / C++](../developer-guide/embedding/ffi.md)** — C FFI for embedding Vortex in any language with
   a C-compatible FFI, plus a C++ wrapper.
 
 ## Query Engine Integrations
 
 Vortex integrates with several query engines:
 
-- **[DataFusion](../user-guides/datafusion.md)** — Native Rust integration as a DataFusion
+- **[DataFusion](../user-guide/datafusion.md)** — Native Rust integration as a DataFusion
   TableProvider.
-- **[DuckDB](../user-guides/duckdb.md)** — Integration via the Arrow Dataset API in Python.
-- **[Spark](../user-guides/spark.md)** — Apache Spark DataSource V2 connector via JNI.
-- **[Trino](../user-guides/work-in-progress.md#trino)** — Trino connector via JNI.
-- **[Ray](../user-guides/work-in-progress.md#ray-data)** — Ray Data integration for distributed processing.
+- **[DuckDB](../user-guide/duckdb.md)** — Integration via the Arrow Dataset API in Python.
+- **[Spark](../user-guide/spark.md)** — Apache Spark DataSource V2 connector via JNI.
+- **[Trino](../user-guide/work-in-progress.md#trino)** — Trino connector via JNI.
+- **[Ray](../user-guide/work-in-progress.md#ray-data)** — Ray Data integration for distributed processing.
 
 ## Acceleration
 
-**[GPU / CUDA](../developer-guides/embedding/gpu.md)** support is under active development, enabling
+**[GPU / CUDA](../developer-guide/embedding/gpu.md)** support is under active development, enabling
 GPU-accelerated decompression and compute for Vortex arrays.
