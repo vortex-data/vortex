@@ -50,7 +50,7 @@ pub struct RepeatedScan<A: 'static + Send> {
     /// Function to apply to each [`ArrayRef`] within the spawned split tasks.
     map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
     /// Maximal number of rows to read (after filtering)
-    limit: Option<usize>,
+    limit: Option<u64>,
     /// The dtype of the projected arrays.
     dtype: DType,
 }
@@ -98,7 +98,7 @@ impl<A: 'static + Send> RepeatedScan<A> {
         splits: Splits,
         concurrency: usize,
         map_fn: Arc<dyn Fn(ArrayRef) -> VortexResult<A> + Send + Sync>,
-        limit: Option<usize>,
+        limit: Option<u64>,
         dtype: DType,
     ) -> Self {
         Self {

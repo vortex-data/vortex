@@ -95,7 +95,7 @@ impl VortexScanBuilder {
     }
 
     pub(crate) fn with_limit(&mut self, limit: usize) {
-        take_mut::take(&mut self.inner, |inner| inner.with_limit(limit));
+        take_mut::take(&mut self.inner, |inner| inner.with_limit(limit as u64));
     }
 
     pub(crate) unsafe fn with_output_schema(&mut self, output_schema: *mut u8) -> Result<()> {

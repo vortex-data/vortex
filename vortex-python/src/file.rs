@@ -101,17 +101,19 @@ impl PyVortexFile {
         PyDType::init(slf.py(), slf.get().vxf.dtype().clone())
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn scan(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyArrayIterator> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
+            limit,
             indices.map(|i| i.into_inner()),
             batch_size,
         )?;
@@ -121,17 +123,19 @@ impl PyVortexFile {
         )))
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, indices = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, indices = None, batch_size = None))]
     fn prepare(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         indices: Option<PyArrayRef>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<PyRepeatedScan> {
         let builder = slf.get().scan_builder(
             projection.map(|p| p.0),
             expr.map(|e| e.into_inner()),
+            limit,
             indices.map(|i| i.into_inner()),
             batch_size,
         )?;
@@ -144,11 +148,12 @@ impl PyVortexFile {
         })
     }
 
-    #[pyo3(signature = (projection = None, *, expr = None, batch_size = None))]
+    #[pyo3(signature = (projection = None, *, expr = None, limit = None, batch_size = None))]
     fn to_arrow(
         slf: Bound<Self>,
         projection: Option<PyIntoProjection>,
         expr: Option<PyExpr>,
+        limit: Option<u64>,
         batch_size: Option<usize>,
     ) -> PyVortexResult<Py<PyAny>> {
         let vxf = slf.get().vxf.clone();
@@ -158,6 +163,10 @@ impl PyVortexFile {
                 .scan()?
                 .with_some_filter(expr.map(|e| e.into_inner()))
                 .with_projection(projection.map(|p| p.0).unwrap_or_else(root));
+
+            if let Some(limit) = limit {
+                builder = builder.with_limit(limit);
+            }
 
             if let Some(batch_size) = batch_size {
                 builder = builder.with_split_by(SplitBy::RowCount(batch_size));
@@ -191,6 +200,7 @@ impl PyVortexFile {
         &self,
         projection: Option<Expression>,
         expr: Option<Expression>,
+        limit: Option<u64>,
         indices: Option<ArrayRef>,
         batch_size: Option<usize>,
     ) -> VortexResult<ScanBuilder<ArrayRef>> {
@@ -199,6 +209,10 @@ impl PyVortexFile {
             .scan()?
             .with_some_filter(expr)
             .with_projection(projection.unwrap_or_else(root));
+
+        if let Some(limit) = limit {
+            builder = builder.with_limit(limit);
+        }
 
         if let Some(indices) = indices {
             let indices = cast(indices.as_ref(), &DType::Primitive(PType::U64, NonNullable))?

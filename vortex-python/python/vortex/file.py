@@ -83,6 +83,7 @@ class VortexFile:
         projection: IntoProjection = None,
         *,
         expr: Expr | None = None,
+        limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> ArrayIterator:
@@ -94,6 +95,8 @@ class VortexFile:
             The projection expression to read, or else read all columns.
         expr : :class:`vortex.Expr` | None
             The predicate used to filter rows. The filter columns do not need to be in the projection.
+        limit : :class:`int` | None
+            The maximum number of rows to read after filtering. If None, read all rows.
         indices : :class:`vortex.Array` | None
             The indices of the rows to read. Must be sorted and non-null.
         batch_size : :class:`int` | None
@@ -164,13 +167,14 @@ class VortexFile:
             "Mikhail"
           ]
         """
-        return self._file.scan(projection, expr=expr, indices=indices, batch_size=batch_size)
+        return self._file.scan(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
 
     def to_repeated_scan(
         self,
         projection: IntoProjection = None,
         *,
         expr: Expr | None = None,
+        limit: int | None = None,
         indices: Array | None = None,
         batch_size: int | None = None,
     ) -> RepeatedScan:
@@ -187,12 +191,15 @@ class VortexFile:
         batch_size : :class:`int` | None
             The number of rows to read per chunk.
         """
-        return RepeatedScan(self._file.prepare(projection, expr=expr, indices=indices, batch_size=batch_size))
+        return RepeatedScan(
+            self._file.prepare(projection, expr=expr, limit=limit, indices=indices, batch_size=batch_size)
+        )
 
     def to_arrow(
         self,
         projection: IntoProjection = None,
         *,
+        limit: int | None = None,
         expr: Expr | None = None,
         batch_size: int | None = None,
     ) -> RecordBatchReader:
@@ -209,7 +216,7 @@ class VortexFile:
             The number of rows to read per chunk.
 
         """
-        return self._file.to_arrow(projection, expr=expr, batch_size=batch_size)
+        return self._file.to_arrow(projection, expr=expr, limit=limit, batch_size=batch_size)
 
     def to_dataset(self) -> VortexDataset:
         """Scan the Vortex file using the :class:`pyarrow.dataset.Dataset` API."""
@@ -227,12 +234,12 @@ class VortexFile:
         def _io_source(
             with_columns: list[str] | None,
             predicate: pl.Expr | None,
-            _n_rows: int | None,
+            n_rows: int | None,
             _batch_size: int | None,
         ) -> Iterator[pl.DataFrame]:
             vx_predicate: Expr | None = None if predicate is None else polars_to_vortex(predicate)
 
-            reader = self.to_arrow(projection=with_columns, expr=vx_predicate)
+            reader = self.to_arrow(projection=with_columns, expr=vx_predicate, limit=n_rows)
 
             for batch in reader:
                 batch = pl.DataFrame._from_arrow(batch, rechunk=False)  # pyright: ignore[reportPrivateUsage]
