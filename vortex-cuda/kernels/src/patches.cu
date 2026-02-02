@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#include <stdint.h>
+#include "config.cuh"
 
 // TODO(aduffy): this is very naive. In the future we need to
 //   transpose the patches, see G-ALP paper.
@@ -13,17 +13,21 @@ __device__ void patches(
     const ValueT *const patchValues,
     uint64_t patchesLen
 ) {
-    const uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t worker = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint64_t startElem = START_ELEM(worker, patchesLen);
+    const uint64_t stopElem = STOP_ELEM(worker, patchesLen);
 
-    if (idx >= patchesLen) {
+    if (startElem >= patchesLen) {
         return;
     }
 
-    const IndexT patchIdx = patchIndices[idx];
-    const ValueT patchVal = patchValues[idx];
+    for (uint64_t idx = startElem; idx < stopElem; idx++) {
+        const IndexT patchIdx = patchIndices[idx];
+        const ValueT patchVal = patchValues[idx];
 
-    const size_t valueIdx = static_cast<size_t>(patchIdx);
-    values[valueIdx] = patchVal;
+        const size_t valueIdx = static_cast<size_t>(patchIdx);
+        values[valueIdx] = patchVal;
+    }
 }
 
 #define GENERATE_PATCHES_KERNEL(ValueT, value_suffix, IndexT, index_suffix) \
