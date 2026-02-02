@@ -7,12 +7,12 @@ Using Vortex with query engines, table formats, and data tools.
 maxdepth: 2
 ---
 
-duckdb
 datafusion
-spark
-pyarrow
+duckdb
 pandas
 polars
+pyarrow
 ray
+spark
 work-in-progress
 ```
