@@ -38,7 +38,7 @@ com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (2 c
 
 com.google.j2objc:j2objc-annotations:3.1 (1 constraints: b809f1a0)
 
-com.google.protobuf:protobuf-java:4.33.2 (4 constraints: dc2bfd00)
+com.google.protobuf:protobuf-java:4.33.5 (4 constraints: df2b5f02)
 
 com.ibm.icu:icu4j:77.1 (2 constraints: 671acb77)
 
