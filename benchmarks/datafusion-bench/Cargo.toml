@@ -17,6 +17,8 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 arrow-ipc.workspace = true
+arrow-schema = { workspace = true }
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 datafusion = { workspace = true, features = [
     "parquet",
@@ -24,8 +26,16 @@ datafusion = { workspace = true, features = [
     "nested_expressions",
     "unicode_expressions",
 ] }
+datafusion-catalog = { workspace = true }
 datafusion-common = { workspace = true }
+datafusion-datasource = { workspace = true }
+datafusion-execution = { workspace = true }
+datafusion-expr = { workspace = true }
+datafusion-physical-expr = { workspace = true }
+datafusion-physical-expr-adapter = { workspace = true }
+datafusion-physical-expr-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
+datafusion-pruning = { workspace = true }
 futures.workspace = true
 itertools.workspace = true
 object_store = { workspace = true, features = ["aws", "gcp"] }
@@ -35,9 +45,12 @@ opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
+tracing = { workspace = true }
+vortex = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
+vortex-utils = { workspace = true }
 
 [build-dependencies]
 get_dir = { workspace = true }

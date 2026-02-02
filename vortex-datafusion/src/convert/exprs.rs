@@ -43,12 +43,14 @@ use crate::convert::FromDataFusion;
 
 /// Result of splitting a projection into Vortex expressions and leftover DataFusion projections.
 pub struct ProcessedProjection {
+    /// The projection expressions that can be pushed down into the Vortex scan.
     pub scan_projection: Expression,
+    /// The leftover projection expressions that must be evaluated by DataFusion after the scan.
     pub leftover_projection: ProjectionExprs,
 }
 
 /// Tries to convert the expressions into a vortex conjunction. Will return Ok(None) iff the input conjunction is empty.
-pub(crate) fn make_vortex_predicate(
+pub fn make_vortex_predicate(
     expr_convertor: &dyn ExpressionConvertor,
     predicate: &[Arc<dyn PhysicalExpr>],
 ) -> DFResult<Option<Expression>> {

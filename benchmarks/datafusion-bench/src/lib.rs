@@ -3,6 +3,9 @@
 
 pub mod metrics;
 
+#[cfg(feature = "cuda")]
+pub mod cuda;
+
 use std::sync::Arc;
 
 use datafusion::datasource::file_format::FileFormat;
@@ -106,6 +109,42 @@ pub fn format_to_df_format(format: Format) -> Arc<dyn FileFormat> {
         Format::Parquet => Arc::new(ParquetFormat::new()),
         Format::OnDiskVortex | Format::VortexCompact => {
             Arc::new(VortexFormat::new(SESSION.clone()))
+        }
+        Format::OnDiskDuckDB | Format::Lance => {
+            unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")
+        }
+    }
+}
+
+/// Initialize CUDA session and register kernels.
+///
+/// This must be called before using CUDA execution. It initializes the CudaSession
+/// and registers all CUDA kernels for supported encodings.
+#[cfg(feature = "cuda")]
+pub fn initialize_cuda_session() {
+    use vortex_cuda::CudaSessionExt;
+    use vortex_cuda::initialize_cuda;
+
+    // Access the CudaSession via the extension trait - this lazily initializes it
+    let cuda_session = SESSION.cuda_session();
+    // Register all CUDA kernels
+    initialize_cuda(&cuda_session);
+    tracing::info!("CUDA session initialized and kernels registered");
+}
+
+/// Returns a CUDA-accelerated Vortex format for DataFusion.
+///
+/// This format uses CUDA for array execution during scans.
+#[cfg(feature = "cuda")]
+pub fn format_to_df_format_cuda(format: Format) -> Arc<dyn FileFormat> {
+    use cuda::CudaVortexFormat;
+
+    match format {
+        Format::Csv => Arc::new(CsvFormat::default()) as _,
+        Format::Arrow => Arc::new(ArrowFormat),
+        Format::Parquet => Arc::new(ParquetFormat::new()),
+        Format::OnDiskVortex | Format::VortexCompact => {
+            Arc::new(CudaVortexFormat::new(SESSION.clone()))
         }
         Format::OnDiskDuckDB | Format::Lance => {
             unimplemented!("Format {format} cannot be turned into a DataFusion `FileFormat`")

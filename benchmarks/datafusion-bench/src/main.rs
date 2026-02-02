@@ -96,6 +96,14 @@ struct Args {
 
     #[arg(long = "opt", value_delimiter = ',', value_parser = value_parser!(Opt))]
     options: Vec<Opt>,
+
+    /// Enable CUDA-accelerated execution for Vortex scans.
+    ///
+    /// When enabled, array projections will be executed on the GPU using CUDA.
+    /// Requires the 'cuda' feature to be enabled at compile time.
+    #[cfg(feature = "cuda")]
+    #[arg(long, default_value_t = false)]
+    cuda: bool,
 }
 
 #[tokio::main]
@@ -104,6 +112,18 @@ async fn main() -> anyhow::Result<()> {
     let opts = Opts::from(args.options);
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
+
+    // Initialize CUDA if requested
+    #[cfg(feature = "cuda")]
+    let use_cuda = args.cuda;
+    #[cfg(not(feature = "cuda"))]
+    let use_cuda = false;
+
+    #[cfg(feature = "cuda")]
+    if use_cuda {
+        datafusion_bench::initialize_cuda_session();
+        tracing::info!("CUDA execution enabled for Vortex scans");
+    }
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
 
@@ -161,7 +181,7 @@ async fn main() -> anyhow::Result<()> {
                 async move {
                     let session = datafusion_bench::get_session_context();
                     datafusion_bench::make_object_store(&session, benchmark.data_url())?;
-                    register_benchmark_tables(&session, benchmark, format).await?;
+                    register_benchmark_tables(&session, benchmark, format, use_cuda).await?;
                     Ok((session, format))
                 }
             },
@@ -209,12 +229,25 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
+    use_cuda: bool,
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
         _ => {
             let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-            let file_format = format_to_df_format(format);
+
+            // Use CUDA format if requested and available
+            #[cfg(feature = "cuda")]
+            let file_format = if use_cuda {
+                datafusion_bench::format_to_df_format_cuda(format)
+            } else {
+                format_to_df_format(format)
+            };
+            #[cfg(not(feature = "cuda"))]
+            let file_format = {
+                let _ = use_cuda; // suppress unused warning
+                format_to_df_format(format)
+            };
 
             for table in benchmark.table_specs().iter() {
                 let pattern = benchmark.pattern(table.name, format);
