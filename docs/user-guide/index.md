@@ -11,6 +11,7 @@ duckdb
 datafusion
 spark
 pyarrow
+pandas
 polars
 ray
 work-in-progress

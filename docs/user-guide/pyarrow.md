@@ -104,29 +104,3 @@ age: [[25,31,33,57]]
 name: [["Joseph","Narendra","Angela","Mikhail"]]
 ```
 
-## Pandas
-
-{meth}`.Array.to_pandas_df` converts a Vortex array into a Pandas DataFrame:
-
-```{doctest} pycon
->>> df = struct_arr.to_pandas_df()
->>> df
-      age      name
-   0   25    Joseph
-   1   31  Narendra
-   2   33    Angela
-   3   57   Mikhail
-```
-
-{func}`~vortex.array` converts from a Pandas DataFrame into a Vortex array:
-
-```{doctest} pycon
->>> vx.array(df).to_arrow_table()
-pyarrow.Table
-age: int64
-name: string_view
-----
-age: [[25,31,33,57]]
-name: [["Joseph","Narendra","Angela","Mikhail"]]
-```
-
