@@ -124,8 +124,15 @@ pub trait CudaBufferExt {
     ///
     /// # Errors
     ///
-    /// Returns an error if the buffer is not on the device.
+    /// Returns an error if the buffer is not a CUDA buffer.
     fn cuda_view<T: DeviceRepr + Send + Sync + 'static>(&self) -> VortexResult<CudaView<'_, T>>;
+
+    /// Returns the on-device pointer for the start of the buffer handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the buffer is not a CUDA buffer.
+    fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr>;
 }
 
 impl CudaBufferExt for BufferHandle {
@@ -140,6 +147,18 @@ impl CudaBufferExt for BufferHandle {
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer, was {device_buffer:?}"))?;
 
         Ok(cuda_buf.as_view::<T>())
+    }
+
+    fn cuda_device_ptr(&self) -> VortexResult<sys::CUdeviceptr> {
+        let ptr = self
+            .as_device_opt()
+            .ok_or_else(|| vortex_err!("Buffer is not on device"))?
+            .as_any()
+            .downcast_ref::<CudaDeviceBuffer>()
+            .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
+            .device_ptr;
+
+        Ok(ptr)
     }
 }
 

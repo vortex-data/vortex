@@ -74,7 +74,7 @@ where
     let device_input: BufferHandle = if buffer.is_on_device() {
         buffer
     } else {
-        ctx.move_to_device::<A::ALPInt>(buffer)?.await?
+        ctx.move_to_device(buffer)?.await?
     };
 
     // Get CUDA view of input

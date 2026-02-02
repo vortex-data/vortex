@@ -73,13 +73,13 @@ pub(crate) async fn execute_patches<
     let d_patch_indices = if indices_buffer.is_on_device() {
         indices_buffer
     } else {
-        ctx.move_to_device::<IndicesT>(indices_buffer)?.await?
+        ctx.move_to_device(indices_buffer)?.await?
     };
 
     let d_patch_values = if values_buffer.is_on_device() {
         values_buffer
     } else {
-        ctx.move_to_device::<ValuesT>(values_buffer)?.await?
+        ctx.move_to_device(values_buffer)?.await?
     };
 
     let d_target_view = target.as_view::<ValuesT>();
@@ -175,11 +175,7 @@ mod tests {
             ..
         } = values.into_parts();
 
-        let handle = ctx
-            .move_to_device::<Values>(cuda_buffer)
-            .unwrap()
-            .await
-            .unwrap();
+        let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
         let device_buf = handle
             .as_device()
             .as_any()

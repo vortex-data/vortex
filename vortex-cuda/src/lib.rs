@@ -5,6 +5,7 @@
 
 use std::process::Command;
 
+pub mod arrow;
 mod canonical;
 mod device_buffer;
 pub mod executor;
@@ -14,6 +15,7 @@ mod session;
 mod stream;
 mod stream_pool;
 
+pub use arrow::ExportDeviceArray;
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;

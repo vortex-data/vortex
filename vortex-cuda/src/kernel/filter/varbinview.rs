@@ -28,7 +28,7 @@ pub(super) async fn filter_varbinview(
     let d_views = if views.is_on_device() {
         views
     } else {
-        ctx.move_to_device::<i128>(views)?.await?
+        ctx.move_to_device(views)?.await?
     };
 
     let filtered_views = filter_sized::<i128>(d_views, mask, ctx).await?;

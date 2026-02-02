@@ -116,13 +116,13 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     let ends_device = if ends_buffer.is_on_device() {
         ends_buffer
     } else {
-        ctx.move_to_device::<E>(ends_buffer)?.await?
+        ctx.move_to_device(ends_buffer)?.await?
     };
 
     let values_device = if values_buffer.is_on_device() {
         values_buffer
     } else {
-        ctx.move_to_device::<V>(values_buffer)?.await?
+        ctx.move_to_device(values_buffer)?.await?
     };
 
     let output_slice = ctx.device_alloc::<V>(output_len)?;

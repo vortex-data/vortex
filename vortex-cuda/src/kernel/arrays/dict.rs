@@ -105,13 +105,13 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     let values_device = if values_buffer.is_on_device() {
         values_buffer
     } else {
-        ctx.move_to_device::<V>(values_buffer)?.await?
+        ctx.move_to_device(values_buffer)?.await?
     };
 
     let codes_device = if codes_buffer.is_on_device() {
         codes_buffer
     } else {
-        ctx.move_to_device::<I>(codes_buffer)?.await?
+        ctx.move_to_device(codes_buffer)?.await?
     };
 
     // Allocate output buffer on device
@@ -204,13 +204,13 @@ async fn execute_dict_decimal_typed<
     let values_device = if values_buffer.is_on_device() {
         values_buffer
     } else {
-        ctx.move_to_device::<V>(values_buffer)?.await?
+        ctx.move_to_device(values_buffer)?.await?
     };
 
     let codes_device = if codes_buffer.is_on_device() {
         codes_buffer
     } else {
-        ctx.move_to_device::<C>(codes_buffer)?.await?
+        ctx.move_to_device(codes_buffer)?.await?
     };
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)

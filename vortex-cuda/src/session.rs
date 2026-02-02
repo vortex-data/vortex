@@ -12,6 +12,8 @@ use vortex_session::Ref;
 use vortex_session::SessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 
+use crate::ExportDeviceArray;
+use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
@@ -29,6 +31,7 @@ const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 pub struct CudaSession {
     context: Arc<CudaContext>,
     kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
+    export_device_array: Arc<dyn ExportDeviceArray>,
     kernel_loader: Arc<KernelLoader>,
     stream_pool: Arc<VortexCudaStreamPool>,
 }
@@ -52,6 +55,7 @@ impl CudaSession {
             context,
             kernels: Arc::new(DashMap::default()),
             kernel_loader: Arc::new(KernelLoader::new()),
+            export_device_array: Arc::new(CanonicalDeviceArrayExport),
             stream_pool,
         }
     }
@@ -115,6 +119,11 @@ impl CudaSession {
     ) -> VortexResult<cudarc::driver::CudaFunction> {
         self.kernel_loader
             .load_function(module_name, type_suffixes, &self.context)
+    }
+
+    /// Get a handle to the exporter that converts Vortex arrays to `ArrowDeviceArray`.
+    pub fn export_device_array(&self) -> &Arc<dyn ExportDeviceArray> {
+        &self.export_device_array
     }
 }
 

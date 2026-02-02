@@ -83,7 +83,7 @@ where
     let device_input: BufferHandle = if packed.is_on_device() {
         packed
     } else {
-        ctx.move_to_device::<A::Physical>(packed)?.await?
+        ctx.move_to_device(packed)?.await?
     };
 
     // Get CUDA view of input
