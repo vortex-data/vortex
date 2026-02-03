@@ -512,7 +512,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| match v {
-                        ScalarValue::Null => false,
                         ScalarValue::Bool(b) => *b,
                         _ => vortex_panic!("Unexpected scalar value type in stats propagation"),
                     })

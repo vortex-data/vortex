@@ -20,13 +20,12 @@ impl TakeKernel for ConstantVTable {
     fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
         match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
-                    array
+                let scalar = array.scalar().cast(
+                    &array
                         .scalar()
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
-                    array.scalar().value().clone(),
-                );
+                )?;
                 Ok(ConstantArray::new(scalar, indices.len()).into_array())
             }
             AllOr::None => Ok(ConstantArray::new(

@@ -427,7 +427,7 @@ impl NumericOperator {
         }
     }
 }
-//
+
 // impl<'a> PrimitiveScalar<'a> {
 //     /// Apply the (checked) operator to self and other using SQL-style null semantics.
 //     ///
