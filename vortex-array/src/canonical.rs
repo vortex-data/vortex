@@ -480,6 +480,22 @@ pub enum CanonicalView<'a> {
     Extension(&'a ExtensionArray),
 }
 
+impl From<CanonicalView<'_>> for Canonical {
+    fn from(value: CanonicalView<'_>) -> Self {
+        match value {
+            CanonicalView::Null(a) => Canonical::Null(a.clone()),
+            CanonicalView::Bool(a) => Canonical::Bool(a.clone()),
+            CanonicalView::Primitive(a) => Canonical::Primitive(a.clone()),
+            CanonicalView::Decimal(a) => Canonical::Decimal(a.clone()),
+            CanonicalView::VarBinView(a) => Canonical::VarBinView(a.clone()),
+            CanonicalView::List(a) => Canonical::List(a.clone()),
+            CanonicalView::FixedSizeList(a) => Canonical::FixedSizeList(a.clone()),
+            CanonicalView::Struct(a) => Canonical::Struct(a.clone()),
+            CanonicalView::Extension(a) => Canonical::Extension(a.clone()),
+        }
+    }
+}
+
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
 impl Matcher for AnyCanonical {

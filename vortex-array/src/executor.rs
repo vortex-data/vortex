@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt::Display;
 use std::sync::Arc;
+use std::sync::atomic::AtomicUsize;
 
 use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
@@ -10,6 +12,7 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
@@ -32,9 +35,11 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
+use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::constant_canonicalize;
+use crate::optimizer::ArrayOptimizer;
 
 /// Marker trait for types that can be executed.
 ///
@@ -46,24 +51,40 @@ pub trait Executable: Sized {
 impl dyn Array + '_ {
     /// Execute this array to produce an instance of `E`.
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
+        tracing::debug!(
+            "{}: Executing array into {}:\n{}",
+            ctx,
+            std::any::type_name::<E>(),
+            self.display_tree()
+        );
         E::execute(self, ctx)
     }
 }
 
 /// Execution context for batch CPU compute.
 pub struct ExecutionCtx {
+    id: usize,
     session: VortexSession,
 }
 
 impl ExecutionCtx {
     /// Create a new execution context with the given session.
     pub fn new(session: VortexSession) -> Self {
-        Self { session }
+        static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
+        let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        tracing::debug!("Created ExecutionCtx id={}", id);
+        Self { id, session }
     }
 
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+}
+
+impl Display for ExecutionCtx {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ExecutionCtx(id={})", self.id)
     }
 }
 
@@ -73,6 +94,18 @@ pub enum Columnar {
     Array(Canonical),
     /// A constant scalar value.
     Scalar(Scalar),
+}
+
+impl Columnar {
+    pub fn into_array(self, len: usize) -> ArrayRef {
+        match self {
+            Columnar::Array(c) => {
+                assert_eq!(len, c.len());
+                c.into_array()
+            }
+            Columnar::Scalar(s) => ConstantArray::new(s, len).into_array(),
+        }
+    }
 }
 
 impl Executable for Columnar {
@@ -86,34 +119,34 @@ impl Executable for Columnar {
             if let Some(constant) = array.as_opt::<ConstantVTable>() {
                 return Ok(Columnar::Scalar(constant.scalar().clone()));
             }
-            if array.is_canonical() {
-                todo!("Extract canonical array without re-executing");
+            if let Some(canonical) = array.as_opt::<AnyCanonical>() {
+                return Ok(Columnar::Array(canonical.into()));
             }
 
             // 1. reduce / reduce_parent (metadata-only rewrites)
-            if let Some(reduced) = array.vtable().reduce(&array)? {
-                tracing::debug!(
-                    "Reduced array\nFROM:\n{}\nTO:\n{}",
-                    array.display_tree(),
-                    reduced.display_tree()
-                );
-                array = reduced;
-                continue 'exec;
-            }
-
-            for (child_idx, child) in array.children().iter().enumerate() {
-                if let Some(reduced_parent) =
-                    child.vtable().reduce_parent(&child, &array, child_idx)?
-                {
-                    tracing::debug!(
-                        "Reduced parent array\nFROM:\n{}\nTO:\n{}",
-                        array.display_tree(),
-                        reduced_parent.display_tree()
-                    );
-                    array = reduced_parent;
-                    continue 'exec;
-                }
-            }
+            // TODO(ngates): let's assume that arrays are reduced on construction for now.
+            // if let Some(reduced) = array.vtable().reduce(&array)? {
+            //     tracing::debug!(
+            //         "Reduced array\nFROM:\n{}\nTO:\n{}",
+            //         array.display_tree(),
+            //         reduced.display_tree()
+            //     );
+            //     array = reduced;
+            //     continue 'exec;
+            // }
+            // for (child_idx, child) in array.children().iter().enumerate() {
+            //     if let Some(reduced_parent) =
+            //         child.vtable().reduce_parent(&child, &array, child_idx)?
+            //     {
+            //         tracing::debug!(
+            //             "Reduced parent array\nFROM:\n{}\nTO:\n{}",
+            //             array.display_tree(),
+            //             reduced_parent.display_tree()
+            //         );
+            //         array = reduced_parent;
+            //         continue 'exec;
+            //     }
+            // }
 
             // 2. execute_parent (child-driven optimized execution)
             for (child_idx, child) in array.children().iter().enumerate() {
@@ -122,7 +155,9 @@ impl Executable for Columnar {
                     .execute_parent(&child, &array, child_idx, ctx)?
                 {
                     tracing::debug!(
-                        "Executed parent array\nFROM:\n{}\nTO:\n{}",
+                        "{}: execute_parent {}\nFROM:\n{}\nTO:\n{}",
+                        ctx,
+                        child_idx,
                         array.display_tree(),
                         child.display_tree()
                     );
@@ -133,28 +168,34 @@ impl Executable for Columnar {
 
             // 3. step ONE child (the first non-canonical, non-constant one)
             //  → restart from (1) if progress was made
-            let mut children = array.children();
-            for (child_idx, child) in children.iter_mut().enumerate() {
-                if !child.is::<ConstantVTable>() && !child.is_canonical() {
-                    if let Some(executed_child) = execute_one_step(&child, ctx)? {
-                        tracing::debug!(
-                            "Stepped child array {} of parent array {}\nFROM:\n{}\nTO:\n{}",
-                            child_idx,
-                            array.encoding_id(),
-                            child.display_tree(),
-                            executed_child.display_tree()
-                        );
-
-                        // If we stepped a child, then rebuild the array with the new child
-                        // and continue the main loop.
-                        *child = executed_child;
-                        array = array.with_children(children)?;
-                        continue 'exec;
-                    }
-                }
-            }
+            // let mut children = array.children();
+            // for (child_idx, child) in children.iter_mut().enumerate() {
+            //     if !child.is::<ConstantVTable>()
+            //         && !child.is_canonical()
+            //         // NOTE(ngates): this is specifically to avoid us breaking FSST arrays!!
+            //         //  https://github.com/vortex-data/vortex/issues/6293
+            //         && !child.is::<VarBinVTable>()
+            //     {
+            //         if let Some(executed_child) = execute_one_step(&child, ctx)? {
+            //             tracing::debug!(
+            //                 "Stepped child array {} of parent array {}\nFROM:\n{}\nTO:\n{}",
+            //                 child_idx,
+            //                 array.encoding_id(),
+            //                 child.display_tree(),
+            //                 executed_child.display_tree()
+            //             );
+            //
+            //             // If we stepped a child, then rebuild the array with the new child
+            //             // and continue the main loop.
+            //             *child = executed_child;
+            //             array = array.with_children(children)?.optimize()?;
+            //             continue 'exec;
+            //         }
+            //     }
+            // }
 
             // 4. if no progress anywhere → call canonicalize, done
+            tracing::debug!("{}: Canonicalizing array\n{}   ", ctx, array.display_tree());
             return array
                 .vtable()
                 .canonicalize(&array, ctx)

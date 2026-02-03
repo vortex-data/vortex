@@ -74,5 +74,5 @@ pub mod flatbuffers {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-static LEGACY_SESSION: LazyLock<VortexSession> =
+pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

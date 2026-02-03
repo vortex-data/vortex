@@ -21,10 +21,13 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::Columnar;
 use crate::IntoArray;
+use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
@@ -41,6 +44,7 @@ use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
 use crate::matcher::Matcher;
+use crate::optimizer::ArrayOptimizer;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -127,37 +131,53 @@ impl VTable for ScalarFnVTable {
     }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let args = ExecutionArgs {
-            inputs: array.children.clone(),
-            row_count: array.len,
-            ctx,
-        };
+        let mut current = array.to_array();
 
-        let result = array
-            .scalar_fn
-            .execute(args)?
-            .into_array()
-            .execute::<Canonical>(ctx)?;
+        'exec: loop {
+            let Some(sfn) = current.as_opt::<ScalarFnVTable>() else {
+                // If we're no longer a scalar fn, execute normally
+                return current.execute::<Canonical>(ctx);
+            };
 
-        debug_assert_eq!(
-            result.dtype(),
-            &array.dtype,
-            "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
-            result.dtype(),
-            array.dtype
-        );
+            // Try to execute_parent on each child of the array to see if they handle this
+            // scalar function specifically.
+            for (child_idx, child) in sfn.children.iter().enumerate() {
+                if let Some(executed) = child
+                    .vtable()
+                    .execute_parent(child, &current, child_idx, ctx)?
+                {
+                    current = executed;
+                    continue 'exec;
+                }
+            }
 
-        debug_assert_eq!(
-            result.len(),
-            array.len(),
-            "Scalar function {} returned len {:?} but expected {:?}",
-            array.scalar_fn,
-            result.len(),
-            array.len()
-        );
+            // If not, we try to execute each child just one step. If that succeeds, we re-check
+            // the execute_parent rules as the siblings have now changed.
+            let mut children = sfn.children().to_vec();
+            for child in children.iter_mut() {
+                if !child.is::<ConstantVTable>() && !child.is::<AnyCanonical>() {
+                    *child = child
+                        .clone()
+                        .execute::<Columnar>(ctx)?
+                        .into_array(child.len());
+                    current = current.with_children(children)?.optimize()?;
+                    continue 'exec;
+                }
+            }
 
-        Ok(result)
+            // All children are canonical/constant — run the scalar fn
+            let args = ExecutionArgs {
+                inputs: children,
+                row_count: current.len(),
+                ctx,
+            };
+            return sfn
+                .scalar_fn
+                .execute(args)?
+                .into_array()
+                // TODO(ngates): return columnar
+                .execute::<Canonical>(ctx);
+        }
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
