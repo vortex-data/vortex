@@ -103,6 +103,15 @@ impl ArrowArray {
     }
 }
 
+impl Drop for ArrowArray {
+    fn drop(&mut self) {
+        // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust
+        //  code. This is necessary to ensure that the fields inside of the CudaPrivateData
+        //  get dropped to free native/GPU memory.
+        drop(unsafe { Box::from_raw(self.private_data.cast::<CudaPrivateData>()) })
+    }
+}
+
 #[expect(
     unused,
     reason = "cuda_stream and cuda_buffers need to have deferred drop"
