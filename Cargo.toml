@@ -156,6 +156,7 @@ kanal = "0.1.1"
 lending-iterator = "0.1.7"
 libfuzzer-sys = "0.4"
 libloading = "0.8"
+liblzma = "0.4"
 log = { version = "0.4.21" }
 loom = { version = "0.7", features = ["checkpoint"] }
 memmap2 = "0.9.5"
@@ -235,7 +236,6 @@ walkdir = "2.5.0"
 wasm-bindgen-futures = "0.4.39"
 witchcraft-metrics = "1.0.1"
 xshell = "0.2.6"
-xz2 = "0.1.7"
 zigzag = "0.1.0"
 zip = "6.0.0"
 zstd = { version = "0.13.3", default-features = false, features = [

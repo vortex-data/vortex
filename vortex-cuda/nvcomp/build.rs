@@ -17,7 +17,7 @@ use std::fs;
 use std::io::Cursor;
 use std::path::PathBuf;
 
-use xz2::read::XzDecoder;
+use liblzma::read::XzDecoder;
 
 const NVCOMP_VERSION: &str = "5.1.0.21";
 const CUDA_VERSION: &str = "cuda12";
