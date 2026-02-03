@@ -214,4 +214,20 @@ mod tests {
         assert_arrays_eq!(result.into_array(), expected);
         Ok(())
     }
+
+    #[test]
+    fn test_fsst_filter_all_true() -> VortexResult<()> {
+        let fsst_array = build_test_fsst_array();
+        assert_eq!(fsst_array.len(), 10);
+
+        let mask = Mask::new_true(10);
+
+        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+
+        assert_eq!(result.len(), 10);
+        assert_arrays_eq!(result.into_array(), fsst_array);
+        Ok(())
+    }
 }
