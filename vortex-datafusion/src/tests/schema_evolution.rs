@@ -483,6 +483,55 @@ async fn test_schema_evolution_struct_field_order() -> anyhow::Result<()> {
     Ok(())
 }
 
+// https://github.com/vortex-data/vortex/discussions/6264
+#[tokio::test]
+#[should_panic(expected = "Failed to convert scalar")]
+async fn test_schema_evolution_incompatible_types() {
+    let ctx = TestSessionContext::default();
+
+    // File 1: 'code' is UTF8 (string)
+    ctx.write_arrow_batch(
+        "files/data_utf8.vortex",
+        &record_batch!(
+            ("id", Int64, vec![Some(1i64), Some(2), Some(3)]),
+            ("code", Utf8, vec![Some("A100"), Some("B200"), Some("C300")]),
+            ("value", Int64, vec![Some(100i64), Some(200), Some(300)])
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // File 2: 'code' is Int64 (SCHEMA CONFLICT!)
+    ctx.write_arrow_batch(
+        "files/data_int64.vortex",
+        &record_batch!(
+            ("id", Int64, vec![Some(4i64), Some(5), Some(6)]),
+            ("code", Int64, vec![Some(400i64), Some(500), Some(600)]),
+            ("value", Int64, vec![Some(400i64), Some(500), Some(600)])
+        )
+        .unwrap(),
+    )
+    .await
+    .unwrap();
+
+    // Query both files with the string schema
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE my_tbl (id BIGINT, code STRING, value BIGINT) \
+                STORED AS vortex \
+                LOCATION '/files/'",
+        )
+        .await
+        .unwrap();
+
+    let table = ctx.session.table("my_tbl").await.unwrap();
+
+    // This should panic due to incompatible schema types
+    table.collect().await.unwrap();
+}
+
+// https://github.com/vortex-data/vortex/issues/6211
 #[tokio::test]
 async fn test_cast_int_to_string() -> anyhow::Result<()> {
     let ctx = TestSessionContext::default();
@@ -506,11 +555,14 @@ async fn test_cast_int_to_string() -> anyhow::Result<()> {
         .await?;
 
     // This fails as it pushes string cast to the scan
-    ctx.session
+    let result = ctx
+        .session
         .sql(r#"select cast(id as string) from 'example.vortex'"#)
         .await?
         .collect()
-        .await?;
+        .await;
+
+    assert!(result.is_err());
 
     Ok(())
 }
