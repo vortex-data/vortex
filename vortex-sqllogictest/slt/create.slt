@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+query I
+COPY (values (1, 2), (3, 4)) TO 'scratch/create.vortex';
+----
+2
+
+statement ok
+CREATE VIEW foo AS SELECT * FROM 'scratch/create.vortex';
+
+query II
+SELECT * FROM foo;
+----
+1 2
+3 4
+
+statement ok
+DROP VIEW IF EXISTS foo;

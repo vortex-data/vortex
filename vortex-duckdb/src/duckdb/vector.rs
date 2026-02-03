@@ -295,6 +295,13 @@ impl Vector {
             ))
         }
     }
+
+    pub fn get_value(&self, idx: usize) -> Value {
+        unsafe {
+            let value_ptr = cpp::duckdb_vx_vector_get_value(self.as_ptr(), idx as idx_t);
+            Value::own(value_ptr)
+        }
+    }
 }
 
 pub struct ValidityRef<'a> {

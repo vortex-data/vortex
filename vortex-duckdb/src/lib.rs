@@ -23,7 +23,7 @@ pub use crate::duckdb::LogicalType;
 pub use crate::duckdb::Value;
 use crate::scan::VortexTableFunction;
 
-mod convert;
+pub mod convert;
 pub mod duckdb;
 pub mod exporter;
 mod scan;
