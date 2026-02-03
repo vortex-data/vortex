@@ -21,7 +21,6 @@ use crate::arrays::list::compute::element_mask_from_offsets;
 use crate::builders::ArrayBuilder;
 use crate::builders::ListViewBuilder;
 use crate::kernel::ExecuteParentKernel;
-use crate::matchers::Exact;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -29,11 +28,7 @@ use crate::vtable::ValidityHelper;
 pub(super) struct ListFilterKernel;
 
 impl ExecuteParentKernel<ListVTable> for ListFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     // TODO(joe): Remove the vector usage?
     fn execute_parent(

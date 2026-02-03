@@ -10,7 +10,6 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
@@ -22,11 +21,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<ExtensionVTable> =
 struct ExtensionFilterPushDownRule;
 
 impl ArrayParentReduceRule<ExtensionVTable> for ExtensionFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

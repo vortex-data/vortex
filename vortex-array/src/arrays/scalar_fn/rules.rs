@@ -26,7 +26,6 @@ use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -160,11 +159,7 @@ impl ReduceCtx for ArrayReduceCtx {
 struct ScalarFnUnaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,
