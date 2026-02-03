@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use crate::ScalarValue;
+use vortex_error::VortexExpect;
+
 use crate::extension::ExtScalarVTable;
 use crate::extension::ExtensionScalar;
 
@@ -20,15 +21,27 @@ pub trait Matcher {
 }
 
 impl<V: ExtScalarVTable> Matcher for V {
-    type Match<'a> = &'a ScalarValue;
+    type Match<'a> = V::Value<'a>;
 
     fn matches(item: &ExtensionScalar) -> bool {
         item.ext_dtype.is::<V>()
     }
 
     fn try_match<'a>(item: &'a ExtensionScalar) -> Option<Self::Match<'a>> {
-        item.ext_dtype
-            .is::<V>()
-            .then(|| item.ext_scalar.map(|s| s.storage()))
+        if let Some(metadata) = item.ext_dtype.metadata_opt::<V>() {
+            item.ext_scalar.map(|s| {
+                let vtable =
+                    s.0.vtable_any()
+                        .downcast_ref::<V>()
+                        .vortex_expect("ExtScalarVTable downcast failed");
+                vtable.unpack(
+                    metadata,
+                    item.ext_dtype.storage_dtype(),
+                    item.ext_scalar.map(|s| s.storage()),
+                )
+            })
+        } else {
+            None
+        }
     }
 }

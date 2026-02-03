@@ -12,6 +12,23 @@ use crate::ScalarValue;
 
 /// API for defining the scalar behavior of an extension DType.
 pub trait ExtScalarVTable: ExtDTypeVTable {
+    /// Extract a native Rust value type from a storage value.
+    ///
+    /// The value must be able to represent nulls if the storage value is `None`.
+    /// If this isn't required, a good default would be to use [`Option<&ScalarValue>`].
+    type Value<'a>: 'static + Send + Sync;
+
+    /// Unpack a native value from the storage ScalarValue.
+    ///
+    /// This call is infallible assuming the [`ExtScalarVTable::validate_scalar`] function has
+    /// been called previously.
+    fn unpack(
+        &self,
+        metadata: &Self::Metadata,
+        storage_dtype: &DType,
+        storage_value: Option<&ScalarValue>,
+    ) -> Self::Value<'_>;
+
     /// Format the Scalar value for [`fmt::Display`].
     fn fmt_scalar(
         &self,
@@ -35,27 +52,10 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
 pub trait DynExtScalarVTable: 'static + Send + Sync + Debug {
     /// Returns the ID for this extension type.
     fn id(&self) -> ExtID;
-
-    // Unpack an extension scalar from a scalar value.
-    // fn unpack(&self, dtype: &ExtDTypeRef, storage: &ScalarValue) -> VortexResult<ExtScalarRef>;
 }
 
 impl<V: ExtScalarVTable> DynExtScalarVTable for V {
     fn id(&self) -> ExtID {
         ExtDTypeVTable::id(self)
     }
-    //
-    // fn unpack(&self, dtype: &ExtDTypeRef, storage: &ScalarValue) -> VortexResult<ExtScalarRef> {
-    //     let dtype = dtype
-    //         .clone()
-    //         .try_downcast::<V>()
-    //         .map_err(|_| vortex_err!("DTypeRef is not of expected extension type {}", self.id()))?;
-    //
-    //     let value = match storage {
-    //         ScalarValue::Null => None,
-    //         _ => Some(ExtScalarVTable::unpack(self, &dtype, storage)?),
-    //     };
-    //
-    //     Ok(ExtScalar::try_with_vtable(self.clone(), dtype.clone(), value)?.erased())
-    // }
 }

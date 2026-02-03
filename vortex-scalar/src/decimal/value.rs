@@ -34,7 +34,7 @@ impl Scalar {
         // We try_new here so the precision/scale checks are enforced.
         Self::try_new(
             DType::Decimal(decimal_type, nullability),
-            ScalarValue::Decimal(value),
+            Some(ScalarValue::Decimal(value)),
         )
         .vortex_expect("Decimal value should be valid")
     }

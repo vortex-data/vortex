@@ -9,42 +9,41 @@ use vortex_dtype::datetime::Time;
 use vortex_dtype::datetime::TimeUnit;
 use vortex_dtype::datetime::Timestamp;
 
-use crate::ExtScalarRef;
+use crate::extension::ExtensionScalar;
 use crate::extension::Matcher;
 
 mod date;
 mod time;
 mod timestamp;
 
+pub use date::*;
+pub use time::*;
 pub use timestamp::*;
 
-/// A matched temporal scalar value.
-pub enum TemporalValue<'a> {
-    /// A Time value.
-    Time(&'a jiff::civil::Time),
-    /// A Date value.
-    Date(&'a jiff::civil::Date),
-    /// A Timestamp value.
-    Timestamp(&'a TimestampValue),
+/// A matched temporal storage value.
+pub enum TemporalValue {
+    Timestamp(TimestampValue),
+    Date(DateValue),
+    Time(TimeValue),
 }
 
 impl Matcher for AnyTemporal {
     /// Extract the matched temporal storage value as an i64.
-    type Match<'a> = Option<i64>;
+    type Match<'a> = TemporalValue;
 
-    fn try_match<'a>(item: &'a ExtScalarRef) -> Option<Self::Match<'a>> {
-        if item.is::<Time>() {
-            item.storage()
+    fn try_match<'a>(item: &'a ExtensionScalar) -> Option<Self::Match<'a>> {
+        if let Some(value) = item.value_opt::<Timestamp>() {
+            return Some(TemporalValue::Timestamp(value));
         }
-        if let Some(v) = item.value_opt::<Time>() {
-            return Some(TemporalValue::Time(v));
+
+        if let Some(value) = item.value_opt::<Date>() {
+            return Some(TemporalValue::Date(value));
         }
-        if let Some(v) = item.value_opt::<Date>() {
-            return Some(TemporalValue::Date(v));
+
+        if let Some(value) = item.value_opt::<Time>() {
+            return Some(TemporalValue::Time(value));
         }
-        if let Some(v) = item.value_opt::<Timestamp>() {
-            return Some(TemporalValue::Timestamp(v));
-        }
+
         None
     }
 }

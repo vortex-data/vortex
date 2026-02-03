@@ -6,6 +6,7 @@ use std::fmt::Formatter;
 use jiff::Span;
 use vortex_dtype::DType;
 use vortex_dtype::datetime::Time;
+use vortex_dtype::datetime::TimeUnit;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -13,7 +14,37 @@ use crate::ScalarValue;
 use crate::datetime::SpanExt;
 use crate::extension::ExtScalarVTable;
 
+pub enum TimeValue {
+    Seconds(Option<i32>),
+    Milliseconds(Option<i32>),
+    Microseconds(Option<i64>),
+    Nanoseconds(Option<i64>),
+}
+
 impl ExtScalarVTable for Time {
+    type Value<'a> = TimeValue;
+
+    fn unpack(
+        &self,
+        metadata: &Self::Metadata,
+        storage_dtype: &DType,
+        storage_value: &ScalarValue,
+    ) -> Self::Value<'_> {
+        match metadata {
+            TimeUnit::Seconds => TimeValue::Seconds(storage_value.as_primitive().cast::<i32>()),
+            TimeUnit::Milliseconds => {
+                TimeValue::Milliseconds(storage_value.as_primitive().cast::<i32>())
+            }
+            TimeUnit::Microseconds => {
+                TimeValue::Microseconds(storage_value.as_primitive().cast::<i64>())
+            }
+            TimeUnit::Nanoseconds => {
+                TimeValue::Nanoseconds(storage_value.as_primitive().cast::<i64>())
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn fmt_scalar(
         &self,
         metadata: &Self::Metadata,

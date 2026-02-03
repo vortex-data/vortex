@@ -16,7 +16,6 @@ use vortex_dtype::datetime::TimestampOptions;
 use vortex_dtype::extension::EmptyMetadata;
 
 use crate::Scalar;
-use crate::datetime::TimestampValue;
 use crate::tests::Even;
 
 #[test]

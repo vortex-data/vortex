@@ -24,7 +24,6 @@ use vortex_dtype::ExtDTypeRef;
 use vortex_dtype::ExtID;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 pub use vtable::*;
 
@@ -58,13 +57,29 @@ impl ExtensionScalar<'_> {
         self.ext_scalar
     }
 
+    /// Match on the extension type and extract an underlying value.
+    pub fn value_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(self)
+    }
+
+    /// Match on the extension type and extract an underlying value.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the matcher fails.
+    pub fn value<M: Matcher>(&self) -> M::Match<'_> {
+        self.value_opt::<M>()
+            .vortex_expect("Failed to match extension scalar value")
+    }
+
+    /// Return the underlying storage value.
+    pub fn storage_value(&self) -> Option<&ScalarValue> {
+        self.ext_scalar.map(|s| s.storage())
+    }
+
     /// Return the underlying storage scalar.
     pub fn to_storage_scalar(&self) -> Scalar {
-        let storage_value = self
-            .ext_scalar
-            .map(|s| s.0.storage_value())
-            .cloned()
-            .unwrap_or(ScalarValue::Null);
+        let storage_value = self.ext_scalar.map(|s| s.0.storage_value()).cloned();
         unsafe { Scalar::new_unchecked(self.ext_dtype.storage_dtype().clone(), storage_value) }
     }
 }
@@ -76,14 +91,6 @@ pub struct ExtScalar<V: ExtScalarVTable>(Arc<ExtScalarAdapter<V>>);
 impl<V: ExtScalarVTable> ExtScalar<V> {
     /// Creates a new extension scalar from a storage scalar value.
     pub fn try_new(ext_dype: &ExtDType<V>, storage: ScalarValue) -> VortexResult<Self> {
-        if matches!(storage, ScalarValue::Null) && !ext_dype.is_nullable() {
-            vortex_bail!(
-                "Cannot create non-nullable extension scalar with id {} and storage type {} from null value",
-                ext_dype.id(),
-                ext_dype.storage_dtype(),
-            );
-        }
-
         let vtable = ext_dype.vtable().clone();
         ExtScalarVTable::validate_scalar(
             &vtable,
@@ -194,11 +201,6 @@ impl ExtScalarRef {
 
 /// Methods for downcasting type-erased extension scalars.
 impl ExtScalarRef {
-    /// Check if the extension scalar is of the concrete type.
-    pub fn is<M: Matcher>(&self) -> bool {
-        M::matches(self)
-    }
-
     /// Downcast to the concrete [`ExtScalar`].
     ///
     /// Returns `Err(self)` if the downcast fails.
@@ -235,6 +237,7 @@ impl ExtScalarRef {
 trait ExtScalarImpl: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtID;
+    fn vtable_any(&self) -> &dyn Any;
     fn storage_value(&self) -> &ScalarValue;
     fn fmt_ext_scalar(&self, ext_dtype: &ExtDTypeRef, f: &mut Formatter<'_>) -> std::fmt::Result;
 }
@@ -254,6 +257,10 @@ impl<V: ExtScalarVTable> ExtScalarImpl for ExtScalarAdapter<V> {
 
     fn id(&self) -> ExtID {
         self.vtable.id()
+    }
+
+    fn vtable_any(&self) -> &dyn Any {
+        &self.vtable
     }
 
     fn storage_value(&self) -> &ScalarValue {
@@ -277,20 +284,18 @@ impl Scalar {
         ext_dtype: ExtDType<V>,
         storage: ScalarValue,
     ) -> VortexResult<Self> {
-        let storage_value = match storage {
-            None => ScalarValue::Null,
-            Some(v) => ScalarValue::Extension(ExtScalar::<V>::try_new(&ext_dtype, v).erased()),
-        };
+        let storage_value =
+            ScalarValue::Extension(ExtScalar::<V>::try_new(&ext_dtype, storage).erased());
         Self::try_new(DType::Extension(ext_dtype.erased()), storage_value)
     }
 
-    /// Creates a new extension scalar wrapping the given storage value.
-    /// FIXME(ngates): take a ScalarValue?
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::try_new(DType::Extension(ext_dtype), value.value().clone())
-            .vortex_expect("Failed to create extension scalar from reference")
-    }
+    // Creates a new extension scalar wrapping the given storage value.
+    // FIXME(ngates): take a ScalarValue?
+    // pub fn extension_ref(ext_dtype: ExtDTypeRef, storage: Scalar) -> Self {
+    //     assert_eq!(ext_dtype.storage_dtype(), value.dtype());
+    //     Self::try_new(DType::Extension(ext_dtype), value.value().clone())
+    //         .vortex_expect("Failed to create extension scalar from reference")
+    // }
 }
 
 // #[cfg(test)]

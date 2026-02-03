@@ -106,7 +106,7 @@ impl Scalar {
         unsafe {
             Scalar::new_unchecked(
                 DType::Binary(nullability),
-                ScalarValue::Binary(buffer.into()),
+                Some(ScalarValue::Binary(buffer.into())),
             )
         }
     }
@@ -295,19 +295,6 @@ mod tests {
         let scalar = BinaryScalar::try_from(&binary).unwrap();
 
         let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_from_scalar_value_non_binary_dtype() {
-        use vortex_dtype::DType;
-        use vortex_dtype::Nullability;
-        use vortex_dtype::PType;
-
-        let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let value = crate::ScalarValue(crate::InnerScalarValue::Primitive(crate::PValue::I32(42)));
-
-        let result = BinaryScalar::from_scalar_value(&dtype, value);
         assert!(result.is_err());
     }
 
