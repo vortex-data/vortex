@@ -3,6 +3,7 @@
 
 // TODO(connor): REMOVE THIS FILE!
 
+use std::marker::PhantomData;
 use std::sync::LazyLock;
 
 use arcref::ArcRef;
@@ -22,6 +23,8 @@ use crate::Canonical;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::compute::ComputeFn;
@@ -30,6 +33,9 @@ use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
 use crate::compute::fill_null;
+use crate::matchers::Exact;
+use crate::matchers::Matcher;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
 
 /// The filter [`ComputeFn`].
@@ -203,6 +209,26 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for FilterArgs<'a> {
 /// A kernel that implements the filter function.
 pub struct FilterKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(FilterKernelRef);
+
+#[derive(Default, Debug)]
+pub struct FilterReduceRule<V>(PhantomData<V>);
+
+impl<V: VTable + FilterKernel> ArrayParentReduceRule<V> for FilterReduceRule<V> {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::new()
+    }
+
+    fn reduce_parent(
+        &self,
+        array: &V::Array,
+        parent: &FilterArray,
+        _child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        FilterKernel::filter(self, array, parent.filter_mask()).map(Some)
+    }
+}
 
 pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
