@@ -79,6 +79,22 @@ pub fn filter(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     Ok(array.filter(mask.clone())?.to_canonical()?.into_array())
 }
 
+///  The set of common preconditions that apply to all arrays.
+pub fn filter_preconditions(array: &dyn Array, mask: &Mask) -> Option<ArrayRef> {
+    let true_count = mask.true_count();
+    // Fast-path for empty mask.
+    if true_count == 0 {
+        return Canonical::empty(array.dtype()).into_array().into();
+    }
+
+    // Fast-path for full mask
+    if true_count == mask.len() {
+        return array.to_array().into();
+    }
+
+    None
+}
+
 struct Filter;
 
 impl ComputeFnVTable for Filter {
@@ -97,14 +113,8 @@ impl ComputeFnVTable for Filter {
 
         let true_count = mask.true_count();
 
-        // Fast-path for empty mask.
-        if true_count == 0 {
-            return Ok(Canonical::empty(array.dtype()).into_array().into());
-        }
-
-        // Fast-path for full mask
-        if true_count == mask.len() {
-            return Ok(array.to_array().into());
+        if let Some(array) = filter_preconditions(array, mask) {
+            return Ok(array.into());
         }
 
         // If the entire array is null, then we only need to adjust the length of the array.

@@ -3,13 +3,13 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::FilterKernel;
+use vortex_array::compute::filter_preconditions;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::matchers::Exact;
@@ -40,11 +40,8 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
     ) -> VortexResult<Option<ArrayRef>> {
         // TODO(joe): add a pattern to adding checks to all filter impls
         let mask = parent.filter_mask();
-        if mask.true_count() == 0 {
-            return Ok(Some(Canonical::empty(array.dtype()).into_array()));
-        }
-        if mask.true_count() == mask.len() {
-            return Ok(Some(array.to_array()));
+        if let Some(array) = filter_preconditions(array.as_ref(), mask) {
+            return Ok(Some(array));
         }
         // TODO(ngates): pass execution context when we update the FilterKernel trait.
         let filtered_codes =
