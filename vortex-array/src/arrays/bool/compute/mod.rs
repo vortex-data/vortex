@@ -3,7 +3,6 @@
 
 mod cast;
 mod fill_null;
-mod invert;
 mod is_constant;
 mod is_sorted;
 mod mask;

@@ -5,7 +5,6 @@ mod cast;
 mod compare;
 mod fill_null;
 mod filter;
-mod invert;
 mod is_constant;
 mod is_sorted;
 mod mask;

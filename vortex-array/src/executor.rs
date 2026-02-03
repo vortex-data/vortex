@@ -7,6 +7,7 @@ use vortex_buffer::Buffer;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::Array;
@@ -47,19 +48,6 @@ impl dyn Array + '_ {
     }
 }
 
-/// The result of executing an array, which can either be a constant (scalar repeated)
-/// or a fully materialized canonical array.
-///
-/// This allows execution to short-circuit when the array is constant, avoiding
-/// unnecessary expansion of scalar values.
-#[derive(Debug, Clone)]
-pub enum CanonicalOutput {
-    /// A constant array representing a scalar value repeated to a given length.
-    Constant(ConstantArray),
-    /// A fully materialized canonical array.
-    Array(Canonical),
-}
-
 /// Execution context for batch CPU compute.
 pub struct ExecutionCtx {
     session: VortexSession,
@@ -74,6 +62,41 @@ impl ExecutionCtx {
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
+    }
+}
+
+/// An enum capturing either a columnar array or a constant scalar value.
+pub enum Columnar {
+    /// A columnar array.
+    Array(Canonical),
+    /// A constant scalar value.
+    Scalar(Scalar),
+}
+
+impl Executable for Columnar {
+    /// This is the main execution loop for Vortex in-memory arrays.
+    ///
+    /// This will iteratively reduce and execute arrays until we reach either a constant array or
+    /// an array in canonical form.
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        loop {
+            // 0. Check for termination conditions
+            if let Some(constant) = array.as_opt::<ConstantVTable>() {
+                return Ok(Columnar::Scalar(constant.into_parts()));
+            }
+            if array.is_canonical() {
+                todo!("Extract canonical array without re-executing");
+            }
+
+            // 1. reduce / reduce_parent (metadata-only rewrites)
+
+            // 2. execute_parent (child-driven optimized execution)
+
+            // 3. step ONE child (the first non-canonical, non-constant one)
+            //  → restart from (1) if progress was made
+
+            // 4. if no progress anywhere → call canonicalize, done
+        }
     }
 }
 
