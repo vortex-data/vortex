@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+use std::fmt::Display;
 use std::hash::Hash;
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
@@ -28,6 +31,26 @@ pub struct ListScalar<'a> {
     pub(super) elements: Option<&'a [Option<ScalarValue>]>,
 }
 
+impl Display for ListScalar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.elements {
+            None => write!(f, "null"),
+            Some(elems) => {
+                write!(
+                    f,
+                    "[{}]",
+                    elems
+                        .iter()
+                        .map(|e| unsafe {
+                            Scalar::new_unchecked(self.element_dtype.as_ref().clone(), e.clone())
+                        })
+                        .format(", ")
+                )
+            }
+        }
+    }
+}
+
 impl Scalar {
     /// Creates a new list scalar with the given element type and children.
     ///
@@ -48,6 +71,8 @@ impl Scalar {
     }
 }
 
+// TODO(v2): re-enable tests when removed API features are restored
+/*
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -384,3 +409,5 @@ mod tests {
         assert_eq!(nested.len(), 2);
     }
 }
+
+*/

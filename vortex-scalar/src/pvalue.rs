@@ -406,6 +406,8 @@ impl Display for PValue {
     }
 }
 
+// TODO(v2): will be used when coercion is restored
+#[allow(dead_code)]
 pub(super) trait CoercePValue: Sized {
     /// Coerce value from a compatible bit representation using into given type.
     ///

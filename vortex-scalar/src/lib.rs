@@ -15,6 +15,7 @@
 mod arrow;
 mod binary;
 mod bool;
+mod cast;
 pub mod datetime;
 mod decimal;
 mod display;
@@ -25,13 +26,10 @@ mod null;
 mod primitive;
 mod proto;
 mod pvalue;
-// mod scalar;
-// mod scalar_value;
-mod cast;
+mod scalar;
 pub mod session;
 mod struct_;
 mod utf8;
-pub mod v2;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;
@@ -41,11 +39,11 @@ pub use fixed_list::*;
 pub use list::*;
 pub use primitive::*;
 pub use pvalue::*;
-// pub use scalar::*;
-// pub use scalar_value::*;
+pub use scalar::*;
+pub use scalar_value::*;
 pub use struct_::*;
 pub use utf8::*;
-pub use v2::*;
+mod scalar_value;
 
 #[cfg(test)]
 mod tests;

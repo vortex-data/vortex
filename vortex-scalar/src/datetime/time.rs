@@ -83,20 +83,22 @@ mod test {
 
     #[test]
     fn test_validate() {
+        // 86_399 seconds = 23:59:59, valid civil time
+        assert!(
+            Time.validate_scalar(
+                &TimeUnit::Seconds,
+                &DType::Primitive(PType::I32, Nullability::NonNullable),
+                &ScalarValue::from(86_399i32),
+            )
+            .is_ok()
+        );
+
+        // 86_400 seconds = 24:00:00, invalid civil time (wraps to next day)
         assert!(
             Time.validate_scalar(
                 &TimeUnit::Seconds,
                 &DType::Primitive(PType::I32, Nullability::NonNullable),
                 &ScalarValue::from(86_400i32),
-            )
-            .is_ok()
-        );
-
-        assert!(
-            Time.validate_scalar(
-                &TimeUnit::Seconds,
-                &DType::Primitive(PType::I32, Nullability::NonNullable),
-                &ScalarValue::from(86_400i32 + 1),
             )
             .is_err()
         );

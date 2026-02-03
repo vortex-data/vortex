@@ -39,7 +39,7 @@ pub struct ExtensionScalar<'a> {
 impl Display for ExtensionScalar<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self.ext_scalar {
-            Some(scalar) => scalar.0.fmt_ext_scalar(&self.ext_dtype, f),
+            Some(scalar) => scalar.0.fmt_ext_scalar(self.ext_dtype, f),
             None => write!(f, "null"),
         }
     }
@@ -173,7 +173,7 @@ impl Eq for ExtScalarRef {}
 
 impl PartialOrd for ExtScalarRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.0.storage_value().partial_cmp(&other.0.storage_value())
+        self.0.storage_value().partial_cmp(other.0.storage_value())
     }
 }
 

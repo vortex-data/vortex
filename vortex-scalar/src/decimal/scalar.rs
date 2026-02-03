@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
+
 use vortex_dtype::DecimalDType;
 use vortex_dtype::Nullability;
 
@@ -203,4 +205,58 @@ impl<'a> DecimalScalar<'a> {
     //         dvalue: result_value,
     //     })
     // }
+}
+
+impl fmt::Display for DecimalScalar<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Some(&decimal_value) = self.dvalue.as_ref() else {
+            return write!(f, "null");
+        };
+
+        // Introduce some of the scale factors instead.
+        match decimal_value {
+            DecimalValue::I8(v) => write!(
+                f,
+                "decimal8({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I16(v) => write!(
+                f,
+                "decimal16({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I32(v) => write!(
+                f,
+                "decimal32({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I64(v) => write!(
+                f,
+                "decimal64({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I128(v) => write!(
+                f,
+                "decimal128({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+            DecimalValue::I256(v) => write!(
+                f,
+                "decimal256({}, precision={}, scale={})",
+                v,
+                self.decimal_type.precision(),
+                self.decimal_type.scale()
+            ),
+        }
+    }
 }
