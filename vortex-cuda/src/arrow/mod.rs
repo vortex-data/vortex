@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 pub(crate) use canonical::CanonicalDeviceArrayExport;
+use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
@@ -46,6 +47,7 @@ pub enum DeviceType {
     // Hexagon = 16,
 }
 
+/// A (potentially null) pointer to a `cudaEvent_t`.
 pub type SyncEvent = Option<NonNull<cudaEvent_t>>;
 
 /// The C Device data interface representation of an Arrow array.
@@ -107,7 +109,7 @@ impl ArrowArray {
     unused,
     reason = "cuda_stream and cuda_buffers need to have deferred drop"
 )]
-pub(crate) struct CudaPrivateData {
+pub(crate) struct PrivateData {
     /// Hold a reference to the CudaStream so that it stays alive even after CudaExecutionCtx
     /// has been dropped.
     pub(crate) cuda_stream: Arc<CudaStream>,
@@ -116,6 +118,8 @@ pub(crate) struct CudaPrivateData {
     /// Boxed slice of buffer pointers. We return a pointer to the start of this allocation over
     /// the interface, so we hold it here so the Box contents are not freed.
     pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
+    pub(crate) cuda_event: CudaEvent,
+    pub(crate) cuda_event_ptr: cudaEvent_t,
 }
 
 #[async_trait]
