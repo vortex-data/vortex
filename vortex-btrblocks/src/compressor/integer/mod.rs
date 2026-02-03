@@ -134,7 +134,7 @@ impl Hash for dyn IntegerScheme {
 }
 
 /// Unique identifier for integer compression schemes.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum IntCode {
     /// No compression applied.
     Uncompressed,

@@ -210,7 +210,7 @@ pub struct ConstantScheme;
 pub struct NullDominated;
 
 /// Unique identifier for string compression schemes.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum StringCode {
     /// No compression applied.
     Uncompressed,

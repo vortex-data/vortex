@@ -124,7 +124,7 @@ impl<'a> Compressor for FloatCompressor<'a> {
 }
 
 /// Unique identifier for float compression schemes.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum FloatCode {
     /// No compression applied.
     Uncompressed,

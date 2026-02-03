@@ -11051,6 +11051,7 @@ dependencies = [
 name = "vortex-test-e2e"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "rstest",
  "tokio",
  "vortex",

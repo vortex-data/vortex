@@ -115,10 +115,23 @@ impl BtrBlocksCompressorBuilder {
 
     /// Builds the configured `BtrBlocksCompressor`.
     pub fn build(self) -> BtrBlocksCompressor {
+        // Note we should apply the schemes in the same order, in case try conflict.
         BtrBlocksCompressor {
-            int_schemes: self.int_schemes.into_iter().collect_vec(),
-            float_schemes: self.float_schemes.into_iter().collect_vec(),
-            string_schemes: self.string_schemes.into_iter().collect_vec(),
+            int_schemes: self
+                .int_schemes
+                .into_iter()
+                .sorted_by_key(|s| s.code())
+                .collect_vec(),
+            float_schemes: self
+                .float_schemes
+                .into_iter()
+                .sorted_by_key(|s| s.code())
+                .collect_vec(),
+            string_schemes: self
+                .string_schemes
+                .into_iter()
+                .sorted_by_key(|s| s.code())
+                .collect_vec(),
         }
     }
 }

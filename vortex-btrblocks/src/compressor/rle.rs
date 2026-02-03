@@ -40,7 +40,7 @@ pub trait RLEConfig: Debug + Send + Sync + 'static {
     /// The statistics type used by this RLE scheme.
     type Stats: RLEStats + CompressorStats;
     /// The code type used to identify schemes.
-    type Code: Copy + Clone + Debug + Hash + PartialEq + Eq;
+    type Code: Copy + Clone + Debug + Hash + Eq + Ord;
 
     /// The unique code identifying this RLE scheme.
     const CODE: Self::Code;
