@@ -121,7 +121,7 @@ impl CudaSession {
             .load_function(module_name, type_suffixes, &self.context)
     }
 
-    /// Get a handle to the exporter that converts Vortex arrays to [`ArrowDeviceArray`].
+    /// Get a handle to the exporter that converts Vortex arrays to `ArrowDeviceArray`.
     pub fn export_device_array(&self) -> &Arc<dyn ExportDeviceArray> {
         &self.export_device_array
     }
