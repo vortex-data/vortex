@@ -5,7 +5,6 @@ use std::fmt::Debug;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use vortex_array::ArrayRef;
 use vortex_array::VortexSessionExecute;
 use vortex_array::vtable::ArrayId;
 use vortex_error::VortexResult;
@@ -14,7 +13,6 @@ use vortex_session::SessionExt;
 use vortex_utils::aliases::dash_map::DashMap;
 
 use crate::ExportDeviceArray;
-use crate::arrow::ArrowDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
