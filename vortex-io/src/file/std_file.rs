@@ -23,6 +23,7 @@ use vortex_error::VortexResult;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
+use crate::WriteTarget;
 use crate::runtime::Handle;
 
 /// Read exactly `buffer.len()` bytes from `file` starting at `offset`.
@@ -109,15 +110,24 @@ impl VortexReadAt for FileReadAdapter {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+        unsafe { buffer.set_len(length) };
+        let target: Box<dyn WriteTarget> = Box::new(buffer);
+        self.read_at_into(offset, target)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let file = self.file.clone();
         let handle = self.handle.clone();
         async move {
             handle
                 .spawn_blocking(move || {
-                    let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-                    unsafe { buffer.set_len(length) };
-                    read_exact_at(&file, &mut buffer, offset)?;
-                    Ok(BufferHandle::new_host(buffer.freeze()))
+                    read_exact_at(&file, target.as_mut_slice(), offset)?;
+                    target.into_handle()
                 })
                 .await
         }

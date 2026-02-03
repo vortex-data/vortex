@@ -6,6 +6,7 @@ use std::fmt::Debug;
 use std::ops::Range;
 use std::sync::Arc;
 
+use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaView;
 use cudarc::driver::DevicePtr;
@@ -22,6 +23,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
+use crate::PooledPinnedBuffer;
 use crate::stream::await_stream_callback;
 
 /// A [`DeviceBuffer`] wrapping a CUDA GPU allocation.
@@ -38,6 +40,8 @@ pub struct CudaDeviceBuffer {
     device_ptr: u64,
     /// Minimum required alignment of the buffer.
     alignment: Alignment,
+    completion: Option<Arc<CudaEvent>>,
+    host_buffer: Option<Arc<parking_lot::Mutex<Option<PooledPinnedBuffer>>>>,
 }
 
 mod private {
@@ -98,6 +102,27 @@ impl CudaDeviceBuffer {
             len,
             device_ptr,
             alignment: Alignment::of::<T>(),
+            completion: None,
+            host_buffer: None,
+        }
+    }
+
+    pub fn new_with_host_buffer<T: DeviceRepr + Debug + Send + Sync + 'static>(
+        cuda_slice: CudaSlice<T>,
+        completion: CudaEvent,
+        host_buffer: PooledPinnedBuffer,
+    ) -> Self {
+        let len = cuda_slice.len() * size_of::<T>();
+        let (device_ptr, _) = cuda_slice.device_ptr(cuda_slice.stream());
+
+        Self {
+            allocation: Arc::new(cuda_slice),
+            offset: 0,
+            len,
+            device_ptr,
+            alignment: Alignment::of::<T>(),
+            completion: Some(Arc::new(completion)),
+            host_buffer: Some(Arc::new(parking_lot::Mutex::new(Some(host_buffer)))),
         }
     }
 
@@ -306,6 +331,8 @@ impl DeviceBuffer for CudaDeviceBuffer {
             len: new_len,
             device_ptr: self.device_ptr,
             alignment: self.alignment,
+            completion: self.completion.clone(),
+            host_buffer: self.host_buffer.clone(),
         })
     }
 
@@ -322,11 +349,28 @@ impl DeviceBuffer for CudaDeviceBuffer {
                 len: self.len,
                 device_ptr: self.device_ptr,
                 alignment,
+                completion: self.completion.clone(),
+                host_buffer: self.host_buffer.clone(),
             }))
         } else if alignment > Alignment::new(256) {
             vortex_panic!("we do not support alignment greater than 256")
         } else {
             vortex_panic!("some how we alloc a cuda buffer with alignment less than 256")
+        }
+    }
+}
+
+impl Drop for CudaDeviceBuffer {
+    fn drop(&mut self) {
+        let Some(completion) = self.completion.as_ref() else {
+            return;
+        };
+        let Some(host_buffer) = self.host_buffer.as_ref() else {
+            return;
+        };
+        if let Some(buffer) = host_buffer.lock().take() {
+            let (inner, pool) = buffer.into_inner();
+            drop(pool.put_deferred(completion.clone(), inner));
         }
     }
 }

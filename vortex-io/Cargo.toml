@@ -35,12 +35,14 @@ tokio = { workspace = true, features = [
     "rt",
     "sync",
 ] } # this is the maximum subset of fetaures that is safe for wasm32 targets
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 custom-labels = { workspace = true }

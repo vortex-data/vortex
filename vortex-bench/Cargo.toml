@@ -34,6 +34,7 @@ itertools = { workspace = true }
 mimalloc = { workspace = true }
 noodles-bgzf = { workspace = true, features = ["async"] }
 noodles-vcf = { workspace = true, features = ["async"] }
+object_store = { workspace = true }
 parking_lot = { workspace = true }
 parquet = { workspace = true, features = ["async"] }
 rand = { workspace = true }
@@ -64,3 +65,5 @@ vortex = { workspace = true, features = [
     "zstd",
     "unstable_encodings",
 ] }
+vortex-cuda = { workspace = true }
+vortex-scan = { workspace = true }

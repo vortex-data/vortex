@@ -78,6 +78,11 @@ impl CudaSession {
         self.stream_pool.get_stream()
     }
 
+    /// Returns the CUDA context for this session.
+    pub fn context(&self) -> &Arc<CudaContext> {
+        &self.context
+    }
+
     /// Registers CUDA support for an array encoding.
     ///
     /// # Arguments

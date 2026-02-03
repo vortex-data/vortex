@@ -63,4 +63,22 @@ impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
         }
         .boxed()
     }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn vortex_io::WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let read = self.read.clone();
+        let stream = self.stream.clone();
+        async move {
+            let handle = read.read_at_into(offset, target).await?;
+            if handle.is_on_device() {
+                return Ok(handle);
+            }
+            let host_buffer = handle.as_host().clone();
+            stream.copy_to_device(host_buffer)?.await
+        }
+        .boxed()
+    }
 }
