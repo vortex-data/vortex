@@ -584,7 +584,12 @@ jobs:
       - name: Rust Tests (Windows)
         if: matrix.os == 'windows-x64'
         run: |
-          cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench --exclude compress-bench --exclude xtask
+          cargo nextest run --locked --workspace --all-features --no-fail-fast `
+            --exclude vortex-bench --exclude vortex-python --exclude vortex-duckdb `
+            --exclude vortex-fuzz --exclude vortex-cuda --exclude vortex-nvcomp `
+            --exclude vortex-cub --exclude vortex-test-e2e-cuda --exclude duckdb-bench `
+            --exclude lance-bench --exclude datafusion-bench --exclude random-access-bench `
+            --exclude compress-bench --exclude xtask --exclude vortex-datafusion
       - name: Rust Tests (Other)
         if: matrix.os != 'windows-x64'
         run: cargo nextest run --locked --workspace --all-features --no-fail-fast --exclude vortex-bench --exclude xtask
