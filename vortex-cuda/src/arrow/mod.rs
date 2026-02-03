@@ -66,6 +66,9 @@ pub struct ArrowDeviceArray {
     _reserved: [i64; 3],
 }
 
+unsafe impl Send for ArrowDeviceArray {}
+unsafe impl Sync for ArrowDeviceArray {}
+
 /// An FFI-compatible version of the ArrowArray that holds pointers to device buffers.
 #[repr(C)]
 #[derive(Debug)]
@@ -77,7 +80,8 @@ pub(crate) struct ArrowArray {
     n_children: i64,
     buffers: *mut sys::CUdeviceptr,
     children: *mut *mut ArrowArray,
-    dictionary: *mut ArrowArray,
+    // NOTE: we don't support exporting dictionary arrays, so we leave this as an opaque pointer.
+    dictionary: *mut (),
     release: Option<unsafe extern "C" fn(arg1: *mut ArrowArray)>,
     // When exported, this MUST contain everything that is owned by this array.
     // for example, any buffer pointed to in `buffers` must be here, as well
@@ -105,6 +109,9 @@ impl ArrowArray {
     }
 }
 
+unsafe impl Send for ArrowArray {}
+unsafe impl Sync for ArrowArray {}
+
 #[expect(
     unused,
     reason = "cuda_stream and cuda_buffers need to have deferred drop"
@@ -120,6 +127,7 @@ pub(crate) struct PrivateData {
     pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
     pub(crate) cuda_event: CudaEvent,
     pub(crate) cuda_event_ptr: cudaEvent_t,
+    pub(crate) children: Box<[*mut ArrowArray]>,
 }
 
 #[async_trait]

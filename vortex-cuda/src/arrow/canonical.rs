@@ -6,10 +6,13 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::sys;
+use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::arrays::StructArray;
+use vortex_array::arrays::StructArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
@@ -41,10 +44,7 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        let (arrow_array, sync_event) = match cuda_array {
-            Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await?,
-            c => todo!("implement support for exporting {}", c.dtype()),
-        };
+        let (arrow_array, sync_event) = export_canonical(cuda_array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
@@ -54,6 +54,78 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
             _reserved: Default::default(),
         })
     }
+}
+
+fn export_canonical(
+    cuda_array: Canonical,
+    ctx: &mut CudaExecutionCtx,
+) -> BoxFuture<'_, VortexResult<(ArrowArray, SyncEvent)>> {
+    Box::pin(async {
+        match cuda_array {
+            Canonical::Struct(struct_array) => export_struct(struct_array, ctx).await,
+            Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await,
+            c => todo!("support for exporting {} arrays", c.dtype()),
+        }
+    })
+}
+
+async fn export_struct(
+    array: StructArray,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let len = array.len();
+    let StructArrayParts {
+        validity, fields, ..
+    } = array.into_parts();
+
+    let null_count = match validity {
+        Validity::NonNullable | Validity::AllValid => 0,
+        Validity::AllInvalid => len,
+        Validity::Array(_) => {
+            vortex_bail!("Exporting PrimitiveArray with non-trivial validity not supported yet")
+        }
+    };
+
+    // We need the children to be held across await points.
+    let mut children = Vec::with_capacity(fields.len());
+
+    for field in fields.iter() {
+        let cuda_field = field.clone().execute_cuda(ctx).await?;
+        let (arrow_field, _) = export_canonical(cuda_field, ctx).await?;
+        children.push(arrow_field);
+    }
+
+    let cuda_event = ctx
+        .stream()
+        .record_event(None)
+        .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
+
+    let children = children
+        .into_iter()
+        .map(|array| Box::into_raw(Box::new(array)))
+        .collect::<Box<[_]>>();
+
+    let mut private_data = Box::new(PrivateData {
+        cuda_stream: Arc::clone(ctx.stream()),
+        buffers: Box::new([]),
+        buffer_ptrs: Box::new([]),
+        cuda_event_ptr: cuda_event.cu_event().cast(),
+        cuda_event,
+        children,
+    });
+
+    let sync_event: SyncEvent = NonNull::new(&raw mut private_data.cuda_event_ptr);
+
+    // Populate the ArrowArray with the child arrays.
+    let mut arrow_struct = ArrowArray::empty();
+    arrow_struct.length = len as i64;
+    arrow_struct.null_count = null_count as i64;
+    arrow_struct.n_children = fields.len() as i64;
+    arrow_struct.children = private_data.children.as_mut_ptr();
+    arrow_struct.release = Some(release_array);
+    arrow_struct.private_data = Box::into_raw(private_data).cast();
+
+    Ok((arrow_struct, sync_event))
 }
 
 async fn export_primitive(
@@ -109,6 +181,7 @@ async fn export_primitive(
 
     let mut private_data = Box::new(PrivateData {
         cuda_stream: Arc::clone(ctx.stream()),
+        children: Box::new([]),
         buffers,
         buffer_ptrs,
         cuda_event_ptr: cuda_event.cu_event().cast(),
@@ -145,7 +218,12 @@ unsafe extern "C" fn release_array(array: *mut ArrowArray) {
             std::ptr::replace(&raw mut (*array).private_data, std::ptr::null_mut());
 
         if !private_data_ptr.is_null() {
-            drop(Box::from_raw(private_data_ptr.cast::<PrivateData>()));
+            let mut private_data = Box::from_raw(private_data_ptr.cast::<PrivateData>());
+            let children = std::mem::take(&mut private_data.children);
+            for child in children {
+                release_array(child);
+            }
+            drop(private_data);
         }
 
         // update the release function to NULL to avoid any possibility of double-frees.
