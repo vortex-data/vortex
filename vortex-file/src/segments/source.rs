@@ -161,7 +161,7 @@ impl SegmentSource for FileSegmentSource {
         };
 
         // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
-        async move { fut.await }.boxed()
+        fut.boxed()
     }
 }
 
