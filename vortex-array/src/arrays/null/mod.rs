@@ -85,7 +85,7 @@ impl VTable for NullVTable {
         Ok(Some(NullArray::new(range.len()).into_array()))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Null(array.clone()))
     }
 }

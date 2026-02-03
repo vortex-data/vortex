@@ -126,7 +126,7 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         let args = ExecutionArgs {
             inputs: array.children.clone(),
             row_count: array.len,

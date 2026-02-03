@@ -253,7 +253,7 @@ impl VTable for BitPackedVTable {
         })
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(unpack_array(array, ctx)?))
     }
 

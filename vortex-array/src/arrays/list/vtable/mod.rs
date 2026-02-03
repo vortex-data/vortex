@@ -150,7 +150,7 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
     }
 

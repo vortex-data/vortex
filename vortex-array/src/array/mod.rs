@@ -633,7 +633,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = V::execute(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let canonical = V::canonicalize(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         assert_eq!(
             self.len(),

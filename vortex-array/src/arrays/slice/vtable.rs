@@ -103,7 +103,7 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Execute the child to get canonical form, then slice it
         let canonical = array.child.clone().execute::<Canonical>(ctx)?;
         let result = canonical.as_ref().slice(array.range.clone())?;

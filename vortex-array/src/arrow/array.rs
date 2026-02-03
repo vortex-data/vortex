@@ -86,7 +86,7 @@ impl VTable for ArrowVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())?
             .execute::<Canonical>(ctx)
     }
