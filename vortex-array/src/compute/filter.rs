@@ -84,12 +84,12 @@ pub fn filter_preconditions(array: &dyn Array, mask: &Mask) -> Option<ArrayRef> 
     let true_count = mask.true_count();
     // Fast-path for empty mask.
     if true_count == 0 {
-        return Canonical::empty(array.dtype()).into_array().into();
+        return Some(Canonical::empty(array.dtype()).into_array());
     }
 
     // Fast-path for full mask
     if true_count == mask.len() {
-        return array.to_array().into();
+        return Some(array.to_array());
     }
 
     None
