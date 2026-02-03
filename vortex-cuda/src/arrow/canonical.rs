@@ -105,10 +105,12 @@ async fn export_struct(
         .map(|array| Box::into_raw(Box::new(array)))
         .collect::<Box<[_]>>();
 
+    let buffer_ptrs = vec![sys::CUdeviceptr::default()].into_boxed_slice();
+
     let mut private_data = Box::new(PrivateData {
         cuda_stream: Arc::clone(ctx.stream()),
-        buffers: Box::new([]),
-        buffer_ptrs: Box::new([]),
+        buffers: Box::new([None]),
+        buffer_ptrs,
         cuda_event_ptr: cuda_event.cu_event().cast(),
         cuda_event,
         children,
@@ -122,6 +124,11 @@ async fn export_struct(
     arrow_struct.null_count = null_count as i64;
     arrow_struct.n_children = fields.len() as i64;
     arrow_struct.children = private_data.children.as_mut_ptr();
+
+    // StructArray _can_ contain a validity buffer. In this case, we just write a null pointer
+    // for it.
+    arrow_struct.n_buffers = 1;
+    arrow_struct.buffers = private_data.buffer_ptrs.as_mut_ptr();
     arrow_struct.release = Some(release_array);
     arrow_struct.private_data = Box::into_raw(private_data).cast();
 
