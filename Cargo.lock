@@ -10302,6 +10302,7 @@ name = "vortex-btrblocks"
 version = "0.1.0"
 dependencies = [
  "codspeed-divan-compat",
+ "enum-iterator",
  "getrandom 0.3.4",
  "itertools 0.14.0",
  "num-traits",
@@ -10309,6 +10310,7 @@ dependencies = [
  "rustc-hash",
  "test-with",
  "tracing",
+ "tracing-subscriber",
  "vortex-alp",
  "vortex-array",
  "vortex-buffer",
@@ -11063,6 +11065,7 @@ dependencies = [
 name = "vortex-test-e2e"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "rstest",
  "tokio",
  "vortex",

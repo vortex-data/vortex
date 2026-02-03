@@ -10,6 +10,8 @@ use vortex_array::ArrayContext;
 use vortex_array::ArrayRef;
 use vortex_array::expr::stats::Stat;
 use vortex_btrblocks::BtrBlocksCompressor;
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+use vortex_btrblocks::IntCode;
 use vortex_error::VortexResult;
 use vortex_io::runtime::Handle;
 
@@ -75,12 +77,14 @@ impl CompressingStrategy {
     /// Set `exclude_int_dict_encoding` to true to prevent dictionary encoding of integer arrays,
     /// which is useful when compressing dictionary codes to avoid recursive dictionary encoding.
     pub fn new_btrblocks<S: LayoutStrategy>(child: S, exclude_int_dict_encoding: bool) -> Self {
-        Self::new(
-            child,
-            Arc::new(BtrBlocksCompressor {
-                exclude_int_dict_encoding,
-            }),
-        )
+        let compressor = if exclude_int_dict_encoding {
+            BtrBlocksCompressorBuilder::default()
+                .exclude_int([IntCode::Dict])
+                .build()
+        } else {
+            BtrBlocksCompressor::default()
+        };
+        Self::new(child, Arc::new(compressor))
     }
 
     /// Create a new writer that compresses using a `CompactCompressor` to compress chunks.
