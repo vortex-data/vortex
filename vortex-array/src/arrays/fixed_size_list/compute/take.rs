@@ -5,7 +5,6 @@ use vortex_buffer::BitBufferMut;
 use vortex_buffer::BufferMut;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -104,8 +103,9 @@ fn take_non_nullable_fsl<I: IntegerPType>(
         // Expand the list into individual element indices.
         for i in list_start..list_end {
             // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
+            #[allow(clippy::unwrap_used)]
             unsafe {
-                elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+                elements_indices.push_unchecked(I::from_usize(i).unwrap())
             };
         }
     }
@@ -168,8 +168,9 @@ fn take_nullable_fsl<I: IntegerPType>(
             // Expand the list into individual element indices.
             for i in list_start..list_end {
                 // SAFETY: We've allocated enough space for enough indices for all `new_len` lists (that each consist of `list_size = list_end - list_start` elements), so we know we have enough capacity.
+                #[allow(clippy::unwrap_used)]
                 unsafe {
-                    elements_indices.push_unchecked(I::from_usize(i).vortex_expect("i < list_end"))
+                    elements_indices.push_unchecked(I::from_usize(i).unwrap())
                 };
             }
 
