@@ -16,24 +16,31 @@ use crate::expr::exprs::select::Select;
 
 pub type FieldAccesses<'a> = Annotations<'a, FieldName>;
 
-/// Creates an [`AnnotationFn`] that annotates each expression node with its "free fields".
+/// Returns the "free fields" for this expression node.
 ///
-/// A "free field" is a top-level field from the root scope that an expression references. This is
-/// useful for column pruning, where we only read the fields that an expression actually needs.
+/// A "free field" is a top-level field from the root scope that this expression references—not
+/// nested fields within those top-level fields. For example, `root().a.b` has free field `{a}`,
+/// not `{b}`, because `a` is the top-level field being accessed from root.
+///
+/// The term "free" is borrowed from PL theory's "free variables"—variables that reference an
+/// outer scope rather than being introduced locally.
+///
+/// This is useful for column pruning, where we only need to read the top-level fields that an
+/// expression actually touches.
 ///
 /// # Annotation Rules
 ///
-/// - **[`GetItem`] on [`Root`]**: Returns `[field_name]`.
+/// - **[`Select`]**: Returns the included field names if the child is [`Root`].
+/// - **[`GetItem`] on [`Root`]**: Returns `[field_name]` if the child is [`Root`].
 /// - **[`Root`]**: Returns all field names from `scope` (conservative over-approximation).
-/// - **[`Select`]**: Returns the included field names.
 /// - **Everything else**: Returns empty (annotations aggregate from children automatically).
 ///
 /// # Example
 ///
 /// Given `scope = {a: {b: .., c: ..}, d: ..}` and `expr = root().a.b + root().d`:
-/// - `root().a` has free fields `{a}`
-/// - `root().d` has free fields `{d}`
-/// - The full expression has free fields `{a, d}` (not `b`, only top-level fields are tracked)
+/// - `root().a` has free fields `{a}`.
+/// - `root().d` has free fields `{d}`.
+/// - The full expression has free fields `{a, d}` (not `b`, only top-level fields are tracked).
 pub fn make_free_field_annotator(
     scope: &StructFields,
 ) -> impl AnnotationFn<Annotation = FieldName> {
