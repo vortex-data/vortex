@@ -7,7 +7,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
 use crate::Scalar;
-use crate::ScalarValue;
 
 impl Scalar {
     /// Cast this scalar to another data type.
@@ -21,13 +20,13 @@ impl Scalar {
         if self.dtype().eq_ignore_nullability(dtype) {
             // Cast from non-nullable to nullable or vice versa.
             // The try_new with check will handle nullability checks.
-            return Scalar::try_new(dtype.clone(), self.value().clone());
+            return Scalar::try_new(dtype.clone(), self.value().cloned());
         }
 
         match (self.dtype(), dtype) {
             (_, DType::Null) => {
                 // Can cast anything to null if the value is null.
-                if matches!(self.value(), ScalarValue::Null) {
+                if self.value().is_none() {
                     return Ok(Scalar::null(dtype.clone()));
                 }
                 vortex_bail!("Cannot cast non-null value {} to null dtype", self);

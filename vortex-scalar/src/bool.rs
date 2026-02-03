@@ -66,7 +66,7 @@ impl<'a> BoolScalar<'a> {
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {
-        unsafe { Scalar::new_unchecked(DType::Bool(nullability), ScalarValue::Bool(value)) }
+        unsafe { Scalar::new_unchecked(DType::Bool(nullability), Some(ScalarValue::Bool(value))) }
     }
 }
 

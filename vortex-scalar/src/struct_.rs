@@ -162,11 +162,11 @@ impl Scalar {
     pub fn struct_(
         fields: StructFields,
         nullability: Nullability,
-        children: Vec<ScalarValue>,
+        children: Vec<Option<ScalarValue>>,
     ) -> Self {
         Self::try_new(
             DType::Struct(fields, nullability),
-            ScalarValue::List(children),
+            Some(ScalarValue::List(children)),
         )
         .vortex_expect("Failed to create struct scalar")
     }

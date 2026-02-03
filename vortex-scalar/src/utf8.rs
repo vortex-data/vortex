@@ -187,7 +187,12 @@ impl Scalar {
     where
         B: Into<BufferString>,
     {
-        unsafe { Self::new_unchecked(DType::Utf8(nullability), ScalarValue::Utf8(str.into())) }
+        unsafe {
+            Self::new_unchecked(
+                DType::Utf8(nullability),
+                Some(ScalarValue::Utf8(str.into())),
+            )
+        }
     }
 
     /// Tries to create a new UTF-8 scalar from a string-like value.
@@ -203,7 +208,10 @@ impl Scalar {
         B: TryInto<BufferString>,
     {
         Ok(unsafe {
-            Self::new_unchecked(DType::Utf8(nullability), ScalarValue::Utf8(str.try_into()?))
+            Self::new_unchecked(
+                DType::Utf8(nullability),
+                Some(ScalarValue::Utf8(str.try_into()?)),
+            )
         })
     }
 }

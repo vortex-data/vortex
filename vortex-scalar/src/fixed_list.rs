@@ -35,8 +35,18 @@ impl FixedSizeListScalar<'_> {
         self.list_size
     }
 
+    /// Returns the data type of the list elements.
+    pub fn element_dtype(&self) -> &Arc<DType> {
+        self.element_dtype
+    }
+
+    /// Returns the nullability of the list.
+    pub fn nullability(&self) -> Nullability {
+        self.nullability
+    }
+
     /// Returns all elements as a slice of scalars, or `None` if null.
-    pub fn elements(&self) -> Option<&[ScalarValue]> {
+    pub fn elements(&self) -> Option<&[Option<ScalarValue>]> {
         self.elements
     }
 
@@ -55,14 +65,14 @@ impl FixedSizeListScalar<'_> {
 impl Scalar {
     pub fn fixed_size_list(
         element_dtype: Arc<DType>,
-        children: Vec<ScalarValue>,
+        children: Vec<Option<ScalarValue>>,
         nullability: Nullability,
     ) -> Self {
         let size = u32::try_from(children.len())
             .vortex_expect("tried to create a fixed-size list that was larger than u32");
         Self::try_new(
             DType::FixedSizeList(element_dtype, size, nullability),
-            ScalarValue::List(children),
+            Some(ScalarValue::List(children)),
         )
         .vortex_expect("failed to create fixed-size list scalar")
     }

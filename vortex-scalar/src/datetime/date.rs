@@ -31,9 +31,11 @@ impl ExtScalarVTable for Date {
     ) -> Self::Value<'_> {
         match metadata {
             TimeUnit::Milliseconds => {
-                DateValue::Milliseconds(storage_value.as_primitive().cast::<i64>())
+                DateValue::Milliseconds(storage_value.map(|s| s.as_primitive().cast::<i64>()))
             }
-            TimeUnit::Days => DateValue::Days(storage_value.as_primitive().cast::<i32>()),
+            TimeUnit::Days => {
+                DateValue::Days(storage_value.map(|s| s.as_primitive().cast::<i32>()))
+            }
             _ => unreachable!(),
         }
     }

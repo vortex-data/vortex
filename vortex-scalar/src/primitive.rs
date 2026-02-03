@@ -212,7 +212,7 @@ impl Scalar {
         unsafe {
             Scalar::new_unchecked(
                 DType::Primitive(ptype, nullability),
-                ScalarValue::Primitive(value),
+                Some(ScalarValue::Primitive(value)),
             )
         }
     }
@@ -295,7 +295,7 @@ macro_rules! primitive_scalar {
                 unsafe {
                     Scalar::new_unchecked(
                         DType::Primitive(<$T>::PTYPE, Nullability::NonNullable),
-                        ScalarValue::Primitive(value.into()),
+                        Some(ScalarValue::Primitive(value.into())),
                     )
                 }
             }
@@ -308,7 +308,7 @@ macro_rules! primitive_scalar {
                     None => unsafe {
                         Scalar::new_unchecked(
                             DType::Primitive(<$T>::PTYPE, Nullability::Nullable),
-                            ScalarValue::Null,
+                            None,
                         )
                     },
                 }

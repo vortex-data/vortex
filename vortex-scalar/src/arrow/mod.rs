@@ -124,28 +124,29 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 todo!("fixed-size list scalar conversion")
             }
             DType::Extension(ext) => {
-                let Some(temporal) = value.as_extension().value_opt::<AnyTemporal>() else {
+                let ext_scalar = value.as_extension();
+                let Some(temporal) = ext_scalar.value_opt::<AnyTemporal>() else {
                     vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
                 match temporal {
                     TemporalValue::Timestamp(TimestampValue::Nanoseconds(v, tz)) => {
-                        timestamp_to_arrow_scalar!(v, tz.clone(), TimestampNanosecondArray)
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampNanosecondArray)
                     }
                     TemporalValue::Timestamp(TimestampValue::Microseconds(v, tz)) => {
-                        timestamp_to_arrow_scalar!(v, tz.clone(), TimestampMicrosecondArray)
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampMicrosecondArray)
                     }
                     TemporalValue::Timestamp(TimestampValue::Milliseconds(v, tz)) => {
-                        timestamp_to_arrow_scalar!(v, tz.clone(), TimestampMillisecondArray)
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampMillisecondArray)
                     }
                     TemporalValue::Timestamp(TimestampValue::Seconds(v, tz)) => {
-                        timestamp_to_arrow_scalar!(v, tz.clone(), TimestampSecondArray)
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampSecondArray)
                     }
                     TemporalValue::Date(DateValue::Days(v)) => {
-                        value_to_arrow_scalar!(Some(v), Date32Array)
+                        value_to_arrow_scalar!(v, Date32Array)
                     }
                     TemporalValue::Date(DateValue::Milliseconds(v)) => {
-                        value_to_arrow_scalar!(Some(v), Date64Array)
+                        value_to_arrow_scalar!(v, Date64Array)
                     }
                     TemporalValue::Time(TimeValue::Seconds(v)) => {
                         value_to_arrow_scalar!(v, Time32SecondArray)

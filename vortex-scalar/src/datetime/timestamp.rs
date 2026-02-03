@@ -26,12 +26,12 @@ pub enum TimestampValue<'a> {
 impl ExtScalarVTable for Timestamp {
     type Value<'a> = TimestampValue<'a>;
 
-    fn unpack(
+    fn unpack<'a>(
         &self,
-        metadata: &Self::Metadata,
-        _storage_dtype: &DType,
-        storage_value: Option<&ScalarValue>,
-    ) -> Self::Value<'_> {
+        metadata: &'a Self::Metadata,
+        _storage_dtype: &'a DType,
+        storage_value: Option<&'a ScalarValue>,
+    ) -> Self::Value<'a> {
         let ts_value = storage_value.map(|s| s.as_primitive().cast::<i64>());
         let tz = metadata.tz.as_ref();
         match metadata.unit {

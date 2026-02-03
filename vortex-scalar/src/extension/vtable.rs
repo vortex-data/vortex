@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::fmt::Display;
 
 use vortex_dtype::DType;
 use vortex_dtype::ExtID;
@@ -16,18 +15,18 @@ pub trait ExtScalarVTable: ExtDTypeVTable {
     ///
     /// The value must be able to represent nulls if the storage value is `None`.
     /// If this isn't required, a good default would be to use [`Option<&ScalarValue>`].
-    type Value<'a>: 'static + Send + Sync;
+    type Value<'a>;
 
     /// Unpack a native value from the storage ScalarValue.
     ///
     /// This call is infallible assuming the [`ExtScalarVTable::validate_scalar`] function has
     /// been called previously.
-    fn unpack(
+    fn unpack<'a>(
         &self,
-        metadata: &Self::Metadata,
-        storage_dtype: &DType,
-        storage_value: Option<&ScalarValue>,
-    ) -> Self::Value<'_>;
+        metadata: &'a Self::Metadata,
+        storage_dtype: &'a DType,
+        storage_value: Option<&'a ScalarValue>,
+    ) -> Self::Value<'a>;
 
     /// Format the Scalar value for [`fmt::Display`].
     fn fmt_scalar(

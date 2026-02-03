@@ -21,15 +21,15 @@ pub use time::*;
 pub use timestamp::*;
 
 /// A matched temporal storage value.
-pub enum TemporalValue {
-    Timestamp(TimestampValue),
+pub enum TemporalValue<'a> {
+    Timestamp(TimestampValue<'a>),
     Date(DateValue),
     Time(TimeValue),
 }
 
 impl Matcher for AnyTemporal {
     /// Extract the matched temporal storage value as an i64.
-    type Match<'a> = TemporalValue;
+    type Match<'a> = TemporalValue<'a>;
 
     fn try_match<'a>(item: &'a ExtensionScalar) -> Option<Self::Match<'a>> {
         if let Some(value) = item.value_opt::<Timestamp>() {
@@ -49,21 +49,10 @@ impl Matcher for AnyTemporal {
 }
 
 trait SpanExt {
-    fn get_unit_length(&self, time_unit: TimeUnit) -> i64;
     fn from_unit_length(length: i64, time_unit: TimeUnit) -> Self;
 }
 
 impl SpanExt for jiff::Span {
-    fn get_unit_length(&self, time_unit: TimeUnit) -> i64 {
-        match time_unit {
-            TimeUnit::Nanoseconds => self.get_nanoseconds(),
-            TimeUnit::Microseconds => self.get_microseconds(),
-            TimeUnit::Milliseconds => self.get_milliseconds(),
-            TimeUnit::Seconds => self.get_seconds(),
-            TimeUnit::Days => self.get_days() as _,
-        }
-    }
-
     fn from_unit_length(length: i64, time_unit: TimeUnit) -> Self {
         match time_unit {
             TimeUnit::Nanoseconds => jiff::Span::new().nanoseconds(length),

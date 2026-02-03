@@ -51,6 +51,8 @@ impl Scalar {
             "Incompatible dtype {} with value {}",
             dtype,
             value
+                .map(|v| format!("{}", v))
+                .unwrap_or_else(|| "".to_string())
         );
         Ok(Self { dtype, value })
     }
@@ -83,12 +85,12 @@ impl Scalar {
 
 /// Check if the given ScalarValue is compatible with the given DType.
 fn is_compatible(dtype: &DType, value: Option<&ScalarValue>) -> bool {
-    if value.is_none() && !dtype.is_nullable() {
-        return false;
-    }
+    let Some(value) = value else {
+        return dtype.is_nullable();
+    };
 
     match dtype {
-        DType::Null => value.is_none(),
+        DType::Null => false,
         DType::Bool(_) => matches!(value, ScalarValue::Bool(_)),
         DType::Primitive(ptype, _) => {
             if let ScalarValue::Primitive(pvalue) = value {
@@ -146,8 +148,7 @@ fn is_compatible(dtype: &DType, value: Option<&ScalarValue>) -> bool {
             }
         }
         DType::Extension(ext_dtype) => match value {
-            None => ext_dtype.storage_dtype().is_nullable(),
-            Some(ScalarValue::Extension(ext_scalar)) => ext_scalar.id() == ext_dtype.id(),
+            ScalarValue::Extension(ext_scalar) => ext_scalar.id() == ext_dtype.id(),
             _ => false,
         },
     }
@@ -487,7 +488,10 @@ impl Display for ScalarValue {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", element)?;
+                    match element {
+                        None => write!(f, "null")?,
+                        Some(e) => write!(f, "{}", e)?,
+                    }
                 }
                 write!(f, "]")
             }

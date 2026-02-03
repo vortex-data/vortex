@@ -27,19 +27,21 @@ impl ExtScalarVTable for Time {
     fn unpack(
         &self,
         metadata: &Self::Metadata,
-        storage_dtype: &DType,
-        storage_value: &ScalarValue,
+        _storage_dtype: &DType,
+        storage_value: Option<&ScalarValue>,
     ) -> Self::Value<'_> {
         match metadata {
-            TimeUnit::Seconds => TimeValue::Seconds(storage_value.as_primitive().cast::<i32>()),
+            TimeUnit::Seconds => {
+                TimeValue::Seconds(storage_value.map(|s| s.as_primitive().cast::<i32>()))
+            }
             TimeUnit::Milliseconds => {
-                TimeValue::Milliseconds(storage_value.as_primitive().cast::<i32>())
+                TimeValue::Milliseconds(storage_value.map(|s| s.as_primitive().cast::<i32>()))
             }
             TimeUnit::Microseconds => {
-                TimeValue::Microseconds(storage_value.as_primitive().cast::<i64>())
+                TimeValue::Microseconds(storage_value.map(|s| s.as_primitive().cast::<i64>()))
             }
             TimeUnit::Nanoseconds => {
-                TimeValue::Nanoseconds(storage_value.as_primitive().cast::<i64>())
+                TimeValue::Nanoseconds(storage_value.map(|s| s.as_primitive().cast::<i64>()))
             }
             _ => unreachable!(),
         }
@@ -66,7 +68,7 @@ impl ExtScalarVTable for Time {
         let span = Span::from_unit_length(storage_value.as_primitive().cast::<i64>(), *metadata);
         jiff::civil::Time::MIN
             .checked_add(span)
-            .map_err(|e| vortex_err!("Invalid time scalar: {}", span))?;
+            .map_err(|e| vortex_err!("Invalid time scalar: {}", e))?;
         Ok(())
     }
 }

@@ -16,7 +16,6 @@ use std::hash::Hash;
 use std::hash::Hasher;
 use std::sync::Arc;
 
-use arrow_array::Array;
 pub use matcher::*;
 use vortex_dtype::DType;
 use vortex_dtype::ExtDType;
@@ -167,23 +166,21 @@ impl Debug for ExtScalarRef {
 
 impl PartialEq for ExtScalarRef {
     fn eq(&self, other: &Self) -> bool {
-        self.0.value_eq(other.0.value_any())
+        self.0.id() == other.0.id() && self.0.storage_value() == other.0.storage_value()
     }
 }
 impl Eq for ExtScalarRef {}
 
 impl PartialOrd for ExtScalarRef {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        if self.0.id() != other.0.id() {
-            return None;
-        }
-        self.0.value_partial_cmp(other.0.value_any())
+        self.0.storage_value().partial_cmp(&other.0.storage_value())
     }
 }
 
 impl Hash for ExtScalarRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.0.value_hash(state)
+        self.0.id().hash(state);
+        self.0.storage_value().hash(state);
     }
 }
 
@@ -285,8 +282,8 @@ impl Scalar {
         storage: ScalarValue,
     ) -> VortexResult<Self> {
         let storage_value =
-            ScalarValue::Extension(ExtScalar::<V>::try_new(&ext_dtype, storage).erased());
-        Self::try_new(DType::Extension(ext_dtype.erased()), storage_value)
+            ScalarValue::Extension(ExtScalar::<V>::try_new(&ext_dtype, storage)?.erased());
+        Self::try_new(DType::Extension(ext_dtype.erased()), Some(storage_value))
     }
 
     // Creates a new extension scalar wrapping the given storage value.

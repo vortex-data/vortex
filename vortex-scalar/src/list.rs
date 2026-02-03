@@ -38,11 +38,11 @@ impl Scalar {
     pub fn list(
         element_dtype: Arc<DType>,
         nullability: Nullability,
-        children: Vec<ScalarValue>,
+        children: Vec<Option<ScalarValue>>,
     ) -> Self {
         Self::try_new(
             DType::List(element_dtype, nullability),
-            ScalarValue::List(children),
+            Some(ScalarValue::List(children)),
         )
         .vortex_expect("Failed to create list scalar")
     }

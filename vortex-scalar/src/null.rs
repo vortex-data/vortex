@@ -5,11 +5,10 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 
 use crate::Scalar;
-use crate::ScalarValue;
 
 impl Scalar {
     /// Create a null scalar of the specified data type.
     pub fn null(dtype: DType) -> Scalar {
-        Scalar::try_new(dtype, ScalarValue::Null).vortex_expect("Failed to create null scalar")
+        Scalar::try_new(dtype, None).vortex_expect("Failed to create null scalar")
     }
 }
