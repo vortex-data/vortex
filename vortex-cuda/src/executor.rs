@@ -27,6 +27,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::CudaSession;
+use crate::ExportDeviceArray;
 use crate::session::CudaSessionExt;
 use crate::stream::VortexCudaStream;
 
@@ -159,6 +160,11 @@ impl CudaExecutionCtx {
     /// Returns a reference to the underlying CUDA stream.
     pub fn stream(&self) -> &Arc<CudaStream> {
         &self.stream.0
+    }
+
+    /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
+    pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
+        self.cuda_session.export_device_array()
     }
 }
 

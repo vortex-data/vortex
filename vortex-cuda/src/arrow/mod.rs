@@ -11,13 +11,16 @@
 mod canonical;
 
 use std::ffi::c_void;
+use std::fmt::Debug;
 use std::ptr::NonNull;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+pub(crate) use canonical::CanonicalDeviceArrayExport;
 use cudarc::driver::CudaStream;
 use cudarc::driver::sys;
 use cudarc::runtime::sys::cudaEvent_t;
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
@@ -115,10 +118,36 @@ pub(crate) struct CudaPrivateData {
     pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
 }
 
+#[async_trait]
+pub trait DeviceArrayExt: Array {
+    async fn export_device_array(
+        self,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowDeviceArray>;
+}
+
+#[async_trait]
+impl DeviceArrayExt for ArrayRef {
+    async fn export_device_array(
+        self,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<ArrowDeviceArray> {
+        let exporter = Arc::clone(ctx.exporter());
+        exporter.export_device_array(self, ctx).await
+    }
+}
+
 /// Trait implemented for types that can be exported to [`ArrowDeviceArray`].
 #[async_trait]
-pub trait CudaDeviceArrayExecute {
-    async fn execute(
+pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
+    /// Export a Vortex array as an [`ArrowDeviceArray`].
+    ///
+    /// The Arrow Device Array is part of the Arrow C Data Device Interface extension to the Arrow
+    /// specification. It enables passing Vortex arrays to other processes that consume Arrow
+    /// arrays, such as cudf.
+    ///
+    /// See <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>.
+    async fn export_device_array(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,

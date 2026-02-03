@@ -15,6 +15,8 @@ mod session;
 mod stream;
 mod stream_pool;
 
+pub(crate) use arrow::CanonicalDeviceArrayExport;
+pub use arrow::ExportDeviceArray;
 pub use canonical::CanonicalCudaExt;
 pub use device_buffer::CudaBufferExt;
 pub use device_buffer::CudaDeviceBuffer;

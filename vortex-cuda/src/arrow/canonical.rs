@@ -18,14 +18,20 @@ use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
-use crate::arrow::CudaDeviceArrayExecute;
 use crate::arrow::CudaPrivateData;
 use crate::arrow::DeviceType;
+use crate::arrow::ExportDeviceArray;
 use crate::executor::CudaArrayExt;
 
+/// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
+/// first decoding the array on the GPU and then converting the canonical type to the nearest
+/// Arrow equivalent.
+#[derive(Debug)]
+pub(crate) struct CanonicalDeviceArrayExport;
+
 #[async_trait]
-impl CudaDeviceArrayExecute for Canonical {
-    async fn execute(
+impl ExportDeviceArray for CanonicalDeviceArrayExport {
+    async fn export_device_array(
         &self,
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
@@ -34,6 +40,8 @@ impl CudaDeviceArrayExecute for Canonical {
 
         let arrow_array = match cuda_array {
             Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await?,
+            // Canonical::Decimal(decimal) => todo!("export decimal"),
+            // Canonical::VarBinView(varbinview) => todo!("export varbinview"),
             c => todo!("implement support for exporting {}", c.dtype()),
         };
 
