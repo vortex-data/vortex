@@ -126,4 +126,31 @@ mod test {
             .unwrap();
         assert_eq!(struct_dtype, deserialized);
     }
+
+    #[test]
+    fn test_serde_struct_fields_from_json_value() {
+        use serde::de::IntoDeserializer;
+
+        use crate::StructFields;
+
+        let fields = StructFields::from_iter([
+            ("name", DType::Utf8(Nullability::NonNullable)),
+            ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+        ]);
+
+        let value: serde_json::Value = serde_json::to_value(&fields).unwrap();
+
+        let json_str = value.to_string();
+        let mut deserializer = serde_json::Deserializer::from_str(&json_str);
+        let from_str: StructFields = DTypeSerde::<StructFields>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+        assert_eq!(fields, from_str);
+
+        let deserializer = value.into_deserializer();
+        let from_value: StructFields = DTypeSerde::<StructFields>::new(&SESSION)
+            .deserialize(deserializer)
+            .unwrap();
+        assert_eq!(fields, from_value);
+    }
 }
