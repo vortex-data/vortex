@@ -3,9 +3,12 @@
 
 use std::any::Any;
 
-use custom_labels::{CURRENT_LABELSET, asynchronous::Label, with_labels};
+use custom_labels::Labelset;
+use custom_labels::asynchronous::Label;
+use custom_labels::with_labels;
 use datafusion::common::runtime::JoinSetTracer;
-use futures::{FutureExt, future::BoxFuture};
+use futures::FutureExt;
+use futures::future::BoxFuture;
 use parking_lot::RwLock;
 use vortex_bench::Format;
 
@@ -17,9 +20,10 @@ pub fn get_static_tracer() -> &'static dyn JoinSetTracer {
 }
 
 pub fn set_labels(name: String, query_idx: usize, format: Format) {
-    CURRENT_LABELSET.set("benchmark_name", name.as_bytes());
-    CURRENT_LABELSET.set("query_idx", query_idx.to_string());
-    CURRENT_LABELSET.set("format", format.to_string());
+    let mut labelset = Labelset::clone_from_current();
+    labelset.set("benchmark_name", name.as_bytes());
+    labelset.set("query_idx", query_idx.to_string());
+    labelset.set("format", format.to_string());
 
     *LABELS.write() = vec![
         ("benchmark_name", name),
