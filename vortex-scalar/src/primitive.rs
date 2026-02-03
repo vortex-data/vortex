@@ -6,12 +6,17 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 
+use num_traits::CheckedAdd;
+use num_traits::CheckedDiv;
+use num_traits::CheckedMul;
+use num_traits::CheckedSub;
 use vortex_dtype::DType;
 use vortex_dtype::FromPrimitiveOrF16;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexError;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
