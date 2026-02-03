@@ -574,7 +574,7 @@ mod test {
         ]);
         assert_snapshot!(
             nested.to_string(),
-            "{id=u64, data={name=utf8, age=i32?, active=bool}?}"
+            @"{id=u64, data={name=utf8, age=i32?, active=bool}?}"
         );
     }
 
