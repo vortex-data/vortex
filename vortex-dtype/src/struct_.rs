@@ -153,15 +153,49 @@ impl std::fmt::Debug for StructFields {
 
 impl Display for StructFields {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{{{}}}",
-            self.names()
-                .iter()
-                .zip(self.fields())
-                .map(|(n, dt)| format!("{n}={dt}"))
-                .join(", ")
-        )
+        if f.alternate() {
+            self.fmt_indented(f, 0)
+        } else {
+            write!(
+                f,
+                "{{{}}}",
+                self.names()
+                    .iter()
+                    .zip(self.fields())
+                    .map(|(n, dt)| format!("{n}={dt}"))
+                    .join(", ")
+            )
+        }
+    }
+}
+
+impl StructFields {
+    fn fmt_indented(&self, f: &mut Formatter<'_>, depth: usize) -> std::fmt::Result {
+        let indent = "  ".repeat(depth);
+        let inner_indent = "  ".repeat(depth + 1);
+
+        writeln!(f, "{{")?;
+        for (i, (name, dtype)) in self.names().iter().zip(self.fields()).enumerate() {
+            if i > 0 {
+                writeln!(f, ",")?;
+            }
+            write!(f, "{inner_indent}{name}=")?;
+            Self::fmt_dtype_indented(f, &dtype, depth + 1)?;
+        }
+        if !self.names().is_empty() {
+            writeln!(f)?;
+        }
+        write!(f, "{indent}}}")
+    }
+
+    fn fmt_dtype_indented(f: &mut Formatter<'_>, dtype: &DType, depth: usize) -> std::fmt::Result {
+        match dtype {
+            DType::Struct(sf, nullability) => {
+                sf.fmt_indented(f, depth)?;
+                write!(f, "{nullability}")
+            }
+            _ => write!(f, "{dtype}"),
+        }
     }
 }
 
@@ -412,6 +446,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use insta::assert_snapshot;
     use itertools::Itertools;
 
     use crate::FieldNames;
@@ -537,9 +572,33 @@ mod test {
             ("id", DType::Primitive(PType::U64, Nullability::NonNullable)),
             ("data", DType::Struct(fields, Nullability::Nullable)),
         ]);
-        assert_eq!(
+        assert_snapshot!(
             nested.to_string(),
             "{id=u64, data={name=utf8, age=i32?, active=bool}?}"
         );
+    }
+
+    #[test]
+    fn test_display_alternate() {
+        let inner = StructFields::from_iter([
+            ("street", DType::Utf8(Nullability::NonNullable)),
+            ("city", DType::Utf8(Nullability::Nullable)),
+        ]);
+        let fields = StructFields::from_iter([
+            ("name", DType::Utf8(Nullability::NonNullable)),
+            ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+            ("address", DType::Struct(inner, Nullability::Nullable)),
+        ]);
+
+        assert_snapshot!(format!("{fields:#}"), @"
+        {
+          name=utf8,
+          age=i32?,
+          address={
+            street=utf8,
+            city=utf8?
+          }?
+        }
+        ");
     }
 }
