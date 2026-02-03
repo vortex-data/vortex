@@ -60,10 +60,18 @@ async fn export_primitive(
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<ArrowArray> {
     unsafe extern "C" fn release(array: *mut ArrowArray) {
-        // SAFETY: this is only safe if the caller provides a valid pointer to an `ArrowArray`.
-        drop(unsafe { Box::from_raw(array) });
-    }
+        // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust
+        //  code. This is necessary to ensure that the fields inside the CudaPrivateData
+        //  get dropped to free native/GPU memory.
+        unsafe {
+            let private_data_ptr =
+                std::ptr::replace(&raw mut (*array).private_data, std::ptr::null_mut());
+            drop(Box::from_raw(private_data_ptr.cast::<CudaPrivateData>()));
 
+            // update the release function to NULL to avoid any possibility of double-frees.
+            (*array).release = None;
+        }
+    }
     let len = array.len();
     let PrimitiveArrayParts {
         buffer, validity, ..

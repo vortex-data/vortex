@@ -5,10 +5,11 @@
 
 #![allow(clippy::unwrap_used)]
 
+use std::sync::LazyLock;
+
 use arrow_schema::DataType;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use futures::executor::block_on;
-use std::sync::LazyLock;
 use vortex::array::IntoArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::session::ArraySession;
