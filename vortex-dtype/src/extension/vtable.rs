@@ -40,7 +40,7 @@ pub trait ExtDTypeVTable: 'static + Sized + Send + Sync + Clone + Debug + Eq + H
     }
 
     /// Validate that the given storage type is compatible with this extension type.
-    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
+    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()>;
 }
 
 /// A dynamic vtable for extension types, used for type-erased deserialization.

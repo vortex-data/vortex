@@ -25,7 +25,7 @@ use crate::ScalarValue;
 pub struct ListScalar<'a> {
     pub(super) element_dtype: &'a Arc<DType>,
     pub(super) nullability: Nullability,
-    pub(super) elements: Option<&'a [ScalarValue]>,
+    pub(super) elements: Option<&'a [Option<ScalarValue>]>,
 }
 
 impl Scalar {

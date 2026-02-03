@@ -82,7 +82,11 @@ mod tests {
             ExtID::new_ref("test_ext")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -162,7 +166,7 @@ mod tests {
                 ExtID::new_ref("test_ext_2")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

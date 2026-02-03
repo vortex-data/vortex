@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_error::vortex_panic;
 
 use crate::BinaryScalar;
 use crate::BoolScalar;
@@ -28,9 +29,8 @@ use crate::extension::ExtensionScalar;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Scalar {
-    // NOTE: the dtype and value must share the same discriminant
     dtype: DType,
-    value: ScalarValue,
+    value: Option<ScalarValue>,
 }
 
 impl Scalar {
@@ -40,14 +40,14 @@ impl Scalar {
     ///
     /// The caller must ensure that the given DType and value are compatible per the rules defined
     /// in `is_compatible`.
-    pub unsafe fn new_unchecked(dtype: DType, value: ScalarValue) -> Self {
+    pub unsafe fn new_unchecked(dtype: DType, value: Option<ScalarValue>) -> Self {
         Self { dtype, value }
     }
 
     /// Create a new Scalar with the given DType and value.
-    pub fn try_new(dtype: DType, value: ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
         vortex_ensure!(
-            is_compatible(&dtype, &value),
+            is_compatible(&dtype, value.as_ref()),
             "Incompatible dtype {} with value {}",
             dtype,
             value
@@ -56,7 +56,7 @@ impl Scalar {
     }
 
     /// Returns the parts of the Scalar.
-    pub fn into_parts(self) -> (DType, ScalarValue) {
+    pub fn into_parts(self) -> (DType, Option<ScalarValue>) {
         (self.dtype, self.value)
     }
 
@@ -67,28 +67,28 @@ impl Scalar {
 
     /// Returns true if the Scalar is null.
     pub fn is_null(&self) -> bool {
-        matches!(self.value, ScalarValue::Null)
+        self.value.is_none()
     }
 
     /// Returns the scalar value.
-    pub fn value(&self) -> &ScalarValue {
-        &self.value
+    pub fn value(&self) -> Option<&ScalarValue> {
+        self.value.as_ref()
     }
 
     /// Returns the scalar value, consuming the Scalar.
-    pub fn into_value(self) -> ScalarValue {
+    pub fn into_value(self) -> Option<ScalarValue> {
         self.value
     }
 }
 
 /// Check if the given ScalarValue is compatible with the given DType.
-fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
-    if matches!(value, ScalarValue::Null) && !dtype.is_nullable() {
+fn is_compatible(dtype: &DType, value: Option<&ScalarValue>) -> bool {
+    if value.is_none() && !dtype.is_nullable() {
         return false;
     }
 
     match dtype {
-        DType::Null => matches!(value, ScalarValue::Null),
+        DType::Null => value.is_none(),
         DType::Bool(_) => matches!(value, ScalarValue::Bool(_)),
         DType::Primitive(ptype, _) => {
             if let ScalarValue::Primitive(pvalue) = value {
@@ -111,10 +111,9 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
         DType::Binary(_) => matches!(value, ScalarValue::Binary(_)),
         DType::List(elem_dtype, _) => {
             if let ScalarValue::List(elements) = value {
-                elements.iter().all(|element| match element {
-                    ScalarValue::Null => true,
-                    _ => is_compatible(elem_dtype, element),
-                })
+                elements
+                    .iter()
+                    .all(|element| is_compatible(elem_dtype.as_ref(), element.as_ref()))
             } else {
                 false
             }
@@ -124,10 +123,9 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
                 if elements.len() != *size as usize {
                     return false;
                 }
-                elements.iter().all(|element| match element {
-                    ScalarValue::Null => true,
-                    _ => is_compatible(elem_dtype, element),
-                })
+                elements
+                    .iter()
+                    .all(|element| is_compatible(elem_dtype.as_ref(), element.as_ref()))
             } else {
                 false
             }
@@ -138,13 +136,8 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
                     return false;
                 }
                 for (field, field_value) in fields.fields().zip(values.iter()) {
-                    match field_value {
-                        ScalarValue::Null => {}
-                        _ => {
-                            if !is_compatible(&field, field_value) {
-                                return false;
-                            }
-                        }
+                    if !is_compatible(&field, field_value.as_ref()) {
+                        return false;
                     }
                 }
                 true
@@ -152,14 +145,11 @@ fn is_compatible(dtype: &DType, value: &ScalarValue) -> bool {
                 false
             }
         }
-        DType::Extension(ext_dtype) => {
-            if let ScalarValue::Extension(ext_scalar) = value {
-                // FIXME(ngates): validate scalar value against ext dtype
-                ext_scalar.id() == ext_dtype.id()
-            } else {
-                false
-            }
-        }
+        DType::Extension(ext_dtype) => match value {
+            None => ext_dtype.storage_dtype().is_nullable(),
+            Some(ScalarValue::Extension(ext_scalar)) => ext_scalar.id() == ext_dtype.id(),
+            _ => false,
+        },
     }
 }
 
@@ -176,14 +166,13 @@ impl Scalar {
         let DType::Bool(n) = &self.dtype else {
             return None;
         };
-        let value = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Bool(b) => Some(*b),
-            _ => unreachable!(),
-        };
         Some(BoolScalar {
             nullability: *n,
-            value,
+            value: match &self.value {
+                None => None,
+                Some(ScalarValue::Bool(b)) => Some(*b),
+                _ => unreachable!(),
+            },
             _marker: Default::default(),
         })
     }
@@ -197,15 +186,14 @@ impl Scalar {
         let DType::Primitive(ptype, n) = &self.dtype else {
             return None;
         };
-        let pvalue = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Primitive(p) => Some(p),
-            _ => unreachable!(),
-        };
         Some(PrimitiveScalar {
             ptype: *ptype,
             nullability: *n,
-            pvalue,
+            pvalue: match &self.value {
+                None => None,
+                Some(ScalarValue::Primitive(p)) => Some(p),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -218,15 +206,14 @@ impl Scalar {
         let DType::Decimal(dec_dtype, n) = &self.dtype else {
             return None;
         };
-        let dvalue = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Decimal(d) => Some(d),
-            _ => unreachable!(),
-        };
         Some(DecimalScalar {
             decimal_type: dec_dtype,
             nullability: *n,
-            dvalue,
+            dvalue: match &self.value {
+                None => None,
+                Some(ScalarValue::Decimal(d)) => Some(d),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -239,14 +226,13 @@ impl Scalar {
         let DType::Utf8(n) = &self.dtype else {
             return None;
         };
-        let value = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Utf8(b) => Some(b),
-            _ => unreachable!(),
-        };
         Some(Utf8Scalar {
             nullability: *n,
-            value,
+            value: match &self.value {
+                None => None,
+                Some(ScalarValue::Utf8(b)) => Some(b),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -259,14 +245,13 @@ impl Scalar {
         let DType::Binary(n) = &self.dtype else {
             return None;
         };
-        let value = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Binary(b) => Some(b),
-            _ => unreachable!(),
-        };
         Some(BinaryScalar {
             nullability: *n,
-            value,
+            value: match &self.value {
+                None => None,
+                Some(ScalarValue::Binary(b)) => Some(b),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -279,15 +264,14 @@ impl Scalar {
         let DType::List(element_dtype, n) = &self.dtype else {
             return None;
         };
-        let elements = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::List(e) => Some(e.as_slice()),
-            _ => unreachable!(),
-        };
         Some(ListScalar {
             element_dtype,
             nullability: *n,
-            elements,
+            elements: match &self.value {
+                None => None,
+                Some(ScalarValue::List(e)) => Some(e.as_slice()),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -300,16 +284,15 @@ impl Scalar {
         let DType::FixedSizeList(element_dtype, element_size, n) = &self.dtype else {
             return None;
         };
-        let elements = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::List(e) => Some(e.as_slice()),
-            _ => unreachable!(),
-        };
         Some(FixedSizeListScalar {
             list_size: *element_size,
             element_dtype,
             nullability: *n,
-            elements,
+            elements: match &self.value {
+                None => None,
+                Some(ScalarValue::List(e)) => Some(e.as_slice()),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -322,15 +305,14 @@ impl Scalar {
         let DType::Struct(fields, n) = &self.dtype else {
             return None;
         };
-        let values = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::List(s) => Some(s.as_slice()),
-            _ => unreachable!(),
-        };
         Some(StructScalar {
             fields,
             nullability: *n,
-            values,
+            values: match &self.value {
+                None => None,
+                Some(ScalarValue::List(s)) => Some(s.as_slice()),
+                _ => unreachable!(),
+            },
         })
     }
 
@@ -343,14 +325,13 @@ impl Scalar {
         let DType::Extension(ext_dtype) = &self.dtype else {
             return None;
         };
-        let ext_scalar = match &self.value {
-            ScalarValue::Null => None,
-            ScalarValue::Extension(e) => Some(e),
-            _ => unreachable!(),
-        };
         Some(ExtensionScalar {
             ext_dtype,
-            ext_scalar,
+            ext_scalar: match &self.value {
+                None => None,
+                Some(ScalarValue::Extension(e)) => Some(e),
+                _ => unreachable!(),
+            },
         })
     }
 }
@@ -394,22 +375,69 @@ impl PartialOrd for Scalar {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ScalarValue {
-    Null,
     Bool(bool),
     Primitive(PValue),
     Decimal(DecimalValue),
     Utf8(BufferString),
     Binary(ByteBuffer),
-    List(Vec<ScalarValue>),
+    List(Vec<Option<ScalarValue>>),
     Extension(ExtScalarRef),
+}
+
+impl ScalarValue {
+    pub fn as_bool(&self) -> bool {
+        match self {
+            ScalarValue::Bool(b) => *b,
+            _ => vortex_panic!("ScalarValue is not a Bool"),
+        }
+    }
+
+    pub fn as_primitive(&self) -> &PValue {
+        match self {
+            ScalarValue::Primitive(p) => p,
+            _ => vortex_panic!("ScalarValue is not a Primitive"),
+        }
+    }
+
+    pub fn as_decimal(&self) -> &DecimalValue {
+        match self {
+            ScalarValue::Decimal(d) => d,
+            _ => vortex_panic!("ScalarValue is not a Decimal"),
+        }
+    }
+
+    pub fn as_utf8(&self) -> &BufferString {
+        match self {
+            ScalarValue::Utf8(s) => s,
+            _ => vortex_panic!("ScalarValue is not a Utf8"),
+        }
+    }
+
+    pub fn as_binary(&self) -> &ByteBuffer {
+        match self {
+            ScalarValue::Binary(b) => b,
+            _ => vortex_panic!("ScalarValue is not a Binary"),
+        }
+    }
+
+    pub fn as_list(&self) -> &[Option<ScalarValue>] {
+        match self {
+            ScalarValue::List(elements) => elements,
+            _ => vortex_panic!("ScalarValue is not a List"),
+        }
+    }
+
+    pub fn as_extension(&self) -> &ExtScalarRef {
+        match self {
+            ScalarValue::Extension(e) => e,
+            _ => vortex_panic!("ScalarValue is not an Extension"),
+        }
+    }
 }
 
 impl PartialOrd for ScalarValue {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
-            (ScalarValue::Null, ScalarValue::Null) => Some(Ordering::Equal),
-            (ScalarValue::Null, _) => Some(Ordering::Less),
-            (_, ScalarValue::Null) => Some(Ordering::Greater),
             (ScalarValue::Bool(a), ScalarValue::Bool(b)) => a.partial_cmp(b),
             (ScalarValue::Primitive(a), ScalarValue::Primitive(b)) => a.partial_cmp(b),
             (ScalarValue::Decimal(a), ScalarValue::Decimal(b)) => a.partial_cmp(b),
@@ -425,7 +453,6 @@ impl PartialOrd for ScalarValue {
 impl Display for ScalarValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
-            ScalarValue::Null => write!(f, "null"),
             ScalarValue::Bool(b) => write!(f, "{}", b),
             ScalarValue::Primitive(p) => write!(f, "{}", p),
             ScalarValue::Decimal(d) => write!(f, "{}", d),

@@ -3,34 +3,32 @@
 
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::hash::Hash;
 
-use vortex_dtype::ExtDType;
+use vortex_dtype::DType;
 use vortex_dtype::ExtID;
 use vortex_dtype::extension::ExtDTypeVTable;
-use vortex_error::VortexResult;
 
 use crate::ScalarValue;
 
 /// API for defining the scalar behavior of an extension DType.
 pub trait ExtScalarVTable: ExtDTypeVTable {
-    /// The native value type for this extension scalar.
-    /// The `Default` trait should return a value representing `zero`.
-    // TODO(ngates): require total ordering?
-    type Value: 'static + Send + Sync + Clone + Debug + Display + Eq + PartialOrd + Hash;
+    /// Format the Scalar value for [`fmt::Display`].
+    fn fmt_scalar(
+        &self,
+        metadata: &Self::Metadata,
+        storage_dtype: &DType,
+        storage_value: &ScalarValue,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result;
 
-    /// Unpack the native value from the given scalar.
-    ///
-    /// Note that the storage scalar value is guaranteed to be non-null.
-    fn unpack(&self, dtype: &ExtDType<Self>, storage: &ScalarValue) -> VortexResult<Self::Value>;
-
-    /// Pack the native value into the storage scalar.
-    fn pack(&self, dtype: &ExtDType<Self>, value: &Self::Value) -> VortexResult<ScalarValue>;
-
-    /// Validate that the given storage value is compatible with the extension type.
-    fn validate(&self, value: &Self::Value, ext_dtype: &ExtDType<Self>) -> VortexResult<()> {
-        Self::pack(self, ext_dtype, value).map(|_| ())
-    }
+    /// Validate the given storage value is compatible with the extension type.
+    /// Note that [`ExtDTypeVTable::validate_dtype`] is called first to validate the storage DType.
+    fn validate_scalar(
+        &self,
+        metadata: &Self::Metadata,
+        storage_dtype: &DType,
+        storage_value: &ScalarValue,
+    ) -> vortex_error::VortexResult<()>;
 }
 
 /// A dynamic vtable for extension scalars, used for type-erased deserialization.

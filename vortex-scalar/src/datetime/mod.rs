@@ -29,9 +29,13 @@ pub enum TemporalValue<'a> {
 }
 
 impl Matcher for AnyTemporal {
-    type Match<'a> = TemporalValue<'a>;
+    /// Extract the matched temporal storage value as an i64.
+    type Match<'a> = Option<i64>;
 
     fn try_match<'a>(item: &'a ExtScalarRef) -> Option<Self::Match<'a>> {
+        if item.is::<Time>() {
+            item.storage()
+        }
         if let Some(v) = item.value_opt::<Time>() {
             return Some(TemporalValue::Time(v));
         }

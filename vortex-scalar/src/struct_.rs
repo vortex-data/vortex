@@ -20,7 +20,7 @@ use crate::ScalarValue;
 pub struct StructScalar<'a> {
     pub(super) fields: &'a StructFields,
     pub(super) nullability: Nullability,
-    pub(super) values: Option<&'a [ScalarValue]>,
+    pub(super) values: Option<&'a [Option<ScalarValue>]>,
 }
 
 impl<'a> StructScalar<'a> {

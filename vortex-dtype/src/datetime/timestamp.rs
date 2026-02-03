@@ -120,7 +120,11 @@ impl ExtDTypeVTable for Timestamp {
         })
     }
 
-    fn validate(&self, _metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(
+        &self,
+        _metadata: &Self::Metadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(storage_dtype, DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"

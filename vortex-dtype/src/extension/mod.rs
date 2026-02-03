@@ -47,7 +47,7 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         metadata: V::Metadata,
         storage_dtype: DType,
     ) -> VortexResult<Self> {
-        vtable.validate(&metadata, &storage_dtype)?;
+        vtable.validate_dtype(&metadata, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             vtable,
             metadata,
@@ -79,6 +79,12 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
     #[inline]
     pub fn nullability(&self) -> Nullability {
         self.storage_dtype().nullability()
+    }
+
+    /// Returns true if the storage dtype is nullable.
+    #[inline]
+    pub fn is_nullable(&self) -> bool {
+        self.nullability().is_nullable()
     }
 
     /// Erase the concrete type information, returning a type-erased extension dtype.

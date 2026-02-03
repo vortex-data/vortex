@@ -32,7 +32,11 @@ mod tests {
             ExtID::new_ref("apples")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -319,7 +323,7 @@ mod tests {
                 ExtID::new_ref("f16_ext")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,
@@ -363,7 +367,7 @@ mod tests {
                 ExtID::new_ref("struct_ext")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

@@ -43,7 +43,7 @@ impl ExtDTypeVTable for Even {
         ExtID::new_ref("test.even")
     }
 
-    fn validate(&self, _options: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, _options: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
         vortex_ensure!(storage_dtype.is_primitive());
         Ok(())
     }
