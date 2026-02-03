@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::BufferAllocator;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -51,6 +52,8 @@ pub struct VortexOpenOptions {
     footer: Option<Footer>,
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
+    /// Optional allocator for read buffers.
+    allocator: Option<Arc<dyn BufferAllocator>>,
     /// A metrics registry for the file.
     metrics: Option<VortexMetrics>,
 }
@@ -66,6 +69,7 @@ pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSes
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
+            allocator: None,
             metrics: None,
         }
     }
@@ -125,6 +129,12 @@ impl VortexOpenOptions {
         self
     }
 
+    /// Configure a custom buffer allocator for reads.
+    pub fn with_allocator(mut self, allocator: Arc<dyn BufferAllocator>) -> Self {
+        self.allocator = Some(allocator);
+        self
+    }
+
     /// Open a Vortex file using the provided I/O source.
     ///
     /// This is the most common way to open a [`VortexFile`] and tends to provide the best
@@ -172,11 +182,13 @@ impl VortexOpenOptions {
         ));
 
         // Create a segment source backed by the VortexRead implementation.
-        let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
+        let segment_source = Arc::new(SharedSegmentSource::new(
+            FileSegmentSource::open_with_allocator(
             footer.segment_map().clone(),
             reader,
             self.session.handle(),
             metrics.clone(),
+            self.allocator.clone(),
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -332,6 +344,22 @@ mod tests {
                 Ordering::Relaxed,
             );
             self.inner.read_at(offset, length, alignment)
+        }
+
+        fn read_at_into(
+            &self,
+            offset: u64,
+            target: Box<dyn vortex_io::WriteTarget>,
+        ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+            let length = target.len();
+            self.total_read.fetch_add(length, Ordering::Relaxed);
+            let _ = self.first_read_len.compare_exchange(
+                0,
+                length,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            );
+            self.inner.read_at_into(offset, target)
         }
 
         fn concurrency(&self) -> usize {

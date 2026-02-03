@@ -10295,6 +10295,7 @@ dependencies = [
  "mimalloc",
  "noodles-bgzf",
  "noodles-vcf",
+ "object_store",
  "parking_lot",
  "parquet 57.2.0",
  "rand 0.9.2",
@@ -10316,6 +10317,8 @@ dependencies = [
  "url",
  "uuid",
  "vortex",
+ "vortex-cuda",
+ "vortex-scan",
 ]
 
 [[package]]
@@ -10421,11 +10424,13 @@ version = "0.1.0"
 dependencies = [
  "arc-swap",
  "async-trait",
+ "bytes",
  "codspeed-criterion-compat-walltime",
  "cudarc",
  "fastlanes",
  "futures",
  "kanal",
+ "parking_lot",
  "paste",
  "rstest",
  "tokio",
@@ -10794,12 +10799,14 @@ dependencies = [
  "smol",
  "tempfile",
  "tokio",
+ "tokio-util",
  "tracing",
  "vortex-array",
  "vortex-buffer",
  "vortex-error",
  "vortex-metrics",
  "vortex-session",
+ "vortex-utils",
  "wasm-bindgen-futures",
 ]
 

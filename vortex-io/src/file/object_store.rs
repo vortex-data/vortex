@@ -7,12 +7,15 @@ use std::sync::Arc;
 use async_compat::Compat;
 use futures::FutureExt;
 use futures::StreamExt;
+use futures::TryStreamExt;
 use futures::future::BoxFuture;
 use object_store::GetOptions;
 use object_store::GetRange;
 use object_store::GetResultPayload;
 use object_store::ObjectStore;
 use object_store::path::Path as ObjectPath;
+use tokio::io::AsyncReadExt;
+use tokio_util::io::StreamReader;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_buffer::ByteBufferMut;
@@ -22,6 +25,8 @@ use vortex_error::vortex_ensure;
 
 use crate::CoalesceConfig;
 use crate::VortexReadAt;
+use crate::WriteTarget;
+use crate::read::record_copy;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::file::std_file::read_exact_at;
 use crate::runtime::Handle;
@@ -33,6 +38,7 @@ const DEFAULT_COALESCING_CONFIG: CoalesceConfig = CoalesceConfig {
 
 /// Default number of concurrent requests to allow.
 const DEFAULT_CONCURRENCY: usize = 192;
+const STREAM_READ_ENV: &str = "VORTEX_S3_STREAM_READ_EXACT";
 
 /// An object store backed I/O source.
 pub struct ObjectStoreSource {
@@ -77,6 +83,14 @@ impl ObjectStoreSource {
     }
 }
 
+fn use_stream_reader() -> bool {
+    std::env::var(STREAM_READ_ENV)
+        .ok()
+        .and_then(|value| value.parse::<u8>().ok())
+        .map(|value| value != 0)
+        .unwrap_or(false)
+}
+
 impl VortexReadAt for ObjectStoreSource {
     fn uri(&self) -> Option<&Arc<str>> {
         Some(&self.uri)
@@ -109,14 +123,24 @@ impl VortexReadAt for ObjectStoreSource {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+        unsafe { buffer.set_len(length) };
+        let target: Box<dyn WriteTarget> = Box::new(buffer);
+        self.read_at_into(offset, target)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         let store = self.store.clone();
         let path = self.path.clone();
         let handle = self.handle.clone();
+        let length = target.len();
         let range = offset..(offset + length as u64);
 
         Compat::new(async move {
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-
             let response = store
                 .get_opts(
                     &path,
@@ -127,41 +151,58 @@ impl VortexReadAt for ObjectStoreSource {
                 )
                 .await?;
 
-            let buffer = match response.payload {
+            match response.payload {
                 #[cfg(not(target_arch = "wasm32"))]
                 GetResultPayload::File(file, _) => {
-                    unsafe { buffer.set_len(length) };
-
-                    handle
+                    target = handle
                         .spawn_blocking(move || {
-                            read_exact_at(&file, &mut buffer, range.start)?;
-                            Ok::<_, io::Error>(buffer)
+                            let mut target = target;
+                            read_exact_at(&file, target.as_mut_slice(), range.start)?;
+                            Ok::<_, io::Error>(target)
                         })
                         .await
-                        .map_err(io::Error::other)?
+                        .map_err(io::Error::other)?;
                 }
                 #[cfg(target_arch = "wasm32")]
                 GetResultPayload::File(..) => {
                     unreachable!("File payload not supported on wasm32")
                 }
                 GetResultPayload::Stream(mut byte_stream) => {
-                    while let Some(bytes) = byte_stream.next().await {
-                        buffer.extend_from_slice(&bytes?);
+                    if use_stream_reader() {
+                        let mut reader = StreamReader::new(byte_stream.map_err(io::Error::other));
+                        let copy_start = std::time::Instant::now();
+                        reader.read_exact(target.as_mut_slice()).await?;
+                        record_copy(length, copy_start.elapsed());
+                    } else {
+                        let mut filled = 0usize;
+                        while let Some(bytes) = byte_stream.next().await {
+                            let bytes = bytes?;
+                            let end = filled + bytes.len();
+                            vortex_ensure!(
+                                end <= length,
+                                "Object store stream returned more bytes than expected (expected {} bytes, got at least {} bytes, range: {:?})",
+                                length,
+                                end,
+                                range
+                            );
+                            let copy_start = std::time::Instant::now();
+                            target.as_mut_slice()[filled..end].copy_from_slice(&bytes);
+                            record_copy(bytes.len(), copy_start.elapsed());
+                            filled = end;
+                        }
+
+                        vortex_ensure!(
+                            filled == length,
+                            "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
+                            filled,
+                            length,
+                            range
+                        );
                     }
-
-                    vortex_ensure!(
-                        buffer.len() == length,
-                        "Object store stream returned {} bytes but expected {} bytes (range: {:?})",
-                        buffer.len(),
-                        length,
-                        range
-                    );
-
-                    buffer
                 }
-            };
+            }
 
-            Ok(BufferHandle::new_host(buffer.freeze()))
+            target.into_handle()
         })
         .boxed()
     }

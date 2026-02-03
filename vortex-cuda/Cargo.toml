@@ -23,10 +23,12 @@ _test-harness = []
 [dependencies]
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
+parking_lot = { workspace = true }
 paste = { workspace = true }
 tracing = { workspace = true }
 vortex-alp = { workspace = true }

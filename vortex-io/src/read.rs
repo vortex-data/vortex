@@ -2,6 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
+use std::time::Duration;
+use std::time::Instant;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -11,10 +15,49 @@ use vortex_buffer::ByteBuffer;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+#[cfg(feature = "tokio")]
+use vortex_error::vortex_err;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
 use vortex_metrics::Timer;
 use vortex_metrics::VortexMetrics;
+
+use crate::WriteTarget;
+
+static COPY_BYTES: AtomicU64 = AtomicU64::new(0);
+static COPY_NANOS: AtomicU64 = AtomicU64::new(0);
+static COPY_COUNT: AtomicU64 = AtomicU64::new(0);
+
+/// Snapshot of in-memory copy stats for `ByteBuffer` reads.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CopyStats {
+    pub bytes: u64,
+    pub nanos: u64,
+    pub count: u64,
+}
+
+/// Reset in-memory copy stats for `ByteBuffer` reads.
+pub fn reset_copy_stats() {
+    COPY_BYTES.store(0, Ordering::Relaxed);
+    COPY_NANOS.store(0, Ordering::Relaxed);
+    COPY_COUNT.store(0, Ordering::Relaxed);
+}
+
+/// Snapshot in-memory copy stats for `ByteBuffer` reads.
+pub fn copy_stats() -> CopyStats {
+    CopyStats {
+        bytes: COPY_BYTES.load(Ordering::Relaxed),
+        nanos: COPY_NANOS.load(Ordering::Relaxed),
+        count: COPY_COUNT.load(Ordering::Relaxed),
+    }
+}
+
+pub(crate) fn record_copy(bytes: usize, elapsed: Duration) {
+    let nanos = u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX);
+    COPY_BYTES.fetch_add(bytes as u64, Ordering::Relaxed);
+    COPY_NANOS.fetch_add(nanos, Ordering::Relaxed);
+    COPY_COUNT.fetch_add(1, Ordering::Relaxed);
+}
 
 /// Configuration for coalescing nearby I/O requests into single operations.
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +125,13 @@ pub trait VortexReadAt: Send + Sync + 'static {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>>;
+
+    /// Read into a pre-allocated target buffer.
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>>;
 }
 
 impl VortexReadAt for Arc<dyn VortexReadAt> {
@@ -109,6 +159,14 @@ impl VortexReadAt for Arc<dyn VortexReadAt> {
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
     }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.as_ref().read_at_into(offset, target)
+    }
 }
 
 impl<R: VortexReadAt> VortexReadAt for Arc<R> {
@@ -135,6 +193,14 @@ impl<R: VortexReadAt> VortexReadAt for Arc<R> {
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.as_ref().read_at(offset, length, alignment)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        self.as_ref().read_at_into(offset, target)
     }
 
     // fn drive(self: Arc<Self>, requests: BoxStream<'static, IoRequest>) -> BoxFuture<'static, ()> {
@@ -176,6 +242,49 @@ impl VortexReadAt for ByteBuffer {
             Ok(BufferHandle::new_host(
                 buffer.slice_unaligned(start..end).aligned(alignment),
             ))
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let buffer = self.clone();
+        async move {
+            let start = usize::try_from(offset).vortex_expect("start too big for usize");
+            let end = usize::try_from(offset + target.len() as u64)
+                .vortex_expect("end too big for usize");
+            if end > buffer.len() {
+                vortex_bail!(
+                    "Requested range {}..{} out of bounds for buffer of length {}",
+                    start,
+                    end,
+                    buffer.len()
+                );
+            }
+            #[cfg(feature = "tokio")]
+            {
+                if tokio::runtime::Handle::try_current().is_ok() {
+                    return tokio::task::spawn_blocking(move || {
+                        let copy_start = Instant::now();
+                        target
+                            .as_mut_slice()
+                            .copy_from_slice(&buffer.as_ref()[start..end]);
+                        record_copy(end - start, copy_start.elapsed());
+                        target.into_handle()
+                    })
+                    .await
+                    .map_err(|e| vortex_err!("read_at_into task failed: {e}"))?;
+                }
+            }
+            let copy_start = Instant::now();
+            target
+                .as_mut_slice()
+                .copy_from_slice(&buffer.as_ref()[start..end]);
+            record_copy(end - start, copy_start.elapsed());
+            target.into_handle()
         }
         .boxed()
     }
@@ -261,6 +370,26 @@ impl<T: VortexReadAt + Clone> VortexReadAt for InstrumentedReadAt<T> {
             sizes.update(length as i64);
             total_size.add(length as i64);
             buf
+        }
+        .boxed()
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let durations = self.durations.clone();
+        let sizes = self.sizes.clone();
+        let total_size = self.total_size.clone();
+        let length = target.len();
+        let read_fut = self.read.read_at_into(offset, target);
+        async move {
+            let _timer = durations.time();
+            let result = read_fut.await;
+            sizes.update(length as i64);
+            total_size.add(length as i64);
+            result
         }
         .boxed()
     }

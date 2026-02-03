@@ -18,6 +18,7 @@ use vortex_buffer::ByteBufferMut;
 use vortex_error::VortexResult;
 
 use crate::VortexReadAt;
+use crate::WriteTarget;
 use crate::file::std_file::FileReadAdapter;
 use crate::runtime::single::block_on;
 use crate::runtime::tokio::TokioRuntime;
@@ -254,19 +255,29 @@ impl VortexReadAt for CountingReadAt {
         length: usize,
         alignment: Alignment,
     ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
+        let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
+        unsafe { buffer.set_len(length) };
+        let target: Box<dyn WriteTarget> = Box::new(buffer);
+        self.read_at_into(offset, target)
+    }
+
+    fn read_at_into(
+        &self,
+        offset: u64,
+        mut target: Box<dyn WriteTarget>,
+    ) -> BoxFuture<'static, VortexResult<BufferHandle>> {
         self.read_count.fetch_add(1, Ordering::SeqCst);
         let data = self.data.clone();
         async move {
             let start = offset as usize;
-            if start + length > data.len() {
+            let end = start + target.len();
+            if end > data.len() {
                 return Err(vortex_error::vortex_err!("Read out of bounds"));
             }
-            let mut buffer = ByteBufferMut::with_capacity_aligned(length, alignment);
-            unsafe { buffer.set_len(length) };
-            buffer
+            target
                 .as_mut_slice()
-                .copy_from_slice(&data.as_slice()[start..start + length]);
-            Ok(BufferHandle::new_host(buffer.freeze()))
+                .copy_from_slice(&data.as_slice()[start..end]);
+            target.into_handle()
         }
         .boxed()
     }

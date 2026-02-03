@@ -33,12 +33,14 @@ pin-project-lite = { workspace = true }
 # this is the maximum subset of fetaures that is safe for wasm32 targets
 handle = "1.0.2"
 tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
+vortex-utils = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
