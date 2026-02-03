@@ -12,6 +12,7 @@ use std::task::Poll;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::future;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
@@ -128,7 +129,7 @@ impl SegmentSource for FileSegmentSource {
         let spec = match self.segments.get(*id as usize).cloned() {
             Some(spec) => spec,
             None => {
-                return async move { Err(vortex_err!("Missing segment: {}", id)) }.boxed();
+                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
             }
         };
 
@@ -150,7 +151,7 @@ impl SegmentSource for FileSegmentSource {
 
         // If we fail to submit the event, we create a future that has failed.
         if let Err(e) = self.events.unbounded_send(event) {
-            return async move { Err(vortex_err!("Failed to submit read request: {e}")) }.boxed();
+            return future::ready(Err(vortex_err!("Failed to submit read request: {e}"))).boxed();
         }
 
         let fut = ReadFuture {
