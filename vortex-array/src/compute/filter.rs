@@ -11,6 +11,7 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrow::FromArrowArray;

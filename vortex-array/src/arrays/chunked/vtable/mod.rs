@@ -34,7 +34,7 @@ use crate::vtable::VTable;
 mod array;
 mod canonical;
 mod compute;
-mod kernel;
+pub(in crate::arrays::chunked) mod kernel;
 mod operations;
 mod rules;
 mod validity;

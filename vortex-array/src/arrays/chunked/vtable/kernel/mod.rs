@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod filter;
+pub(in crate::arrays::chunked) mod filter;
 
 use crate::arrays::ChunkedVTable;
 use crate::arrays::chunked::vtable::kernel::filter::ChunkedFilterKernel;
