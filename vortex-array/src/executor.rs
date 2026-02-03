@@ -13,6 +13,7 @@ use vortex_session::VortexSession;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
@@ -33,6 +34,7 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::constant_canonicalize;
 
 /// Marker trait for types that can be executed.
 ///
@@ -78,74 +80,121 @@ impl Executable for Columnar {
     ///
     /// This will iteratively reduce and execute arrays until we reach either a constant array or
     /// an array in canonical form.
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        loop {
+    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        'exec: loop {
             // 0. Check for termination conditions
             if let Some(constant) = array.as_opt::<ConstantVTable>() {
-                return Ok(Columnar::Scalar(constant.into_parts()));
+                return Ok(Columnar::Scalar(constant.scalar().clone()));
             }
             if array.is_canonical() {
                 todo!("Extract canonical array without re-executing");
             }
 
             // 1. reduce / reduce_parent (metadata-only rewrites)
+            if let Some(reduced) = array.vtable().reduce(&array)? {
+                tracing::debug!(
+                    "Reduced array\nFROM:\n{}\nTO:\n{}",
+                    array.display_tree(),
+                    reduced.display_tree()
+                );
+                array = reduced;
+                continue 'exec;
+            }
+
+            for (child_idx, child) in array.children().iter().enumerate() {
+                if let Some(reduced_parent) =
+                    child.vtable().reduce_parent(&child, &array, child_idx)?
+                {
+                    tracing::debug!(
+                        "Reduced parent array\nFROM:\n{}\nTO:\n{}",
+                        array.display_tree(),
+                        reduced_parent.display_tree()
+                    );
+                    array = reduced_parent;
+                    continue 'exec;
+                }
+            }
 
             // 2. execute_parent (child-driven optimized execution)
+            for (child_idx, child) in array.children().iter().enumerate() {
+                if let Some(executed_parent) = child
+                    .vtable()
+                    .execute_parent(&child, &array, child_idx, ctx)?
+                {
+                    tracing::debug!(
+                        "Executed parent array\nFROM:\n{}\nTO:\n{}",
+                        array.display_tree(),
+                        child.display_tree()
+                    );
+                    array = executed_parent;
+                    continue 'exec;
+                }
+            }
 
             // 3. step ONE child (the first non-canonical, non-constant one)
             //  → restart from (1) if progress was made
+            let mut children = array.children();
+            for (child_idx, child) in children.iter_mut().enumerate() {
+                if !child.is::<ConstantVTable>() && !child.is_canonical() {
+                    if let Some(executed_child) = execute_one_step(&child, ctx)? {
+                        tracing::debug!(
+                            "Stepped child array {} of parent array {}\nFROM:\n{}\nTO:\n{}",
+                            child_idx,
+                            array.encoding_id(),
+                            child.display_tree(),
+                            executed_child.display_tree()
+                        );
+
+                        // If we stepped a child, then rebuild the array with the new child
+                        // and continue the main loop.
+                        *child = executed_child;
+                        array = array.with_children(children)?;
+                        continue 'exec;
+                    }
+                }
+            }
 
             // 4. if no progress anywhere → call canonicalize, done
+            return array
+                .vtable()
+                .canonicalize(&array, ctx)
+                .map(Columnar::Array);
         }
     }
+}
+
+/// Execute the given array one step towards being canonical (columnar), returning `Some` if
+/// progress was made.
+fn execute_one_step(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
+    // 1. try execute_parent via children
+    for (child_idx, child) in array.children().iter().enumerate() {
+        if let Some(result) = child
+            .vtable()
+            .execute_parent(child, array, child_idx, ctx)?
+        {
+            tracing::debug!(
+                "Executed array {} via child {} optimization.",
+                array.encoding_id(),
+                child.encoding_id()
+            );
+            return Ok(Some(result));
+        }
+    }
+
+    // 2. canonicalize via vtable
+    Ok(Some(array.vtable().canonicalize(array, ctx)?.into_array()))
 }
 
 /// Recursively execute the array to canonical form.
 /// This will replace the recursive usage of `to_canonical()`.
 /// An `ExecutionCtx` is will be used to limit access to buffers.
 impl Executable for Canonical {
-    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // Try and dispatch to a child that can optimize execution.
-        // TODO(ngates): maybe put a limit on reduce_parent iterations
-        'outer: loop {
-            for (child_idx, child) in array.children().iter().enumerate() {
-                if let Some(result) = child
-                    .vtable()
-                    .execute_parent(child, &array, child_idx, ctx)?
-                {
-                    tracing::debug!(
-                        "Executed array {} via child {} optimization.",
-                        array.encoding_id(),
-                        child.encoding_id()
-                    );
-                    array = result;
-                    continue 'outer;
-                }
-            }
-            break;
-        }
-
-        // Otherwise fall back to the default execution.
-        array.vtable().canonicalize(&array, ctx)
-    }
-}
-
-/// Execute the array and return a [`CanonicalOutput`].
-///
-/// This may short-circuit for constant arrays, returning [`CanonicalOutput::Constant`]
-/// instead of fully materializing the array.
-impl Executable for CanonicalOutput {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // Attempt to short-circuit constant arrays.
-        if let Some(constant) = array.as_opt::<ConstantVTable>() {
-            return Ok(CanonicalOutput::Constant(ConstantArray::new(
-                constant.scalar().clone(),
-                constant.len(),
-            )));
-        }
-
-        tracing::debug!("Executing array {}:\n{}", array, array.display_tree());
-        Ok(CanonicalOutput::Array(array.execute(ctx)?))
+        let len = array.len();
+        Ok(match array.execute::<Columnar>(ctx)? {
+            Columnar::Array(c) => c,
+            Columnar::Scalar(s) => constant_canonicalize(&ConstantArray::new(s, len))?,
+        })
     }
 }
 

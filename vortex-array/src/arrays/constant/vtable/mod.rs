@@ -27,7 +27,7 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod canonical;
+pub(crate) mod canonical;
 mod operations;
 mod rules;
 mod validity;
