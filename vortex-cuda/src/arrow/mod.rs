@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! This module implements the Arrow C Data Device Interface extension for sharing GPU-resident
+//! This module implements the Arrow C Device data interface extension for sharing GPU-resident
 //! data.
 //!
 //! This is an extension to the Arrow C Data Interface.
@@ -48,7 +48,7 @@ pub enum DeviceType {
 
 pub type SyncEvent = Option<NonNull<cudaEvent_t>>;
 
-/// The C Data Device Interface representation of an Arrow array.
+/// The C Device data interface representation of an Arrow array.
 ///
 /// This array contains on-device pointers to Arrow array data, along with a synchronization
 /// event that the client must wait on.
@@ -142,7 +142,7 @@ impl DeviceArrayExt for ArrayRef {
 pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
     /// Export a Vortex array as an [`ArrowDeviceArray`].
     ///
-    /// The Arrow Device Array is part of the Arrow C Data Device Interface extension to the Arrow
+    /// The Arrow Device Array is part of the Arrow C Device data interface extension to the Arrow
     /// specification. It enables passing Vortex arrays to other processes that consume Arrow
     /// arrays, such as cudf.
     ///

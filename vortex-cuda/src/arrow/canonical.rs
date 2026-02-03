@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use cudarc::driver::result;
 use cudarc::driver::sys;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
@@ -45,9 +46,12 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
             c => todo!("implement support for exporting {}", c.dtype()),
         };
 
+        ctx.stream()
+            .record_event();
+
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            device_id: 0,
+            device_id: ctx.stream().context().ordinal() as i64,
             device_type: DeviceType::Cuda,
             sync_event: None,
             _reserved: Default::default(),
