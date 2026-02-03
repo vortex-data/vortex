@@ -23,6 +23,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayEq;
 use crate::ArrayHash;
@@ -510,11 +511,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                     matches!(
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
-                    ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::new(DType::Bool(Nullability::NonNullable), v.clone())
-                            .as_bool()
-                            .value()
-                            .unwrap_or_default()
+                    ) && value.as_ref().as_exact().is_some_and(|v| match v {
+                        ScalarValue::Bool(b) => *b,
+                        _ => vortex_panic!("Unexpected scalar value type in stats propagation"),
                     })
                 }));
             });

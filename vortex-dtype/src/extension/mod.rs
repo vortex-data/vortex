@@ -29,7 +29,7 @@ use crate::Nullability;
 pub type ExtID = ArcRef<str>;
 
 /// An extension data type.
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ExtDType<V: ExtDTypeVTable>(Arc<ExtDTypeAdapter<V>>);
 
 // Convenience impls for zero-sized VTables
@@ -47,7 +47,7 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         metadata: V::Metadata,
         storage_dtype: DType,
     ) -> VortexResult<Self> {
-        vtable.validate(&metadata, &storage_dtype)?;
+        vtable.validate_dtype(&metadata, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             vtable,
             metadata,
@@ -60,6 +60,11 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         self.0.id()
     }
 
+    /// Returns the vtable of the extension type.
+    pub fn vtable(&self) -> &V {
+        &self.0.vtable
+    }
+
     /// Returns the metadata of the extension type.
     pub fn metadata(&self) -> &V::Metadata {
         &self.0.metadata
@@ -68,6 +73,18 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
     /// Returns the storage dtype of the extension type.
     pub fn storage_dtype(&self) -> &DType {
         &self.0.storage_dtype
+    }
+
+    /// Returns the nullability of the storage dtype.
+    #[inline]
+    pub fn nullability(&self) -> Nullability {
+        self.storage_dtype().nullability()
+    }
+
+    /// Returns true if the storage dtype is nullable.
+    #[inline]
+    pub fn is_nullable(&self) -> bool {
+        self.nullability().is_nullable()
     }
 
     /// Erase the concrete type information, returning a type-erased extension dtype.
@@ -135,9 +152,14 @@ impl ExtDTypeRef {
         self.0.storage_dtype()
     }
 
+    /// Returns the nullability of the storage dtype.
+    pub fn nullability(&self) -> Nullability {
+        self.storage_dtype().nullability()
+    }
+
     /// Returns a new ExtDTypeRef with the given nullability.
     pub fn with_nullability(&self, nullability: Nullability) -> Self {
-        if self.storage_dtype().nullability() == nullability {
+        if self.nullability() == nullability {
             self.clone()
         } else {
             self.0.with_nullability(nullability)
@@ -211,7 +233,7 @@ impl ExtDTypeRef {
 
 /// Wrapper for type-erased extension dtype metadata.
 pub struct ExtDTypeMetadata<'a> {
-    pub(super) ext_dtype: &'a ExtDTypeRef,
+    ext_dtype: &'a ExtDTypeRef,
 }
 
 impl ExtDTypeMetadata<'_> {
@@ -249,7 +271,7 @@ impl Hash for ExtDTypeMetadata<'_> {
 }
 
 /// An object-safe trait encapsulating the behavior for extension DTypes.
-trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
+trait ExtDTypeImpl: 'static + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn id(&self) -> ExtID;
     fn storage_dtype(&self) -> &DType;
@@ -262,6 +284,7 @@ trait ExtDTypeImpl: 'static + Send + Sync + private::Sealed {
     fn with_nullability(&self, nullability: Nullability) -> ExtDTypeRef;
 }
 
+#[derive(Debug, Hash, PartialEq, Eq)]
 struct ExtDTypeAdapter<V: ExtDTypeVTable> {
     vtable: V,
     metadata: V::Metadata,
@@ -313,11 +336,4 @@ impl<V: ExtDTypeVTable> ExtDTypeImpl for ExtDTypeAdapter<V> {
         ExtDType::<V>::try_with_vtable(self.vtable.clone(), self.metadata.clone(), storage_dtype)
             .vortex_expect("Extension DType {} incorrect fails validation with the same storage type but different nullability").erased()
     }
-}
-
-mod private {
-    use super::ExtDTypeAdapter;
-
-    pub trait Sealed {}
-    impl<V: super::ExtDTypeVTable> Sealed for ExtDTypeAdapter<V> {}
 }

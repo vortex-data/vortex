@@ -20,7 +20,9 @@ all-features = true
 arbitrary = { workspace = true, optional = true }
 arrow-array = { workspace = true }
 bytes = { workspace = true }
+clap = { version = "4.5.54", features = ["derive"] }
 itertools = { workspace = true }
+jiff = { workspace = true }
 num-traits = { workspace = true }
 paste = { workspace = true }
 prost = { workspace = true }

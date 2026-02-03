@@ -8,13 +8,14 @@ use arrow_array::*;
 use vortex_dtype::DType;
 use vortex_dtype::PType;
 use vortex_dtype::datetime::AnyTemporal;
-use vortex_dtype::datetime::TemporalMetadata;
-use vortex_dtype::datetime::TimeUnit;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::Scalar;
+use crate::datetime::DateValue;
+use crate::datetime::TemporalValue;
+use crate::datetime::TimeValue;
+use crate::datetime::TimestampValue;
 use crate::decimal::DecimalValue;
 
 macro_rules! value_to_arrow_scalar {
@@ -93,7 +94,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                         .unwrap_or_else(|| Arc::new(Float64Array::new_null(1))),
                 })
             }
-            DType::Decimal(..) => match value.as_decimal().decimal_value() {
+            DType::Decimal(..) => match value.as_decimal().decimal_value().cloned() {
                 // TODO(joe): replace with decimal32, etc.
                 Some(DecimalValue::I8(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
                 Some(DecimalValue::I16(v)) => Ok(Arc::new(Decimal128Array::new_scalar(v as i128))),
@@ -123,76 +124,42 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                 todo!("fixed-size list scalar conversion")
             }
             DType::Extension(ext) => {
-                let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
+                let ext_scalar = value.as_extension();
+                let Some(temporal) = ext_scalar.value_opt::<AnyTemporal>() else {
                     vortex_bail!("Cannot convert extension scalar {} to Arrow", ext.id())
                 };
 
-                let storage_scalar = value.as_extension().storage();
-                let primitive = storage_scalar
-                    .as_primitive_opt()
-                    .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
-
                 match temporal {
-                    TemporalMetadata::Timestamp(unit, tz) => {
-                        let value = primitive.as_::<i64>();
-                        match unit {
-                            TimeUnit::Nanoseconds => {
-                                timestamp_to_arrow_scalar!(
-                                    value,
-                                    tz.clone(),
-                                    TimestampNanosecondArray
-                                )
-                            }
-                            TimeUnit::Microseconds => {
-                                timestamp_to_arrow_scalar!(
-                                    value,
-                                    tz.clone(),
-                                    TimestampMicrosecondArray
-                                )
-                            }
-                            TimeUnit::Milliseconds => {
-                                timestamp_to_arrow_scalar!(
-                                    value,
-                                    tz.clone(),
-                                    TimestampMillisecondArray
-                                )
-                            }
-                            TimeUnit::Seconds => {
-                                timestamp_to_arrow_scalar!(value, tz.clone(), TimestampSecondArray)
-                            }
-                            TimeUnit::Days => {
-                                vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())
-                            }
-                        }
+                    TemporalValue::Timestamp(TimestampValue::Nanoseconds(v, tz)) => {
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampNanosecondArray)
                     }
-                    TemporalMetadata::Date(unit) => match unit {
-                        TimeUnit::Milliseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Date64Array)
-                        }
-                        TimeUnit::Days => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Date32Array)
-                        }
-                        TimeUnit::Nanoseconds | TimeUnit::Microseconds | TimeUnit::Seconds => {
-                            vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())
-                        }
-                    },
-                    TemporalMetadata::Time(unit) => match unit {
-                        TimeUnit::Nanoseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Time64NanosecondArray)
-                        }
-                        TimeUnit::Microseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i64>(), Time64MicrosecondArray)
-                        }
-                        TimeUnit::Milliseconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Time32MillisecondArray)
-                        }
-                        TimeUnit::Seconds => {
-                            value_to_arrow_scalar!(primitive.as_::<i32>(), Time32SecondArray)
-                        }
-                        TimeUnit::Days => {
-                            vortex_bail!("Unsupported TimeUnit {unit} for {}", ext.id())
-                        }
-                    },
+                    TemporalValue::Timestamp(TimestampValue::Microseconds(v, tz)) => {
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampMicrosecondArray)
+                    }
+                    TemporalValue::Timestamp(TimestampValue::Milliseconds(v, tz)) => {
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampMillisecondArray)
+                    }
+                    TemporalValue::Timestamp(TimestampValue::Seconds(v, tz)) => {
+                        timestamp_to_arrow_scalar!(v, tz.cloned(), TimestampSecondArray)
+                    }
+                    TemporalValue::Date(DateValue::Days(v)) => {
+                        value_to_arrow_scalar!(v, Date32Array)
+                    }
+                    TemporalValue::Date(DateValue::Milliseconds(v)) => {
+                        value_to_arrow_scalar!(v, Date64Array)
+                    }
+                    TemporalValue::Time(TimeValue::Seconds(v)) => {
+                        value_to_arrow_scalar!(v, Time32SecondArray)
+                    }
+                    TemporalValue::Time(TimeValue::Milliseconds(v)) => {
+                        value_to_arrow_scalar!(v, Time32MillisecondArray)
+                    }
+                    TemporalValue::Time(TimeValue::Microseconds(v)) => {
+                        value_to_arrow_scalar!(v, Time64MicrosecondArray)
+                    }
+                    TemporalValue::Time(TimeValue::Nanoseconds(v)) => {
+                        value_to_arrow_scalar!(v, Time64NanosecondArray)
+                    }
                 }
             }
         }

@@ -576,7 +576,7 @@ mod tests {
                 ExtID::new_ref("unknown.extension")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

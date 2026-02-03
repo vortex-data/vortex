@@ -8,8 +8,8 @@ use vortex_dtype::extension::ExtDTypeRef;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::ExtScalar;
 use vortex_scalar::Scalar;
+use vortex_scalar::extension::ExtensionScalar;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -42,8 +42,9 @@ impl ExtensionBuilder {
     }
 
     /// Appends an extension `value` to the builder.
-    pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage.append_scalar(&value.storage())
+    pub fn append_value(&mut self, scalar: ExtensionScalar) -> VortexResult<()> {
+        let storage_scalar = scalar.to_storage_scalar()?;
+        self.storage.append_scalar(&storage_scalar)
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -94,9 +95,7 @@ impl ArrayBuilder for ExtensionBuilder {
             self.dtype(),
             scalar.dtype()
         );
-
-        let ext_scalar = ExtScalar::try_from(scalar)?;
-        self.append_value(ext_scalar)
+        self.append_value(scalar.as_extension())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

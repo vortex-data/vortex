@@ -1,24 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::cmp;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
-use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_utils::aliases::StringEscape;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -92,10 +84,10 @@ mod private {
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
 /// a valid UTF-8 string or null.
-#[derive(Debug, Clone, Hash, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Utf8Scalar<'a> {
-    dtype: &'a DType,
-    value: Option<Arc<BufferString>>,
+    pub(super) nullability: Nullability,
+    pub(super) value: Option<&'a BufferString>,
 }
 
 impl Display for Utf8Scalar<'_> {
@@ -107,140 +99,95 @@ impl Display for Utf8Scalar<'_> {
     }
 }
 
-impl PartialEq for Utf8Scalar<'_> {
-    fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
-    }
-}
-
-impl PartialOrd for Utf8Scalar<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Utf8Scalar<'_> {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.value.cmp(&other.value)
-    }
-}
-
 impl<'a> Utf8Scalar<'a> {
-    /// Creates a UTF-8 scalar from a data type and scalar value.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the data type is not a UTF-8 type.
-    pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
-        if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!("Can only construct utf8 scalar from utf8 dtype, found {dtype}")
-        }
-        Ok(Self {
-            dtype,
-            value: value.as_buffer_string()?,
-        })
-    }
-
-    /// Returns the data type of this UTF-8 scalar.
-    #[inline]
-    pub fn dtype(&self) -> &'a DType {
-        self.dtype
-    }
-
     /// Returns the string value, or None if null.
-    pub fn value(&self) -> Option<BufferString> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
+    pub fn value(&self) -> Option<&BufferString> {
+        self.value
     }
-
-    /// Returns a reference to the string value, or None if null.
-    /// This avoids cloning the underlying BufferString.
-    pub fn value_ref(&self) -> Option<&BufferString> {
-        self.value.as_ref().map(|v| v.as_ref())
-    }
-
-    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
-    /// this.
-    ///
-    /// Returns None if constructing a greater value would overflow.
-    pub fn upper_bound(self, max_length: usize) -> Option<Self> {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
-                    .rfind(|p| value.is_char_boundary(*p))
-                    .vortex_expect("Failed to find utf8 character boundary");
-
-                let sliced = value.inner().slice(..utf8_split_pos);
-                drop(value);
-
-                // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
-                let sliced_buf = unsafe { BufferString::new_unchecked(sliced) };
-                let incremented = sliced_buf.increment().ok()?;
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(incremented)),
-                })
-            } else {
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                })
-            }
-        } else {
-            Some(self)
-        }
-    }
-
-    /// Construct a value at most `max_length` in size that's less than ourselves.
-    pub fn lower_bound(self, max_length: usize) -> Self {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                // UTF8 characters are at most 4 bytes, since we know that BufferString is UTF8 we must have a valid character boundary
-                let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
-                    .rfind(|p| value.is_char_boundary(*p))
-                    .vortex_expect("Failed to find utf8 character boundary");
-
-                Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(unsafe {
-                        BufferString::new_unchecked(value.inner().slice(0..utf8_split_pos))
-                    })),
-                }
-            } else {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                }
-            }
-        } else {
-            self
-        }
-    }
-
-    pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if !matches!(dtype, DType::Utf8(..)) {
-            vortex_bail!(
-                "Cannot cast utf8 to {dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
-            )
-        }
-        Ok(Scalar::new(
-            dtype.clone(),
-            ScalarValue(InnerScalarValue::BufferString(
-                self.value
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .clone(),
-            )),
-        ))
-    }
+    //
+    // /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
+    // /// this.
+    // ///
+    // /// Returns None if constructing a greater value would overflow.
+    // pub fn upper_bound(self, max_length: usize) -> Option<Self> {
+    //     if let Some(value) = self.value {
+    //         if value.len() > max_length {
+    //             let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
+    //                 .rfind(|p| value.is_char_boundary(*p))
+    //                 .vortex_expect("Failed to find utf8 character boundary");
+    //
+    //             let sliced = value.inner().slice(..utf8_split_pos);
+    //             drop(value);
+    //
+    //             // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
+    //             let sliced_buf = unsafe { BufferString::new_unchecked(sliced) };
+    //             let incremented = sliced_buf.increment().ok()?;
+    //             Some(Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(Arc::new(incremented)),
+    //             })
+    //         } else {
+    //             Some(Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(value),
+    //             })
+    //         }
+    //     } else {
+    //         Some(self)
+    //     }
+    // }
+    //
+    // /// Construct a value at most `max_length` in size that's less than ourselves.
+    // pub fn lower_bound(self, max_length: usize) -> Self {
+    //     if let Some(value) = self.value {
+    //         if value.len() > max_length {
+    //             // UTF8 characters are at most 4 bytes, since we know that BufferString is UTF8 we must have a valid character boundary
+    //             let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
+    //                 .rfind(|p| value.is_char_boundary(*p))
+    //                 .vortex_expect("Failed to find utf8 character boundary");
+    //
+    //             Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(Arc::new(unsafe {
+    //                     BufferString::new_unchecked(value.inner().slice(0..utf8_split_pos))
+    //                 })),
+    //             }
+    //         } else {
+    //             Self {
+    //                 dtype: self.dtype,
+    //                 value: Some(value),
+    //             }
+    //         }
+    //     } else {
+    //         self
+    //     }
+    // }
+    //
+    // pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
+    //     if !matches!(dtype, DType::Utf8(..)) {
+    //         vortex_bail!(
+    //             "Cannot cast utf8 to {dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
+    //         )
+    //     }
+    //     Ok(Scalar::new(
+    //         dtype.clone(),
+    //         ScalarValue(InnerScalarValue::BufferString(
+    //             self.value
+    //                 .as_ref()
+    //                 .vortex_expect("nullness handled in Scalar::cast")
+    //                 .clone(),
+    //         )),
+    //     ))
+    // }
 
     /// Length of the scalar value or None if value is null
     pub fn len(&self) -> Option<usize> {
-        self.value.as_ref().map(|v| v.len())
+        self.value.map(|v| v.len())
     }
 
     /// Returns whether its value is non-null and empty, otherwise `None`.
     pub fn is_empty(&self) -> Option<bool> {
-        self.value.as_ref().map(|v| v.is_empty())
+        self.value.map(|v| v.is_empty())
     }
 }
 
@@ -254,7 +201,12 @@ impl Scalar {
     where
         B: Into<BufferString>,
     {
-        Self::try_utf8(str, nullability).unwrap()
+        unsafe {
+            Self::new_unchecked(
+                DType::Utf8(nullability),
+                Some(ScalarValue::Utf8(str.into())),
+            )
+        }
     }
 
     /// Tries to create a new UTF-8 scalar from a string-like value.
@@ -269,134 +221,47 @@ impl Scalar {
     where
         B: TryInto<BufferString>,
     {
-        Ok(Self::new(
-            DType::Utf8(nullability),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
-        ))
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Utf8Scalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Utf8(_)) {
-            vortex_bail!("Expected utf8 scalar, found {}", value.dtype())
-        }
-        Ok(Self {
-            dtype: value.dtype(),
-            value: value.value().as_buffer_string()?,
+        Ok(unsafe {
+            Self::new_unchecked(
+                DType::Utf8(nullability),
+                Some(ScalarValue::Utf8(str.try_into()?)),
+            )
         })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for String {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Ok(BufferString::try_from(value)?.to_string())
-    }
-}
-
-impl TryFrom<Scalar> for String {
-    type Error = VortexError;
-
-    fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-        Ok(BufferString::try_from(value)?.to_string())
     }
 }
 
 impl From<&str> for Scalar {
     fn from(value: &str) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                value.to_string().into(),
-            ))),
-        )
+        Self::utf8(value, NonNullable)
     }
 }
 
 impl From<String> for Scalar {
     fn from(value: String) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
-        )
+        Self::utf8(value, NonNullable)
     }
 }
 
 impl From<BufferString> for Scalar {
     fn from(value: BufferString) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
-        )
-    }
-}
-
-impl From<Arc<BufferString>> for Scalar {
-    fn from(value: Arc<BufferString>) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(value)),
-        )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for BufferString {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        <Option<BufferString>>::try_from(scalar)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-    }
-}
-
-impl TryFrom<Scalar> for BufferString {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        Ok(Utf8Scalar::try_from(scalar)?.value())
-    }
-}
-
-impl TryFrom<Scalar> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
+        Self::utf8(value, NonNullable)
     }
 }
 
 impl From<&str> for ScalarValue {
     fn from(value: &str) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(
-            value.to_string().into(),
-        )))
+        ScalarValue::Utf8(BufferString::from(value))
     }
 }
 
 impl From<String> for ScalarValue {
     fn from(value: String) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
+        ScalarValue::Utf8(BufferString::from(value))
     }
 }
 
-impl From<BufferString> for ScalarValue {
-    fn from(value: BufferString) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
-    }
-}
-
+// TODO(v2): re-enable tests when removed API features are restored
+/*
 #[cfg(test)]
 mod tests {
     use std::cmp::Ordering;
@@ -780,3 +645,5 @@ mod tests {
         assert!(non_null > null);
     }
 }
+
+*/
