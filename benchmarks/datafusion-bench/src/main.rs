@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use clap::Parser;
 use clap::value_parser;
+use custom_labels::asynchronous::Label;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
@@ -176,26 +177,30 @@ async fn main() -> anyhow::Result<()> {
 
                 set_labels(benchmark_name.clone(), query_idx, *format);
 
-                Box::pin(async move {
-                    let timer = Instant::now();
-                    let (batches, plan) = execute_query(session, query).await?;
-                    let time = timer.elapsed();
-                    let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
+                Box::pin(
+                    async move {
+                        let timer = Instant::now();
+                        let (batches, plan) =
+                            execute_query(session, query).with_current_labels().await?;
+                        let time = timer.elapsed();
+                        let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
 
-                    // Store plan for metrics (only store once per query/format combination)
-                    if show_metrics {
-                        let mut plans_mut = plans.lock();
-                        // Only store if we don't already have this query/format combo
-                        if !plans_mut
-                            .iter()
-                            .any(|(idx, f, _)| *idx == query_idx && *f == *format)
-                        {
-                            plans_mut.push((query_idx, *format, plan.clone()));
+                        // Store plan for metrics (only store once per query/format combination)
+                        if show_metrics {
+                            let mut plans_mut = plans.lock();
+                            // Only store if we don't already have this query/format combo
+                            if !plans_mut
+                                .iter()
+                                .any(|(idx, f, _)| *idx == query_idx && *f == *format)
+                            {
+                                plans_mut.push((query_idx, *format, plan.clone()));
+                            }
                         }
-                    }
 
-                    anyhow::Ok((row_count, Some(time), plan))
-                })
+                        anyhow::Ok((row_count, Some(time), plan))
+                    }
+                    .with_current_labels(),
+                )
             },
         )
         .await?;
@@ -319,11 +324,13 @@ pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
-    let df = ctx.sql(query).await?;
+    let df = ctx.sql(query).with_current_labels().await?;
 
     let task_ctx = Arc::new(df.task_ctx());
-    let plan = df.create_physical_plan().await?;
-    let result = collect(plan.clone(), task_ctx).await?;
+    let plan = df.create_physical_plan().with_current_labels().await?;
+    let result = collect(plan.clone(), task_ctx)
+        .with_current_labels()
+        .await?;
 
     Ok((result, plan))
 }
