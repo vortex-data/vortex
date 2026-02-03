@@ -13,6 +13,7 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::BufferAllocator;
+use vortex_io::InstrumentedReadAt;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::segments::NoOpSegmentCache;
@@ -167,6 +168,7 @@ impl VortexOpenOptions {
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
         let metrics = self.metrics.clone().unwrap_or_default();
+        let reader = InstrumentedReadAt::new(reader, &metrics);
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
