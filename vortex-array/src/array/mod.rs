@@ -24,6 +24,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Canonical;
@@ -34,16 +35,11 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalVTable;
 use crate::arrays::DictArray;
-use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
-use crate::arrays::FixedSizeListVTable;
-use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::SliceArray;
-use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
@@ -316,12 +312,17 @@ impl ToOwned for dyn Array {
 }
 
 impl dyn Array + '_ {
-    /// Returns the array downcast to the given `A`.
+    /// Does the array match the given matcher.
+    pub fn is<M: Matcher>(&self) -> bool {
+        M::matches(self)
+    }
+
+    /// Returns the array downcast by the given matcher.
     pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
         self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
-    /// Returns the array downcast to the given `A`.
+    /// Returns the array downcast by the given matcher.
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
         M::try_match(self)
     }
@@ -342,11 +343,6 @@ impl dyn Array + '_ {
             }
             false => Err(self),
         }
-    }
-
-    /// Is self an array with encoding from vtable `V`.
-    pub fn is<V: VTable>(&self) -> bool {
-        self.as_opt::<V>().is_some()
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
@@ -375,15 +371,7 @@ impl dyn Array + '_ {
 
     /// Whether the array is of a canonical encoding.
     pub fn is_canonical(&self) -> bool {
-        self.is::<NullVTable>()
-            || self.is::<BoolVTable>()
-            || self.is::<PrimitiveVTable>()
-            || self.is::<DecimalVTable>()
-            || self.is::<StructVTable>()
-            || self.is::<ListViewVTable>()
-            || self.is::<FixedSizeListVTable>()
-            || self.is::<VarBinViewVTable>()
-            || self.is::<ExtensionVTable>()
+        self.is::<AnyCanonical>()
     }
 }
 
