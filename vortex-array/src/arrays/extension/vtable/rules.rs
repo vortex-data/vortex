@@ -73,7 +73,7 @@ mod tests {
     use crate::expr::Operator;
     use crate::optimizer::ArrayOptimizer;
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
     impl ExtDTypeVTable for TestExt {
         type Metadata = EmptyMetadata;
@@ -82,7 +82,11 @@ mod tests {
             ExtID::new_ref("test_ext")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -153,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_scalar_fn_no_pushdown_different_ext_types() {
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
         impl ExtDTypeVTable for TestExt2 {
             type Metadata = EmptyMetadata;
@@ -162,7 +166,7 @@ mod tests {
                 ExtID::new_ref("test_ext_2")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,
