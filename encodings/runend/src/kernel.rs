@@ -11,7 +11,6 @@ use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matcher::Exact;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;

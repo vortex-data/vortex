@@ -13,7 +13,6 @@ use vortex_array::arrays::ScalarFnArray;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
-use vortex_array::matcher::Exact;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
@@ -84,10 +83,6 @@ struct DTPComparisonPushDownRule;
 
 impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> AnyScalarFn {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,

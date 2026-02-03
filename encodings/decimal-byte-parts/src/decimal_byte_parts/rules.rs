@@ -6,7 +6,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
-use vortex_array::matcher::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;

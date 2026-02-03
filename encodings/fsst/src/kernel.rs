@@ -12,7 +12,6 @@ use vortex_array::compute::FilterKernel;
 use vortex_array::compute::filter_preconditions;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matcher::Exact;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
