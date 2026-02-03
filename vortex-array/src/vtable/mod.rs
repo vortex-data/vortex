@@ -137,17 +137,16 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array to produce a [`Canonical`].
-    ///
-    /// The returned [`Canonical`] must be the appropriate one for the array's logical
-    /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
-    /// of the array.
-    ///
-    /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
-    /// incorrectly contains null values.
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
+    /// Executes this arrayy into a [`Canonical`] array.
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
-    /// Attempt to execute the parent of this array to produce a [`Canonical`].
+    // Execute this array to produce a [`ArrayRef`] doing some work, REFINE.
+    //
+    // This is omitted for now, but could later be added back to support adding a slice/filter
+    // like function to vortex.
+    // fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>>;
+
+    /// Attempt to execute the parent of this array to produce a [`ArrayRef`], DO SOME work REFINE.
     ///
     /// This function allows arrays to plug in specialized execution logic for their parent. For
     /// example, strings compressed as FSST arrays can implement a custom equality comparison when
@@ -184,21 +183,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
-        Ok(None)
-    }
-
-    /// Perform a constant-time slice of the array.
-    ///
-    /// If an encoding cannot perform this slice in constant time, it should instead return Ok(None).
-    ///
-    /// This function returns [`ArrayRef`] since some encodings can return a simpler array for
-    /// some slices, for example a [`crate::arrays::ChunkedArray`] may slice into a single chunk.
-    ///
-    /// ## Preconditions
-    ///
-    /// Bounds-checking has already been performed by the time this function is called.
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        _ = (array, range);
         Ok(None)
     }
 }
