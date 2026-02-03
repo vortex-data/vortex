@@ -88,7 +88,6 @@ pub fn warm_up_vtables() {
     cast::warm_up_vtable();
     compare::warm_up_vtable();
     fill_null::warm_up_vtable();
-    filter::warm_up_vtable();
     invert::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();

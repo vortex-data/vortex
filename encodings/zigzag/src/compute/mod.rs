@@ -3,11 +3,11 @@
 
 mod cast;
 
+// FilterKernel impl has been migrated to execute_parent in kernel.rs
+
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::compute::TakeKernel;
@@ -20,15 +20,6 @@ use vortex_mask::Mask;
 
 use crate::ZigZagArray;
 use crate::ZigZagVTable;
-
-impl FilterKernel for ZigZagVTable {
-    fn filter(&self, array: &ZigZagArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let encoded = array.encoded().filter(mask.clone())?;
-        Ok(ZigZagArray::try_new(encoded)?.into_array())
-    }
-}
-
-register_kernel!(FilterKernelAdapter(ZigZagVTable).lift());
 
 impl TakeKernel for ZigZagVTable {
     fn take(&self, array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {

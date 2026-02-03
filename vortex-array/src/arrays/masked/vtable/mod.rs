@@ -3,6 +3,7 @@
 
 mod array;
 mod canonical;
+mod kernel;
 mod operations;
 mod validity;
 
@@ -24,6 +25,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
 use crate::arrays::masked::mask_validity_canonical;
+use crate::arrays::masked::vtable::kernel::PARENT_KERNELS;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -157,6 +159,15 @@ impl VTable for MaskedVTable {
         );
 
         Ok(canonical)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

@@ -52,9 +52,11 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::canonical::canonicalize_sparse;
+use crate::kernel::PARENT_KERNELS;
 
 mod canonical;
 mod compute;
+mod kernel;
 mod ops;
 
 vtable!(Sparse);
@@ -177,6 +179,15 @@ impl VTable for SparseVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         canonicalize_sparse(array)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

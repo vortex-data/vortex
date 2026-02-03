@@ -2,25 +2,46 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::FilterArray;
+use vortex_array::arrays::FilterVTable;
+use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::kernel::ParentKernelSet;
+use vortex_array::matchers::Exact;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
-use crate::ALPRDArray;
-use crate::ALPRDVTable;
+use super::ALPRDArray;
+use super::ALPRDVTable;
 
-impl FilterKernel for ALPRDVTable {
-    fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
+pub(super) const PARENT_KERNELS: ParentKernelSet<ALPRDVTable> =
+    ParentKernelSet::new(&[ParentKernelSet::lift(&ALPRDFilterKernel)]);
+
+#[derive(Debug)]
+struct ALPRDFilterKernel;
+
+impl ExecuteParentKernel<ALPRDVTable> for ALPRDFilterKernel {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::new()
+    }
+
+    fn execute_parent(
+        &self,
+        array: &ALPRDArray,
+        parent: &FilterArray,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let mask = parent.filter_mask();
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.filter(mask))
             .transpose()?
             .flatten();
 
-        Ok(ALPRDArray::try_new(
+        let filtered = ALPRDArray::try_new(
             array.dtype().clone(),
             array.left_parts().filter(mask.clone())?,
             array.left_parts_dictionary().clone(),
@@ -28,14 +49,14 @@ impl FilterKernel for ALPRDVTable {
             array.right_bit_width(),
             left_parts_exceptions,
         )?
-        .into_array())
+        .into_array();
+
+        Ok(Some(filtered))
     }
 }
 
-register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
-
 #[cfg(test)]
-mod test {
+mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;

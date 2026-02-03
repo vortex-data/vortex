@@ -45,6 +45,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use super::kernel::PARENT_KERNELS;
 use crate::alp_rd_decode;
 
 vtable!(ALPRD);
@@ -279,6 +280,15 @@ impl VTable for ALPRDVTable {
         };
 
         Ok(Canonical::Primitive(decoded_array))
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

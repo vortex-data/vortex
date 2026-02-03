@@ -5,45 +5,18 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::IntoArray;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
 use crate::compute::take;
-use crate::register_kernel;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
 use crate::validity::Validity;
 
 // This is modeled after the constant with the equivalent name in arrow-rs.
 pub(crate) const FILTER_SLICES_SELECTIVITY_THRESHOLD: f64 = 0.8;
-
-impl FilterKernel for ChunkedVTable {
-    fn filter(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let mask_values = mask
-            .values()
-            .vortex_expect("AllTrue and AllFalse are handled by filter fn");
-
-        // Based on filter selectivity, we take the values between a range of slices, or
-        // we take individual indices.
-        let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
-            MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
-        }?;
-
-        // SAFETY: Filter operation preserves the dtype of each chunk.
-        // All filtered chunks maintain the same dtype as the original array.
-        unsafe { Ok(ChunkedArray::new_unchecked(chunks, array.dtype().clone()).into_array()) }
-    }
-}
-
-register_kernel!(FilterKernelAdapter(ChunkedVTable).lift());
 
 /// The filter to apply to each chunk.
 ///
@@ -57,7 +30,7 @@ pub(crate) enum ChunkFilter {
 }
 
 /// Filter the chunks using slice ranges.
-fn filter_slices(
+pub(crate) fn filter_slices(
     array: &ChunkedArray,
     slices: impl Iterator<Item = (usize, usize)>,
 ) -> VortexResult<Vec<ArrayRef>> {
@@ -141,7 +114,7 @@ pub(crate) fn chunk_filters(
 }
 
 /// Filter the chunks using indices.
-fn filter_indices(
+pub(crate) fn filter_indices(
     array: &ChunkedArray,
     indices: impl Iterator<Item = usize>,
 ) -> VortexResult<Vec<ArrayRef>> {

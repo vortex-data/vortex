@@ -39,6 +39,7 @@ use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
+use crate::kernel::PARENT_KERNELS;
 use crate::zigzag_decode;
 
 vtable!(ZigZag);
@@ -108,6 +109,15 @@ impl VTable for ZigZagVTable {
         Ok(Canonical::Primitive(zigzag_decode(
             array.encoded().clone().execute(ctx)?,
         )))
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

@@ -9,14 +9,11 @@ mod is_sorted;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
 use vortex_array::compute::TakeKernel;
 use vortex_array::compute::TakeKernelAdapter;
 use vortex_array::compute::take;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::FoRArray;
 use crate::FoRVTable;
@@ -33,17 +30,7 @@ impl TakeKernel for FoRVTable {
 
 register_kernel!(TakeKernelAdapter(FoRVTable).lift());
 
-impl FilterKernel for FoRVTable {
-    fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        FoRArray::try_new(
-            array.encoded().filter(mask.clone())?,
-            array.reference_scalar().clone(),
-        )
-        .map(|a| a.into_array())
-    }
-}
-
-register_kernel!(FilterKernelAdapter(FoRVTable).lift());
+// FilterKernel impl has been migrated to FoRFilterPushDownRule in vtable/rules.rs
 
 #[cfg(test)]
 mod test {

@@ -9,9 +9,13 @@ use vortex_buffer::get_bit_unchecked;
 use vortex_buffer::set_bit_unchecked;
 use vortex_buffer::unset_bit_unchecked;
 use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
+
+/// If the filter density is above 80%, we use slices to filter instead of indices.
+const FILTER_SLICES_DENSITY_THRESHOLD: f64 = 0.8;
 
 impl Filter<Mask> for &BitBuffer {
     type Output = BitBuffer;
@@ -38,7 +42,10 @@ impl Filter<MaskValues> for &BitBuffer {
             "Selection mask length must equal the mask length"
         );
 
-        self.filter(mask_values.indices())
+        match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
+            MaskIter::Indices(indices) => self.filter(indices),
+            MaskIter::Slices(slices) => self.filter(slices),
+        }
     }
 }
 

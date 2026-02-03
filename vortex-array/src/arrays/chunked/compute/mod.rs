@@ -4,7 +4,7 @@
 mod cast;
 mod compare;
 mod fill_null;
-mod filter;
+pub(crate) mod filter;
 mod invert;
 mod is_constant;
 mod is_sorted;

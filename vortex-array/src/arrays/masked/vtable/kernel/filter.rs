@@ -5,16 +5,41 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::FilterArray;
+use crate::arrays::FilterVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
+use crate::kernel::ExecuteParentKernel;
+use crate::matchers::Exact;
 use crate::vtable::ValidityHelper;
 
-impl FilterKernel for MaskedVTable {
-    fn filter(&self, array: &MaskedArray, mask: &Mask) -> VortexResult<ArrayRef> {
+#[derive(Debug)]
+pub(super) struct MaskedFilterKernel;
+
+impl ExecuteParentKernel<MaskedVTable> for MaskedFilterKernel {
+    type Parent = Exact<FilterVTable>;
+
+    fn parent(&self) -> Self::Parent {
+        Exact::new()
+    }
+
+    fn execute_parent(
+        &self,
+        array: &MaskedArray,
+        parent: &FilterArray,
+        _child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let mask = parent.filter_mask();
+
+        // Handle trivial cases
+        match mask {
+            Mask::AllTrue(_) | Mask::AllFalse(_) => return Ok(None),
+            Mask::Values(_) => {}
+        }
+
         // Filter the validity to get the new validity
         let filtered_validity = array.validity().filter(mask)?;
 
@@ -23,11 +48,11 @@ impl FilterKernel for MaskedVTable {
         let filtered_child = array.child.filter(mask.clone())?;
 
         // Construct new MaskedArray
-        Ok(MaskedArray::try_new(filtered_child, filtered_validity)?.into_array())
+        let result = MaskedArray::try_new(filtered_child, filtered_validity)?.into_array();
+
+        Ok(Some(result))
     }
 }
-
-register_kernel!(FilterKernelAdapter(MaskedVTable).lift());
 
 #[cfg(test)]
 mod tests {

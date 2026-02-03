@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod cast;
-mod filter;
 mod mask;
 mod take;
 

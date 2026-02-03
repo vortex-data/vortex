@@ -11,15 +11,12 @@ mod like;
 mod min_max;
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use super::DictArray;
 use super::DictVTable;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
 use crate::compute::TakeKernel;
 use crate::compute::TakeKernelAdapter;
 use crate::compute::take;
@@ -36,17 +33,7 @@ impl TakeKernel for DictVTable {
 
 register_kernel!(TakeKernelAdapter(DictVTable).lift());
 
-impl FilterKernel for DictVTable {
-    fn filter(&self, array: &DictArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let codes = array.codes().filter(mask.clone())?;
-
-        // SAFETY: filtering codes doesn't change invariants
-        // Preserve all_values_referenced since filtering codes doesn't affect which values are referenced
-        unsafe { Ok(DictArray::new_unchecked(codes, array.values().clone()).into_array()) }
-    }
-}
-
-register_kernel!(FilterKernelAdapter(DictVTable).lift());
+// FilterKernel impl has been migrated to DictionaryFilterPushDownRule in vtable/rules.rs
 
 #[cfg(test)]
 mod test {

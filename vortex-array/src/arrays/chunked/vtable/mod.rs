@@ -21,6 +21,7 @@ use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::chunked::vtable::canonical::_canonicalize;
+use crate::arrays::chunked::vtable::kernel::PARENT_KERNELS;
 use crate::arrays::chunked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -33,6 +34,7 @@ use crate::vtable::VTable;
 mod array;
 mod canonical;
 mod compute;
+mod kernel;
 mod operations;
 mod rules;
 mod validity;
@@ -173,6 +175,15 @@ impl VTable for ChunkedVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         _canonicalize(array, ctx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
