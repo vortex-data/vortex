@@ -3,6 +3,7 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
@@ -37,6 +38,14 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO: add a pattern to adding checks to all filter impls
+        let mask = parent.filter_mask();
+        if mask.true_count() == 0 {
+            return Ok(Some(Canonical::empty(array.dtype()).into_array()));
+        }
+        if mask.true_count() == mask.len() {
+            return Ok(Some(array.to_array()));
+        }
         // TODO(ngates): pass execution context when we update the FilterKernel trait.
         let filtered_codes =
             FilterKernel::filter(&VarBinVTable, array.codes(), parent.filter_mask())?
@@ -222,12 +231,11 @@ mod tests {
 
         let mask = Mask::new_true(10);
 
-        let filter_array = FilterArray::new(fsst_array.clone(), mask.clone()).into_array();
+        let filter_array = fsst_array.filter(mask)?;
         let mut ctx = SESSION.create_execution_ctx();
-        let result = filter_array.execute::<Canonical>(&mut ctx)?;
+        let result = filter_array.execute::<Canonical>(&mut ctx)?.into_array();
 
-        assert_eq!(result.len(), 10);
-        assert_arrays_eq!(result.into_array(), fsst_array);
+        assert_arrays_eq!(result, fsst_array);
         Ok(())
     }
 }
