@@ -8,6 +8,7 @@ mod primitive;
 mod varbinview;
 
 use std::ffi::c_void;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -85,7 +86,7 @@ impl CudaExecute for FilterExecutor {
     }
 }
 
-async fn filter_sized<T: DeviceRepr + CubFilterable + Send + Sync + 'static>(
+async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'static>(
     input: BufferHandle,
     mask: Mask,
     ctx: &mut CudaExecutionCtx,
@@ -121,17 +122,17 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Send + Sync + 'static>(
     let d_input_cuda = d_input
         .as_device()
         .as_any()
-        .downcast_ref::<CudaDeviceBuffer<T>>()
-        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer<T> for input"))?;
-    let d_input_ptr = d_input_cuda.as_view().device_ptr(stream).0 as *const T;
+        .downcast_ref::<CudaDeviceBuffer>()
+        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for input, was {d_input:?}",))?;
+    let d_input_ptr = d_input_cuda.as_view::<T>().device_ptr(stream).0 as *const T;
 
     // Downcast to get device pointer.
     let d_packed_cuda = d_flags
         .as_device()
         .as_any()
-        .downcast_ref::<CudaDeviceBuffer<u8>>()
-        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer<u8> for packed flags"))?;
-    let d_packed_ptr = d_packed_cuda.as_view().device_ptr(stream).0 as *const u8;
+        .downcast_ref::<CudaDeviceBuffer>()
+        .ok_or_else(|| vortex_err!("Expected CudaDeviceBuffer for packed flags"))?;
+    let d_packed_ptr = d_packed_cuda.as_view::<u8>().device_ptr(stream).0 as *const u8;
 
     let d_temp_ptr = d_temp.device_ptr(stream).0 as *mut c_void;
     let d_output_ptr = d_output.device_ptr_mut(stream).0 as *mut T;

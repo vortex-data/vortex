@@ -2,13 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Display;
+use std::sync::Arc;
 
 use vortex_error::VortexResult;
 
 use crate::datetime::Date;
 use crate::datetime::Time;
+use crate::datetime::TimeUnit;
 use crate::datetime::Timestamp;
-use crate::datetime::TimestampOptions;
 use crate::extension::ExtDTypeRef;
 use crate::extension::ExtDTypeVTable;
 use crate::extension::Matcher;
@@ -21,7 +22,7 @@ impl Matcher for AnyTemporal {
 
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
         if let Some(opts) = item.metadata_opt::<Timestamp>() {
-            return Some(TemporalMetadata::Timestamp(opts));
+            return Some(TemporalMetadata::Timestamp(&opts.unit, &opts.tz));
         }
         if let Some(opts) = item.metadata_opt::<Date>() {
             return Some(TemporalMetadata::Date(opts));
@@ -36,8 +37,8 @@ impl Matcher for AnyTemporal {
 /// Metadata for temporal extension data types.
 #[derive(Debug, PartialEq, Eq)]
 pub enum TemporalMetadata<'a> {
-    /// Metadata for Timestamp dtypes
-    Timestamp(&'a <Timestamp as ExtDTypeVTable>::Metadata),
+    /// Metadata for Timestamp dtypes, a tuple of time unit and optional timezone.
+    Timestamp(&'a TimeUnit, &'a Option<Arc<str>>),
     /// Metadata for Date dtypes
     Date(&'a <Date as ExtDTypeVTable>::Metadata),
     /// Metadata for Time dtypes
@@ -48,11 +49,11 @@ pub enum TemporalMetadata<'a> {
 //  Currently this is used largely to implement scalar display hacks.
 impl TemporalMetadata<'_> {
     /// Get the time unit of the temporal dtype.
-    pub fn time_unit(&self) -> crate::datetime::TimeUnit {
+    pub fn time_unit(&self) -> TimeUnit {
         match self {
             TemporalMetadata::Time(unit) => **unit,
             TemporalMetadata::Date(unit) => **unit,
-            TemporalMetadata::Timestamp(opts) => opts.unit,
+            TemporalMetadata::Timestamp(unit, _tz) => **unit,
         }
     }
 
@@ -65,7 +66,7 @@ impl TemporalMetadata<'_> {
             TemporalMetadata::Date(unit) => Ok(TemporalJiff::Date(
                 jiff::civil::Date::new(1970, 1, 1)?.checked_add(unit.to_jiff_span(v)?)?,
             )),
-            TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => match tz {
+            TemporalMetadata::Timestamp(unit, tz) => match tz {
                 None => Ok(TemporalJiff::Unzoned(
                     jiff::civil::DateTime::new(1970, 1, 1, 0, 0, 0, 0)?
                         .checked_add(unit.to_jiff_span(v)?)?,

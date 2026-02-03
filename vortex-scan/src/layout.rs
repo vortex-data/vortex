@@ -62,8 +62,6 @@ impl DataSource for LayoutReaderDataSource {
         }
 
         if let Some(limit) = scan_request.limit {
-            // TODO(ngates): ScanBuilder limit should be u64
-            let limit = usize::try_from(limit)?;
             builder = builder.with_limit(limit);
         }
 

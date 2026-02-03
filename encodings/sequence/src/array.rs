@@ -11,6 +11,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -59,13 +60,22 @@ pub struct SequenceMetadata {
     multiplier: Option<vortex_proto::scalar::ScalarValue>,
 }
 
+/// Components of [`SequenceArray`].
+pub struct SequenceArrayParts {
+    pub base: PValue,
+    pub multiplier: PValue,
+    pub len: usize,
+    pub ptype: PType,
+    pub nullability: Nullability,
+}
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
     base: PValue,
     multiplier: PValue,
     dtype: DType,
-    pub(crate) length: usize,
+    pub(crate) len: usize,
     stats_set: ArrayStats,
 }
 
@@ -124,7 +134,7 @@ impl SequenceArray {
             base,
             multiplier,
             dtype,
-            length,
+            len: length,
             // TODO(joe): add stats, on construct or on use?
             stats_set: Default::default(),
         }
@@ -164,7 +174,7 @@ impl SequenceArray {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        assert!(idx < self.length, "index_value({idx}): index out of bounds");
+        assert!(idx < self.len, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
             let base = self.base.cast::<P>();
@@ -177,8 +187,18 @@ impl SequenceArray {
 
     /// Returns the validated final value of a sequence array
     pub fn last(&self) -> PValue {
-        Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.len)
             .vortex_expect("validated array")
+    }
+
+    pub fn into_parts(self) -> SequenceArrayParts {
+        SequenceArrayParts {
+            base: self.base,
+            multiplier: self.multiplier,
+            len: self.len,
+            ptype: self.dtype.as_ptype(),
+            nullability: self.dtype.nullability(),
+        }
     }
 }
 
@@ -287,7 +307,7 @@ impl VTable for SequenceVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // Try parent kernels first (e.g., comparison fusion)
         if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
             return Ok(Some(result));
@@ -300,16 +320,17 @@ impl VTable for SequenceVTable {
 
         match filter.filter_mask().indices() {
             AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(Canonical::empty(array.dtype()))),
+            AllOr::None => Ok(Some(Canonical::empty(array.dtype()).into_array())),
             AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
                 let base = array.base().cast::<P>();
                 let multiplier = array.multiplier().cast::<P>();
-                Canonical::Primitive(execute_iter(
+                execute_iter(
                     base,
                     multiplier,
                     indices.iter().copied(),
                     array.dtype().nullability(),
-                ))
+                )
+                .into_array()
             }))),
         }
     }
@@ -355,7 +376,7 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
     fn len(array: &SequenceArray) -> usize {
-        array.length
+        array.len
     }
 
     fn dtype(array: &SequenceArray) -> &DType {
@@ -374,14 +395,14 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
         array.base.hash(state);
         array.multiplier.hash(state);
         array.dtype.hash(state);
-        array.length.hash(state);
+        array.len.hash(state);
     }
 
     fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
         array.base == other.base
             && array.multiplier == other.multiplier
             && array.dtype == other.dtype
-            && array.length == other.length
+            && array.len == other.len
     }
 }
 

@@ -83,6 +83,8 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
 
     /// Create a new buffer that references a subrange of this buffer at the given
     /// slice indices.
+    ///
+    /// Note that slice indices are in byte units.
     fn slice(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
 
     /// Return a buffer with the given alignment. Where possible, this will be zero-copy.
@@ -91,6 +93,19 @@ pub trait DeviceBuffer: 'static + Send + Sync + Debug + DynEq + DynHash {
     ///
     /// Returns an error if the buffer cannot be aligned (e.g., allocation or copy failure).
     fn aligned(self: Arc<Self>, alignment: Alignment) -> VortexResult<Arc<dyn DeviceBuffer>>;
+}
+
+pub trait DeviceBufferExt: DeviceBuffer {
+    /// Slice a range of elements `T` out of the device buffer.
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer>;
+}
+
+impl<B: DeviceBuffer> DeviceBufferExt for B {
+    fn slice_typed<T: Sized>(&self, range: Range<usize>) -> Arc<dyn DeviceBuffer> {
+        let start_bytes = range.start * size_of::<T>();
+        let end_bytes = range.end * size_of::<T>();
+        self.slice(start_bytes..end_bytes)
+    }
 }
 
 impl Hash for dyn DeviceBuffer {

@@ -845,4 +845,14 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             Ok(metadata) => Debug::fmt(&metadata, f),
         }
     }
+
+    fn is_host(&self) -> bool {
+        for array in self.depth_first_traversal() {
+            if !array.buffer_handles().iter().all(BufferHandle::is_on_host) {
+                return false;
+            }
+        }
+
+        true
+    }
 }

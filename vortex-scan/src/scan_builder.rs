@@ -70,7 +70,7 @@ pub struct ScanBuilder<A> {
     /// Should we try to prune the file (using stats) on open.
     file_stats: Option<Arc<[StatsSet]>>,
     /// Maximal number of rows to read (after filtering)
-    limit: Option<usize>,
+    limit: Option<u64>,
     /// The row-offset assigned to the first row of the file. Used by the `row_idx` expression,
     /// but not by the scan [`Selection`] which remains relative.
     row_offset: u64,
@@ -180,7 +180,7 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
-    pub fn with_limit(mut self, limit: usize) -> Self {
+    pub fn with_limit(mut self, limit: u64) -> Self {
         self.limit = Some(limit);
         self
     }

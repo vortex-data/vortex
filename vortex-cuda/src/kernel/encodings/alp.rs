@@ -20,6 +20,7 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -28,17 +29,12 @@ use crate::CudaDeviceBuffer;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
+use crate::kernel::patches::execute_patches;
 use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
 pub struct ALPExecutor;
-
-impl ALPExecutor {
-    fn try_specialize(array: ArrayRef) -> Option<ALPArray> {
-        array.try_into::<ALPVTable>().ok()
-    }
-}
 
 #[async_trait]
 impl CudaExecute for ALPExecutor {
@@ -47,7 +43,9 @@ impl CudaExecute for ALPExecutor {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Canonical> {
-        let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected ALPArray"))?;
+        let array = array
+            .try_into::<ALPVTable>()
+            .map_err(|_| vortex_err!("Expected ALPArray"))?;
 
         match_each_alp_float_ptype!(array.ptype(), |A| { decode_alp::<A>(array, ctx).await })
     }
@@ -85,27 +83,40 @@ where
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(array_len)?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view();
+    let output_view = output_buf.as_view::<A>();
 
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
     let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
     let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    {
+        let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: input, output, f, e, length
-    launch_builder.arg(&input_view);
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&f);
-    launch_builder.arg(&e);
-    launch_builder.arg(&array_len_u64);
+        // Build launch args: input, output, f, e, length
+        launch_builder.arg(&input_view);
+        launch_builder.arg(&output_view);
+        launch_builder.arg(&f);
+        launch_builder.arg(&e);
+        launch_builder.arg(&array_len_u64);
 
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+        // Launch kernel
+        let _cuda_events =
+            launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    }
 
-    // Build result with newly allocated buffer
+    // Check if there are any patches to decode here
+    let output_buf = if let Some(patches) = array.patches() {
+        match_each_unsigned_integer_ptype!(patches.indices_ptype()?, |I| {
+            execute_patches::<A, I>(patches.clone(), output_buf, ctx).await?
+        })
+    } else {
+        output_buf
+    };
+
+    // TODO(aduffy): scatter patch values validity. There are several places we'll need to start
+    //  handling validity.
+
     let output_handle = BufferHandle::new_device(Arc::new(output_buf));
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
         output_handle,
@@ -121,8 +132,10 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::validity::Validity::NonNullable;
+    use vortex_array::patches::Patches;
+    use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_buffer::buffer;
     use vortex_error::VortexExpect;
     use vortex_session::VortexSession;
 
@@ -142,13 +155,24 @@ mod tests {
         let encoded_data: Vec<i32> = vec![100, 200, 300, 400, 500];
         let exponents = Exponents { e: 0, f: 2 }; // multiply by 100
 
-        let alp_array = ALPArray::try_new(
-            PrimitiveArray::new(Buffer::from(encoded_data.clone()), NonNullable).into_array(),
-            exponents,
+        // Patches
+        let patches = Patches::new(
+            5,
+            0,
+            PrimitiveArray::new(buffer![0u32, 4u32], Validity::NonNullable).into_array(),
+            PrimitiveArray::new(buffer![0.0f32, 999f32], Validity::NonNullable).into_array(),
             None,
+        )
+        .unwrap();
+
+        let alp_array = ALPArray::try_new(
+            PrimitiveArray::new(Buffer::from(encoded_data.clone()), Validity::NonNullable)
+                .into_array(),
+            exponents,
+            Some(patches),
         )?;
 
-        let cpu_result = alp_array.to_canonical()?;
+        let cpu_result = alp_array.to_canonical()?.into_array();
 
         let gpu_result = ALPExecutor
             .execute(alp_array.to_array(), &mut cuda_ctx)
@@ -158,7 +182,7 @@ mod tests {
             .await?
             .into_array();
 
-        assert_arrays_eq!(cpu_result.into_array(), gpu_result);
+        assert_arrays_eq!(cpu_result, gpu_result);
 
         Ok(())
     }

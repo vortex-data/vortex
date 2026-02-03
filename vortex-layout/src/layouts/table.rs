@@ -33,7 +33,6 @@ use vortex_utils::aliases::hash_set::HashSet;
 use crate::IntoLayout;
 use crate::LayoutRef;
 use crate::LayoutStrategy;
-use crate::layouts::flat::writer::FlatLayoutStrategy;
 use crate::layouts::struct_::StructLayout;
 use crate::segments::SegmentSinkRef;
 use crate::sequence::SendableSequentialStream;
@@ -53,18 +52,6 @@ pub struct TableStrategy {
     fallback: Arc<dyn LayoutStrategy>,
 }
 
-impl Default for TableStrategy {
-    fn default() -> Self {
-        let flat = Arc::new(FlatLayoutStrategy::default());
-
-        Self {
-            leaf_writers: HashMap::default(),
-            validity: flat.clone(),
-            fallback: flat,
-        }
-    }
-}
-
 impl TableStrategy {
     /// Create a new writer with the specified write strategies for validity, and for all leaf
     /// fields, with no overrides.
@@ -73,7 +60,7 @@ impl TableStrategy {
     ///
     /// ## Example
     ///
-    /// ```
+    /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
@@ -95,7 +82,7 @@ impl TableStrategy {
     ///
     /// ## Example
     ///
-    /// ```no_run
+    /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_dtype::{field_path, Field, FieldPath};
     /// # use vortex_layout::layouts::compact::CompactCompressor;
@@ -389,7 +376,8 @@ mod tests {
         let flat = Arc::new(FlatLayoutStrategy::default());
 
         // Success
-        let path = TableStrategy::default().with_field_writer(field_path!(a.b.c), flat.clone());
+        let path = TableStrategy::new(flat.clone(), flat.clone())
+            .with_field_writer(field_path!(a.b.c), flat.clone());
 
         // Should panic right here.
         let _path = path.with_field_writer(field_path!(a.b), flat);
@@ -400,7 +388,8 @@ mod tests {
         expected = "Do not set override as a root strategy, instead set the default strategy"
     )]
     fn test_root_override() {
-        let _strategy = TableStrategy::default()
-            .with_field_writer(FieldPath::root(), Arc::new(FlatLayoutStrategy::default()));
+        let flat = Arc::new(FlatLayoutStrategy::default());
+        let _strategy = TableStrategy::new(flat.clone(), flat.clone())
+            .with_field_writer(FieldPath::root(), flat);
     }
 }

@@ -122,14 +122,14 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<I>()?;
-    let output_view = output_device.as_view();
+    let output_view = output_device.as_view::<V>();
 
     let codes_len_u64 = codes_len as u64;
     // Launch the dict kernel
     let _cuda_events = crate::launch_cuda_kernel!(
         execution_ctx: ctx,
         module: "dict",
-        ptypes: &[value_ptype.to_string().as_str(), I::PTYPE.to_string().as_str()],
+        ptypes: &[value_ptype, I::PTYPE],
         launch_args: [codes_view, codes_len_u64, values_view, output_view],
         event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
         array_len: codes_len
@@ -231,7 +231,7 @@ async fn execute_dict_decimal_typed<
     // Get views for kernel launch
     let values_view = values_device.cuda_view::<V>()?;
     let codes_view = codes_device.cuda_view::<C>()?;
-    let output_view = output_device.as_view();
+    let output_view = output_device.as_view::<V>();
 
     // Load kernel function using string suffixes
     let cuda_function = ctx.load_function("dict", &[value_suffix, &C::PTYPE.to_string()])?;

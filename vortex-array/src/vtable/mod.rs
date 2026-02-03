@@ -159,7 +159,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx, ctx);
         Ok(None)
     }

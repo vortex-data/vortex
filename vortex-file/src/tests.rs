@@ -1664,6 +1664,7 @@ mod cuda_tests {
     use vortex_io::file::std_file::FileReadAdapter;
     use vortex_io::session::RuntimeSession;
     use vortex_io::session::RuntimeSessionExt;
+    use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
     use vortex_metrics::VortexMetrics;
     use vortex_session::VortexSession;
@@ -1680,7 +1681,7 @@ mod cuda_tests {
             .with::<RuntimeSession>()
             .with::<CudaSession>();
 
-        vortex_cuda::initialize_cuda(&*session.cuda_session());
+        vortex_cuda::initialize_cuda(&session.cuda_session());
         crate::register_default_encodings(&mut session);
 
         session
@@ -1689,6 +1690,12 @@ mod cuda_tests {
     #[tokio::test]
     async fn gpu_scan() -> VortexResult<()> {
         use vortex_alp::alp_encode;
+
+        assert!(
+            std::env::var("FLAT_LAYOUT_INLINE_ARRAY_NODE").is_ok(),
+            "gpu_scan test must be run with FLAT_LAYOUT_INLINE_ARRAY_NODE=1"
+        );
+
         // Create an ALP-encoded array from primitive f64 values
         let primitive = PrimitiveArray::from_iter((0..100).map(|i| i as f64 * 1.1));
         let alp_array = alp_encode(&primitive, None)?;
@@ -1704,11 +1711,15 @@ mod cuda_tests {
             Validity::NonNullable,
         );
 
+        let flat_strategy = Arc::new(FlatLayoutStrategy::default());
+
         // Write to a buffer, then to a temp file
         let temp_path = std::env::temp_dir().join("gpu_scan_test.vortex");
         let mut buf = Vec::new();
         SESSION
             .write_options()
+            // write with flat strategy, don't try and compress
+            .with_strategy(flat_strategy)
             .write(&mut buf, array.to_array_stream())
             .await?;
         std::fs::write(&temp_path, &buf)?;

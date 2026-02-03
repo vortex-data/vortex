@@ -29,7 +29,7 @@ use vortex::error::VortexExpect;
 
 use crate::Format;
 // Re-export for use by clickbench_benchmark
-pub use crate::conversions::convert_parquet_to_vortex;
+pub use crate::conversions::convert_parquet_directory_to_vortex;
 use crate::idempotent_async;
 
 pub static HITS_SCHEMA: LazyLock<Schema> = LazyLock::new(|| {

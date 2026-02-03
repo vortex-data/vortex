@@ -12,7 +12,6 @@ use vortex::dtype::arrow::FromArrowType;
 use vortex::dtype::datetime::AnyTemporal;
 use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::TimestampOptions;
 use vortex::dtype::half::f16;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -126,7 +125,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 // temporal physical types.
                 let pv = storage_scalar.as_primitive();
                 match temporal {
-                    TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => match unit {
+                    TemporalMetadata::Timestamp(unit, tz) => match unit {
                         TimeUnit::Nanoseconds => {
                             ScalarValue::TimestampNanosecond(pv.as_::<i64>(), tz.clone())
                         }

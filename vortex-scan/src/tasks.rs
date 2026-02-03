@@ -38,7 +38,7 @@ pub type TaskFuture<A> = BoxFuture<'static, VortexResult<A>>;
 pub(super) fn split_exec<A: 'static + Send>(
     ctx: Arc<TaskContext<A>>,
     split: Range<u64>,
-    limit: Option<&mut usize>,
+    limit: Option<&mut u64>,
 ) -> VortexResult<TaskFuture<Option<A>>> {
     // Apply the selection to calculate a read mask
     let read_mask = ctx.selection.row_mask(&split);
@@ -55,8 +55,11 @@ pub(super) fn split_exec<A: 'static + Send>(
                 Some(l) if *l == 0 => Mask::new_false(row_mask.len()),
                 Some(l) => {
                     let true_count = row_mask.true_count();
-                    let row_mask = row_mask.limit(*l);
-                    *l -= usize::min(*l, true_count);
+                    let mask_limit = usize::try_from(*l)
+                        .map(|l| l.min(true_count))
+                        .unwrap_or(true_count);
+                    let row_mask = row_mask.limit(mask_limit);
+                    *l -= mask_limit as u64;
                     row_mask
                 }
                 None => row_mask,
