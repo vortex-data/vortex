@@ -2,19 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Formatter;
-use std::ops::Not;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
-use crate::Array;
-use crate::arrays::BoolArray;
-use crate::arrays::ConstantArray;
 use crate::compute::invert;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -23,9 +17,6 @@ use crate::expr::ExecutionArgs;
 use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
-use crate::expr::ReduceCtx;
-use crate::expr::ReduceNode;
-use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 
@@ -75,11 +66,12 @@ impl VTable for Not {
 
     fn return_dtype(&self, _options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType> {
         let child_dtype = &arg_dtypes[0];
-        vortex_ensure!(
-            matches!(child_dtype, DType::Bool(_)),
-            "Not expression expects a boolean child, got: {}",
-            child_dtype
-        );
+        if !matches!(child_dtype, DType::Bool(_)) {
+            vortex_bail!(
+                "Not expression expects a boolean child, got: {}",
+                child_dtype
+            );
+        }
         Ok(child_dtype.clone())
     }
 
@@ -89,35 +81,7 @@ impl VTable for Not {
         mut args: ExecutionArgs,
     ) -> VortexResult<ExecutionResult> {
         let child = args.inputs.pop().vortex_expect("Missing input child");
-        // invert(&child)?.execute(args.ctx)
-
-        let child = child.execute::<ExecutionResult>()?;
-
-        // TODO(ngates): maybe we want length-1 arrays for scalars in this case?
-        if let Some(scalar) = child.as_constant() {
-            let scalar = match scalar.as_bool().value() {
-                None => Scalar::null(child.dtype().clone()),
-                Some(b) => Scalar::bool(!b, child.dtype().nullability()),
-            };
-            return Ok(ExecutionResult::Scalar(ConstantArray::new(
-                scalar,
-                child.len(),
-            )));
-        }
-
-        let input = child.execute::<BoolArray>(args.ctx)?;
-        let output =
-            unsafe { BoolArray::new_unchecked(input.to_bit_buffer().not(), input.validity()?) };
-        Ok(ExecutionResult::Array(output.to_canonical()?))
-    }
-
-    fn reduce(
-        &self,
-        options: &Self::Options,
-        node: &dyn ReduceNode,
-        ctx: &dyn ReduceCtx,
-    ) -> VortexResult<Option<ReduceNodeRef>> {
-        todo!()
+        invert(&child)?.execute(args.ctx)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

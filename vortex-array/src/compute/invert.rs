@@ -55,8 +55,6 @@ impl ComputeFnVTable for Invert {
     ) -> VortexResult<Output> {
         let UnaryArgs { array, .. } = UnaryArgs::<()>::try_from(args)?;
 
-        // PREAMBLE
-
         for kernel in kernels {
             if let Some(output) = kernel.invoke(args)? {
                 return Ok(output);
