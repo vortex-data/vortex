@@ -137,7 +137,7 @@ impl DeviceArrayExt for ArrayRef {
     }
 }
 
-/// Trait implemented for types that can be exported to [`ArrowDeviceArray`].
+/// A type that can convert a Vortex array into an [`ArrowDeviceArray`].
 #[async_trait]
 pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
     /// Export a Vortex array as an [`ArrowDeviceArray`].
