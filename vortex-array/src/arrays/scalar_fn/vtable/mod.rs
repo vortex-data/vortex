@@ -250,10 +250,7 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
     }
 
     fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
-        let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() else {
-            return None;
-        };
-
+        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
             .vtable()

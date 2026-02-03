@@ -71,7 +71,6 @@ use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
 /// The public API trait for all Vortex arrays.
-
 pub trait Array:
     'static + private::Sealed + Send + Sync + Debug + DynArrayEq + DynArrayHash + ArrayVisitor
 {
