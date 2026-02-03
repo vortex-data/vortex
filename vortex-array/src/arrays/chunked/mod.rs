@@ -4,7 +4,7 @@
 mod array;
 pub use array::ChunkedArray;
 
-pub(crate) mod compute;
+mod compute;
 
 mod vtable;
 pub use vtable::ChunkedVTable;
