@@ -90,9 +90,9 @@ impl DeviceBuffer for CudaDeviceBuffer {
 
 impl Drop for CudaDeviceBuffer {
     fn drop(&mut self) {
-        let _ = self.completion.synchronize();
         if let Some(buffer) = self.host_buffer.lock().take() {
-            drop(buffer);
+            let (inner, pool) = buffer.into_inner();
+            drop(pool.put_deferred(self.completion.clone(), inner));
         }
     }
 }

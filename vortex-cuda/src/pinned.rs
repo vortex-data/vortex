@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use bytes::Bytes;
 use cudarc::driver::CudaContext;
+use cudarc::driver::CudaEvent;
 use cudarc::driver::CudaStream;
 use cudarc::driver::HostSlice;
 use cudarc::driver::PinnedHostSlice;
@@ -110,10 +111,16 @@ pub struct PinnedByteBufferPool {
     ctx: Arc<CudaContext>,
     max_keep_per_size: usize,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
+    deferred: Mutex<Vec<DeferredPinnedBuffer>>,
     hits: std::sync::atomic::AtomicU64,
     misses: std::sync::atomic::AtomicU64,
     allocs: std::sync::atomic::AtomicU64,
     puts: std::sync::atomic::AtomicU64,
+}
+
+struct DeferredPinnedBuffer {
+    event: Arc<CudaEvent>,
+    buffer: PinnedByteBuffer,
 }
 
 impl PinnedByteBufferPool {
@@ -128,6 +135,7 @@ impl PinnedByteBufferPool {
             ctx,
             max_keep_per_size: max_keep_per_size.max(1),
             buckets: Mutex::new(HashMap::new()),
+            deferred: Mutex::new(Vec::new()),
             hits: std::sync::atomic::AtomicU64::new(0),
             misses: std::sync::atomic::AtomicU64::new(0),
             allocs: std::sync::atomic::AtomicU64::new(0),
@@ -135,8 +143,35 @@ impl PinnedByteBufferPool {
         }
     }
 
+    fn reclaim_deferred(&self) -> VortexResult<()> {
+        let mut deferred = self.deferred.lock();
+        if deferred.is_empty() {
+            return Ok(());
+        }
+        self.ctx
+            .bind_to_thread()
+            .map_err(|e| vortex_err!("Failed to bind CUDA context: {e}"))?;
+        let mut buckets = self.buckets.lock();
+        let mut idx = 0usize;
+        while idx < deferred.len() {
+            if deferred[idx].event.is_complete() {
+                let deferred_item = deferred.swap_remove(idx);
+                let len = deferred_item.buffer.len();
+                let bucket = buckets.entry(len).or_default();
+                if bucket.len() < self.max_keep_per_size {
+                    bucket.push(deferred_item.buffer);
+                }
+                self.puts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            } else {
+                idx += 1;
+            }
+        }
+        Ok(())
+    }
+
     /// Acquire a pinned buffer of the given size in bytes.
     pub fn get(&self, len: usize) -> VortexResult<PinnedByteBuffer> {
+        self.reclaim_deferred()?;
         let mut buckets = self.buckets.lock();
         if let Some(bucket) = buckets.get_mut(&len)
             && let Some(buf) = bucket.pop()
@@ -152,6 +187,7 @@ impl PinnedByteBufferPool {
 
     /// Return a buffer to the pool.
     pub fn put(&self, buf: PinnedByteBuffer) -> VortexResult<()> {
+        self.reclaim_deferred()?;
         let len = buf.len();
         let mut buckets = self.buckets.lock();
         let bucket = buckets.entry(len).or_default();
@@ -169,6 +205,13 @@ impl PinnedByteBufferPool {
             inner: Some(inner),
             pool: self.clone(),
         })
+    }
+
+    /// Defer returning a pinned buffer to the pool until the CUDA event completes.
+    pub fn put_deferred(&self, event: Arc<CudaEvent>, buffer: PinnedByteBuffer) -> VortexResult<()> {
+        let mut deferred = self.deferred.lock();
+        deferred.push(DeferredPinnedBuffer { event, buffer });
+        Ok(())
     }
 
     /// Snapshot pool reuse statistics.
@@ -270,6 +313,14 @@ impl PooledPinnedBuffer {
         assert_eq!(bytes.len(), len);
 
         ByteBuffer::from(bytes)
+    }
+
+    pub fn into_inner(mut self) -> (PinnedByteBuffer, Arc<PinnedByteBufferPool>) {
+        let inner = self
+            .inner
+            .take()
+            .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
+        (inner, self.pool.clone())
     }
 }
 
