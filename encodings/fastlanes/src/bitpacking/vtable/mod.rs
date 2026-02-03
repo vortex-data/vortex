@@ -276,6 +276,12 @@ impl VTable for BitPackedVTable {
 
     // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        // If buffers are on device, we cannot eagerly slice because Patches::slice
+        // requires binary search on the indices which needs host memory for now
+        if !array.is_host() {
+            return Ok(None);
+        }
+
         let offset_start = range.start + array.offset() as usize;
         let offset_stop = range.end + array.offset() as usize;
         let offset = offset_start % 1024;

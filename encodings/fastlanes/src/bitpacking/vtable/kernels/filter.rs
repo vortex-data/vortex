@@ -29,9 +29,12 @@ use crate::BitPackedArray;
 use crate::BitPackedVTable;
 use crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD;
 use crate::bitpacking::vtable::kernels::chunked_indices;
+use crate::bitpacking::vtable::kernels::slice::BitPackingSliceKernel;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&BitPackingFilterKernel)]);
+pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&BitPackingFilterKernel),
+    ParentKernelSet::lift(&BitPackingSliceKernel),
+]);
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
