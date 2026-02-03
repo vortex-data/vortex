@@ -8,6 +8,7 @@ use std::time::Instant;
 use clap::Parser;
 use clap::value_parser;
 use datafusion::arrow::array::RecordBatch;
+use datafusion::common::runtime::set_join_set_tracer;
 use datafusion::datasource::listing::ListingOptions;
 use datafusion::datasource::listing::ListingTable;
 use datafusion::datasource::listing::ListingTableConfig;
@@ -16,6 +17,8 @@ use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::tracer::get_static_tracer;
+use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use futures::StreamExt;
@@ -103,6 +106,7 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let opts = Opts::from(args.options);
 
+    set_join_set_tracer(get_static_tracer())?;
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
     let benchmark = create_benchmark(args.benchmark, &opts)?;
@@ -137,6 +141,8 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    let benchmark_name = benchmark.dataset().to_string();
+
     let mut runner = SqlBenchmarkRunner::new(
         &*benchmark,
         Engine::DataFusion,
@@ -167,6 +173,8 @@ async fn main() -> anyhow::Result<()> {
             },
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
+
+                set_labels(benchmark_name.clone(), query_idx, *format);
 
                 Box::pin(async move {
                     let timer = Instant::now();
