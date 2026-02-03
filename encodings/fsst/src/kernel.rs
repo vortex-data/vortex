@@ -38,7 +38,7 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // TODO: add a pattern to adding checks to all filter impls
+        // TODO(joe): add a pattern to adding checks to all filter impls
         let mask = parent.filter_mask();
         if mask.true_count() == 0 {
             return Ok(Some(Canonical::empty(array.dtype()).into_array()));
