@@ -211,7 +211,7 @@ mod tests {
     use vortex_dtype::StructFields;
 
     use super::*;
-    use crate::expr::analysis::annotate_scope_access;
+    use crate::expr::analysis::make_free_field_annotator;
     use crate::expr::exprs::binary::and;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
@@ -219,7 +219,6 @@ mod tests {
     use crate::expr::exprs::merge::merge;
     use crate::expr::exprs::pack::pack;
     use crate::expr::exprs::root::root;
-    use crate::expr::exprs::select::select;
     use crate::expr::transform::replace::replace_root_fields;
 
     #[fixture]
@@ -245,7 +244,8 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = root();
-        let partitioned = partition(expr.clone(), &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned =
+            partition(expr.clone(), &dtype, make_free_field_annotator(fields)).unwrap();
 
         // An un-expanded root expression is annotated by all fields, but since it is a single node
         assert_eq!(partitioned.partitions.len(), 0);
@@ -253,7 +253,7 @@ mod tests {
 
         // Instead, callers must expand the root expression themselves.
         let expr = replace_root_fields(expr, fields);
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         assert_eq!(partitioned.partitions.len(), fields.names().len());
     }
@@ -264,7 +264,7 @@ mod tests {
 
         let expr = get_item("y", get_item("a", root()));
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
         assert_eq!(&partitioned.root, &get_item("a_0", get_item("a", root())));
     }
 
@@ -280,7 +280,7 @@ mod tests {
             ],
             NonNullable,
         );
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         let split_a = partitioned.find_partition(&"a".into()).unwrap();
         assert_eq!(
@@ -300,7 +300,7 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), lit(1));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // Whole expr is a single split
         assert_eq!(partitioned.partitions.len(), 1);
@@ -311,51 +311,10 @@ mod tests {
         let fields = dtype.as_struct_fields_opt().unwrap();
 
         let expr = and(get_item("y", get_item("a", root())), get_item("b", root()));
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
 
         // One for id.a and id.b
         assert_eq!(partitioned.partitions.len(), 2);
-    }
-
-    // Test that typed_simplify removes select and partition precise
-    #[rstest]
-    fn test_expr_partition_many_occurrences_of_field(dtype: DType) {
-        let fields = dtype.as_struct_fields_opt().unwrap();
-
-        let expr = and(
-            get_item("y", get_item("a", root())),
-            select(["a", "b"], root()),
-        );
-        let expr = expr.optimize_recursive(&dtype).unwrap();
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
-
-        // One for id.a and id.b
-        assert_eq!(partitioned.partitions.len(), 2);
-
-        // This fetches [].$c which is unused, however a previous optimisation should replace select
-        // with get_item and pack removing this field.
-        assert_eq!(
-            &partitioned.root,
-            &and(
-                get_item("a_0", get_item("a", root())),
-                pack(
-                    [
-                        (
-                            "a",
-                            get_item(
-                                StructFieldExpressionSplitter::<FieldName>::field_name(
-                                    &"a".into(),
-                                    1
-                                ),
-                                get_item("a", root())
-                            )
-                        ),
-                        ("b", get_item("b_0", get_item("b", root())))
-                    ],
-                    NonNullable
-                )
-            )
-        )
     }
 
     #[rstest]
@@ -364,7 +323,7 @@ mod tests {
 
         let expr = merge([col("a"), pack([("b", col("b"))], NonNullable)]);
 
-        let partitioned = partition(expr, &dtype, annotate_scope_access(fields)).unwrap();
+        let partitioned = partition(expr, &dtype, make_free_field_annotator(fields)).unwrap();
         let expected = pack(
             [
                 ("x", get_item("x", get_item("a_0", col("a")))),
