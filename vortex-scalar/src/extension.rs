@@ -167,7 +167,7 @@ mod tests {
     use crate::Scalar;
     use crate::ScalarValue;
 
-    #[derive(Debug, Clone, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct TestExt;
     impl ExtDTypeVTable for TestExt {
         type Metadata = EmptyMetadata;
@@ -176,7 +176,11 @@ mod tests {
             ExtID::new_ref("test_ext")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -234,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_partial_ord_different_types() {
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt2;
         impl ExtDTypeVTable for TestExt2 {
             type Metadata = EmptyMetadata;
@@ -243,7 +247,7 @@ mod tests {
                 ExtID::new_ref("test_ext_2")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,
@@ -413,7 +417,7 @@ mod tests {
 
     #[test]
     fn test_ext_scalar_with_metadata() {
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExtMetadata;
         impl ExtDTypeVTable for TestExtMetadata {
             type Metadata = usize;
@@ -422,7 +426,7 @@ mod tests {
                 ExtID::new_ref("test_ext_metadata")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

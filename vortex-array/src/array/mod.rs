@@ -56,6 +56,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
+use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -316,15 +317,13 @@ impl ToOwned for dyn Array {
 
 impl dyn Array + '_ {
     /// Returns the array downcast to the given `A`.
-    pub fn as_<V: VTable>(&self) -> &V::Array {
-        self.as_opt::<V>().vortex_expect("Failed to downcast")
+    pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
+        self.as_opt::<M>().vortex_expect("Failed to downcast")
     }
 
     /// Returns the array downcast to the given `A`.
-    pub fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
-        self.as_any()
-            .downcast_ref::<ArrayAdapter<V>>()
-            .map(|array_adapter| &array_adapter.0)
+    pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(self)
     }
 
     /// Returns the array downcast to the given `A` as an owned object.
@@ -854,5 +853,21 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         true
+    }
+}
+
+/// Implement a matcher for a specific VTable type
+impl<V: VTable> Matcher for V {
+    type Match<'a> = &'a V::Array;
+
+    fn matches(array: &dyn Array) -> bool {
+        array.as_any().is::<ArrayAdapter<V>>()
+    }
+
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+        array
+            .as_any()
+            .downcast_ref::<ArrayAdapter<V>>()
+            .map(|array_adapter| &array_adapter.0)
     }
 }

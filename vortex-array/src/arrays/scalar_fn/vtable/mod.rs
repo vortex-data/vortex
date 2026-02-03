@@ -40,7 +40,7 @@ use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
-use crate::matchers::Matcher;
+use crate::matcher::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -227,40 +227,30 @@ impl<V: expr::VTable> ScalarFnArrayExt for V {}
 #[derive(Debug)]
 pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
-    type View<'a> = &'a ScalarFnArray;
+    type Match<'a> = &'a ScalarFnArray;
 
-    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
+    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()
     }
 }
 
 /// A matcher that matches a specific scalar function expression.
-#[derive(Debug)]
-pub struct ExactScalarFn<F: expr::VTable> {
-    id: ArrayId,
-    _phantom: PhantomData<F>,
-}
-
-impl<F: expr::VTable> From<&'static F> for ExactScalarFn<F> {
-    fn from(value: &'static F) -> Self {
-        Self {
-            id: value.id(),
-            _phantom: PhantomData,
-        }
-    }
-}
+#[derive(Debug, Default)]
+pub struct ExactScalarFn<F: expr::VTable>(PhantomData<F>);
 
 impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
-    type View<'a> = ScalarFnArrayView<'a, F>;
+    type Match<'a> = ScalarFnArrayView<'a, F>;
 
-    fn try_match<'a>(&self, array: &'a ArrayRef) -> Option<Self::View<'a>> {
-        if array.encoding_id() != self.id {
-            return None;
+    fn matches(array: &dyn Array) -> bool {
+        if let Some(scalar_fn_array) = array.as_opt::<ScalarFnVTable>() {
+            scalar_fn_array.scalar_fn().is::<F>()
+        } else {
+            false
         }
+    }
 
-        let scalar_fn_array = array
-            .as_opt::<ScalarFnVTable>()
-            .vortex_expect("Array encoding ID matched but downcast to ScalarFnVTable failed");
+    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
+        let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn
             .vtable()
@@ -282,13 +272,13 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
 }
 
 pub struct ScalarFnArrayView<'a, F: expr::VTable> {
-    array: &'a ArrayRef,
+    array: &'a dyn Array,
     pub vtable: &'a F,
     pub options: &'a F::Options,
 }
 
 impl<F: expr::VTable> Deref for ScalarFnArrayView<'_, F> {
-    type Target = ArrayRef;
+    type Target = dyn Array;
 
     fn deref(&self) -> &Self::Target {
         self.array

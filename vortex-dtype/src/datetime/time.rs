@@ -15,7 +15,7 @@ use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
 
 /// Time DType.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Time;
 
 impl Time {
@@ -50,7 +50,7 @@ impl ExtDTypeVTable for Time {
         TimeUnit::try_from(tag)
     }
 
-    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
         let ptype = time_ptype(metadata)
             .ok_or_else(|| vortex_err!("Time type does not support time unit {}", metadata))?;
 

@@ -567,7 +567,7 @@ mod tests {
         use vortex::dtype::ExtID;
         use vortex::dtype::PType;
 
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt;
         impl ExtDTypeVTable for TestExt {
             type Metadata = EmptyMetadata;
@@ -576,7 +576,7 @@ mod tests {
                 ExtID::new_ref("unknown.extension")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

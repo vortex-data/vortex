@@ -13,7 +13,6 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -54,11 +53,7 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 struct BitPackingFilterKernel;
 
 impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn execute_parent(
         &self,

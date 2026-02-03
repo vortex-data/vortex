@@ -12,7 +12,6 @@ use vortex_array::compute::FilterKernel;
 use vortex_array::compute::filter_preconditions;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -25,11 +24,7 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> =
 struct FSSTFilterKernel;
 
 impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn execute_parent(
         &self,
