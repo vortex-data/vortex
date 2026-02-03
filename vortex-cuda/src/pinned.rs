@@ -23,6 +23,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 /// allocation.
 pub struct PinnedByteBuffer {
     inner: PinnedHostSlice<u8>,
+    logical_len: usize,
 }
 
 #[allow(clippy::same_name_method)]
@@ -36,23 +37,50 @@ impl PinnedByteBuffer {
             ctx.alloc_pinned::<u8>(len)
                 .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
         };
-        Ok(Self { inner })
+        Ok(Self {
+            inner,
+            logical_len: len,
+        })
+    }
+
+    /// Allocate a pinned host buffer with a given capacity and logical length.
+    ///
+    /// # Safety
+    /// The returned buffer's contents are uninitialized. The caller must initialize before read.
+    pub unsafe fn uninit_with_capacity(
+        ctx: &Arc<CudaContext>,
+        capacity: usize,
+        logical_len: usize,
+    ) -> VortexResult<Self> {
+        let inner = unsafe {
+            ctx.alloc_pinned::<u8>(capacity)
+                .map_err(|e| vortex_err!("failed to allocate pinned host buffer: {e}"))?
+        };
+        Ok(Self {
+            inner,
+            logical_len,
+        })
     }
 
     /// Returns the length of the buffer in bytes.
     pub fn len(&self) -> usize {
+        self.logical_len
+    }
+
+    pub fn capacity(&self) -> usize {
         self.inner.len()
     }
 
     /// Returns true if the buffer is empty.
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.logical_len == 0
     }
 
     /// Returns the buffer as an immutable slice.
     pub fn as_slice(&self) -> VortexResult<&[u8]> {
         self.inner
             .as_slice()
+            .map(|slice| &slice[..self.logical_len])
             .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
     }
 
@@ -60,6 +88,7 @@ impl PinnedByteBuffer {
     pub fn as_mut_slice(&mut self) -> VortexResult<&mut [u8]> {
         self.inner
             .as_mut_slice()
+            .map(|slice| &mut slice[..self.logical_len])
             .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
     }
 
@@ -75,6 +104,11 @@ impl PinnedByteBuffer {
         self.inner
             .as_mut_ptr()
             .map_err(|e| vortex_err!("failed to access pinned host buffer: {e}"))
+    }
+
+    fn set_logical_len(&mut self, len: usize) {
+        debug_assert!(len <= self.inner.len());
+        self.logical_len = len;
     }
 
     /// Returns the CUDA context that owns this allocation.
@@ -93,16 +127,19 @@ impl HostSlice<u8> for PinnedByteBuffer {
         &'a self,
         stream: &'a CudaStream,
     ) -> (&'a [u8], SyncOnDrop<'a>) {
-        unsafe { <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream) }
+        let (slice, sync) =
+            unsafe { <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_slice(&self.inner, stream) };
+        (&slice[..self.logical_len], sync)
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
         &'a mut self,
         stream: &'a CudaStream,
     ) -> (&'a mut [u8], SyncOnDrop<'a>) {
-        unsafe {
+        let (slice, sync) = unsafe {
             <PinnedHostSlice<u8> as HostSlice<u8>>::stream_synced_mut_slice(&mut self.inner, stream)
-        }
+        };
+        (&mut slice[..self.logical_len], sync)
     }
 }
 
@@ -112,6 +149,7 @@ pub struct PinnedByteBufferPool {
     max_keep_per_size: usize,
     buckets: Mutex<HashMap<usize, Vec<PinnedByteBuffer>>>,
     deferred: Mutex<Vec<DeferredPinnedBuffer>>,
+    round_len_pow2: bool,
     hits: std::sync::atomic::AtomicU64,
     misses: std::sync::atomic::AtomicU64,
     allocs: std::sync::atomic::AtomicU64,
@@ -126,7 +164,7 @@ struct DeferredPinnedBuffer {
 impl PinnedByteBufferPool {
     /// Create a new pool with default limits.
     pub fn new(ctx: Arc<CudaContext>) -> Self {
-        Self::with_limits(ctx, 4)
+        Self::with_limits_pow2(ctx, 4)
     }
 
     /// Create a new pool with a maximum number of cached buffers per size.
@@ -136,10 +174,29 @@ impl PinnedByteBufferPool {
             max_keep_per_size: max_keep_per_size.max(1),
             buckets: Mutex::new(HashMap::new()),
             deferred: Mutex::new(Vec::new()),
+            round_len_pow2: false,
             hits: std::sync::atomic::AtomicU64::new(0),
             misses: std::sync::atomic::AtomicU64::new(0),
             allocs: std::sync::atomic::AtomicU64::new(0),
             puts: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// Create a new pool with a maximum number of cached buffers per size and power-of-two buckets.
+    pub fn with_limits_pow2(ctx: Arc<CudaContext>, max_keep_per_size: usize) -> Self {
+        let mut pool = Self::with_limits(ctx, max_keep_per_size);
+        pool.round_len_pow2 = true;
+        pool
+    }
+
+    fn size_class_len(&self, len: usize) -> usize {
+        if !self.round_len_pow2 {
+            return len;
+        }
+        if len == 0 {
+            0
+        } else {
+            len.next_power_of_two()
         }
     }
 
@@ -156,7 +213,7 @@ impl PinnedByteBufferPool {
         while idx < deferred.len() {
             if deferred[idx].event.is_complete() {
                 let deferred_item = deferred.swap_remove(idx);
-                let len = deferred_item.buffer.len();
+                let len = deferred_item.buffer.capacity();
                 let bucket = buckets.entry(len).or_default();
                 if bucket.len() < self.max_keep_per_size {
                     bucket.push(deferred_item.buffer);
@@ -172,23 +229,26 @@ impl PinnedByteBufferPool {
     /// Acquire a pinned buffer of the given size in bytes.
     pub fn get(&self, len: usize) -> VortexResult<PinnedByteBuffer> {
         self.reclaim_deferred()?;
+        let key_len = self.size_class_len(len);
         let mut buckets = self.buckets.lock();
-        if let Some(bucket) = buckets.get_mut(&len)
+        if let Some(bucket) = buckets.get_mut(&key_len)
             && let Some(buf) = bucket.pop()
         {
             self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut buf = buf;
+            buf.set_logical_len(len);
             return Ok(buf);
         }
         self.misses
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.allocs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        unsafe { PinnedByteBuffer::uninit(&self.ctx, len) }
+        unsafe { PinnedByteBuffer::uninit_with_capacity(&self.ctx, key_len, len) }
     }
 
     /// Return a buffer to the pool.
     pub fn put(&self, buf: PinnedByteBuffer) -> VortexResult<()> {
         self.reclaim_deferred()?;
-        let len = buf.len();
+        let len = buf.capacity();
         let mut buckets = self.buckets.lock();
         let bucket = buckets.entry(len).or_default();
         if bucket.len() < self.max_keep_per_size {
@@ -338,7 +398,8 @@ impl HostSlice<u8> for PooledPinnedBuffer {
             .inner
             .as_ref()
             .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
-        unsafe { HostSlice::stream_synced_slice(inner, stream) }
+        let (slice, sync) = unsafe { HostSlice::stream_synced_slice(inner, stream) };
+        (&slice[..inner.len()], sync)
     }
 
     unsafe fn stream_synced_mut_slice<'a>(
@@ -349,7 +410,9 @@ impl HostSlice<u8> for PooledPinnedBuffer {
             .inner
             .as_mut()
             .unwrap_or_else(|| vortex_panic!("buffer already consumed"));
-        unsafe { HostSlice::stream_synced_mut_slice(inner, stream) }
+        let len = inner.len();
+        let (slice, sync) = unsafe { HostSlice::stream_synced_mut_slice(inner, stream) };
+        (&mut slice[..len], sync)
     }
 }
 
