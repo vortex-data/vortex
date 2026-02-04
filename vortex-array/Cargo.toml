@@ -157,6 +157,10 @@ name = "varbinview_zip"
 harness = false
 
 [[bench]]
+name = "list_compute"
+harness = false
+
+[[bench]]
 name = "take_primitive"
 harness = false
 
