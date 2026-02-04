@@ -235,27 +235,25 @@ impl TryFrom<&DType> for LogicalType {
                 };
 
                 match temporal {
-                    TemporalMetadata::Timestamp(ts) => match &ts.tz {
-                        None => match ts.unit {
-                            TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
-                            TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
-                            TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
-                            TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
-                            _ => vortex_bail!("Invalid TimeUnit {} for timestamp", ts.unit),
-                        },
-                        Some(tz) => {
-                            if tz.as_ref() != "UTC" {
-                                vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
-                            }
-                            if ts.unit != TimeUnit::Microseconds {
-                                vortex_bail!(
-                                    "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
-                                    ts.unit
-                                );
-                            }
-                            DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
-                        }
+                    TemporalMetadata::Timestamp(unit, None) => match unit {
+                        TimeUnit::Nanoseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_NS,
+                        TimeUnit::Microseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP,
+                        TimeUnit::Milliseconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_MS,
+                        TimeUnit::Seconds => DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_S,
+                        _ => vortex_bail!("Invalid TimeUnit {} for timestamp", unit),
                     },
+                    TemporalMetadata::Timestamp(unit, Some(tz)) => {
+                        if tz.as_ref() != "UTC" {
+                            vortex_bail!("Invalid timezone for timestamp_tz {tz}, must be UTC");
+                        }
+                        if unit != &TimeUnit::Microseconds {
+                            vortex_bail!(
+                                "Invalid TimeUnit {} for timestamp_tz, must be Microseconds",
+                                unit
+                            );
+                        }
+                        DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ
+                    }
                     TemporalMetadata::Date(unit) => match unit {
                         TimeUnit::Days => DUCKDB_TYPE::DUCKDB_TYPE_DATE,
                         _ => vortex_bail!("Invalid TimeUnit {} for date", unit),
@@ -569,7 +567,7 @@ mod tests {
         use vortex::dtype::ExtID;
         use vortex::dtype::PType;
 
-        #[derive(Clone, Debug, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct TestExt;
         impl ExtDTypeVTable for TestExt {
             type Metadata = EmptyMetadata;
@@ -578,7 +576,7 @@ mod tests {
                 ExtID::new_ref("unknown.extension")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

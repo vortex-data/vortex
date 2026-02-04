@@ -8,7 +8,7 @@ from enum import Enum
 from pathlib import Path
 
 
-class Engine(str, Enum):
+class Engine(Enum):
     """Execution engines for benchmarks."""
 
     DUCKDB = "duckdb"
@@ -25,7 +25,7 @@ class Engine(str, Enum):
         }[self]
 
 
-class Format(str, Enum):
+class Format(Enum):
     """Data formats for benchmarks."""
 
     PARQUET = "parquet"
@@ -35,7 +35,7 @@ class Format(str, Enum):
     LANCE = "lance"
 
 
-class Benchmark(str, Enum):
+class Benchmark(Enum):
     """Available benchmark suites."""
 
     TPCH = "tpch"

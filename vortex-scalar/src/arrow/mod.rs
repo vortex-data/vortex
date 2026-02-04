@@ -10,7 +10,6 @@ use vortex_dtype::PType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::datetime::TemporalMetadata;
 use vortex_dtype::datetime::TimeUnit;
-use vortex_dtype::datetime::TimestampOptions;
 use vortex_error::VortexError;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -134,7 +133,7 @@ impl TryFrom<&Scalar> for Arc<dyn Datum> {
                     .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;
 
                 match temporal {
-                    TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
+                    TemporalMetadata::Timestamp(unit, tz) => {
                         let value = primitive.as_::<i64>();
                         match unit {
                             TimeUnit::Nanoseconds => {

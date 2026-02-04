@@ -109,7 +109,7 @@ impl VTable for ConstantVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         constant_canonicalize(array)
     }
 }

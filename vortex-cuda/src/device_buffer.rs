@@ -27,6 +27,7 @@ use crate::stream::await_stream_callback;
 /// A [`DeviceBuffer`] wrapping a CUDA GPU allocation.
 ///
 /// Like the host `BufferHandle` variant, all slicing/referencing works in terms of byte units.
+#[derive(Clone)]
 pub struct CudaDeviceBuffer {
     allocation: Arc<dyn private::DeviceAllocation>,
     /// Offset in bytes from the start of the allocation
@@ -38,8 +39,6 @@ pub struct CudaDeviceBuffer {
     /// Minimum required alignment of the buffer.
     alignment: Alignment,
 }
-
-// We can call the sys methods, it's just a lot of extra code...fuck that lol
 
 mod private {
     use std::fmt::Debug;

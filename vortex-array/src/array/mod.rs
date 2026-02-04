@@ -24,6 +24,7 @@ use vortex_error::vortex_panic;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
+use crate::AnyCanonical;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::Canonical;
@@ -34,16 +35,11 @@ use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalVTable;
 use crate::arrays::DictArray;
-use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
-use crate::arrays::FixedSizeListVTable;
-use crate::arrays::ListViewVTable;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::SliceArray;
-use crate::arrays::StructVTable;
 use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
@@ -56,6 +52,7 @@ use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
 use crate::hash;
+use crate::matcher::Matcher;
 use crate::optimizer::ArrayOptimizer;
 use crate::stats::StatsSetRef;
 use crate::validity::Validity;
@@ -315,16 +312,19 @@ impl ToOwned for dyn Array {
 }
 
 impl dyn Array + '_ {
-    /// Returns the array downcast to the given `A`.
-    pub fn as_<V: VTable>(&self) -> &V::Array {
-        self.as_opt::<V>().vortex_expect("Failed to downcast")
+    /// Does the array match the given matcher.
+    pub fn is<M: Matcher>(&self) -> bool {
+        M::matches(self)
     }
 
-    /// Returns the array downcast to the given `A`.
-    pub fn as_opt<V: VTable>(&self) -> Option<&V::Array> {
-        self.as_any()
-            .downcast_ref::<ArrayAdapter<V>>()
-            .map(|array_adapter| &array_adapter.0)
+    /// Returns the array downcast by the given matcher.
+    pub fn as_<M: Matcher>(&self) -> M::Match<'_> {
+        self.as_opt::<M>().vortex_expect("Failed to downcast")
+    }
+
+    /// Returns the array downcast by the given matcher.
+    pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
+        M::try_match(self)
     }
 
     /// Returns the array downcast to the given `A` as an owned object.
@@ -343,11 +343,6 @@ impl dyn Array + '_ {
             }
             false => Err(self),
         }
-    }
-
-    /// Is self an array with encoding from vtable `V`.
-    pub fn is<V: VTable>(&self) -> bool {
-        self.as_opt::<V>().is_some()
     }
 
     pub fn as_constant(&self) -> Option<Scalar> {
@@ -376,15 +371,7 @@ impl dyn Array + '_ {
 
     /// Whether the array is of a canonical encoding.
     pub fn is_canonical(&self) -> bool {
-        self.is::<NullVTable>()
-            || self.is::<BoolVTable>()
-            || self.is::<PrimitiveVTable>()
-            || self.is::<DecimalVTable>()
-            || self.is::<StructVTable>()
-            || self.is::<ListViewVTable>()
-            || self.is::<FixedSizeListVTable>()
-            || self.is::<VarBinViewVTable>()
-            || self.is::<ExtensionVTable>()
+        self.is::<AnyCanonical>()
     }
 }
 
@@ -633,7 +620,7 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = V::execute(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
+        let canonical = V::canonicalize(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
 
         assert_eq!(
             self.len(),
@@ -854,5 +841,21 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         }
 
         true
+    }
+}
+
+/// Implement a matcher for a specific VTable type
+impl<V: VTable> Matcher for V {
+    type Match<'a> = &'a V::Array;
+
+    fn matches(array: &dyn Array) -> bool {
+        array.as_any().is::<ArrayAdapter<V>>()
+    }
+
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+        array
+            .as_any()
+            .downcast_ref::<ArrayAdapter<V>>()
+            .map(|array_adapter| &array_adapter.0)
     }
 }

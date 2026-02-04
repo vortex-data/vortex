@@ -166,7 +166,7 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // TODO(joe): take by value
         Ok(Canonical::Primitive(execute_decompress(
             array.clone(),
@@ -178,8 +178,8 @@ impl VTable for ALPVTable {
         array: &Self::Array,
         parent: &ArrayRef,
         _child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // CPU-only: if parent is SliceArray, perform slicing of the buffer and any patches
         // Note that this triggers compute (binary searching Patches) which we cannot do when the
         // buffers live in GPU memory.
@@ -195,7 +195,7 @@ impl VTable for ALPVTable {
                     .flatten(),
             )
             .into_array();
-            return Ok(Some(sliced_alp.execute::<Canonical>(ctx)?));
+            return Ok(Some(sliced_alp));
         }
 
         Ok(None)

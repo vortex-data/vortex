@@ -4,7 +4,6 @@
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
@@ -12,7 +11,6 @@ use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
@@ -29,22 +27,16 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> =
 struct RunEndSliceKernel;
 
 impl ExecuteParentKernel<RunEndVTable> for RunEndSliceKernel {
-    type Parent = Exact<SliceVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = SliceVTable;
 
     fn execute_parent(
         &self,
         array: &RunEndArray,
         parent: &SliceArray,
         _child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
-        let sliced = slice(array, parent.slice_range().clone())?;
-
-        sliced.execute::<Canonical>(ctx).map(Some)
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        slice(array, parent.slice_range().clone()).map(Some)
     }
 }
 

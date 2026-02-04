@@ -142,7 +142,7 @@ impl VTable for VarBinVTable {
         }))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         varbin_to_canonical(array, ctx)
     }
 }

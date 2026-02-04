@@ -23,8 +23,10 @@ use vortex_utils::aliases::dash_map::DashMap;
 mod arrays;
 mod encodings;
 mod filter;
+mod patches;
 mod slice;
 
+pub use arrays::ConstantNumericExecutor;
 pub use arrays::DictExecutor;
 pub use encodings::*;
 pub use filter::FilterExecutor;
@@ -65,7 +67,7 @@ macro_rules! launch_cuda_kernel {
         array_len: $len:expr
     ) => {{
         use ::cudarc::driver::PushKernelArg as _;
-        let cuda_function = $ctx.load_function($module, $ptypes)?;
+        let cuda_function = $ctx.load_function_ptype($module, $ptypes)?;
         let mut launch_builder = $ctx.launch_builder(&cuda_function);
 
         $(

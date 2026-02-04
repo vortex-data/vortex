@@ -57,21 +57,17 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
-    /// See [`VTable::execute`]
-    fn execute_canonical(
-        &self,
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Canonical>;
+    /// See [`VTable::canonicalize`]
+    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// See [`VTable::execute_parent`]
-    fn execute_canonical_parent(
+    fn execute_parent(
         &self,
         array: &ArrayRef,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>>;
+    ) -> VortexResult<Option<ArrayRef>>;
 
     fn slice(&self, array: &ArrayRef, range: Range<usize>) -> VortexResult<Option<ArrayRef>>;
 }
@@ -148,12 +144,8 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn execute_canonical(
-        &self,
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Canonical> {
-        let result = V::execute(downcast::<V>(array), ctx)?;
+    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let result = V::canonicalize(downcast::<V>(array), ctx)?;
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
@@ -171,13 +163,13 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(result)
     }
 
-    fn execute_canonical_parent(
+    fn execute_parent(
         &self,
         array: &ArrayRef,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let Some(result) = V::execute_parent(downcast::<V>(array), parent, child_idx, ctx)? else {
             return Ok(None);
         };

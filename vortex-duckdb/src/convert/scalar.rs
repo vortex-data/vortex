@@ -182,7 +182,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
 
         Ok(match temporal {
-            TemporalMetadata::Timestamp(TimestampOptions { unit, tz }) => {
+            TemporalMetadata::Timestamp(unit, tz) => {
                 if let Some(tz) = tz.as_ref() {
                     if tz.as_ref() != "UTC" {
                         // TODO(ngates): we should convert into UTC as DuckDB does internally.

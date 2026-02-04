@@ -349,7 +349,7 @@ impl PyVortexWriteOptions {
         store: Option<PyObjectStore>,
     ) -> PyVortexResult<()> {
         py.detach(|| {
-            let mut strategy = WriteStrategyBuilder::new();
+            let mut strategy = WriteStrategyBuilder::default();
             if let Some(compressor) = self.compressor.as_ref() {
                 strategy = strategy.with_compressor(compressor.clone())
             }

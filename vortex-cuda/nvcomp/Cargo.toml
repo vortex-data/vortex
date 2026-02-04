@@ -24,4 +24,4 @@ vortex-cuda-macros = { workspace = true }
 bindgen = { workspace = true }
 reqwest = { workspace = true }
 tar = { workspace = true }
-xz2 = { workspace = true }
+liblzma = { workspace = true }

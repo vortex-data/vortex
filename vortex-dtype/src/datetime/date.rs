@@ -15,7 +15,7 @@ use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
 
 /// Date DType.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Date;
 
 impl Date {
@@ -54,7 +54,7 @@ impl ExtDTypeVTable for Date {
         TimeUnit::try_from(tag)
     }
 
-    fn validate(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(&self, metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
         let ptype = date_ptype(metadata)
             .ok_or_else(|| vortex_err!("Date type does not support time unit {}", metadata))?;
 

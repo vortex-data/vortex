@@ -23,7 +23,7 @@ _test-harness = []
 [dependencies]
 arc-swap = { workspace = true }
 async-trait = { workspace = true }
-cudarc = { workspace = true }
+cudarc = { workspace = true, features = ["f16"] }
 fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
@@ -41,6 +41,9 @@ vortex-fastlanes = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
+vortex-runend = { workspace = true }
+vortex-scalar = { workspace = true }
+vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
@@ -73,4 +76,8 @@ harness = false
 
 [[bench]]
 name = "filter_cuda"
+harness = false
+
+[[bench]]
+name = "runend_cuda"
 harness = false

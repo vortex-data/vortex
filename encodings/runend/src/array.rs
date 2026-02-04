@@ -138,11 +138,11 @@ impl VTable for RunEndVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         run_end_canonicalize(array, ctx)
     }
 }
@@ -409,8 +409,8 @@ impl RunEndArray {
     #[inline]
     pub fn into_parts(self) -> RunEndArrayParts {
         RunEndArrayParts {
-            values: self.values,
             ends: self.ends,
+            values: self.values,
         }
     }
 }

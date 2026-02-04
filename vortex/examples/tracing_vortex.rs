@@ -388,7 +388,7 @@ async fn write_batch_to_vortex(
 
     // Use the write-optimized CompactCompressor for the telemetry files.
     let write_opts = session.write_options().with_strategy(
-        WriteStrategyBuilder::new()
+        WriteStrategyBuilder::default()
             .with_compressor(CompactCompressor::default())
             .build(),
     );

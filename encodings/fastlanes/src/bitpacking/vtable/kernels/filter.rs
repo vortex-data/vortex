@@ -5,14 +5,14 @@ use std::mem::MaybeUninit;
 use std::sync::Arc;
 
 use fastlanes::BitPacking;
-use vortex_array::Canonical;
+use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -53,11 +53,7 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 struct BitPackingFilterKernel;
 
 impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn execute_parent(
         &self,
@@ -65,7 +61,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
         parent: &FilterArray,
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         let values = match parent.filter_mask() {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
@@ -98,7 +94,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
             primitive = primitive.patch(&patches)?;
         }
 
-        Ok(Some(Canonical::Primitive(primitive)))
+        Ok(Some(primitive.into_array()))
     }
 }
 

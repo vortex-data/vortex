@@ -152,7 +152,7 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         if let Some(canonical) = execute_fast_path(array, ctx)? {
             return Ok(canonical);
         }

@@ -141,7 +141,7 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(delta_decompress(array, ctx)?))
     }
 }

@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "scalar_kernel.cuh"
+#include "types.cuh"
 
 // Frame-of-Reference operation: adds a reference value to each element.
 template<typename T>
@@ -34,22 +35,8 @@ extern "C" __global__ void for_in_out_##suffix( \
     scalar_kernel(input, output, array_len, ForOp<Type>{reference}); \
 }
 
-// In-place variants (modifies input buffer)
-GENERATE_FOR_KERNEL(u8, uint8_t)
-GENERATE_FOR_KERNEL(i8, int8_t)
-GENERATE_FOR_KERNEL(u16, uint16_t)
-GENERATE_FOR_KERNEL(i16, int16_t)
-GENERATE_FOR_KERNEL(u32, uint32_t)
-GENERATE_FOR_KERNEL(i32, int32_t)
-GENERATE_FOR_KERNEL(u64, uint64_t)
-GENERATE_FOR_KERNEL(i64, int64_t)
+// In-place variants (modifies input buffer) - FoR is only used for integers
+FOR_EACH_INTEGER(GENERATE_FOR_KERNEL)
 
 // Separate input/output variants (preserves input buffer)
-GENERATE_FOR_IN_OUT_KERNEL(u8, uint8_t)
-GENERATE_FOR_IN_OUT_KERNEL(i8, int8_t)
-GENERATE_FOR_IN_OUT_KERNEL(u16, uint16_t)
-GENERATE_FOR_IN_OUT_KERNEL(i16, int16_t)
-GENERATE_FOR_IN_OUT_KERNEL(u32, uint32_t)
-GENERATE_FOR_IN_OUT_KERNEL(i32, int32_t)
-GENERATE_FOR_IN_OUT_KERNEL(u64, uint64_t)
-GENERATE_FOR_IN_OUT_KERNEL(i64, int64_t)
+FOR_EACH_INTEGER(GENERATE_FOR_IN_OUT_KERNEL)
