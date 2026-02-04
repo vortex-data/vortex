@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
+
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
@@ -26,13 +28,40 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingSliceKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        assert!(
-            array.is_host(),
-            "BitPackingSliceKernel requires host-resident buffers"
-        );
+        // If buffers are on device, we cannot eagerly slice because Patches::slice
+        // requires binary search on the indices which needs host memory for now
+        if !array.is_host() {
+            return Ok(None);
+        }
 
         let range = parent.slice_range().clone();
-        <BitPackedVTable as VTable>::slice(array, range)
+        let offset_start = range.start + array.offset() as usize;
+        let offset_stop = range.end + array.offset() as usize;
+        let offset = offset_start % 1024;
+        let block_start = max(0, offset_start - offset);
+        let block_stop = offset_stop.div_ceil(1024) * 1024;
+
+        let encoded_start = (block_start / 8) * array.bit_width() as usize;
+        let encoded_stop = (block_stop / 8) * array.bit_width() as usize;
+
+        // slice the buffer using the encoded start/stop values
+        // SAFETY: slicing packed values without decoding preserves invariants
+        Ok(Some(unsafe {
+            BitPackedArray::new_unchecked(
+                array.packed().slice(encoded_start..encoded_stop),
+                array.dtype.clone(),
+                array.validity()?.slice(range.clone())?,
+                array
+                    .patches()
+                    .map(|p| p.slice(range.clone()))
+                    .transpose()?
+                    .flatten(),
+                array.bit_width(),
+                range.len(),
+                offset as u16,
+            )
+            .into_array()
+        }))
     }
 }
 
