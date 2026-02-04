@@ -25,15 +25,22 @@ impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
 
 #[cfg(test)]
 mod test {
+    use std::ops::Range;
+    use std::sync::LazyLock;
+
     use vortex_array::Array;
     use vortex_array::IntoArray;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
+    use vortex_array::arrays::SliceArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::assert_nth_scalar;
     use vortex_array::buffer::BufferHandle;
     use vortex_array::compute::take;
     use vortex_array::patches::Patches;
+    use vortex_array::session::ArraySession;
     use vortex_array::validity::Validity;
+    use vortex_array::vtable::VTable;
     use vortex_buffer::Alignment;
     use vortex_buffer::Buffer;
     use vortex_buffer::ByteBuffer;
@@ -46,6 +53,23 @@ mod test {
     use crate::BitPackedArray;
     use crate::BitPackedVTable;
 
+    static SESSION: LazyLock<vortex_session::VortexSession> =
+        LazyLock::new(|| vortex_session::VortexSession::empty().with::<ArraySession>());
+
+    fn slice_via_kernel(array: &BitPackedArray, range: Range<usize>) -> BitPackedArray {
+        let slice_array = SliceArray::new(array.clone().into_array(), range);
+        let mut ctx = SESSION.create_execution_ctx();
+        let sliced = <BitPackedVTable as VTable>::execute_parent(
+            array,
+            &slice_array.into_array(),
+            0,
+            &mut ctx,
+        )
+        .expect("execute_parent failed")
+        .expect("expected slice kernel to execute");
+        sliced.as_::<BitPackedVTable>().clone()
+    }
+
     #[test]
     pub fn slice_block() {
         let arr = BitPackedArray::encode(
@@ -53,11 +77,7 @@ mod test {
             6,
         )
         .unwrap();
-        let sliced = arr
-            .slice(1024..2048)
-            .unwrap()
-            .as_::<BitPackedVTable>()
-            .clone();
+        let sliced = slice_via_kernel(&arr, 1024..2048);
         assert_nth_scalar!(sliced, 0, 1024u32 % 64);
         assert_nth_scalar!(sliced, 1023, 2047u32 % 64);
         assert_eq!(sliced.offset(), 0);
@@ -70,13 +90,8 @@ mod test {
             PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
-        .unwrap()
-        .into_array();
-        let sliced = arr
-            .slice(512..1434)
-            .unwrap()
-            .as_::<BitPackedVTable>()
-            .clone();
+        .unwrap();
+        let sliced = slice_via_kernel(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
@@ -115,22 +130,13 @@ mod test {
             PrimitiveArray::from_iter((0u32..2048).map(|v| v % 64)).as_ref(),
             6,
         )
-        .unwrap()
-        .into_array();
-        let sliced = arr
-            .slice(512..1434)
-            .unwrap()
-            .as_::<BitPackedVTable>()
-            .clone();
+        .unwrap();
+        let sliced = slice_via_kernel(&arr, 512..1434);
         assert_nth_scalar!(sliced, 0, 512u32 % 64);
         assert_nth_scalar!(sliced, 921, 1433u32 % 64);
         assert_eq!(sliced.offset(), 512);
         assert_eq!(sliced.len(), 922);
-        let doubly_sliced = sliced
-            .slice(127..911)
-            .unwrap()
-            .as_::<BitPackedVTable>()
-            .clone();
+        let doubly_sliced = slice_via_kernel(&sliced, 127..911);
         assert_nth_scalar!(doubly_sliced, 0, (512u32 + 127) % 64);
         assert_nth_scalar!(doubly_sliced, 783, (512u32 + 910) % 64);
         assert_eq!(doubly_sliced.offset(), 639);
@@ -148,8 +154,7 @@ mod test {
         assert_eq!(patch_indices.len(), 1);
 
         // Slicing drops the empty patches array.
-        let sliced = array.slice(0..64).unwrap();
-        let sliced_bp = sliced.as_::<BitPackedVTable>();
+        let sliced_bp = slice_via_kernel(&array, 0..64);
         assert!(sliced_bp.patches().is_none());
     }
 

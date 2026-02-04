@@ -247,7 +247,6 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
-    use crate::BitPackedVTable;
     use crate::bitpack_compress::bitpack_encode;
 
     static SESSION: LazyLock<VortexSession> =
@@ -354,11 +353,15 @@ mod tests {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 1025);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023..1025).unwrap();
-        let actual = unpack_array(
-            bitpacked.as_::<BitPackedVTable>(),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let slice_ref = bitpacked.into_array().slice(1023..1025).unwrap();
+        let actual = {
+            let mut ctx = SESSION.create_execution_ctx();
+            slice_ref
+                .clone()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+                .into_primitive()
+        };
         assert_arrays_eq!(actual, PrimitiveArray::from_iter([1535u16, 1536]));
         Ok(())
     }
@@ -371,11 +374,15 @@ mod tests {
         let bitpacked = bitpack_encode(&zeros, 10, None).unwrap();
         assert_eq!(bitpacked.len(), 2229);
         assert!(bitpacked.patches().is_some());
-        let bitpacked = bitpacked.slice(1023..2049).unwrap();
-        let actual = unpack_array(
-            bitpacked.as_::<BitPackedVTable>(),
-            &mut SESSION.create_execution_ctx(),
-        )?;
+        let slice_ref = bitpacked.into_array().slice(1023..2049).unwrap();
+        let actual = {
+            let mut ctx = SESSION.create_execution_ctx();
+            slice_ref
+                .clone()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+                .into_primitive()
+        };
         assert_arrays_eq!(
             actual,
             PrimitiveArray::from_iter((1023u16..2049).map(|x| x + 512))
@@ -664,15 +671,22 @@ mod tests {
         // Test with sliced array (offset > 0).
         let values = PrimitiveArray::from_iter(0u32..2048);
         let bitpacked = bitpack_encode(&values, 11, None).unwrap();
-        let sliced = bitpacked.slice(500..1500).unwrap();
+        let slice_ref = bitpacked.into_array().slice(500..1500).unwrap();
+        let sliced = {
+            let mut ctx = SESSION.create_execution_ctx();
+            slice_ref
+                .clone()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+                .into_primitive()
+        };
 
         // Test all three methods on the sliced array.
-        let sliced_bp = sliced.as_::<BitPackedVTable>();
-        let primitive_result = unpack_to_primitive(sliced_bp);
-        let unpacked_array = unpack_array(sliced_bp, &mut SESSION.create_execution_ctx())?;
+        let primitive_result = sliced.clone();
+        let unpacked_array = sliced;
         let executed = {
             let mut ctx = SESSION.create_execution_ctx();
-            sliced.execute::<Canonical>(&mut ctx).unwrap()
+            slice_ref.clone().execute::<Canonical>(&mut ctx).unwrap()
         };
 
         assert_eq!(

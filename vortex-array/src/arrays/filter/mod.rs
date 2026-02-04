@@ -7,6 +7,12 @@ pub use array::FilterArrayParts;
 
 mod execute;
 
+mod kernel;
+pub use kernel::FilterExecuteAdaptor;
+pub use kernel::FilterKernel;
+pub use kernel::FilterReduce;
+pub use kernel::FilterReduceAdaptor;
+
 mod rules;
 
 mod vtable;

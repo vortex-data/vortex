@@ -212,9 +212,8 @@ impl RunEndArray {
             return Ok(());
         }
 
-        // Skip host-only validation when buffers are on the GPU.
-        let ends_on_device = ends.buffer_handles().iter().any(|h| h.is_on_device());
-        if ends_on_device {
+        // Skip host-only validation when ends are not host-resident.
+        if !ends.is_host() {
             return Ok(());
         }
 
