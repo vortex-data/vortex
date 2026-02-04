@@ -17,9 +17,9 @@ use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
-use crate::columnar::Columnar;
 use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -140,7 +140,7 @@ impl VTable for Select {
         &self,
         selection: &FieldSelection,
         mut args: ExecutionArgs,
-    ) -> VortexResult<Columnar> {
+    ) -> VortexResult<ArrayRef> {
         let child = args
             .inputs
             .pop()

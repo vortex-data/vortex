@@ -19,7 +19,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::columnar::Columnar;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -93,9 +92,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     ///
     /// This provides maximum opportunities for array-level optimizations using execute_parent
     /// kernels.
-    ///
-    // TODO(ngates): replace return type Columnar with ArrayRef to allow for incremental execution.
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar>;
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -380,7 +377,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Columnar>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ArrayRef>;
     fn reduce(
         &self,
         options: &dyn Any,
@@ -496,7 +493,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;

@@ -16,9 +16,9 @@ use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
-use crate::columnar::Columnar;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -130,7 +130,7 @@ impl VTable for Pack {
         Ok(Some(lit(true)))
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let len = args.row_count;
         let value_arrays = args.inputs;
         let validity: Validity = options.nullability.into();

@@ -21,18 +21,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
-use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
-use crate::columnar::Columnar;
 use crate::executor::ExecutionCtx;
 use crate::expr;
 use crate::expr::Arity;
@@ -43,7 +39,6 @@ use crate::expr::Expression;
 use crate::expr::ScalarFn;
 use crate::expr::VTableExt;
 use crate::matcher::Matcher;
-use crate::optimizer::ArrayOptimizer;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -130,88 +125,15 @@ impl VTable for ScalarFnVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let mut current = array.to_array();
+        let children = &array.children;
 
-        // In order to canonicalize a ScalarFnArray, we repeatedly check for child execute_parent
-        // optimizations while stepping each child closer towards canonical form. This ensures we
-        // give the best chance for optimizations to occur before finally executing the scalar
-        // function with canonical inputs.
-        //
-        // Any implementation of a scalar function that wishes to support encoding-specific
-        // optimizations can instead do so by implementing execute_parent on the child array.
-        // TODO(ngates): is this true?? I don't see why it needs to be? But if it isn't, then
-        //  all implementations of ScalarFns need to incrementally canonicalize their children
-        //  and recursively execute themselves in order to pick up these optimizations. That feels
-        //  fragile? But it means writing plugins with new scalar functions is easier since the
-        //  scalar function itself can implement specialized logic for its children. Without this
-        //  the plugin would need to write the canonical version of the scalar fn, and then
-        //  execute_parent kernels for each of the specialized child implementations it wants to
-        //  optimize for.
-
-        'exec: loop {
-            let Some(sfn) = current.as_opt::<ScalarFnVTable>() else {
-                // If we're no longer a scalar fn, execute normally
-                return current.execute::<Canonical>(ctx);
-            };
-
-            // Try to execute_parent on each child of the array to see if they handle this
-            // scalar function specifically.
-            for (child_idx, child) in sfn.children.iter().enumerate() {
-                if let Some(executed) = child
-                    .vtable()
-                    .execute_parent(child, &current, child_idx, ctx)?
-                {
-                    ctx.log(format_args!(
-                        "scalar_fn({}): execute_parent child[{}]({}) rewrote {} -> {}",
-                        sfn.scalar_fn,
-                        child_idx,
-                        child.encoding_id(),
-                        current,
-                        executed
-                    ));
-                    current = executed;
-                    continue 'exec;
-                }
-            }
-
-            // If not, we try to execute each child just one step. If that succeeds, we re-check
-            // the execute_parent rules as the siblings have now changed.
-            let mut children = sfn.children().to_vec();
-            for (child_idx, child) in children.iter_mut().enumerate() {
-                if !child.is::<ConstantVTable>() && !child.is::<AnyCanonical>() {
-                    ctx.log(format_args!(
-                        "scalar_fn({}): stepping child[{}] {}",
-                        sfn.scalar_fn, child_idx, child
-                    ));
-
-                    // We need to execute this child "one step" further.
-                    *child = child.clone().execute::<ArrayRef>(ctx)?;
-                    current = current.with_children(children.clone())?.optimize()?;
-                    continue 'exec;
-                }
-            }
-
-            // All children are canonical/constant — run the scalar fn
-            ctx.log(format_args!(
-                "scalar_fn({}): all children ready [{}], executing",
-                sfn.scalar_fn,
-                children.iter().format(", ")
-            ));
-            let args = ExecutionArgs {
-                inputs: children,
-                row_count: current.len(),
-                ctx,
-            };
-            let result = sfn.scalar_fn.execute(args)?;
-            let result_array = result.into_array();
-            ctx.log(format_args!(
-                "scalar_fn: execute result -> {}",
-                result_array
-            ));
-            // TODO(ngates): return columnar? No, we should reduce if we can return a constant?
-            //  Oh, but we can't do execution. Maybe we do need an execute function?
-            return result_array.execute::<Canonical>(ctx);
-        }
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn,));
+        let args = ExecutionArgs {
+            inputs: children.to_vec(),
+            row_count: array.len,
+            ctx,
+        };
+        array.scalar_fn.execute(args)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
@@ -391,7 +313,7 @@ impl expr::VTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         crate::Executable::execute(options.0.clone(), args.ctx)
     }
 

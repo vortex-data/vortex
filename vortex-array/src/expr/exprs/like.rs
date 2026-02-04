@@ -13,7 +13,6 @@ use vortex_scalar::StringLike;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::columnar::Columnar;
 use crate::compute::LikeOptions;
 use crate::compute::like as like_compute;
 use crate::expr::Arity;
@@ -113,7 +112,7 @@ impl VTable for Like {
         ))
     }
 
-    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [child, pattern]: [ArrayRef; _] = args
             .inputs
             .try_into()

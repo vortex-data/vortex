@@ -12,9 +12,10 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
+use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::columnar::Columnar;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -85,24 +86,16 @@ impl VTable for Cast {
         Ok(dtype.clone())
     }
 
-    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let input = args
             .inputs
             .pop()
             .vortex_expect("missing input for Cast expression");
 
-        // FIXME(ngates): we could do this sort of recursive execution instead of ScalarFn array
-        //  doing it automatically.
-        //  We probably want an AnyColumnar matcher though.
         let Some(input) = input.as_opt::<AnyCanonical>() else {
-            return self.execute(
-                target_dtype,
-                ExecutionArgs {
-                    inputs: vec![input.execute(args.ctx)?],
-                    row_count: args.row_count,
-                    ctx: args.ctx,
-                },
-            );
+            return input
+                .execute::<ArrayRef>(args.ctx)?
+                .cast(target_dtype.clone());
         };
 
         let canonical = Canonical::from(input).into_array();

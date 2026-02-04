@@ -20,7 +20,6 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::columnar::Columnar;
 use crate::compute::Operator;
 use crate::expr::Arity;
 use crate::expr::Binary;
@@ -91,7 +90,7 @@ impl VTable for DynamicComparison {
         ))
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         if let Some(scalar) = data.rhs.scalar() {
             let [lhs]: [ArrayRef; _] = args
                 .inputs
@@ -108,10 +107,10 @@ impl VTable for DynamicComparison {
         let ret_dtype =
             DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
-        Ok(Columnar::Scalar(ConstantArray::new(
-            Scalar::new(ret_dtype, data.default.into()),
-            args.row_count,
-        )))
+        Ok(
+            ConstantArray::new(Scalar::new(ret_dtype, data.default.into()), args.row_count)
+                .into_array(),
+        )
     }
 
     fn stat_falsification(

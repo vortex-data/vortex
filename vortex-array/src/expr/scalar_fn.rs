@@ -14,7 +14,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
 
-use crate::columnar::Columnar;
+use crate::ArrayRef;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
 use crate::expr::ExprId;
@@ -129,7 +129,7 @@ impl ScalarFn {
     }
 
     /// Execute the expression given the input arguments.
-    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Columnar> {
+    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<ArrayRef> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
     }
 

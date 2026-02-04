@@ -15,7 +15,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::arrays::BoolArray;
-use crate::columnar::Columnar;
 use crate::compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -89,7 +88,7 @@ impl VTable for Mask {
         Ok(arg_dtypes[0].as_nullable())
     }
 
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [input, mask_array]: [ArrayRef; _] = args
             .inputs
             .try_into()

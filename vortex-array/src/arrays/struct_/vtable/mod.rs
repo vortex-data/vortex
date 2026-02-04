@@ -12,7 +12,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;

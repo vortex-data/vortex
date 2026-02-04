@@ -10,7 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
-use crate::columnar::Columnar;
+use crate::ArrayRef;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -69,7 +69,7 @@ impl VTable for Root {
         vortex_bail!("Root expression does not support return_dtype")
     }
 
-    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<Columnar> {
+    fn execute(&self, _data: &Self::Options, _args: ExecutionArgs) -> VortexResult<ArrayRef> {
         vortex_bail!("Root expression is not executable")
     }
 

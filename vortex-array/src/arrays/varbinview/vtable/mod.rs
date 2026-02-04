@@ -14,7 +14,6 @@ use vortex_error::vortex_err;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;

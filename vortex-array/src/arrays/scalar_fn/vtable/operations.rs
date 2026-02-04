@@ -29,10 +29,9 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
             row_count: 1,
             ctx: &mut ctx,
         };
-
         let result = array.scalar_fn.execute(args)?;
 
-        let scalar = match result {
+        let scalar = match result.execute::<Columnar>(&mut ctx)? {
             Columnar::Array(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
