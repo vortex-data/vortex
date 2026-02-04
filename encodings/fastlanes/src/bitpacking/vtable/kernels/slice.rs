@@ -6,7 +6,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::matchers::Exact;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
 
@@ -18,11 +17,7 @@ use crate::BitPackedVTable;
 pub(crate) struct BitPackingSliceKernel;
 
 impl ExecuteParentKernel<BitPackedVTable> for BitPackingSliceKernel {
-    type Parent = Exact<SliceVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = SliceVTable;
 
     fn execute_parent(
         &self,
