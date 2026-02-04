@@ -150,11 +150,11 @@ impl CudaExecutionCtx {
     }
 
     /// See `VortexCudaStream::move_to_device`.
-    pub fn move_to_device<T: DeviceRepr + Debug + Send + Sync + 'static>(
+    pub fn move_to_device(
         &self,
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
-        self.stream.move_to_device::<T>(handle)
+        self.stream.move_to_device(handle)
     }
 
     /// Returns a reference to the underlying CUDA stream.

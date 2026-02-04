@@ -1,29 +1,26 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ptr::NonNull;
-use std::sync::Arc;
-
 use async_trait::async_trait;
-use cudarc::driver::sys;
 use futures::future::BoxFuture;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::arrays::DecimalArray;
+use vortex_array::ToCanonical;
+use vortex_array::arrays::BoolArrayParts;
 use vortex_array::arrays::DecimalArrayParts;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::StructArrayParts;
+use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
+use vortex_buffer::BufferMut;
 use vortex_dtype::DecimalType;
+use vortex_dtype::datetime::AnyTemporal;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_error::vortex_err;
 
-use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
@@ -67,8 +64,101 @@ fn export_canonical(
     Box::pin(async {
         match cuda_array {
             Canonical::Struct(struct_array) => export_struct(struct_array, ctx).await,
-            Canonical::Primitive(primitive) => export_primitive(primitive, ctx).await,
-            Canonical::Decimal(decimal) => export_decimal(decimal, ctx).await,
+            Canonical::Primitive(primitive) => {
+                let len = primitive.len();
+                let PrimitiveArrayParts {
+                    buffer, validity, ..
+                } = primitive.into_parts();
+
+                check_validity_empty(validity)?;
+
+                let buffer = ensure_device_resident(buffer, ctx).await?;
+
+                export_fixed_size(buffer, len, 0, ctx)
+            }
+            Canonical::Null(null_array) => {
+                let len = null_array.len();
+
+                // The null array has no buffers, no children, just metadata.
+                let mut array = ArrowArray::empty();
+                array.length = len as i64;
+                array.null_count = len as i64;
+                array.release = Some(release_array);
+
+                // we don't need a sync event for Null since no data is copied.
+                Ok((array, None))
+            }
+            Canonical::Decimal(decimal) => {
+                let len = decimal.len();
+                let DecimalArrayParts {
+                    values,
+                    values_type,
+                    validity,
+                    ..
+                } = decimal.into_parts();
+
+                // verify that there is no null buffer
+                check_validity_empty(validity)?;
+
+                // TODO(aduffy): GPU kernel for upcasting.
+                vortex_ensure!(
+                    values_type >= DecimalType::I32,
+                    "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
+                );
+
+                let buffer = if values.is_on_device() {
+                    values
+                } else {
+                    ctx.move_to_device(values)?.await?
+                };
+
+                export_fixed_size(buffer, len, 0, ctx)
+            }
+            Canonical::Extension(extension) => {
+                if !extension.ext_dtype().is::<AnyTemporal>() {
+                    vortex_bail!("only support temporal extension types currently");
+                }
+
+                let values = extension.storage().to_primitive();
+                let len = extension.len();
+
+                let PrimitiveArrayParts {
+                    buffer, validity, ..
+                } = values.into_parts();
+
+                check_validity_empty(validity)?;
+
+                let buffer = ensure_device_resident(buffer, ctx).await?;
+                export_fixed_size(buffer, len, 0, ctx)
+            }
+
+            Canonical::Bool(bool_array) => {
+                let BoolArrayParts {
+                    bits,
+                    offset,
+                    len,
+                    validity,
+                    ..
+                } = bool_array.into_parts();
+
+                check_validity_empty(validity)?;
+
+                export_fixed_size(bits, len, offset, ctx)
+            }
+            Canonical::VarBinView(view) => {
+                let len = view.len();
+
+                let VarBinViewArrayParts {
+                    views,
+                    buffers,
+                    validity,
+                    ..
+                } = view.into_parts();
+
+                check_validity_empty(validity)?;
+
+                export_variadic(Some(views), buffers.to_vec(), len, ctx).await
+            }
             c => todo!("support for exporting {} arrays", c.dtype()),
         }
     })
@@ -83,12 +173,7 @@ async fn export_struct(
         validity, fields, ..
     } = array.into_parts();
 
-    let null_count = match validity {
-        Validity::NonNullable | Validity::AllValid => 0,
-        _ => {
-            vortex_bail!("Exporting PrimitiveArray with non-trivial validity not supported yet")
-        }
-    };
+    check_validity_empty(validity)?;
 
     // We need the children to be held across await points.
     let mut children = Vec::with_capacity(fields.len());
@@ -99,33 +184,12 @@ async fn export_struct(
         children.push(arrow_field);
     }
 
-    let cuda_event = ctx
-        .stream()
-        .record_event(None)
-        .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
-
-    let children = children
-        .into_iter()
-        .map(|array| Box::into_raw(Box::new(array)))
-        .collect::<Box<[_]>>();
-
-    let buffer_ptrs = vec![sys::CUdeviceptr::default()].into_boxed_slice();
-
-    let mut private_data = Box::new(PrivateData {
-        cuda_stream: Arc::clone(ctx.stream()),
-        buffers: Box::new([None]),
-        buffer_ptrs,
-        cuda_event_ptr: cuda_event.cu_event().cast(),
-        cuda_event,
-        children,
-    });
-
-    let sync_event: SyncEvent = NonNull::new(&raw mut private_data.cuda_event_ptr);
+    let mut private_data = PrivateData::new(vec![None], children, ctx)?;
+    let sync_event: SyncEvent = private_data.sync_event();
 
     // Populate the ArrowArray with the child arrays.
     let mut arrow_struct = ArrowArray::empty();
     arrow_struct.length = len as i64;
-    arrow_struct.null_count = null_count as i64;
     arrow_struct.n_children = fields.len() as i64;
     arrow_struct.children = private_data.children.as_mut_ptr();
 
@@ -139,163 +203,29 @@ async fn export_struct(
     Ok((arrow_struct, sync_event))
 }
 
-async fn export_primitive(
-    array: PrimitiveArray,
+/// Export fixed-size array data that owns a single buffer of values.
+fn export_fixed_size(
+    buffer: BufferHandle,
+    len: usize,
+    offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let len = array.len();
-    let PrimitiveArrayParts {
-        buffer, validity, ..
-    } = array.into_parts();
-
-    let buffer = if buffer.is_on_device() {
-        buffer
-    } else {
-        // TODO(aduffy): I don't think this type parameter does anything
-        ctx.move_to_device::<u8>(buffer)?.await?
-    };
-
-    let null_count = match validity {
-        Validity::NonNullable | Validity::AllValid => 0,
-        _ => {
-            vortex_bail!("Exporting PrimitiveArray with non-trivial validity not supported yet")
-        }
-    };
-
-    // TODO(aduffy): currently the null buffer is always empty, in the future we will need
-    //  to pass it.
-    let buffers: Box<[Option<BufferHandle>]> = vec![None, Some(buffer)].into_boxed_slice();
-
-    let buffer_ptrs: Box<[sys::CUdeviceptr]> = buffers
-        .iter()
-        .map(|buf| {
-            match buf {
-                None => {
-                    // null pointer
-                    Ok(sys::CUdeviceptr::default())
-                }
-                Some(handle) => handle.cuda_device_ptr(),
-            }
-        })
-        .collect::<VortexResult<Vec<_>>>()?
-        .into_boxed_slice();
-
-    // Create an event object that can be synchronized on to wait for any writes in this stream
-    // to complete.
-    // This is stored in the PrivateData so that it will be dropped when the native code calls
-    // the arrow_array->release callback.
-    let cuda_event = ctx
-        .stream()
-        .record_event(None)
-        .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
-
-    let mut private_data = Box::new(PrivateData {
-        cuda_stream: Arc::clone(ctx.stream()),
-        children: Box::new([]),
-        buffers,
-        buffer_ptrs,
-        cuda_event_ptr: cuda_event.cu_event().cast(),
-        cuda_event,
-    });
-
-    // The sync_event should point to the cudaEvent_t saved in the private data
-    let sync_event: SyncEvent = NonNull::new(&raw mut private_data.cuda_event_ptr);
-
-    // Return a copy of the CudaEvent
-    let arrow_array = ArrowArray {
-        length: len as i64,
-        null_count: null_count as i64,
-        offset: 0,
-        // 1 (optional) buffer for nulls, one buffer for data
-        n_buffers: 2,
-        buffers: private_data.buffer_ptrs.as_mut_ptr(),
-        n_children: 0,
-        children: std::ptr::null_mut(),
-        release: Some(release_array),
-        dictionary: std::ptr::null_mut(),
-        private_data: Box::into_raw(private_data).cast(),
-    };
-
-    Ok((arrow_array, sync_event))
-}
-
-async fn export_decimal(
-    array: DecimalArray,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<(ArrowArray, SyncEvent)> {
-    let len = array.len();
-    let DecimalArrayParts {
-        values,
-        values_type,
-        validity,
-        ..
-    } = array.into_parts();
-
-    // TODO(aduffy): GPU kernel for upcasting.
     vortex_ensure!(
-        values_type >= DecimalType::I32,
-        "cannot export DecimalArray with values type {values_type}. must be i32 or wider."
+        buffer.is_on_device(),
+        "buffer must already be copied to device before calling"
     );
 
-    let buffer = if values.is_on_device() {
-        values
-    } else {
-        // TODO(aduffy): I don't think this type parameter does anything
-        ctx.move_to_device::<u8>(values)?.await?
-    };
-
-    let null_count = match validity {
-        Validity::NonNullable | Validity::AllValid => 0,
-        _ => {
-            vortex_bail!("Exporting PrimitiveArray with non-trivial validity not supported yet")
-        }
-    };
-
-    // TODO(aduffy): currently the null buffer is always empty, in the future we will need
+    // TODO(aduffy): currently the null buffer is always None, in the future we will need
     //  to pass it.
-    let buffers: Box<[Option<BufferHandle>]> = vec![None, Some(buffer)].into_boxed_slice();
-
-    let buffer_ptrs: Box<[sys::CUdeviceptr]> = buffers
-        .iter()
-        .map(|buf| {
-            match buf {
-                None => {
-                    // null pointer
-                    Ok(sys::CUdeviceptr::default())
-                }
-                Some(handle) => handle.cuda_device_ptr(),
-            }
-        })
-        .collect::<VortexResult<Vec<_>>>()?
-        .into_boxed_slice();
-
-    // Create an event object that can be synchronized on to wait for any writes in this stream
-    // to complete.
-    // This is stored in the PrivateData so that it will be dropped when the native code calls
-    // the arrow_array->release callback.
-    let cuda_event = ctx
-        .stream()
-        .record_event(None)
-        .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
-
-    let mut private_data = Box::new(PrivateData {
-        cuda_stream: Arc::clone(ctx.stream()),
-        children: Box::new([]),
-        buffers,
-        buffer_ptrs,
-        cuda_event_ptr: cuda_event.cu_event().cast(),
-        cuda_event,
-    });
-
-    // The sync_event should point to the cudaEvent_t saved in the private data
-    let sync_event: SyncEvent = NonNull::new(&raw mut private_data.cuda_event_ptr);
+    let mut private_data = PrivateData::new(vec![None, Some(buffer)], vec![], ctx)?;
+    let sync_event: SyncEvent = private_data.sync_event();
 
     // Return a copy of the CudaEvent
     let arrow_array = ArrowArray {
         length: len as i64,
-        null_count: null_count as i64,
-        offset: 0,
-        // 1 (optional) buffer for nulls, one buffer for data
+        null_count: 0,
+        offset: offset as i64,
+        // 1 (optional) buffer for nulls, one buffer for the data
         n_buffers: 2,
         buffers: private_data.buffer_ptrs.as_mut_ptr(),
         n_children: 0,
@@ -307,6 +237,69 @@ async fn export_decimal(
 
     Ok((arrow_array, sync_event))
 }
+
+async fn export_variadic(
+    buffer: Option<BufferHandle>,
+    variadic_buffers: Vec<BufferHandle>,
+    len: usize,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<(ArrowArray, SyncEvent)> {
+    let mut buffers = vec![];
+
+    // push an empty buffer for the nulls.
+    buffers.push(None);
+
+    if let Some(buf) = buffer {
+        buffers.push(Some(buf));
+    }
+
+    // We create a new buffer that contains the lengths of the variadic buffers as i64.
+    let mut variadic_buffer_lens = BufferMut::with_capacity(variadic_buffers.len());
+    for buffer in variadic_buffers {
+        variadic_buffer_lens.push(buffer.len() as i64);
+        buffers.push(Some(buffer));
+    }
+
+    let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+    let sync_event = private_data.sync_event();
+
+    let arrow_array = ArrowArray {
+        length: len as i64,
+        n_buffers: private_data.buffers.len() as i64,
+        buffers: private_data.buffer_ptrs.as_mut_ptr(),
+        n_children: 0,
+        children: std::ptr::null_mut(),
+        offset: 0,
+        null_count: 0,
+        dictionary: std::ptr::null_mut(),
+        private_data: Box::into_raw(private_data).cast(),
+        release: Some(release_array),
+    };
+
+    Ok((arrow_array, sync_event))
+}
+
+/// Check that the validity buffer is empty and does not need to be copied over the device boundary.
+fn check_validity_empty(validity: Validity) -> VortexResult<()> {
+    if let Validity::AllInvalid | Validity::Array(_) = validity {
+        vortex_bail!("Exporting array with non-trivial validity not supported yet")
+    }
+
+    Ok(())
+}
+
+async fn ensure_device_resident(
+    buffer_handle: BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    if buffer_handle.is_on_device() {
+        Ok(buffer_handle)
+    } else {
+        ctx.move_to_device(buffer_handle)?.await
+    }
+}
+
+// export some nested data
 
 unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust

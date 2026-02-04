@@ -15,7 +15,6 @@ use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use vortex_array::buffer::BufferHandle;
-use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -98,7 +97,7 @@ impl VortexCudaStream {
     /// # Returns
     ///
     /// A future that resolves to the device buffer handle when the copy completes.
-    pub fn move_to_device<T: DeviceRepr + Debug + Send + Sync + 'static>(
+    pub fn move_to_device(
         &self,
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
@@ -106,8 +105,7 @@ impl VortexCudaStream {
             .as_host_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?;
 
-        let buffer: Buffer<T> = Buffer::from_byte_buffer(host_buffer.clone());
-        self.copy_to_device(buffer)
+        self.copy_to_device(host_buffer.clone())
     }
 }
 

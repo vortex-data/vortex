@@ -95,7 +95,7 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let d_input = if input.is_on_device() {
         input
     } else {
-        ctx.move_to_device::<T>(input)?.await?
+        ctx.move_to_device(input)?.await?
     };
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.

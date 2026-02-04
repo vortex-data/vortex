@@ -25,7 +25,9 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
+use crate::CudaBufferExt;
 use crate::CudaExecutionCtx;
 
 #[derive(Debug, Copy, Clone)]
@@ -128,6 +130,53 @@ pub(crate) struct PrivateData {
     pub(crate) cuda_event: CudaEvent,
     pub(crate) cuda_event_ptr: cudaEvent_t,
     pub(crate) children: Box<[*mut ArrowArray]>,
+}
+
+impl PrivateData {
+    pub(crate) fn new(
+        buffers: Vec<Option<BufferHandle>>,
+        children: Vec<ArrowArray>,
+        ctx: &mut CudaExecutionCtx,
+    ) -> VortexResult<Box<Self>> {
+        let buffers = buffers.into_boxed_slice();
+        let buffer_ptrs: Box<[sys::CUdeviceptr]> = buffers
+            .iter()
+            .map(|buf| {
+                match buf {
+                    None => {
+                        // null pointer
+                        Ok(sys::CUdeviceptr::default())
+                    }
+                    Some(handle) => handle.cuda_device_ptr(),
+                }
+            })
+            .collect::<VortexResult<Vec<_>>>()?
+            .into_boxed_slice();
+
+        let children = children
+            .into_iter()
+            .map(|array| Box::into_raw(Box::new(array)))
+            .collect::<Box<[_]>>();
+
+        // generate the synchronization event
+        let cuda_event = ctx
+            .stream()
+            .record_event(None)
+            .map_err(|_| vortex_err!("failed to create cudaEvent_t"))?;
+
+        Ok(Box::new(Self {
+            buffers,
+            buffer_ptrs,
+            cuda_stream: Arc::clone(ctx.stream()),
+            children,
+            cuda_event_ptr: cuda_event.cu_event().cast(),
+            cuda_event,
+        }))
+    }
+
+    pub(crate) fn sync_event(&mut self) -> SyncEvent {
+        NonNull::new(&raw mut self.cuda_event_ptr)
+    }
 }
 
 #[async_trait]
