@@ -26,7 +26,6 @@ members = [
     "vortex-duckdb",
     "vortex-cuda",
     "vortex-cuda/cub",
-    "vortex-cuda/cudf-test",
     "vortex-cuda/macros",
     "vortex-cuda/nvcomp",
     "vortex-cxx",

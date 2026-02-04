@@ -10464,16 +10464,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "vortex-cudf-test"
-version = "0.1.0"
-dependencies = [
- "arrow-schema 57.2.0",
- "futures",
- "vortex",
- "vortex-cuda",
-]
-
-[[package]]
 name = "vortex-cxx"
 version = "0.1.0"
 dependencies = [
@@ -11112,12 +11102,10 @@ dependencies = [
 name = "vortex-test-e2e-cuda"
 version = "0.1.0"
 dependencies = [
- "cudarc",
- "rstest",
- "tokio",
- "vortex-array",
+ "arrow-schema 57.2.0",
+ "futures",
+ "vortex",
  "vortex-cuda",
- "vortex-error",
 ]
 
 [[package]]
