@@ -28,6 +28,7 @@ mod slice;
 
 pub use arrays::ConstantNumericExecutor;
 pub use arrays::DictExecutor;
+pub use arrays::SharedExecutor;
 pub use encodings::*;
 pub use filter::FilterExecutor;
 pub use slice::SliceExecutor;
