@@ -11,6 +11,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
@@ -30,8 +31,10 @@ use crate::BitPackedVTable;
 use crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD;
 use crate::bitpacking::vtable::kernels::chunked_indices;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&BitPackingFilterKernel)]);
+pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&BitPackingFilterKernel),
+    ParentKernelSet::lift(&SliceExecuteAdaptor(BitPackedVTable)),
+]);
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.

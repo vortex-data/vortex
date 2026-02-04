@@ -480,8 +480,13 @@ mod tests {
         let sliced = rle_array.slice(100..200).unwrap();
         assert_eq!(sliced.len(), 100);
 
+        // With SliceKernel, the slice optimization happens during execution/canonicalization.
+        // Convert to canonical form before serialization.
+        let canonical = sliced.to_canonical().unwrap();
+        let executed = canonical.into_array();
+
         let ctx = ArrayContext::empty();
-        let serialized = sliced
+        let serialized = executed
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 

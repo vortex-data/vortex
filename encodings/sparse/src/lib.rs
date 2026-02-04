@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -55,7 +54,9 @@ use crate::canonical::canonicalize_sparse;
 
 mod canonical;
 mod compute;
+mod kernel;
 mod ops;
+mod slice;
 
 vtable!(Sparse);
 
@@ -153,26 +154,13 @@ impl VTable for SparseVTable {
         Ok(())
     }
 
-    fn slice(array: &SparseArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let Some(new_patches) = array.patches().slice(range.clone())? else {
-            return Ok(Some(
-                ConstantArray::new(array.fill_scalar().clone(), range.len()).into_array(),
-            ));
-        };
-
-        // If the number of values in the sparse array matches the array length, then all
-        // values are in fact patches, since patches are sorted this is the correct values.
-        if new_patches.array_len() == new_patches.values().len() {
-            return Ok(Some(new_patches.into_values()));
-        }
-
-        // SAFETY:
-        // patches slice will ensure that dtype of patches is unchanged and the indices and
-        // values match
-        Ok(Some(
-            unsafe { SparseArray::new_unchecked(new_patches, array.fill_scalar().clone()) }
-                .into_array(),
-        ))
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {

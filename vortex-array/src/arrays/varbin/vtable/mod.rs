@@ -130,17 +130,17 @@ impl VTable for VarBinVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(unsafe {
-            VarBinArray::new_unchecked(
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.bytes().clone(),
-                array.dtype().clone(),
-                array.validity().slice(range)?,
-            )
-            .into_array()
-        }))
-    }
+    // fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+    //     Ok(Some(unsafe {
+    //         VarBinArray::new_unchecked(
+    //             array.offsets().slice(range.start..range.end + 1)?,
+    //             array.bytes().clone(),
+    //             array.dtype().clone(),
+    //             array.validity().slice(range)?,
+    //         )
+    //         .into_array()
+    //     }))
+    // }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         varbin_to_canonical(array, ctx)

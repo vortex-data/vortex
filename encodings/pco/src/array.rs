@@ -4,7 +4,6 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -23,7 +22,6 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
@@ -173,12 +171,16 @@ impl VTable for PcoVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
-    }
-
     fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(array.decompress()?))
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 
