@@ -14,7 +14,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -25,7 +24,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;

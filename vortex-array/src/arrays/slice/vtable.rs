@@ -21,7 +21,6 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
