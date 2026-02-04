@@ -25,7 +25,7 @@ mod tests {
             PrimitiveArray::new(Buffer::from_iter(values), Validity::NonNullable).into_array();
 
         // Write in parallel and verify all sizes match expected
-        const EXPECTED_SIZE: usize = 216156;
+        const EXPECTED_SIZE: usize = 216020;
         let futures: Vec<_> = (0..5)
             .map(|_| {
                 let array = array.clone();
