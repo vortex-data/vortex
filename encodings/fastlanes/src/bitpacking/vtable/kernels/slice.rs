@@ -28,6 +28,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingSliceKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
         // If buffers are on device, we cannot eagerly slice because Patches::slice
         // requires binary search on the indices which needs host memory for now
         if !array.is_host() {
