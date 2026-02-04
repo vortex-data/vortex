@@ -34,7 +34,7 @@ impl CudaExecute for SharedExecutor {
 
         let source = shared
             .source_if_any()
-            .vortex_expect("Shared array expects exactly 1 child");
+            .vortex_expect("not cached shared array has to have the source array");
         let canonical = source.execute_cuda(ctx).await?;
         Ok(shared.cache_or_return(canonical))
     }
