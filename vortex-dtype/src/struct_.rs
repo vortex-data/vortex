@@ -457,6 +457,7 @@ where
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
+
     use insta::assert_snapshot;
     use itertools::Itertools;
 
@@ -599,10 +600,13 @@ mod test {
             Nullability::NonNullable,
         );
 
-        let address = DType::Struct(StructFields::from_iter([
-            ("street", DType::Utf8(Nullability::NonNullable)),
-            ("city", city),
-        ]), Nullability::Nullable);
+        let address = DType::Struct(
+            StructFields::from_iter([
+                ("street", DType::Utf8(Nullability::NonNullable)),
+                ("city", city),
+            ]),
+            Nullability::Nullable,
+        );
 
         let list = DType::List(Arc::new(address.clone()), Nullability::NonNullable);
 
