@@ -116,10 +116,8 @@ impl Matcher for AnyColumnar {
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
             Some(ColumnarView::Scalar(constant))
-        } else if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            Some(ColumnarView::Canonical(canonical))
         } else {
-            None
+            array.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)
         }
     }
 }
