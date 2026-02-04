@@ -11,12 +11,12 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -95,11 +95,7 @@ impl VTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn execute(
-        &self,
-        _options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
         let [list_array, value_array]: [ArrayRef; _] = args
             .inputs
             .try_into()

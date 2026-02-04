@@ -139,7 +139,7 @@ impl VortexFile {
                 .apply(&predicate)?
                 .execute::<Columnar>(&mut ctx)?
             {
-                Columnar::Scalar(s) => s.as_bool().value() == Some(true),
+                Columnar::Scalar(s) => s.scalar().as_bool().value() == Some(true),
                 Columnar::Array(_) => false,
             },
         )

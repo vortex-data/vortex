@@ -11,11 +11,11 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
+use crate::Columnar;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -82,11 +82,7 @@ impl VTable for Cast {
         Ok(dtype.clone())
     }
 
-    fn execute(
-        &self,
-        target_dtype: &DType,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<Columnar> {
         let input = args
             .inputs
             .pop()

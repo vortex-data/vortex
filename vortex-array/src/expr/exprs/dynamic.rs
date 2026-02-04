@@ -18,6 +18,7 @@ use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::compute::Operator;
@@ -25,7 +26,6 @@ use crate::expr::Arity;
 use crate::expr::Binary;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -91,7 +91,7 @@ impl VTable for DynamicComparison {
         ))
     }
 
-    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+    fn execute(&self, data: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
         if let Some(scalar) = data.rhs.scalar() {
             let [lhs]: [ArrayRef; _] = args
                 .inputs
@@ -108,7 +108,7 @@ impl VTable for DynamicComparison {
         let ret_dtype =
             DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
-        Ok(ExecutionResult::Scalar(ConstantArray::new(
+        Ok(Columnar::Scalar(ConstantArray::new(
             Scalar::new(ret_dtype, data.default.into()),
             args.row_count,
         )))

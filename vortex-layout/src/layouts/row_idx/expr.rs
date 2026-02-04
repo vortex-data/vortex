@@ -3,11 +3,11 @@
 
 use std::fmt::Formatter;
 
+use vortex_array::Columnar;
 use vortex_array::expr::Arity;
 use vortex_array::expr::ChildName;
 use vortex_array::expr::EmptyOptions;
 use vortex_array::expr::ExecutionArgs;
-use vortex_array::expr::ExecutionResult;
 use vortex_array::expr::ExprId;
 use vortex_array::expr::Expression;
 use vortex_array::expr::VTable;
@@ -48,11 +48,7 @@ impl VTable for RowIdx {
         Ok(DType::Primitive(PType::U64, Nullability::NonNullable))
     }
 
-    fn execute(
-        &self,
-        _options: &Self::Options,
-        _args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _options: &Self::Options, _args: ExecutionArgs) -> VortexResult<Columnar> {
         vortex_bail!(
             "RowIdxExpr should not be executed directly, use it in the context of a Vortex scan and it will be substituted for a row index array"
         );

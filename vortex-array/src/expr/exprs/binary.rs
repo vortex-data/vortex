@@ -13,6 +13,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Columnar;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -24,7 +25,6 @@ use crate::compute::sub;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -104,7 +104,7 @@ impl VTable for Binary {
         Ok(DType::Bool((lhs.is_nullable() || rhs.is_nullable()).into()))
     }
 
-    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+    fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<Columnar> {
         let [lhs, rhs]: [ArrayRef; _] = args
             .inputs
             .try_into()

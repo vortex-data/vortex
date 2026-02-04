@@ -465,10 +465,10 @@ pub(super) fn run_end_canonicalize(
     array: &RunEndArray,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<Canonical> {
-    let pends = array.ends().clone().execute(ctx)?;
+    let pends = array.ends().clone().execute_as("ends", ctx)?;
     Ok(match array.dtype() {
         DType::Bool(_) => {
-            let bools = array.values().clone().execute(ctx)?;
+            let bools = array.values().clone().execute_as("values", ctx)?;
             Canonical::Bool(runend_decode_bools(
                 pends,
                 bools,
@@ -477,7 +477,7 @@ pub(super) fn run_end_canonicalize(
             )?)
         }
         DType::Primitive(..) => {
-            let pvalues = array.values().clone().execute(ctx)?;
+            let pvalues = array.values().clone().execute_as("values", ctx)?;
             Canonical::Primitive(runend_decode_primitive(
                 pends,
                 pvalues,

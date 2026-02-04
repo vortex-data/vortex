@@ -15,16 +15,11 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
-use crate::Executable;
+use crate::Columnar;
 use crate::ExecutionCtx;
-use crate::IntoArray;
-use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -90,11 +85,7 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Execute the expression on the given vector with the given dtype.
     ///
     /// This function will become required in a future release.
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult>;
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.
     ///
@@ -308,57 +299,6 @@ pub struct ExecutionArgs<'a> {
     pub ctx: &'a mut ExecutionCtx,
 }
 
-/// The result of expression execution.
-pub enum ExecutionResult {
-    Array(Canonical),
-    Scalar(ConstantArray),
-}
-
-impl ExecutionResult {
-    pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
-        ExecutionResult::Scalar(ConstantArray::new(scalar.into(), len))
-    }
-
-    /// Returns the length of this execution result.
-    pub fn len(&self) -> usize {
-        match self {
-            ExecutionResult::Array(canonical) => canonical.len(),
-            ExecutionResult::Scalar(constant) => constant.len(),
-        }
-    }
-
-    /// Returns true if this execution result has no elements.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the data type of this execution result.
-    pub fn dtype(&self) -> &DType {
-        match self {
-            ExecutionResult::Array(canonical) => canonical.dtype(),
-            ExecutionResult::Scalar(constant) => constant.dtype(),
-        }
-    }
-}
-
-impl Executable for ExecutionResult {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        Ok(match array.as_opt::<ConstantVTable>() {
-            None => ExecutionResult::Array(array.execute::<Canonical>(ctx)?),
-            Some(constant) => ExecutionResult::Scalar(constant.clone()),
-        })
-    }
-}
-
-impl IntoArray for ExecutionResult {
-    fn into_array(self) -> ArrayRef {
-        match self {
-            ExecutionResult::Array(canonical) => canonical.into_array(),
-            ExecutionResult::Scalar(constant) => constant.into_array(),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EmptyOptions;
 impl Display for EmptyOptions {
@@ -430,7 +370,7 @@ pub trait DynExprVTable: 'static + Send + Sync + private::Sealed {
     ) -> VortexResult<Option<Expression>>;
     fn simplify_untyped(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
     fn validity(&self, expression: &Expression) -> VortexResult<Option<Expression>>;
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult>;
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Columnar>;
     fn reduce(
         &self,
         options: &dyn Any,
@@ -546,7 +486,7 @@ impl<V: VTable> DynExprVTable for VTableAdapter<V> {
         )
     }
 
-    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &dyn Any, args: ExecutionArgs) -> VortexResult<Columnar> {
         let options = downcast::<V>(options);
 
         let expected_row_count = args.row_count;

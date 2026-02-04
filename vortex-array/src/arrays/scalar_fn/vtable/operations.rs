@@ -5,6 +5,7 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
+use crate::Columnar;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
@@ -12,7 +13,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::vtable::OperationsVTable;
 
 impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
@@ -33,14 +33,14 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         let result = array.scalar_fn.execute(args)?;
 
         let scalar = match result {
-            ExecutionResult::Array(arr) => {
+            Columnar::Array(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn,
                 );
                 arr.as_ref().scalar_at(0)?
             }
-            ExecutionResult::Scalar(constant) => constant.scalar().clone(),
+            Columnar::Scalar(constant) => constant.scalar().clone(),
         };
 
         debug_assert_eq!(

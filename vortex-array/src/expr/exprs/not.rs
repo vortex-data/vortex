@@ -9,12 +9,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
+use crate::Columnar;
 use crate::compute::invert;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -75,11 +75,7 @@ impl VTable for Not {
         Ok(child_dtype.clone())
     }
 
-    fn execute(
-        &self,
-        _data: &Self::Options,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Columnar> {
         let child = args.inputs.pop().vortex_expect("Missing input child");
         invert(&child)?.execute(args.ctx)
     }

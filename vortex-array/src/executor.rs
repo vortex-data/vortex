@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fmt;
 use std::fmt::Display;
+use std::ops::Deref;
+use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
 use vortex_buffer::Buffer;
+use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -35,11 +39,9 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::arrays::VarBinVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::constant_canonicalize;
-use crate::optimizer::ArrayOptimizer;
 
 /// Marker trait for types that can be executed.
 ///
@@ -48,23 +50,49 @@ pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
+fn short_type_name<T>() -> &'static str {
+    let full = std::any::type_name::<T>();
+    full.rsplit("::").next().unwrap_or(full)
+}
+
 impl dyn Array + '_ {
     /// Execute this array to produce an instance of `E`.
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
-        tracing::debug!(
-            "{}: Executing array into {}:\n{}",
-            ctx,
-            std::any::type_name::<E>(),
-            self.display_tree()
+        ctx.log_entry(
+            &self,
+            format_args!("execute<{}> {}", short_type_name::<E>(), self),
         );
-        E::execute(self, ctx)
+        let mut scope = ctx.child_scope();
+        E::execute(self, &mut scope)
+    }
+
+    /// Execute this array, labeling the step with a child name for tracing.
+    ///
+    /// Use this in `canonicalize` implementations to annotate which child role
+    /// (e.g. "ends", "values", "codes") is being executed.
+    pub fn execute_as<E: Executable>(
+        self: Arc<Self>,
+        name: &str,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<E> {
+        ctx.log_entry(
+            &self,
+            format_args!("{}: execute<{}> {}", name, short_type_name::<E>(), self),
+        );
+        let mut scope = ctx.child_scope();
+        E::execute(self, &mut scope)
     }
 }
 
 /// Execution context for batch CPU compute.
+///
+/// Accumulates a trace of execution steps. Individual steps are logged at TRACE level for
+/// real-time following, and the full trace is dumped at DEBUG level when the context is dropped.
 pub struct ExecutionCtx {
     id: usize,
     session: VortexSession,
+    depth: usize,
+    ops: Vec<String>,
 }
 
 impl ExecutionCtx {
@@ -72,38 +100,133 @@ impl ExecutionCtx {
     pub fn new(session: VortexSession) -> Self {
         static EXEC_CTX_ID: AtomicUsize = AtomicUsize::new(0);
         let id = EXEC_CTX_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        tracing::debug!("Created ExecutionCtx id={}", id);
-        Self { id, session }
+        Self {
+            id,
+            session,
+            depth: 0,
+            ops: Vec::new(),
+        }
     }
 
     /// Get the session associated with this execution context.
     pub fn session(&self) -> &VortexSession {
         &self.session
     }
-}
 
-impl Display for ExecutionCtx {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "ExecutionCtx(id={})", self.id)
+    /// Log an execution step at the current depth.
+    ///
+    /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
+    /// Individual steps are also logged at TRACE level for real-time following.
+    pub fn log(&mut self, msg: fmt::Arguments<'_>) {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let indent = "  ".repeat(self.depth);
+            let formatted = format!("{indent}{msg}");
+            tracing::trace!("exec[{}]: {formatted}", self.id);
+            self.ops.push(formatted);
+        }
+    }
+
+    /// Log an execution entry point. On the first call into this context, the full
+    /// `display_tree` of the array is included so the starting state is visible.
+    fn log_entry(&mut self, array: &dyn Array, msg: fmt::Arguments<'_>) {
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            if self.ops.is_empty() {
+                self.log(format_args!("{msg}\n{}", array.display_tree()));
+            } else {
+                self.log(msg);
+            }
+        }
+    }
+
+    /// Create a child scope at an incremented depth. The depth is automatically
+    /// decremented when the returned [`ExecutionScope`] is dropped.
+    ///
+    /// The scope derefs to `&mut ExecutionCtx` so it can be used wherever
+    /// `&mut ExecutionCtx` is expected.
+    pub fn child_scope(&mut self) -> ExecutionScope<'_> {
+        self.depth += 1;
+        ExecutionScope(self)
     }
 }
 
-/// An enum capturing either a columnar array or a constant scalar value.
+/// RAII guard that decrements the [`ExecutionCtx`] depth when dropped.
+///
+/// Created via [`ExecutionCtx::child_scope`]. Derefs to `ExecutionCtx` so it can
+/// be passed transparently to any function that takes `&mut ExecutionCtx`.
+pub struct ExecutionScope<'a>(&'a mut ExecutionCtx);
+
+impl Deref for ExecutionScope<'_> {
+    type Target = ExecutionCtx;
+
+    fn deref(&self) -> &Self::Target {
+        self.0
+    }
+}
+
+impl DerefMut for ExecutionScope<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0
+    }
+}
+
+impl Drop for ExecutionScope<'_> {
+    fn drop(&mut self) {
+        self.0.depth -= 1;
+    }
+}
+
+impl Display for ExecutionCtx {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "exec[{}]", self.id)
+    }
+}
+
+impl Drop for ExecutionCtx {
+    fn drop(&mut self) {
+        if !self.ops.is_empty() {
+            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.join("\n"));
+        }
+    }
+}
+
+/// The result of expression execution.
 pub enum Columnar {
-    /// A columnar array.
     Array(Canonical),
-    /// A constant scalar value.
-    Scalar(Scalar),
+    Scalar(ConstantArray),
 }
 
 impl Columnar {
-    pub fn into_array(self, len: usize) -> ArrayRef {
+    pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
+        Columnar::Scalar(ConstantArray::new(scalar.into(), len))
+    }
+
+    /// Returns the length of this execution result.
+    pub fn len(&self) -> usize {
         match self {
-            Columnar::Array(c) => {
-                assert_eq!(len, c.len());
-                c.into_array()
-            }
-            Columnar::Scalar(s) => ConstantArray::new(s, len).into_array(),
+            Columnar::Array(canonical) => canonical.len(),
+            Columnar::Scalar(constant) => constant.len(),
+        }
+    }
+
+    /// Returns true if this execution result has no elements.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Returns the data type of this execution result.
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Columnar::Array(canonical) => canonical.dtype(),
+            Columnar::Scalar(constant) => constant.dtype(),
+        }
+    }
+}
+
+impl IntoArray for Columnar {
+    fn into_array(self) -> ArrayRef {
+        match self {
+            Columnar::Array(canonical) => canonical.into_array(),
+            Columnar::Scalar(constant) => constant.into_array(),
         }
     }
 }
@@ -117,113 +240,73 @@ impl Executable for Columnar {
         'exec: loop {
             // 0. Check for termination conditions
             if let Some(constant) = array.as_opt::<ConstantVTable>() {
-                return Ok(Columnar::Scalar(constant.scalar().clone()));
+                ctx.log(format_args!("-> constant({})", constant.scalar()));
+                return Ok(Columnar::Scalar(constant.clone()));
             }
             if let Some(canonical) = array.as_opt::<AnyCanonical>() {
+                ctx.log(format_args!("-> canonical {}", array));
                 return Ok(Columnar::Array(canonical.into()));
             }
 
             // 1. reduce / reduce_parent (metadata-only rewrites)
             // TODO(ngates): let's assume that arrays are reduced on construction for now.
-            // if let Some(reduced) = array.vtable().reduce(&array)? {
-            //     tracing::debug!(
-            //         "Reduced array\nFROM:\n{}\nTO:\n{}",
-            //         array.display_tree(),
-            //         reduced.display_tree()
-            //     );
-            //     array = reduced;
-            //     continue 'exec;
-            // }
-            // for (child_idx, child) in array.children().iter().enumerate() {
-            //     if let Some(reduced_parent) =
-            //         child.vtable().reduce_parent(&child, &array, child_idx)?
-            //     {
-            //         tracing::debug!(
-            //             "Reduced parent array\nFROM:\n{}\nTO:\n{}",
-            //             array.display_tree(),
-            //             reduced_parent.display_tree()
-            //         );
-            //         array = reduced_parent;
-            //         continue 'exec;
-            //     }
-            // }
+            if let Some(reduced) = array.vtable().reduce(&array)? {
+                ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
+                array = reduced;
+                continue 'exec;
+            }
+            for (child_idx, child) in array.children().iter().enumerate() {
+                if let Some(reduced_parent) =
+                    child.vtable().reduce_parent(child, &array, child_idx)?
+                {
+                    ctx.log(format_args!(
+                        "reduce_parent: child[{}]({}) rewrote {} -> {}",
+                        child_idx,
+                        child.encoding_id(),
+                        array,
+                        reduced_parent
+                    ));
+                    array = reduced_parent;
+                    continue 'exec;
+                }
+            }
 
             // 2. execute_parent (child-driven optimized execution)
             for (child_idx, child) in array.children().iter().enumerate() {
                 if let Some(executed_parent) = child
                     .vtable()
-                    .execute_parent(&child, &array, child_idx, ctx)?
+                    .execute_parent(child, &array, child_idx, ctx)?
                 {
-                    tracing::debug!(
-                        "{}: execute_parent {}\nFROM:\n{}\nTO:\n{}",
-                        ctx,
+                    ctx.log(format_args!(
+                        "execute_parent: child[{}]({}) rewrote {} -> {}",
                         child_idx,
-                        array.display_tree(),
-                        child.display_tree()
-                    );
+                        child.encoding_id(),
+                        array,
+                        executed_parent
+                    ));
                     array = executed_parent;
                     continue 'exec;
                 }
             }
 
-            // 3. step ONE child (the first non-canonical, non-constant one)
-            //  → restart from (1) if progress was made
-            // let mut children = array.children();
-            // for (child_idx, child) in children.iter_mut().enumerate() {
-            //     if !child.is::<ConstantVTable>()
-            //         && !child.is_canonical()
-            //         // NOTE(ngates): this is specifically to avoid us breaking FSST arrays!!
-            //         //  https://github.com/vortex-data/vortex/issues/6293
-            //         && !child.is::<VarBinVTable>()
-            //     {
-            //         if let Some(executed_child) = execute_one_step(&child, ctx)? {
-            //             tracing::debug!(
-            //                 "Stepped child array {} of parent array {}\nFROM:\n{}\nTO:\n{}",
-            //                 child_idx,
-            //                 array.encoding_id(),
-            //                 child.display_tree(),
-            //                 executed_child.display_tree()
-            //             );
-            //
-            //             // If we stepped a child, then rebuild the array with the new child
-            //             // and continue the main loop.
-            //             *child = executed_child;
-            //             array = array.with_children(children)?.optimize()?;
-            //             continue 'exec;
-            //         }
-            //     }
-            // }
-
-            // 4. if no progress anywhere → call canonicalize, done
-            tracing::debug!("{}: Canonicalizing array\n{}   ", ctx, array.display_tree());
-            return array
-                .vtable()
-                .canonicalize(&array, ctx)
-                .map(Columnar::Array);
+            // 3. if no progress anywhere → call canonicalize, done
+            ctx.log(format_args!("canonicalize {}", array));
+            let result = {
+                let mut scope = ctx.child_scope();
+                array
+                    .vtable()
+                    .canonicalize(&array, &mut scope)
+                    .map(Columnar::Array)
+            };
+            if let Ok(ref columnar) = result {
+                match columnar {
+                    Columnar::Array(c) => ctx.log(format_args!("-> {}", c.as_ref())),
+                    Columnar::Scalar(s) => ctx.log(format_args!("-> constant({})", s.scalar())),
+                }
+            }
+            return result;
         }
     }
-}
-
-/// Execute the given array one step towards being canonical (columnar), returning `Some` if
-/// progress was made.
-fn execute_one_step(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    // 1. try execute_parent via children
-    for (child_idx, child) in array.children().iter().enumerate() {
-        if let Some(result) = child
-            .vtable()
-            .execute_parent(child, array, child_idx, ctx)?
-        {
-            tracing::debug!(
-                "Executed array {} via child {} optimization.",
-                array.encoding_id(),
-                child.encoding_id()
-            );
-            return Ok(Some(result));
-        }
-    }
-
-    // 2. canonicalize via vtable
-    Ok(Some(array.vtable().canonicalize(array, ctx)?.into_array()))
 }
 
 /// Recursively execute the array to canonical form.
@@ -231,10 +314,14 @@ fn execute_one_step(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Op
 /// An `ExecutionCtx` is will be used to limit access to buffers.
 impl Executable for Canonical {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let len = array.len();
-        Ok(match array.execute::<Columnar>(ctx)? {
+        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
+            return Ok(canonical.into());
+        }
+
+        // Avoid going via array.execute<Columnar>() to keep logs easy to read
+        Ok(match Columnar::execute(array, ctx)? {
             Columnar::Array(c) => c,
-            Columnar::Scalar(s) => constant_canonicalize(&ConstantArray::new(s, len))?,
+            Columnar::Scalar(s) => constant_canonicalize(&s)?,
         })
     }
 }
@@ -244,7 +331,7 @@ impl Executable for Canonical {
 /// This will error if the array is not all-valid.
 impl<T: NativePType> Executable for Buffer<T> {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let array = array.execute::<PrimitiveArray>(ctx)?;
+        let array = PrimitiveArray::execute(array, ctx)?;
         vortex_ensure!(
             array.all_valid()?,
             "Cannot execute to native buffer: array is not all-valid."
@@ -260,7 +347,7 @@ impl Executable for PrimitiveArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<PrimitiveVTable>() {
             Ok(primitive) => Ok(primitive),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_primitive()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
         }
     }
 }
@@ -272,7 +359,7 @@ impl Executable for BoolArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<BoolVTable>() {
             Ok(bool_array) => Ok(bool_array),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_bool()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
         }
     }
 }
@@ -284,7 +371,7 @@ impl Executable for NullArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<NullVTable>() {
             Ok(null_array) => Ok(null_array),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_null()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
         }
     }
 }
@@ -296,7 +383,7 @@ impl Executable for VarBinViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<VarBinViewVTable>() {
             Ok(varbinview) => Ok(varbinview),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_varbinview()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
         }
     }
 }
@@ -308,7 +395,7 @@ impl Executable for ExtensionArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<ExtensionVTable>() {
             Ok(ext_array) => Ok(ext_array),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_extension()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
         }
     }
 }
@@ -320,7 +407,7 @@ impl Executable for DecimalArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<DecimalVTable>() {
             Ok(decimal) => Ok(decimal),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_decimal()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
         }
     }
 }
@@ -332,7 +419,7 @@ impl Executable for ListViewArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<ListViewVTable>() {
             Ok(list) => Ok(list),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_listview()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
         }
     }
 }
@@ -344,7 +431,7 @@ impl Executable for FixedSizeListArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<FixedSizeListVTable>() {
             Ok(fsl) => Ok(fsl),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_fixed_size_list()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
         }
     }
 }
@@ -356,7 +443,7 @@ impl Executable for StructArray {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
         match array.try_into::<StructVTable>() {
             Ok(struct_array) => Ok(struct_array),
-            Err(array) => Ok(array.execute::<Canonical>(ctx)?.into_struct()),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }
     }
 }

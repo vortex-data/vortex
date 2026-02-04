@@ -16,12 +16,12 @@ use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
+use crate::Columnar;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -130,11 +130,7 @@ impl VTable for Pack {
         Ok(Some(lit(true)))
     }
 
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar> {
         let len = args.row_count;
         let value_arrays = args.inputs;
         let validity: Validity = options.nullability.into();
