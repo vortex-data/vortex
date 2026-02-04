@@ -205,10 +205,8 @@ impl VarBinArray {
             vortex_ensure!(is_sorted, "offsets must be sorted");
         }
 
-        // Skip host-only validation when buffers are on the GPU.
-        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
-
-        if !offsets_on_device && bytes.is_on_host() {
+        // Skip host-only validation when offsets/bytes are not host-resident.
+        if offsets.is_host() && bytes.is_on_host() {
             let last_offset = offsets
                 .scalar_at(offsets.len() - 1)?
                 .as_primitive()
@@ -232,9 +230,10 @@ impl VarBinArray {
             );
         }
 
-        // Validate UTF-8 for Utf8 dtype. Skip when buffers are on device.
-        if matches!(dtype, DType::Utf8(_))
-            && !offsets_on_device
+        // Validate UTF-8 for Utf8 dtype. Skip when offsets/bytes are not host-resident.
+        if offsets.is_host()
+            && bytes.is_on_host()
+            && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
             let primitive_offsets = offsets.to_primitive();
