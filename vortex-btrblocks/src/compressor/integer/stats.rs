@@ -93,6 +93,28 @@ impl ErasedStats {
         }
     }
 
+    /// Returns the ilog2 of the max value when transmuted to unsigned, or None if zero.
+    ///
+    /// This matches how BitPacking computes bit width: it reinterprets signed values as
+    /// unsigned (preserving bit pattern) and uses leading_zeros. For non-negative signed
+    /// values, the transmuted value equals the original value.
+    ///
+    /// This is used to determine if FOR encoding would reduce bit width compared to
+    /// direct BitPacking. If `max_ilog2() == max_minus_min_ilog2()`, FOR doesn't help.
+    pub fn max_ilog2(&self) -> Option<u32> {
+        match &self {
+            ErasedStats::U8(x) => x.max.checked_ilog2(),
+            ErasedStats::U16(x) => x.max.checked_ilog2(),
+            ErasedStats::U32(x) => x.max.checked_ilog2(),
+            ErasedStats::U64(x) => x.max.checked_ilog2(),
+            // Transmute signed to unsigned (bit pattern preserved) to match BitPacking behavior
+            ErasedStats::I8(x) => (x.max as u8).checked_ilog2(),
+            ErasedStats::I16(x) => (x.max as u16).checked_ilog2(),
+            ErasedStats::I32(x) => (x.max as u32).checked_ilog2(),
+            ErasedStats::I64(x) => (x.max as u64).checked_ilog2(),
+        }
+    }
+
     /// Get the most commonly occurring value and its count
     pub fn top_value_and_count(&self) -> (PValue, u32) {
         match &self {
