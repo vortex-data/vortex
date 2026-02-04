@@ -194,6 +194,16 @@ impl StructFields {
                 sf.fmt_indented(f, depth)?;
                 write!(f, "{nullability}")
             }
+            DType::List(inner, nullability) => {
+                write!(f, "list(")?;
+                Self::fmt_dtype_indented(f, inner, depth)?;
+                write!(f, "){nullability}")
+            }
+            DType::FixedSizeList(inner, size, nullability) => {
+                write!(f, "fixed_size_list(")?;
+                Self::fmt_dtype_indented(f, inner, depth)?;
+                write!(f, ")[{size}]{nullability}")
+            }
             _ => write!(f, "{dtype}"),
         }
     }
@@ -446,6 +456,7 @@ where
 
 #[cfg(test)]
 mod test {
+    use std::sync::Arc;
     use insta::assert_snapshot;
     use itertools::Itertools;
 
@@ -580,14 +591,26 @@ mod test {
 
     #[test]
     fn test_display_alternate() {
-        let inner = StructFields::from_iter([
+        let city = DType::Struct(
+            StructFields::from_iter([
+                ("name", DType::Utf8(Nullability::NonNullable)),
+                ("id", DType::Primitive(PType::U32, Nullability::Nullable)),
+            ]),
+            Nullability::NonNullable,
+        );
+
+        let address = DType::Struct(StructFields::from_iter([
             ("street", DType::Utf8(Nullability::NonNullable)),
-            ("city", DType::Utf8(Nullability::Nullable)),
-        ]);
+            ("city", city),
+        ]), Nullability::Nullable);
+
+        let list = DType::List(Arc::new(address.clone()), Nullability::NonNullable);
+
         let fields = StructFields::from_iter([
             ("name", DType::Utf8(Nullability::NonNullable)),
             ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
-            ("address", DType::Struct(inner, Nullability::Nullable)),
+            ("address", address),
+            ("past_addresses", list),
         ]);
 
         assert_snapshot!(format!("{fields:#}"), @"
@@ -596,8 +619,18 @@ mod test {
           age=i32?,
           address={
             street=utf8,
-            city=utf8?
-          }?
+            city={
+              name=utf8,
+              id=u32?
+            }
+          }?,
+          past_addresses=list({
+            street=utf8,
+            city={
+              name=utf8,
+              id=u32?
+            }
+          }?)
         }
         ");
     }
