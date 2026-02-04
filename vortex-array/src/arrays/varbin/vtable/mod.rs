@@ -28,11 +28,14 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
+mod rules;
 mod slice;
 mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
+
+use crate::arrays::varbin::vtable::rules::PARENT_RULES;
 
 vtable!(VarBin);
 
@@ -125,6 +128,14 @@ impl VTable for VarBinVTable {
             ),
         }
         Ok(())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
