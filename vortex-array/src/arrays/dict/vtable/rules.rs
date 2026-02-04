@@ -18,7 +18,6 @@ use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Pack;
-use crate::matchers::Exact;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -33,11 +32,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
 struct DictionaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<DictVTable> for DictionaryFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,
@@ -58,10 +53,6 @@ struct DictionaryScalarFnValuesPushDownRule;
 
 impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> Self::Parent {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,
@@ -156,10 +147,6 @@ struct DictionaryScalarFnCodesPullUpRule;
 
 impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnCodesPullUpRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> Self::Parent {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,

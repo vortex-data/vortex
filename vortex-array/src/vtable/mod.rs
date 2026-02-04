@@ -88,7 +88,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = Self::execute(array, ctx)?;
+        let canonical = Self::canonicalize(array, ctx)?;
         builder.extend_from_array(canonical.as_ref());
         Ok(())
     }
@@ -145,7 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// Attempt to execute the parent of this array to produce a [`Canonical`].
     ///

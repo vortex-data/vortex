@@ -138,7 +138,7 @@ impl VTable for DecimalBytePartsVTable {
         }))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         to_canonical_decimal(array, ctx)
     }
 }

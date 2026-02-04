@@ -40,10 +40,6 @@ struct SequenceCompareKernel;
 impl ExecuteParentKernel<SequenceVTable> for SequenceCompareKernel {
     type Parent = ExactScalarFn<Binary>;
 
-    fn parent(&self) -> Self::Parent {
-        ExactScalarFn::from(&Binary)
-    }
-
     fn execute_parent(
         &self,
         array: &SequenceArray,

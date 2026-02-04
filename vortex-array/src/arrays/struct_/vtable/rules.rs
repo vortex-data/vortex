@@ -39,10 +39,6 @@ struct StructCastPushDownRule;
 impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
     type Parent = ExactScalarFn<Cast>;
 
-    fn parent(&self) -> Self::Parent {
-        ExactScalarFn::from(&Cast)
-    }
-
     fn reduce_parent(
         &self,
         array: &StructArray,
@@ -96,10 +92,6 @@ impl ArrayParentReduceRule<StructVTable> for StructCastPushDownRule {
 pub(crate) struct StructGetItemRule;
 impl ArrayParentReduceRule<StructVTable> for StructGetItemRule {
     type Parent = ExactScalarFn<GetItem>;
-
-    fn parent(&self) -> ExactScalarFn<GetItem> {
-        ExactScalarFn::from(&GetItem)
-    }
 
     fn reduce_parent(
         &self,

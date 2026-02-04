@@ -9,9 +9,9 @@ use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::FilterKernel;
+use vortex_array::compute::filter_preconditions;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_error::VortexResult;
 
 use crate::FSSTArray;
@@ -24,11 +24,7 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> =
 struct FSSTFilterKernel;
 
 impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn execute_parent(
         &self,
@@ -37,6 +33,11 @@ impl ExecuteParentKernel<FSSTVTable> for FSSTFilterKernel {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        // TODO(joe): add a pattern to adding checks to all filter impls
+        let mask = parent.filter_mask();
+        if let Some(array) = filter_preconditions(array.as_ref(), mask) {
+            return Ok(Some(array));
+        }
         // TODO(ngates): pass execution context when we update the FilterKernel trait.
         let filtered_codes =
             FilterKernel::filter(&VarBinVTable, array.codes(), parent.filter_mask())?
@@ -212,6 +213,21 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert_arrays_eq!(result.into_array(), expected);
+        Ok(())
+    }
+
+    #[test]
+    fn test_fsst_filter_all_true() -> VortexResult<()> {
+        let fsst_array = build_test_fsst_array();
+        assert_eq!(fsst_array.len(), 10);
+
+        let mask = Mask::new_true(10);
+
+        let filter_array = fsst_array.filter(mask)?;
+        let mut ctx = SESSION.create_execution_ctx();
+        let result = filter_array.execute::<Canonical>(&mut ctx)?.into_array();
+
+        assert_arrays_eq!(result, fsst_array);
         Ok(())
     }
 }

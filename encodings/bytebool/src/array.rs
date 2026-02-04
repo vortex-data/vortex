@@ -119,7 +119,7 @@ impl VTable for ByteBoolVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))

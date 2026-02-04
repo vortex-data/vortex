@@ -13,7 +13,6 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::matchers::Exact;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -30,9 +29,12 @@ use crate::BitPackedArray;
 use crate::BitPackedVTable;
 use crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD;
 use crate::bitpacking::vtable::kernels::chunked_indices;
+use crate::bitpacking::vtable::kernels::slice::BitPackingSliceKernel;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&BitPackingFilterKernel)]);
+pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&BitPackingFilterKernel),
+    ParentKernelSet::lift(&BitPackingSliceKernel),
+]);
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -54,11 +56,7 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 struct BitPackingFilterKernel;
 
 impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn execute_parent(
         &self,

@@ -9,7 +9,6 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
@@ -20,11 +19,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<ConstantVTable> =
 struct ConstantFilterRule;
 
 impl ArrayParentReduceRule<ConstantVTable> for ConstantFilterRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

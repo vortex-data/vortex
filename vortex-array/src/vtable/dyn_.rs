@@ -57,12 +57,8 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
-    /// See [`VTable::execute`]
-    fn execute_canonical(
-        &self,
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Canonical>;
+    /// See [`VTable::canonicalize`]
+    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -148,12 +144,8 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn execute_canonical(
-        &self,
-        array: &ArrayRef,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Canonical> {
-        let result = V::execute(downcast::<V>(array), ctx)?;
+    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let result = V::canonicalize(downcast::<V>(array), ctx)?;
 
         if cfg!(debug_assertions) {
             vortex_ensure!(

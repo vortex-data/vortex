@@ -103,7 +103,7 @@ impl Executable for Canonical {
         }
 
         // Otherwise fall back to the default execution.
-        array.vtable().execute_canonical(&array, ctx)
+        array.vtable().canonicalize(&array, ctx)
     }
 }
 

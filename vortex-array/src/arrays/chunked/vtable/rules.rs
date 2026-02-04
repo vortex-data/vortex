@@ -27,10 +27,6 @@ struct ChunkedUnaryScalarFnPushDownRule;
 impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
     type Parent = AnyScalarFn;
 
-    fn parent(&self) -> Self::Parent {
-        AnyScalarFn
-    }
-
     fn reduce_parent(
         &self,
         array: &ChunkedArray,
@@ -66,10 +62,6 @@ impl ArrayParentReduceRule<ChunkedVTable> for ChunkedUnaryScalarFnPushDownRule {
 struct ChunkedConstantScalarFnPushDownRule;
 impl ArrayParentReduceRule<ChunkedVTable> for ChunkedConstantScalarFnPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> Self::Parent {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,

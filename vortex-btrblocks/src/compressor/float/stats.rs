@@ -22,7 +22,7 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::CompressorStats;
 use crate::GenerateStatsOptions;
-use crate::rle::RLEStats;
+use crate::compressor::rle::RLEStats;
 use crate::sample::sample;
 
 #[derive(Debug, Clone)]
@@ -54,15 +54,15 @@ impl_from_typed!(f64, ErasedDistinctValues::F64);
 /// Array of floating-point numbers and relevant stats for compression.
 #[derive(Debug, Clone)]
 pub struct FloatStats {
-    pub(super) src: PrimitiveArray,
+    pub(crate) src: PrimitiveArray,
     // cache for validity.false_count()
-    pub(super) null_count: u32,
+    pub(crate) null_count: u32,
     // cache for validity.true_count()
-    pub(super) value_count: u32,
+    pub(crate) value_count: u32,
     #[allow(dead_code)]
-    pub(super) average_run_length: u32,
-    pub(super) distinct_values: ErasedDistinctValues,
-    pub(super) distinct_values_count: u32,
+    pub(crate) average_run_length: u32,
+    pub(crate) distinct_values: ErasedDistinctValues,
+    pub(crate) distinct_values_count: u32,
 }
 
 impl FloatStats {
@@ -233,8 +233,8 @@ mod tests {
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
 
+    use super::FloatStats;
     use crate::CompressorStats;
-    use crate::float::stats::FloatStats;
 
     #[test]
     fn test_float_stats() {

@@ -33,7 +33,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 const BENCH_SIZES: &[(usize, &str)] = &[(1_000_000, "1M"), (10_000_000, "10M")];
-const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10pct"), (0.5, "50pct"), (0.9, "90pct")];
+const SELECTIVITIES: &[(f64, &str)] = &[(0.1, "10%"), (0.5, "50%"), (0.9, "90%")];
 
 /// Creates input data of the given length.
 fn make_input_data<T: From<u8> + Clone>(len: usize) -> Vec<T> {
@@ -134,7 +134,7 @@ where
         + Sync
         + 'static,
 {
-    let mut group = c.benchmark_group(format!("Filter_cuda_{type_name}"));
+    let mut group = c.benchmark_group(format!("filter_cuda_{type_name}"));
     group.sample_size(10);
 
     for (len, len_label) in BENCH_SIZES {
@@ -218,28 +218,14 @@ where
     group.finish();
 }
 
-/// Benchmark i32 filter
-fn benchmark_filter_i32(c: &mut Criterion) {
+/// Benchmark filter for all types.
+fn benchmark_filter(c: &mut Criterion) {
     benchmark_filter_type::<i32>(c, "i32");
-}
-
-/// Benchmark i64 filter
-fn benchmark_filter_i64(c: &mut Criterion) {
     benchmark_filter_type::<i64>(c, "i64");
-}
-
-/// Benchmark f64 filter
-fn benchmark_filter_f64(c: &mut Criterion) {
     benchmark_filter_type::<f64>(c, "f64");
 }
 
-pub fn benchmark_filter_cuda(c: &mut Criterion) {
-    benchmark_filter_i32(c);
-    benchmark_filter_i64(c);
-    benchmark_filter_f64(c);
-}
-
-criterion::criterion_group!(benches, benchmark_filter_cuda);
+criterion::criterion_group!(benches, benchmark_filter);
 
 #[cuda_available]
 criterion::criterion_main!(benches);

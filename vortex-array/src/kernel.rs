@@ -9,7 +9,7 @@ use vortex_error::VortexResult;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::matchers::Matcher;
+use crate::matcher::Matcher;
 use crate::vtable::VTable;
 
 pub struct ParentKernelSet<V: VTable> {
@@ -61,14 +61,11 @@ impl<V: VTable> ParentKernelSet<V> {
 pub trait ExecuteParentKernel<V: VTable>: Debug {
     type Parent: Matcher;
 
-    /// Returns the matcher for the parent array
-    fn parent(&self) -> Self::Parent;
-
     /// Attempt to execute the parent array fused with the child array.
     fn execute_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::View<'_>,
+        parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>>;
@@ -100,9 +97,9 @@ impl<V: VTable, K: ExecuteParentKernel<V>> Debug for ParentKernelAdapter<V, K> {
     }
 }
 
-impl<V: VTable, R: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAdapter<V, R> {
+impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAdapter<V, K> {
     fn matches(&self, parent: &ArrayRef) -> bool {
-        self.kernel.parent().try_match(parent).is_some()
+        K::Parent::matches(parent)
     }
 
     fn execute_parent(
@@ -112,7 +109,7 @@ impl<V: VTable, R: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAd
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = self.kernel.parent().try_match(parent) else {
+        let Some(parent_view) = K::Parent::try_match(parent) else {
             return Ok(None);
         };
         self.kernel
