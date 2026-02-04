@@ -196,19 +196,21 @@ impl SparseArray {
             values.len()
         );
 
-        vortex_ensure!(
-            indices.statistics().compute_is_strict_sorted() == Some(true),
-            "SparseArray: indices must be strict-sorted"
-        );
-
-        // Verify the indices are all in the valid range
-        if !indices.is_empty() {
-            let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1)?)?;
-
+        if indices.is_host() {
             vortex_ensure!(
-                last_index < len,
-                "Array length was {len} but the last index is {last_index}"
+                indices.statistics().compute_is_strict_sorted() == Some(true),
+                "SparseArray: indices must be strict-sorted"
             );
+
+            // Verify the indices are all in the valid range
+            if !indices.is_empty() {
+                let last_index = usize::try_from(&indices.scalar_at(indices.len() - 1)?)?;
+
+                vortex_ensure!(
+                    last_index < len,
+                    "Array length was {len} but the last index is {last_index}"
+                );
+            }
         }
 
         Ok(Self {
