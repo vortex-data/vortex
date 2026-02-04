@@ -18,8 +18,8 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::ExecutionCtx;
+use crate::columnar::Columnar;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::expression::Expression;
@@ -82,9 +82,19 @@ pub trait VTable: 'static + Sized + Send + Sync {
     /// Compute the return [`DType`] of the expression if evaluated over the given input types.
     fn return_dtype(&self, options: &Self::Options, arg_dtypes: &[DType]) -> VortexResult<DType>;
 
-    /// Execute the expression on the given vector with the given dtype.
+    /// Execute the expression over the input arguments.
     ///
-    /// This function will become required in a future release.
+    /// Implementations are encouraged to check their inputs for constant arrays to perform
+    /// more optimized execution.
+    ///
+    /// If the input arguments cannot be directly used for execution (for example, an expression
+    /// may require canonical input arrays), then the implementation should perform a single
+    /// child execution and return a new [`crate::arrays::ScalarFnArray`] wrapping up the new child.
+    ///
+    /// This provides maximum opportunities for array-level optimizations using execute_parent
+    /// kernels.
+    ///
+    // TODO(ngates): replace return type Columnar with ArrayRef to allow for incremental execution.
     fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<Columnar>;
 
     /// Implement an abstract reduction rule over a tree of scalar functions.

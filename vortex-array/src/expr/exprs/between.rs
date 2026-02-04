@@ -15,8 +15,8 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::Columnar;
 use crate::arrays::ConstantVTable;
+use crate::columnar::Columnar;
 use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
 use crate::expr::Arity;

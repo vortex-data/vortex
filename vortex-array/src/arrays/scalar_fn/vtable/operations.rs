@@ -5,13 +5,13 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
-use crate::Columnar;
 use crate::IntoArray;
 use crate::LEGACY_SESSION;
 use crate::VortexSessionExecute;
 use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
+use crate::columnar::Columnar;
 use crate::expr::ExecutionArgs;
 use crate::vtable::OperationsVTable;
 

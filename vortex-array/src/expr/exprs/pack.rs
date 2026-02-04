@@ -16,9 +16,9 @@ use vortex_error::VortexResult;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::Columnar;
 use crate::IntoArray;
 use crate::arrays::StructArray;
+use crate::columnar::Columnar;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;

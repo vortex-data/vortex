@@ -145,6 +145,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
+    // TODO(ngates): replace return type Canonical with ArrayRef to allow incremental computation.
     fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
 
     /// Attempt to execute the parent of this array to produce a [`Canonical`].

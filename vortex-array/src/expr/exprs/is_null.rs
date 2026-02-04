@@ -9,8 +9,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-use crate::Columnar;
 use crate::builtins::ArrayBuiltins;
+use crate::columnar::Columnar;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;

@@ -18,9 +18,9 @@ use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::columnar::Columnar;
 use crate::compute::Operator;
 use crate::expr::Arity;
 use crate::expr::Binary;

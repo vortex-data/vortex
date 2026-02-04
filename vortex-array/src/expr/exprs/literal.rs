@@ -12,7 +12,7 @@ use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
-use crate::Columnar;
+use crate::columnar::Columnar;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;

@@ -10,12 +10,12 @@ use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantVTable;
+use crate::columnar::Columnar;
 
 impl Executable for Mask {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {

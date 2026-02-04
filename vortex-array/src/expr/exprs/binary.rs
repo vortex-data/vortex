@@ -13,7 +13,7 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Columnar;
+use crate::columnar::Columnar;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;

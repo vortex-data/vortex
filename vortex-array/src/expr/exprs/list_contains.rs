@@ -11,7 +11,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Columnar;
+use crate::columnar::Columnar;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::Arity;
 use crate::expr::ChildName;

@@ -3,17 +3,11 @@
 
 use std::fmt;
 use std::fmt::Display;
-use std::ops::Deref;
-use std::ops::DerefMut;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use vortex_buffer::Buffer;
-use vortex_dtype::DType;
-use vortex_dtype::NativePType;
+use itertools::Itertools;
 use vortex_error::VortexResult;
-use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::AnyCanonical;
@@ -21,67 +15,48 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
-use crate::arrays::ExtensionArray;
-use crate::arrays::ExtensionVTable;
-use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
-use crate::arrays::ListViewArray;
-use crate::arrays::ListViewVTable;
-use crate::arrays::NullArray;
-use crate::arrays::NullVTable;
-use crate::arrays::PrimitiveArray;
-use crate::arrays::PrimitiveVTable;
-use crate::arrays::StructArray;
-use crate::arrays::StructVTable;
-use crate::arrays::VarBinViewArray;
-use crate::arrays::VarBinViewVTable;
-use crate::arrays::constant_canonicalize;
 
-/// Marker trait for types that can be executed.
+/// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///
-/// If the `ArrayRef` cannot inhabit `Self` this will panic.
+/// Implementors must provide an implementation of `execute` that takes
+/// an [`ArrayRef`] and an [`ExecutionCtx`], and produces an instance of the
+/// implementor type.
+///
+/// Users should use the `Array::execute` or `Array::execute_as` methods
 pub trait Executable: Sized {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self>;
 }
 
-fn short_type_name<T>() -> &'static str {
-    let full = std::any::type_name::<T>();
-    full.rsplit("::").next().unwrap_or(full)
-}
-
 impl dyn Array + '_ {
     /// Execute this array to produce an instance of `E`.
+    ///
+    /// See the [`Executable`] implementation for details on how this execution is performed.
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
         ctx.log_entry(
             &self,
             format_args!("execute<{}> {}", short_type_name::<E>(), self),
         );
-        let mut scope = ctx.child_scope();
-        E::execute(self, &mut scope)
+        E::execute(self, ctx)
     }
 
-    /// Execute this array, labeling the step with a child name for tracing.
-    ///
-    /// Use this in `canonicalize` implementations to annotate which child role
-    /// (e.g. "ends", "values", "codes") is being executed.
+    /// Execute this array, labeling the execution step with a name for tracing.
     pub fn execute_as<E: Executable>(
         self: Arc<Self>,
-        name: &str,
+        name: &'static str,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<E> {
         ctx.log_entry(
             &self,
             format_args!("{}: execute<{}> {}", name, short_type_name::<E>(), self),
         );
-        let mut scope = ctx.child_scope();
-        E::execute(self, &mut scope)
+        E::execute(self, ctx)
     }
+}
+
+fn short_type_name<T>() -> &'static str {
+    let full = std::any::type_name::<T>();
+    full.rsplit("::").next().unwrap_or(full)
 }
 
 /// Execution context for batch CPU compute.
@@ -117,6 +92,8 @@ impl ExecutionCtx {
     ///
     /// Steps are accumulated and dumped as a single trace on Drop at DEBUG level.
     /// Individual steps are also logged at TRACE level for real-time following.
+    ///
+    /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         if tracing::enabled!(tracing::Level::DEBUG) {
             let indent = "  ".repeat(self.depth);
@@ -137,42 +114,6 @@ impl ExecutionCtx {
             }
         }
     }
-
-    /// Create a child scope at an incremented depth. The depth is automatically
-    /// decremented when the returned [`ExecutionScope`] is dropped.
-    ///
-    /// The scope derefs to `&mut ExecutionCtx` so it can be used wherever
-    /// `&mut ExecutionCtx` is expected.
-    pub fn child_scope(&mut self) -> ExecutionScope<'_> {
-        self.depth += 1;
-        ExecutionScope(self)
-    }
-}
-
-/// RAII guard that decrements the [`ExecutionCtx`] depth when dropped.
-///
-/// Created via [`ExecutionCtx::child_scope`]. Derefs to `ExecutionCtx` so it can
-/// be passed transparently to any function that takes `&mut ExecutionCtx`.
-pub struct ExecutionScope<'a>(&'a mut ExecutionCtx);
-
-impl Deref for ExecutionScope<'_> {
-    type Target = ExecutionCtx;
-
-    fn deref(&self) -> &Self::Target {
-        self.0
-    }
-}
-
-impl DerefMut for ExecutionScope<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.0
-    }
-}
-
-impl Drop for ExecutionScope<'_> {
-    fn drop(&mut self) {
-        self.0.depth -= 1;
-    }
 }
 
 impl Display for ExecutionCtx {
@@ -183,268 +124,93 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty() {
-            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.join("\n"));
-        }
+        if !self.ops.is_empty()
+            && tracing::enabled!(tracing::Level::DEBUG) {
+                let trace = self
+                    .ops
+                    .iter()
+                    .map(|op| format!("    - {}", op))
+                    .format("\n");
+                tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
+            }
     }
 }
 
-/// The result of expression execution.
-pub enum Columnar {
-    Array(Canonical),
-    Scalar(ConstantArray),
-}
-
-impl Columnar {
-    pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
-        Columnar::Scalar(ConstantArray::new(scalar.into(), len))
-    }
-
-    /// Returns the length of this execution result.
-    pub fn len(&self) -> usize {
-        match self {
-            Columnar::Array(canonical) => canonical.len(),
-            Columnar::Scalar(constant) => constant.len(),
-        }
-    }
-
-    /// Returns true if this execution result has no elements.
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Returns the data type of this execution result.
-    pub fn dtype(&self) -> &DType {
-        match self {
-            Columnar::Array(canonical) => canonical.dtype(),
-            Columnar::Scalar(constant) => constant.dtype(),
-        }
-    }
-}
-
-impl IntoArray for Columnar {
-    fn into_array(self) -> ArrayRef {
-        match self {
-            Columnar::Array(canonical) => canonical.into_array(),
-            Columnar::Scalar(constant) => constant.into_array(),
-        }
-    }
-}
-
-impl Executable for Columnar {
-    /// This is the main execution loop for Vortex in-memory arrays.
-    ///
-    /// This will iteratively reduce and execute arrays until we reach either a constant array or
-    /// an array in canonical form.
-    fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        'exec: loop {
-            // 0. Check for termination conditions
-            if let Some(constant) = array.as_opt::<ConstantVTable>() {
-                ctx.log(format_args!("-> constant({})", constant.scalar()));
-                return Ok(Columnar::Scalar(constant.clone()));
-            }
-            if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-                ctx.log(format_args!("-> canonical {}", array));
-                return Ok(Columnar::Array(canonical.into()));
-            }
-
-            // 1. reduce / reduce_parent (metadata-only rewrites)
-            // TODO(ngates): let's assume that arrays are reduced on construction for now.
-            if let Some(reduced) = array.vtable().reduce(&array)? {
-                ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
-                array = reduced;
-                continue 'exec;
-            }
-            for (child_idx, child) in array.children().iter().enumerate() {
-                if let Some(reduced_parent) =
-                    child.vtable().reduce_parent(child, &array, child_idx)?
-                {
-                    ctx.log(format_args!(
-                        "reduce_parent: child[{}]({}) rewrote {} -> {}",
-                        child_idx,
-                        child.encoding_id(),
-                        array,
-                        reduced_parent
-                    ));
-                    array = reduced_parent;
-                    continue 'exec;
-                }
-            }
-
-            // 2. execute_parent (child-driven optimized execution)
-            for (child_idx, child) in array.children().iter().enumerate() {
-                if let Some(executed_parent) = child
-                    .vtable()
-                    .execute_parent(child, &array, child_idx, ctx)?
-                {
-                    ctx.log(format_args!(
-                        "execute_parent: child[{}]({}) rewrote {} -> {}",
-                        child_idx,
-                        child.encoding_id(),
-                        array,
-                        executed_parent
-                    ));
-                    array = executed_parent;
-                    continue 'exec;
-                }
-            }
-
-            // 3. if no progress anywhere → call canonicalize, done
-            ctx.log(format_args!("canonicalize {}", array));
-            let result = {
-                let mut scope = ctx.child_scope();
-                array
-                    .vtable()
-                    .canonicalize(&array, &mut scope)
-                    .map(Columnar::Array)
-            };
-            if let Ok(ref columnar) = result {
-                match columnar {
-                    Columnar::Array(c) => ctx.log(format_args!("-> {}", c.as_ref())),
-                    Columnar::Scalar(s) => ctx.log(format_args!("-> constant({})", s.scalar())),
-                }
-            }
-            return result;
-        }
-    }
-}
-
-/// Recursively execute the array to canonical form.
-/// This will replace the recursive usage of `to_canonical()`.
-/// An `ExecutionCtx` is will be used to limit access to buffers.
-impl Executable for Canonical {
+/// Executing an [`ArrayRef`] into an [`ArrayRef`] is the atomic execution loop within Vortex.
+///
+/// It attempts to take the smallest possible step of execution such that the returned array
+/// is incrementally more "executed" than the input array. In other words, it is closer to becoming
+/// a constant value or a canonical array.
+///
+/// The execution steps are as follows:
+/// 0. Check for termination conditions: constant or canonical.
+/// 1. Attempt to call `reduce_parent` on each child.
+/// 2. Attempt to `reduce` the array with metadata-only optimizations.
+/// 3. Attempt to call `execute_parent` on each child.
+/// 4. Call `execute` on the array itself.
+///
+/// Most users will not call this method directly, instead preferring to specify an executable
+/// target such as [`Columnar`], [`Canonical`], or any of the canonical array types (such as
+/// [`crate::arrays::PrimitiveArray`]).
+impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        // 0. Check for termination conditions
+        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+            ctx.log(format_args!("-> constant({})", constant.scalar()));
+            return Ok(constant.to_array());
+        }
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
-            return Ok(canonical.into());
+            ctx.log(format_args!("-> canonical {}", array));
+            return Ok(Canonical::from(canonical).into_array());
         }
 
-        // Avoid going via array.execute<Columnar>() to keep logs easy to read
-        Ok(match Columnar::execute(array, ctx)? {
-            Columnar::Array(c) => c,
-            Columnar::Scalar(s) => constant_canonicalize(&s)?,
-        })
-    }
-}
-
-/// Execute a primitive array into a buffer of native values.
-///
-/// This will error if the array is not all-valid.
-impl<T: NativePType> Executable for Buffer<T> {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        let array = PrimitiveArray::execute(array, ctx)?;
-        vortex_ensure!(
-            array.all_valid()?,
-            "Cannot execute to native buffer: array is not all-valid."
-        );
-        Ok(array.into_buffer())
-    }
-}
-
-/// Execute the array to canonical form and unwrap as a [`PrimitiveArray`].
-///
-/// This will panic if the array's dtype is not primitive.
-impl Executable for PrimitiveArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<PrimitiveVTable>() {
-            Ok(primitive) => Ok(primitive),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
+        // 1. reduce_parent (child-driven metadata-only rewrites)
+        for (child_idx, child) in array.children().iter().enumerate() {
+            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, child_idx)? {
+                ctx.log(format_args!(
+                    "reduce_parent: child[{}]({}) rewrote {} -> {}",
+                    child_idx,
+                    child.encoding_id(),
+                    array,
+                    reduced_parent
+                ));
+                return Ok(reduced_parent);
+            }
         }
-    }
-}
 
-/// Execute the array to canonical form and unwrap as a [`BoolArray`].
-///
-/// This will panic if the array's dtype is not bool.
-impl Executable for BoolArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<BoolVTable>() {
-            Ok(bool_array) => Ok(bool_array),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
+        // 2. reduce (metadata-only rewrites)
+        if let Some(reduced) = array.vtable().reduce(&array)? {
+            ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
+            return Ok(reduced);
         }
-    }
-}
 
-/// Execute the array to canonical form and unwrap as a [`NullArray`].
-///
-/// This will panic if the array's dtype is not null.
-impl Executable for NullArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<NullVTable>() {
-            Ok(null_array) => Ok(null_array),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
+        // 3. execute_parent (child-driven optimized execution)
+        for (child_idx, child) in array.children().iter().enumerate() {
+            if let Some(executed_parent) = child
+                .vtable()
+                .execute_parent(child, &array, child_idx, ctx)?
+            {
+                ctx.log(format_args!(
+                    "execute_parent: child[{}]({}) rewrote {} -> {}",
+                    child_idx,
+                    child.encoding_id(),
+                    array,
+                    executed_parent
+                ));
+                return Ok(executed_parent);
+            }
         }
-    }
-}
 
-/// Execute the array to canonical form and unwrap as a [`VarBinViewArray`].
-///
-/// This will panic if the array's dtype is not utf8 or binary.
-impl Executable for VarBinViewArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<VarBinViewVTable>() {
-            Ok(varbinview) => Ok(varbinview),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
-        }
-    }
-}
+        // 4. execute (optimized execution)
+        // TODO(ngates): move over to calling Array::execute
+        ctx.log(format_args!("canonicalize {}", array));
+        let array = array
+            .vtable()
+            .canonicalize(&array, ctx)
+            .map(|c| c.into_array())?;
+        ctx.log(format_args!("-> {}", array.as_ref()));
 
-/// Execute the array to canonical form and unwrap as an [`ExtensionArray`].
-///
-/// This will panic if the array's dtype is not an extension type.
-impl Executable for ExtensionArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ExtensionVTable>() {
-            Ok(ext_array) => Ok(ext_array),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
-        }
-    }
-}
-
-/// Execute the array to canonical form and unwrap as a [`DecimalArray`].
-///
-/// This will panic if the array's dtype is not decimal.
-impl Executable for DecimalArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<DecimalVTable>() {
-            Ok(decimal) => Ok(decimal),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
-        }
-    }
-}
-
-/// Execute the array to canonical form and unwrap as a [`ListViewArray`].
-///
-/// This will panic if the array's dtype is not list.
-impl Executable for ListViewArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<ListViewVTable>() {
-            Ok(list) => Ok(list),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
-        }
-    }
-}
-
-/// Execute the array to canonical form and unwrap as a [`FixedSizeListArray`].
-///
-/// This will panic if the array's dtype is not fixed size list.
-impl Executable for FixedSizeListArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<FixedSizeListVTable>() {
-            Ok(fsl) => Ok(fsl),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
-        }
-    }
-}
-
-/// Execute the array to canonical form and unwrap as a [`StructArray`].
-///
-/// This will panic if the array's dtype is not struct.
-impl Executable for StructArray {
-    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        match array.try_into::<StructVTable>() {
-            Ok(struct_array) => Ok(struct_array),
-            Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
-        }
+        Ok(array)
     }
 }
 

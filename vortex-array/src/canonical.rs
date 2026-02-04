@@ -3,13 +3,19 @@
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use vortex_buffer::Buffer;
 use vortex_dtype::DType;
+use vortex_dtype::NativePType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Columnar;
+use crate::Executable;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
@@ -30,6 +36,7 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
+use crate::arrays::constant_canonicalize;
 use crate::builders::builder_with_capacity;
 use crate::matcher::Matcher;
 
@@ -462,6 +469,148 @@ impl From<Canonical> for ArrayRef {
             Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
+        }
+    }
+}
+
+/// Recursively execute the array until it reaches canonical form.
+///
+/// Callers should prefer to execute into `Columnar` if they are able to optimize their use for
+/// constant arrays.
+impl Executable for Canonical {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        if let Some(canonical) = array.as_opt::<AnyCanonical>() {
+            return Ok(canonical.into());
+        }
+
+        // Invoke execute directly to avoid logging the call in the execution context.
+        Ok(match Columnar::execute(array, ctx)? {
+            Columnar::Array(c) => c,
+            Columnar::Scalar(s) => constant_canonicalize(&s)?,
+        })
+    }
+}
+
+/// Execute a primitive typed array into a buffer of native values, assuming all values are valid.
+///
+/// # Errors
+///
+/// Returns a `VortexError` if the array is not all-valid (has any nulls).
+impl<T: NativePType> Executable for Buffer<T> {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        let array = PrimitiveArray::execute(array, ctx)?;
+        vortex_ensure!(
+            array.all_valid()?,
+            "Cannot execute to native buffer: array is not all-valid."
+        );
+        Ok(array.into_buffer())
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`PrimitiveArray`].
+///
+/// This will panic if the array's dtype is not primitive.
+impl Executable for PrimitiveArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<PrimitiveVTable>() {
+            Ok(primitive) => Ok(primitive),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_primitive()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`BoolArray`].
+///
+/// This will panic if the array's dtype is not bool.
+impl Executable for BoolArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<BoolVTable>() {
+            Ok(bool_array) => Ok(bool_array),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_bool()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`NullArray`].
+///
+/// This will panic if the array's dtype is not null.
+impl Executable for NullArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<NullVTable>() {
+            Ok(null_array) => Ok(null_array),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_null()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`VarBinViewArray`].
+///
+/// This will panic if the array's dtype is not utf8 or binary.
+impl Executable for VarBinViewArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<VarBinViewVTable>() {
+            Ok(varbinview) => Ok(varbinview),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_varbinview()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as an [`ExtensionArray`].
+///
+/// This will panic if the array's dtype is not an extension type.
+impl Executable for ExtensionArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<ExtensionVTable>() {
+            Ok(ext_array) => Ok(ext_array),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_extension()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`DecimalArray`].
+///
+/// This will panic if the array's dtype is not decimal.
+impl Executable for DecimalArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<DecimalVTable>() {
+            Ok(decimal) => Ok(decimal),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_decimal()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`ListViewArray`].
+///
+/// This will panic if the array's dtype is not list.
+impl Executable for ListViewArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<ListViewVTable>() {
+            Ok(list) => Ok(list),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_listview()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`FixedSizeListArray`].
+///
+/// This will panic if the array's dtype is not fixed size list.
+impl Executable for FixedSizeListArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<FixedSizeListVTable>() {
+            Ok(fsl) => Ok(fsl),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_fixed_size_list()),
+        }
+    }
+}
+
+/// Execute the array to canonical form and unwrap as a [`StructArray`].
+///
+/// This will panic if the array's dtype is not struct.
+impl Executable for StructArray {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.try_into::<StructVTable>() {
+            Ok(struct_array) => Ok(struct_array),
+            Err(array) => Ok(Canonical::execute(array, ctx)?.into_struct()),
         }
     }
 }

@@ -17,9 +17,9 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
-use crate::Columnar;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
+use crate::columnar::Columnar;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;

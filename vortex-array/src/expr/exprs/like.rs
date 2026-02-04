@@ -13,7 +13,7 @@ use vortex_scalar::StringLike;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Columnar;
+use crate::columnar::Columnar;
 use crate::compute::LikeOptions;
 use crate::compute::like as like_compute;
 use crate::expr::Arity;

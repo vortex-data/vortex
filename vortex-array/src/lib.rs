@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 
 pub use array::*;
 pub use canonical::*;
+pub use columnar::*;
 pub use context::*;
 pub use executor::*;
 pub use hash::*;
@@ -37,6 +38,7 @@ pub mod builders;
 pub mod builtins;
 mod canonical;
 pub(crate) mod canonical_to_vector;
+mod columnar;
 pub mod compute;
 mod context;
 pub mod display;

@@ -24,9 +24,7 @@ use vortex_error::vortex_ensure;
 use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
-use crate::Columnar;
 use crate::IntoArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
@@ -34,6 +32,7 @@ use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::columnar::Columnar;
 use crate::executor::ExecutionCtx;
 use crate::expr;
 use crate::expr::Arity;
@@ -143,15 +142,15 @@ impl VTable for ScalarFnVTable {
         // TODO(ngates): is this true?? I don't see why it needs to be? But if it isn't, then
         //  all implementations of ScalarFns need to incrementally canonicalize their children
         //  and recursively execute themselves in order to pick up these optimizations. That feels
-        //  fragile?
+        //  fragile? But it means writing plugins with new scalar functions is easier since the
+        //  scalar function itself can implement specialized logic for its children. Without this
+        //  the plugin would need to write the canonical version of the scalar fn, and then
+        //  execute_parent kernels for each of the specialized child implementations it wants to
+        //  optimize for.
 
         'exec: loop {
             let Some(sfn) = current.as_opt::<ScalarFnVTable>() else {
                 // If we're no longer a scalar fn, execute normally
-                ctx.log(format_args!(
-                    "scalar_fn: no longer ScalarFn, executing {}",
-                    current
-                ));
                 return current.execute::<Canonical>(ctx);
             };
 
@@ -186,19 +185,9 @@ impl VTable for ScalarFnVTable {
                     ));
 
                     // We need to execute this child "one step" further.
-                    // At the moment, this means running execute_parent on all it's children.
-                    // But really we probably want a public API on an array that does this.
-                    let mut scope = ctx.child_scope();
-                    if let Some(child_stepped) = execute_one_step(child, &mut scope)? {
-                        scope.log(format_args!(
-                            "scalar_fn({}): child[{}] {} stepped to {}",
-                            sfn.scalar_fn, child_idx, child, child_stepped
-                        ));
-
-                        *child = child_stepped;
-                        current = current.with_children(children)?.optimize()?;
-                        continue 'exec;
-                    }
+                    *child = child.clone().execute::<ArrayRef>(ctx)?;
+                    current = current.with_children(children.clone())?.optimize()?;
+                    continue 'exec;
                 }
             }
 
@@ -219,7 +208,8 @@ impl VTable for ScalarFnVTable {
                 "scalar_fn: execute result -> {}",
                 result_array
             ));
-            // TODO(ngates): return columnar
+            // TODO(ngates): return columnar? No, we should reduce if we can return a constant?
+            //  Oh, but we can't do execution. Maybe we do need an execute function?
             return result_array.execute::<Canonical>(ctx);
         }
     }
@@ -254,26 +244,6 @@ impl VTable for ScalarFnVTable {
             .into_array(),
         ))
     }
-}
-
-fn execute_one_step(array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Option<ArrayRef>> {
-    for (child_idx, child) in array.children().into_iter().enumerate() {
-        if let Some(executed) = child
-            .vtable()
-            .execute_parent(&child, array, child_idx, ctx)?
-        {
-            ctx.log(format_args!(
-                "scalar_fn({}): execute_parent child[{}]({}) rewrote {} -> {}",
-                array,
-                child_idx,
-                child.encoding_id(),
-                array,
-                executed
-            ));
-            return Ok(Some(executed));
-        }
-    }
-    Ok(None)
 }
 
 /// Array factory functions for scalar functions.

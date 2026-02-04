@@ -14,8 +14,8 @@ use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Columnar;
 use crate::arrays::BoolArray;
+use crate::columnar::Columnar;
 use crate::compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
