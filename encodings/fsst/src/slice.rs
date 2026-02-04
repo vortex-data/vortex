@@ -8,6 +8,7 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::SliceReduce;
 use vortex_array::arrays::VarBinVTable;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -21,11 +22,9 @@ impl SliceReduce for FSSTVTable {
                     array.dtype().clone(),
                     array.symbols().clone(),
                     array.symbol_lengths().clone(),
-                    array
-                        .codes()
-                        .slice(range.clone())?
-                        .as_::<VarBinVTable>()
-                        .clone(),
+                    VarBinVTable::_slice(array.codes().as_::<VarBinVTable>(), range.clone())?
+                        .try_into::<VarBinVTable>()
+                        .map_err(|_| vortex_err!("cannot fail conversion"))?,
                     array.uncompressed_lengths().slice(range)?,
                 )
             }
