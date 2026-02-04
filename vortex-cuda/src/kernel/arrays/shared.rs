@@ -32,7 +32,10 @@ impl CudaExecute for SharedExecutor {
             return Ok(cached);
         }
 
-        let canonical = shared.source().clone().execute_cuda(ctx).await?;
+        let source = shared
+            .source_if_any()
+            .vortex_expect("Shared array expects exactly 1 child");
+        let canonical = source.execute_cuda(ctx).await?;
         Ok(shared.cache_or_return(canonical))
     }
 }

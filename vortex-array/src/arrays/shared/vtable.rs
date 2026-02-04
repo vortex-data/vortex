@@ -83,10 +83,11 @@ impl VTable for SharedVTable {
             "SharedArray expects exactly 1 child, got {}",
             children.len()
         );
-        array.source = children
+        let child = children
             .into_iter()
             .next()
             .vortex_expect("children length already validated");
+        array.set_source(child);
         Ok(())
     }
 
@@ -95,18 +96,18 @@ impl VTable for SharedVTable {
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced = array.source.slice(range)?;
+        let sliced = array.current_array_ref().slice(range)?;
         Ok(Some(SharedArray::new(sliced).into_array()))
     }
 }
 
 impl BaseArrayVTable<SharedVTable> for SharedVTable {
     fn len(array: &SharedArray) -> usize {
-        array.source.len()
+        array.current_array_ref().len()
     }
 
     fn dtype(array: &SharedArray) -> &DType {
-        array.source.dtype()
+        &array.dtype
     }
 
     fn stats(array: &SharedArray) -> StatsSetRef<'_> {
@@ -114,25 +115,27 @@ impl BaseArrayVTable<SharedVTable> for SharedVTable {
     }
 
     fn array_hash<H: std::hash::Hasher>(array: &SharedArray, state: &mut H, precision: Precision) {
-        array.source.array_hash(state, precision);
-        array.source.dtype().hash(state);
+        let current = array.current_array_ref();
+        current.array_hash(state, precision);
+        array.dtype.hash(state);
     }
 
     fn array_eq(array: &SharedArray, other: &SharedArray, precision: Precision) -> bool {
-        array.source.array_eq(&other.source, precision)
-            && array.source.dtype() == other.source.dtype()
+        let current = array.current_array_ref();
+        let other_current = other.current_array_ref();
+        current.array_eq(&other_current, precision) && array.dtype == other.dtype
     }
 }
 
 impl OperationsVTable<SharedVTable> for SharedVTable {
     fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
-        array.source.scalar_at(index)
+        array.current_array_ref().scalar_at(index)
     }
 }
 
 impl ValidityVTable<SharedVTable> for SharedVTable {
     fn validity(array: &SharedArray) -> VortexResult<Validity> {
-        array.source.validity()
+        array.current_array_ref().validity()
     }
 }
 
@@ -140,6 +143,6 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
     fn visit_buffers(_array: &SharedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &SharedArray, visitor: &mut dyn ArrayChildVisitor) {
-        visitor.visit_child("source", array.source());
+        array.visit_children(visitor);
     }
 }
