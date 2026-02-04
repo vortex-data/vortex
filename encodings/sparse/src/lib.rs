@@ -51,7 +51,7 @@ use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
-use crate::canonical::canonicalize_sparse;
+use crate::canonical::execute_sparse;
 
 mod canonical;
 mod compute;
@@ -175,8 +175,8 @@ impl VTable for SparseVTable {
         ))
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        canonicalize_sparse(array)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        execute_sparse(array)
     }
 }
 

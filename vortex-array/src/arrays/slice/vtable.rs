@@ -14,6 +14,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -103,17 +104,21 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Execute the child to get canonical form, then slice it
-        let canonical = array.child.clone().execute::<Canonical>(ctx)?;
-        let result = canonical.as_ref().slice(array.range.clone())?;
-        assert!(
-            result.is_canonical(),
-            "this must be canonical fix the slice impl for the dtype {} showing this error",
-            array.dtype()
-        );
-        // TODO(joe): this is a downcast not a execute.
-        result.execute::<Canonical>(ctx)
+        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
+            // If the child is not canonical, recurse.
+            return array
+                .child
+                .clone()
+                .execute::<ArrayRef>(ctx)?
+                .slice(array.slice_range().clone());
+        };
+
+        // TODO(ngates): we should inline canonical slice logic here.
+        Canonical::from(canonical)
+            .as_ref()
+            .slice(array.range.clone())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

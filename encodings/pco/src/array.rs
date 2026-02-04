@@ -177,8 +177,8 @@ impl VTable for PcoVTable {
         Ok(Some(array._slice(range.start, range.end).into_array()))
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(array.decompress()?))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.decompress()?.into_array())
     }
 }
 

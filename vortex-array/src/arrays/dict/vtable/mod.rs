@@ -152,7 +152,7 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         if let Some(canonical) = execute_fast_path(array, ctx)? {
             return Ok(canonical);
         }
@@ -169,25 +169,7 @@ impl VTable for DictVTable {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        let canonical = take_canonical(values, &codes)?;
-
-        let result_dtype = array
-            .dtype()
-            .union_nullability(array.codes().dtype().nullability());
-        vortex_ensure!(
-            canonical.as_ref().dtype() == &result_dtype,
-            "Dict result dtype mismatch: expected {:?}, got {:?}",
-            result_dtype,
-            canonical.as_ref().dtype()
-        );
-        vortex_ensure!(
-            canonical.as_ref().len() == array.len(),
-            "Dict result length mismatch: expected {}, got {}",
-            array.len(),
-            canonical.as_ref().len()
-        );
-
-        Ok(canonical)
+        Ok(take_canonical(values, &codes)?.into_array())
     }
 
     fn reduce_parent(
@@ -202,22 +184,21 @@ impl VTable for DictVTable {
 /// Check for fast-path execution conditions.
 pub(super) fn execute_fast_path(
     array: &DictArray,
-    ctx: &mut ExecutionCtx,
-) -> VortexResult<Option<Canonical>> {
+    _ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
     // Empty array - nothing to do
     if array.is_empty() {
         let result_dtype = array
             .dtype()
             .union_nullability(array.codes().dtype().nullability());
-        return Ok(Some(Canonical::empty(&result_dtype)));
+        return Ok(Some(Canonical::empty(&result_dtype).into_array()));
     }
 
     // All codes are null - result is all nulls
     if array.codes.all_invalid()? {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
-                .into_array()
-                .execute(ctx)?,
+                .into_array(),
         ));
     }
 

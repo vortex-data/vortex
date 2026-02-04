@@ -124,15 +124,14 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty()
-            && tracing::enabled!(tracing::Level::DEBUG) {
-                let trace = self
-                    .ops
-                    .iter()
-                    .map(|op| format!("    - {}", op))
-                    .format("\n");
-                tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
-            }
+        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
+            let trace = self
+                .ops
+                .iter()
+                .map(|op| format!("    - {}", op))
+                .format("\n");
+            tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
+        }
     }
 }
 
@@ -206,7 +205,7 @@ impl Executable for ArrayRef {
         ctx.log(format_args!("canonicalize {}", array));
         let array = array
             .vtable()
-            .canonicalize(&array, ctx)
+            .execute(&array, ctx)
             .map(|c| c.into_array())?;
         ctx.log(format_args!("-> {}", array.as_ref()));
 

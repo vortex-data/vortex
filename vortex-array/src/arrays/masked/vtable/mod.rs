@@ -124,14 +124,15 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
-                .into_array()
-                .execute::<Canonical>(ctx);
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                    .into_array(),
+            );
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
@@ -141,22 +142,7 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &validity_mask, ctx)?;
-
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Mask result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
-        vortex_ensure!(
-            canonical.len() == array.len(),
-            "Mask result length mismatch: expected {}, got {}",
-            array.len(),
-            canonical.len()
-        );
-
-        Ok(canonical)
+        Ok(mask_validity_canonical(child, &validity_mask, ctx)?.into_array())
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

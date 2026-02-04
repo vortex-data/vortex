@@ -12,7 +12,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -142,8 +141,8 @@ impl VTable for VarBinVTable {
         }))
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        varbin_to_canonical(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(varbin_to_canonical(array, ctx)?.into_array())
     }
 }
 

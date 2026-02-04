@@ -13,7 +13,6 @@ use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
@@ -150,8 +149,8 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(list_view_from_list(array.clone(), ctx)?.into_array())
     }
 
     fn execute_parent(

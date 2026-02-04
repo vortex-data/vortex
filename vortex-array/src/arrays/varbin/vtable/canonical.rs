@@ -6,7 +6,6 @@ use std::sync::Arc;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::VarBinViewArray;
@@ -21,7 +20,7 @@ use crate::arrays::varbin::VarBinArray;
 pub(crate) fn varbin_to_canonical(
     array: &VarBinArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
+) -> VortexResult<VarBinViewArray> {
     // Zero the offsets first to ensure the bytes buffer starts at 0
     let array = array.clone().zero_offsets();
     let (dtype, bytes, offsets, validity) = array.into_parts();
@@ -39,7 +38,7 @@ pub(crate) fn varbin_to_canonical(
 
         // Create VarBinViewArray with the original bytes buffer and computed views
         // SAFETY: views are correctly computed from valid offsets
-        Ok(Canonical::VarBinView(varbinview))
+        Ok(varbinview)
     })
 }
 

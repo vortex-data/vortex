@@ -12,7 +12,6 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -109,7 +108,7 @@ impl VTable for ConstantVTable {
         ))
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        constant_canonicalize(array)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(constant_canonicalize(array)?.into_array())
     }
 }

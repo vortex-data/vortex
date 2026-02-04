@@ -171,8 +171,8 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        _canonicalize(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(_canonicalize(array, ctx)?.into_array())
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

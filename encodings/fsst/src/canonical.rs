@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::build_views::BinaryView;
@@ -22,17 +24,18 @@ use crate::FSSTArray;
 pub(super) fn canonicalize_fsst(
     array: &FSSTArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let (buffers, views) = fsst_decode_views(array, 0, ctx)?;
     // SAFETY: FSST already validates the bytes for binary/UTF-8. We build views directly on
     //  top of them, so the view pointers will all be valid.
     Ok(unsafe {
-        Canonical::VarBinView(VarBinViewArray::new_unchecked(
+        VarBinViewArray::new_unchecked(
             views,
             Arc::from(buffers),
             array.dtype().clone(),
             array.codes().validity().clone(),
-        ))
+        )
+        .into_array()
     })
 }
 

@@ -129,7 +129,7 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let mut current = array.to_array();
 
         // In order to canonicalize a ScalarFnArray, we repeatedly check for child execute_parent

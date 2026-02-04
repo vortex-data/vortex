@@ -166,7 +166,7 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // TODO(joe): take by value
         Ok(Canonical::Primitive(execute_decompress(
             array.clone(),

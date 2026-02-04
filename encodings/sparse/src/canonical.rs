@@ -6,7 +6,9 @@ use std::sync::Arc;
 use itertools::Itertools;
 use num_traits::NumCast;
 use vortex_array::Array;
+use vortex_array::ArrayRef;
 use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::ConstantArray;
@@ -54,27 +56,27 @@ use vortex_scalar::StructScalar;
 
 use crate::SparseArray;
 
-pub(super) fn canonicalize_sparse(array: &SparseArray) -> VortexResult<Canonical> {
+pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
     if array.patches().num_patches() == 0 {
-        return ConstantArray::new(array.fill_scalar().clone(), array.len()).to_canonical();
+        return Ok(ConstantArray::new(array.fill_scalar().clone(), array.len()).into_array());
     }
 
     Ok(match array.dtype() {
         DType::Null => {
             assert!(array.fill_scalar().is_null());
-            Canonical::Null(NullArray::new(array.len()))
+            NullArray::new(array.len()).into_array()
         }
         DType::Bool(..) => {
             let resolved_patches = array.resolved_patches()?;
-            canonicalize_sparse_bools(&resolved_patches, array.fill_scalar())?
+            execute_sparse_bools(&resolved_patches, array.fill_scalar())?
         }
         DType::Primitive(ptype, ..) => {
             let resolved_patches = array.resolved_patches()?;
             match_each_native_ptype!(ptype, |P| {
-                canonicalize_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())?
+                execute_sparse_primitives::<P>(&resolved_patches, array.fill_scalar())?
             })
         }
-        DType::Struct(struct_fields, ..) => canonicalize_sparse_struct(
+        DType::Struct(struct_fields, ..) => execute_sparse_struct(
             struct_fields,
             array.fill_scalar().as_struct(),
             array.dtype(),
@@ -86,7 +88,7 @@ pub(super) fn canonicalize_sparse(array: &SparseArray) -> VortexResult<Canonical
                 DecimalType::smallest_decimal_value_type(decimal_dtype);
             let fill_value = array.fill_scalar().as_decimal();
             match_each_decimal_value_type!(canonical_decimal_value_type, |D| {
-                canonicalize_sparse_decimal::<D>(
+                execute_sparse_decimal::<D>(
                     *decimal_dtype,
                     *nullability,
                     fill_value,
@@ -98,17 +100,17 @@ pub(super) fn canonicalize_sparse(array: &SparseArray) -> VortexResult<Canonical
         dtype @ DType::Utf8(..) => {
             let fill_value = array.fill_scalar().as_utf8().value();
             let fill_value = fill_value.map(BufferString::into_inner);
-            canonicalize_varbin(array, dtype.clone(), fill_value)?
+            execute_varbin(array, dtype.clone(), fill_value)?
         }
         dtype @ DType::Binary(..) => {
             let fill_value = array.fill_scalar().as_binary().value();
-            canonicalize_varbin(array, dtype.clone(), fill_value)?
+            execute_varbin(array, dtype.clone(), fill_value)?
         }
         DType::List(values_dtype, nullability) => {
-            canonicalize_sparse_lists(array, values_dtype.clone(), *nullability)?
+            execute_sparse_lists(array, values_dtype.clone(), *nullability)?
         }
         DType::FixedSizeList(.., nullability) => {
-            canonicalize_sparse_fixed_size_list(array, *nullability)?
+            execute_sparse_fixed_size_list(array, *nullability)?
         }
         DType::Extension(_ext_dtype) => todo!(),
     })
@@ -118,11 +120,11 @@ pub(super) fn canonicalize_sparse(array: &SparseArray) -> VortexResult<Canonical
     clippy::cognitive_complexity,
     reason = "complexity is from nested match_smallest_offset_type macro"
 )]
-fn canonicalize_sparse_lists(
+fn execute_sparse_lists(
     array: &SparseArray,
     values_dtype: Arc<DType>,
     nullability: Nullability,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let resolved_patches = array.resolved_patches()?;
 
     let indices = resolved_patches.indices().to_primitive();
@@ -136,7 +138,7 @@ fn canonicalize_sparse_lists(
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         match_smallest_offset_type!(total_canonical_values, |O| {
-            canonicalize_sparse_lists_inner::<I, O>(
+            execute_sparse_lists_inner::<I, O>(
                 indices.as_slice(),
                 values,
                 fill_value,
@@ -149,7 +151,7 @@ fn canonicalize_sparse_lists(
     }))
 }
 
-fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
+fn execute_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     patch_indices: &[I],
     patch_values: ListViewArray,
     fill_value: ListScalar,
@@ -157,7 +159,7 @@ fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
     len: usize,
     total_canonical_values: usize,
     validity: Validity,
-) -> Canonical {
+) -> ArrayRef {
     // Create the builder with appropriate types. It is easy to just use the same type for both
     // `offsets` and `sizes` since we have no other constraints.
     let mut builder = ListViewBuilder::<O, O>::with_capacity(
@@ -197,14 +199,14 @@ fn canonicalize_sparse_lists_inner<I: IntegerPType, O: IntegerPType>(
         }
     }
 
-    builder.finish_into_canonical()
+    builder.finish()
 }
 
 /// Canonicalize a sparse [`FixedSizeListArray`] by expanding it into a dense representation.
-fn canonicalize_sparse_fixed_size_list(
+fn execute_sparse_fixed_size_list(
     array: &SparseArray,
     nullability: Nullability,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let resolved_patches = array.resolved_patches()?;
     let indices = resolved_patches.indices().to_primitive();
     let values = resolved_patches.values().to_fixed_size_list();
@@ -213,13 +215,14 @@ fn canonicalize_sparse_fixed_size_list(
     let validity = Validity::from_mask(array.validity_mask()?, nullability);
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
-        canonicalize_sparse_fixed_size_list_inner::<I>(
+        execute_sparse_fixed_size_list_inner::<I>(
             indices.as_slice(),
             values,
             fill_value,
             array.len(),
             validity,
         )
+        .into_array()
     }))
 }
 
@@ -229,13 +232,13 @@ fn canonicalize_sparse_fixed_size_list(
 /// This algorithm walks through the sparse indices sequentially, filling gaps with the fill value's
 /// elements (or defaults if null). Since all lists have the same size, we can directly append
 /// elements without tracking offsets.
-fn canonicalize_sparse_fixed_size_list_inner<I: IntegerPType>(
+fn execute_sparse_fixed_size_list_inner<I: IntegerPType>(
     indices: &[I],
     values: FixedSizeListArray,
     fill_value: ListScalar,
     array_len: usize,
     validity: Validity,
-) -> Canonical {
+) -> FixedSizeListArray {
     let list_size = values.list_size();
     let element_dtype = values.elements().dtype();
     let total_elements = array_len * list_size as usize;
@@ -288,9 +291,7 @@ fn canonicalize_sparse_fixed_size_list_inner<I: IntegerPType>(
     let elements = builder.finish();
 
     // SAFETY: elements.len() == array_len * list_size, validity length matches array_len.
-    Canonical::FixedSizeList(unsafe {
-        FixedSizeListArray::new_unchecked(elements, list_size, validity, array_len)
-    })
+    unsafe { FixedSizeListArray::new_unchecked(elements, list_size, validity, array_len) }
 }
 
 /// Append `count` copies of a fixed-size list to the builder.
@@ -316,7 +317,7 @@ fn append_n_lists(
     }
 }
 
-fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<Canonical> {
+fn execute_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     let (fill_bool, validity) = if fill_value.is_null() {
         (false, Validity::AllInvalid)
     } else {
@@ -334,15 +335,13 @@ fn canonicalize_sparse_bools(patches: &Patches, fill_value: &Scalar) -> VortexRe
 
     let bools = BoolArray::new(BitBuffer::full(fill_bool, patches.array_len()), validity);
 
-    Ok(Canonical::Bool(bools.patch(patches)?))
+    Ok(bools.patch(patches)?.into_array())
 }
 
-fn canonicalize_sparse_primitives<
-    T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>,
->(
+fn execute_sparse_primitives<T: NativePType + for<'a> TryFrom<&'a Scalar, Error = VortexError>>(
     patches: &Patches,
     fill_value: &Scalar,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let (primitive_fill, validity) = if fill_value.is_null() {
         (T::default(), Validity::AllInvalid)
     } else {
@@ -360,17 +359,17 @@ fn canonicalize_sparse_primitives<
 
     let parray = PrimitiveArray::new(buffer![primitive_fill; patches.array_len()], validity);
 
-    Ok(Canonical::Primitive(parray.patch(patches)?))
+    Ok(parray.patch(patches)?.into_array())
 }
 
-fn canonicalize_sparse_struct(
+fn execute_sparse_struct(
     struct_fields: &StructFields,
     fill_struct: StructScalar,
     dtype: &DType,
     // Resolution is unnecessary b/c we're just pushing the patches into the fields.
     unresolved_patches: &Patches,
     len: usize,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
         Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
         None => (
@@ -403,7 +402,7 @@ fn canonicalize_sparse_struct(
             .unwrap_or_else(|| vortex_panic!("fill validity should match sparse array nullability"))
     };
 
-    StructArray::try_from_iter_with_validity(
+    Ok(StructArray::try_from_iter_with_validity(
         names.iter().zip_eq(
             columns_patch_values
                 .iter()
@@ -420,17 +419,17 @@ fn canonicalize_sparse_struct(
                 }),
         ),
         validity,
-    )
-    .map(Canonical::Struct)
+    )?
+    .into_array())
 }
 
-fn canonicalize_sparse_decimal<D: NativeDecimalType>(
+fn execute_sparse_decimal<D: NativeDecimalType>(
     decimal_dtype: DecimalDType,
     nullability: Nullability,
     fill_value: DecimalScalar,
     patches: &Patches,
     len: usize,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let mut builder = DecimalBuilder::with_capacity::<D>(len, decimal_dtype, nullability);
     match fill_value.decimal_value() {
         Some(fill_value) => {
@@ -447,14 +446,14 @@ fn canonicalize_sparse_decimal<D: NativeDecimalType>(
     }
     let filled_array = builder.finish_into_decimal();
     let array = filled_array.patch(patches)?;
-    Ok(Canonical::Decimal(array))
+    Ok(array.into_array())
 }
 
-fn canonicalize_varbin(
+fn execute_varbin(
     array: &SparseArray,
     dtype: DType,
     fill_value: Option<ByteBuffer>,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     let patches = array.resolved_patches()?;
     let indices = patches.indices().to_primitive();
     let values = patches.values().to_varbinview();
@@ -463,18 +462,18 @@ fn canonicalize_varbin(
 
     Ok(match_each_integer_ptype!(indices.ptype(), |I| {
         let indices = indices.to_buffer::<I>();
-        canonicalize_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len)
+        execute_varbin_inner::<I>(fill_value, indices, values, dtype, validity, len).into_array()
     }))
 }
 
-fn canonicalize_varbin_inner<I: IntegerPType>(
+fn execute_varbin_inner<I: IntegerPType>(
     fill_value: Option<ByteBuffer>,
     indices: Buffer<I>,
     values: VarBinViewArray,
     dtype: DType,
     validity: Validity,
     len: usize,
-) -> Canonical {
+) -> VarBinViewArray {
     assert_eq!(dtype.nullability(), validity.nullability());
 
     let n_patch_buffers = values.buffers().len();
@@ -502,11 +501,7 @@ fn canonicalize_varbin_inner<I: IntegerPType>(
     let views = BufferHandle::new_host(views.freeze().into_byte_buffer());
 
     // SAFETY: views are constructed to maintain the invariants
-    let array = unsafe {
-        VarBinViewArray::new_handle_unchecked(views, Arc::from(buffers), dtype, validity)
-    };
-
-    Canonical::VarBinView(array)
+    unsafe { VarBinViewArray::new_handle_unchecked(views, Arc::from(buffers), dtype, validity) }
 }
 
 #[cfg(test)]
