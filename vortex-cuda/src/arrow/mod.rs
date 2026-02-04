@@ -86,7 +86,7 @@ pub(crate) struct ArrowArray {
     // When exported, this MUST contain everything that is owned by this array.
     // for example, any buffer pointed to in `buffers` must be here, as well
     // as the `buffers` pointer itself.
-    // In other words, everything in [FFI_ArrowArray] must be owned by
+    // In other words, everything in ArrowArray must be owned by
     // `private_data` and can assume that they do not outlive `private_data`.
     private_data: *mut c_void,
 }
