@@ -11,7 +11,6 @@ use pyo3::types::PyBytes;
 use vortex::array::ArrayBufferVisitor;
 use vortex::array::ArrayChildVisitor;
 use vortex::array::ArrayRef;
-use vortex::array::Canonical;
 use vortex::array::ExecutionCtx;
 use vortex::array::Precision;
 use vortex::array::RawMetadata;
@@ -111,7 +110,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         todo!()
     }
 }

@@ -11,7 +11,6 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -278,7 +277,7 @@ impl VTable for ALPRDVTable {
             )
         };
 
-        Ok(Canonical::Primitive(decoded_array))
+        Ok(decoded_array.into_array())
     }
 }
 

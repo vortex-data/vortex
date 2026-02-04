@@ -5,7 +5,6 @@ use std::cmp::max;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -254,7 +253,7 @@ impl VTable for BitPackedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(Canonical::Primitive(unpack_array(array, ctx)?))
+        Ok(unpack_array(array, ctx)?.into_array())
     }
 
     fn execute_parent(

@@ -288,7 +288,7 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();

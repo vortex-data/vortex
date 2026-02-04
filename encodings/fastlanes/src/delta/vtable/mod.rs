@@ -7,7 +7,6 @@ use std::ops::Range;
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
@@ -142,7 +141,7 @@ impl VTable for DeltaVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(Canonical::Primitive(delta_decompress(array, ctx)?))
+        Ok(delta_decompress(array, ctx)?.into_array())
     }
 }
 

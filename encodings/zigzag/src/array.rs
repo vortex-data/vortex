@@ -10,7 +10,6 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -105,9 +104,7 @@ impl VTable for ZigZagVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().clone().execute(ctx)?,
-        )))
+        Ok(zigzag_decode(array.encoded().clone().execute(ctx)?).into_array())
     }
 }
 

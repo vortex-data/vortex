@@ -3,7 +3,7 @@
 
 use std::fmt::Formatter;
 
-use vortex_array::Columnar;
+use vortex_array::ArrayRef;
 use vortex_array::expr::Arity;
 use vortex_array::expr::ChildName;
 use vortex_array::expr::EmptyOptions;

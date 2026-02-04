@@ -6,7 +6,6 @@ use std::fmt::Formatter;
 use std::ops::Range;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
@@ -121,7 +120,7 @@ impl VTable for FoRVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(Canonical::Primitive(decompress(array, ctx)?))
+        Ok(decompress(array, ctx)?.into_array())
     }
 }
 
