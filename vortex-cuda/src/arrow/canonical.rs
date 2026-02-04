@@ -250,15 +250,23 @@ async fn export_variadic(
     buffers.push(None);
 
     if let Some(buf) = buffer {
-        buffers.push(Some(buf));
+        buffers.push(Some(ensure_device_resident(buf, ctx).await?));
     }
 
     // We create a new buffer that contains the lengths of the variadic buffers as i64.
     let mut variadic_buffer_lens = BufferMut::with_capacity(variadic_buffers.len());
     for buffer in variadic_buffers {
         variadic_buffer_lens.push(buffer.len() as i64);
-        buffers.push(Some(buffer));
+        buffers.push(Some(ensure_device_resident(buffer, ctx).await?));
     }
+
+    let variadic_buffer_lens = ensure_device_resident(
+        BufferHandle::new_host(variadic_buffer_lens.freeze().into_byte_buffer()),
+        ctx,
+    )
+    .await?;
+
+    buffers.push(Some(variadic_buffer_lens));
 
     let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
     let sync_event = private_data.sync_event();
