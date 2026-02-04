@@ -18,6 +18,7 @@ use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::GetItem;
 use crate::expr::Mask;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
@@ -26,6 +27,7 @@ use crate::vtable::ValidityHelper;
 pub(super) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
 ]);
 
 /// Rule to push down cast into struct fields.

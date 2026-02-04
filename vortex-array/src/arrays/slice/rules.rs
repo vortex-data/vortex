@@ -5,12 +5,17 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::slice::SliceArray;
 use crate::arrays::slice::SliceVTable;
 use crate::optimizer::rules::ArrayReduceRule;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::optimizer::rules::ReduceRuleSet;
 
 pub(super) const RULES: ReduceRuleSet<SliceVTable> = ReduceRuleSet::new(&[&SliceVTableRule]);
+
+pub(super) const PARENT_RULES: ParentRuleSet<SliceVTable> =
+    ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(SliceVTable))]);
 
 /// Generic reduce rule that calls VTable::slice on the child.
 /// This allows all encodings to implement their own slice logic.

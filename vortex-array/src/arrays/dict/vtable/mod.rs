@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -23,7 +21,6 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
 use crate::arrays::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
@@ -34,8 +31,10 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
+mod kernel;
 mod operations;
 mod rules;
+mod slice;
 mod validity;
 mod visitor;
 
@@ -61,28 +60,6 @@ impl VTable for DictVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_code = array.codes().slice(range)?;
-        if sliced_code.is::<ConstantVTable>() {
-            let code = &sliced_code.scalar_at(0)?.as_primitive().as_::<usize>();
-            return if let Some(code) = code {
-                Ok(Some(
-                    ConstantArray::new(array.values().scalar_at(*code)?, sliced_code.len())
-                        .into_array(),
-                ))
-            } else {
-                Ok(Some(
-                    ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
-                        .to_array(),
-                ))
-            };
-        }
-        // SAFETY: slicing the codes preserves invariants.
-        Ok(Some(
-            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
-        ))
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
@@ -196,6 +173,15 @@ impl VTable for DictVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

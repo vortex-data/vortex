@@ -4,9 +4,9 @@
 mod array;
 mod canonical;
 mod operations;
+mod rules;
+mod slice;
 mod validity;
-
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -23,11 +23,11 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::vtable::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -67,21 +67,6 @@ impl VTable for MaskedVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone())?;
-        let validity = array.validity.slice(range)?;
-
-        Ok(Some(
-            MaskedArray {
-                child,
-                validity,
-                dtype: array.dtype.clone(),
-                stats: ArrayStats::default(),
-            }
-            .into_array(),
-        ))
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -157,6 +142,14 @@ impl VTable for MaskedVTable {
         );
 
         Ok(canonical)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
