@@ -15,7 +15,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
@@ -33,6 +32,7 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod operations;
 mod rules;
+mod slice;
 mod validity;
 mod visitor;
 
@@ -68,22 +68,6 @@ impl VTable for ListViewVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: Slicing the components of an existing valid array is still valid.
-        Ok(Some(
-            unsafe {
-                ListViewArray::new_unchecked(
-                    array.elements().clone(),
-                    array.offsets().slice(range.clone())?,
-                    array.sizes().slice(range.clone())?,
-                    array.validity().slice(range)?,
-                )
-                .with_zero_copy_to_list(array.is_zero_copy_to_list())
-            }
-            .into_array(),
-        ))
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

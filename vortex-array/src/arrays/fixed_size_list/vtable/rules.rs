@@ -6,4 +6,6 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 
 pub(super) const PARENT_RULES: ParentRuleSet<FixedSizeListVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(FixedSizeListVTable))]);
+    ParentRuleSet::new(&[ParentRuleSet::lift(&SliceReduceAdaptor(
+        FixedSizeListVTable,
+    ))]);
