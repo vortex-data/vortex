@@ -180,7 +180,7 @@ jobs:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
           project_uuid: "e5d846e1-b54c-46e7-9174-8bf055a3af56"
-          profiling_frequency: 150
+          profiling_frequency: 199
           extra_args: "--off-cpu-threshold=0.03"  # Personally tuned by @brancz
 
       - name: Run ${{ matrix.name }} benchmark
