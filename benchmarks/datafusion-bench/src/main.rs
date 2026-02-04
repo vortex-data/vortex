@@ -175,7 +175,7 @@ async fn main() -> anyhow::Result<()> {
             |query_idx, (session, format), query| {
                 let plans = Arc::clone(&collected_plans);
 
-                set_labels(benchmark_name.clone(), query_idx, *format);
+                let labelset = set_labels(benchmark_name.clone(), query_idx, *format);
 
                 Box::pin(
                     async move {
@@ -199,7 +199,7 @@ async fn main() -> anyhow::Result<()> {
 
                         anyhow::Ok((row_count, Some(time), plan))
                     }
-                    .with_current_labels(),
+                    .with_labelset(labelset),
                 )
             },
         )

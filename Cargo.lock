@@ -2560,6 +2560,7 @@ dependencies = [
  "vortex-bench",
  "vortex-cuda",
  "vortex-datafusion",
+ "vortex-metrics",
 ]
 
 [[package]]
@@ -3862,6 +3863,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "custom-labels",
  "get_dir",
  "similar",
  "tokio",
@@ -10608,6 +10610,7 @@ dependencies = [
  "bitvec",
  "cbindgen",
  "cc",
+ "custom-labels",
  "futures",
  "glob",
  "itertools 0.14.0",

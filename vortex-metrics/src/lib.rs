@@ -5,6 +5,8 @@
 
 //! Vortex metrics
 
+mod tracing;
+
 use std::borrow::Cow;
 use std::sync::Arc;
 

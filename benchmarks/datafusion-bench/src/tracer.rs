@@ -5,31 +5,44 @@ use std::any::Any;
 
 use custom_labels::Labelset;
 use custom_labels::asynchronous::Label;
-use custom_labels::with_labels;
 use datafusion::common::runtime::JoinSetTracer;
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use parking_lot::RwLock;
 use vortex_bench::Format;
-
-static LABELS: RwLock<Vec<(&str, String)>> = RwLock::new(Vec::new());
+use vortex_metrics::tracing::{get_global_labels, set_global_labels};
 
 pub fn get_static_tracer() -> &'static dyn JoinSetTracer {
     static TRACER: LabelsJoinSetTracer = LabelsJoinSetTracer;
     &TRACER
 }
 
-pub fn set_labels(name: String, query_idx: usize, format: Format) {
+pub fn get_labelset_from_global() -> Labelset {
     let mut labelset = Labelset::clone_from_current();
-    labelset.set("benchmark_name", name.as_bytes());
-    labelset.set("query_idx", query_idx.to_string());
-    labelset.set("format", format.to_string());
 
-    *LABELS.write() = vec![
-        ("benchmark_name", name),
+    let labels = get_global_labels();
+
+    for (k, v) in labels {
+        labelset.set(k, v);
+    }
+
+    labelset
+}
+
+pub fn set_labels(benchmark_name: String, query_idx: usize, format: Format) -> Labelset {
+    let labels = vec![
+        ("benchmark_name", benchmark_name),
         ("query_idx", query_idx.to_string()),
         ("format", format.to_string()),
     ];
+    set_global_labels(labels.clone());
+
+    let mut labelset = Labelset::clone_from_current();
+
+    for (k, v) in labels.into_iter() {
+        labelset.set(k, v);
+    }
+
+    labelset
 }
 
 pub struct LabelsJoinSetTracer;
@@ -39,14 +52,14 @@ impl JoinSetTracer for LabelsJoinSetTracer {
         &self,
         fut: BoxFuture<'static, Box<dyn Any + Send>>,
     ) -> BoxFuture<'static, Box<dyn Any + Send>> {
-        fut.with_labels(LABELS.read().clone()).boxed()
+        fut.with_current_labels().boxed()
     }
 
     fn trace_block(
         &self,
         f: Box<dyn FnOnce() -> Box<dyn Any + Send> + Send>,
     ) -> Box<dyn FnOnce() -> Box<dyn Any + Send> + Send> {
-        let labels = LABELS.read().clone();
-        Box::new(|| with_labels(labels, f))
+        let mut labelset = Labelset::clone_from_current();
+        Box::new(move || labelset.enter(f))
     }
 }

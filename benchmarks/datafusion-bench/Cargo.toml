@@ -39,6 +39,7 @@ url = { workspace = true }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
+vortex-metrics = { workspace = true }
 
 [build-dependencies]
 get_dir = { workspace = true }
