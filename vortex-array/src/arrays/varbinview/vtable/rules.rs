@@ -1,4 +1,3 @@
-use crate::arrays::ListViewVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::VarBinViewVTable;
 use crate::optimizer::rules::ParentRuleSet;
