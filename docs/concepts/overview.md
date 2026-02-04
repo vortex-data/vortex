@@ -70,7 +70,7 @@ can be *compressed* — an array of integers might be stored as a FastLanes bit-
 than a flat buffer. Arrays form trees: a compressed array contains child arrays and buffers that
 together define the encoding.
 
-**[Compute](compute.md)** functions operate directly on compressed arrays where possible, avoiding
+**[Compute](scalar_fns.md)** functions operate directly on compressed arrays where possible, avoiding
 decompression. The compute layer dispatches to encoding-specific kernel implementations, falling
 back to canonical (Arrow-compatible) implementations when no specialized kernel exists. Compute
 functions are either scalar (element-wise) or aggregate (group-wise), and can be extended via

@@ -11,8 +11,8 @@ maxdepth: 2
 overview
 dtypes
 arrays
-encodings
-compute
+execution
+scalar_fns
 layouts
 scan
 extension-types
