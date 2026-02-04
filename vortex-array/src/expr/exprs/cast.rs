@@ -11,10 +11,8 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::AnyCanonical;
+use crate::AnyColumnar;
 use crate::ArrayRef;
-use crate::Canonical;
-use crate::IntoArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
@@ -92,14 +90,18 @@ impl VTable for Cast {
             .pop()
             .vortex_expect("missing input for Cast expression");
 
-        let Some(input) = input.as_opt::<AnyCanonical>() else {
-            return input
-                .execute::<ArrayRef>(args.ctx)?
-                .cast(target_dtype.clone());
-        };
-
-        let canonical = Canonical::from(input).into_array();
-        compute_cast(canonical.as_ref(), target_dtype)?.execute(args.ctx)
+        match input.as_opt::<AnyColumnar>() {
+            None => {
+                // If the input is not columnar, execute it and try again
+                input
+                    .execute::<ArrayRef>(args.ctx)?
+                    .cast(target_dtype.clone())
+            }
+            Some(columnar) => {
+                // TODO(ngates): inline casting logic for scalars / canonical here.
+                compute_cast(columnar.as_ref(), target_dtype)
+            }
+        }
     }
 
     fn reduce(

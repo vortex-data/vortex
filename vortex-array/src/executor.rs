@@ -66,7 +66,6 @@ fn short_type_name<T>() -> &'static str {
 pub struct ExecutionCtx {
     id: usize,
     session: VortexSession,
-    depth: usize,
     ops: Vec<String>,
 }
 
@@ -78,7 +77,6 @@ impl ExecutionCtx {
         Self {
             id,
             session,
-            depth: 0,
             ops: Vec::new(),
         }
     }
@@ -96,8 +94,7 @@ impl ExecutionCtx {
     /// Use the [`format_args!`] macro to create the `msg` argument.
     pub fn log(&mut self, msg: fmt::Arguments<'_>) {
         if tracing::enabled!(tracing::Level::DEBUG) {
-            let indent = "  ".repeat(self.depth);
-            let formatted = format!("{indent}{msg}");
+            let formatted = format!(" - {msg}");
             tracing::trace!("exec[{}]: {formatted}", self.id);
             self.ops.push(formatted);
         }
@@ -124,13 +121,8 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
-            let trace = self
-                .ops
-                .iter()
-                .map(|op| format!("    - {}", op))
-                .format("\n");
-            tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
+        if !self.ops.is_empty() {
+            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.iter().format("\n"));
         }
     }
 }

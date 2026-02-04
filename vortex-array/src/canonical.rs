@@ -645,6 +645,22 @@ impl From<CanonicalView<'_>> for Canonical {
     }
 }
 
+impl AsRef<dyn Array> for CanonicalView<'_> {
+    fn as_ref(&self) -> &dyn Array {
+        match self {
+            CanonicalView::Null(a) => a.as_ref(),
+            CanonicalView::Bool(a) => a.as_ref(),
+            CanonicalView::Primitive(a) => a.as_ref(),
+            CanonicalView::Decimal(a) => a.as_ref(),
+            CanonicalView::VarBinView(a) => a.as_ref(),
+            CanonicalView::List(a) => a.as_ref(),
+            CanonicalView::FixedSizeList(a) => a.as_ref(),
+            CanonicalView::Struct(a) => a.as_ref(),
+            CanonicalView::Extension(a) => a.as_ref(),
+        }
+    }
+}
+
 /// A matcher for any canonical array type.
 pub struct AnyCanonical;
 impl Matcher for AnyCanonical {

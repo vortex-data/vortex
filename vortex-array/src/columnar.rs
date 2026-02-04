@@ -7,13 +7,16 @@ use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
 
 use crate::AnyCanonical;
+use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::CanonicalView;
 use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::matcher::Matcher;
 
 /// Represents a columnnar array of data, either in canonical form or as a constant array.
 ///
@@ -89,5 +92,34 @@ impl Executable for Columnar {
 
         // If we reach here, we exceeded the maximum number of iterations, so error.
         vortex_bail!("Exceeded maximum execution iterations while executing to Columnar")
+    }
+}
+
+pub enum ColumnarView<'a> {
+    Canonical(CanonicalView<'a>),
+    Scalar(&'a ConstantArray),
+}
+
+impl<'a> AsRef<dyn Array> for ColumnarView<'a> {
+    fn as_ref(&self) -> &dyn Array {
+        match self {
+            ColumnarView::Canonical(canonical) => canonical.as_ref(),
+            ColumnarView::Scalar(constant) => constant.as_ref(),
+        }
+    }
+}
+
+pub struct AnyColumnar;
+impl Matcher for AnyColumnar {
+    type Match<'a> = ColumnarView<'a>;
+
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+        if let Some(constant) = array.as_opt::<ConstantVTable>() {
+            Some(ColumnarView::Scalar(constant))
+        } else if let Some(canonical) = array.as_opt::<AnyCanonical>() {
+            Some(ColumnarView::Canonical(canonical))
+        } else {
+            None
+        }
     }
 }
