@@ -15,7 +15,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::arrays::list::compute::kernel::PARENT_KERNELS;
+use crate::arrays::list::compute::PARENT_KERNELS;
 use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;

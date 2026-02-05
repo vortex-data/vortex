@@ -2,9 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
@@ -19,7 +21,8 @@ use crate::optimizer::rules::ReduceRuleSet;
 pub(super) const PARENT_RULES: ParentRuleSet<FilterVTable> =
     ParentRuleSet::new(&[ParentRuleSet::lift(&FilterFilterRule)]);
 
-pub(super) const RULES: ReduceRuleSet<FilterVTable> = ReduceRuleSet::new(&[&FilterStructRule]);
+pub(super) const RULES: ReduceRuleSet<FilterVTable> =
+    ReduceRuleSet::new(&[&TrivialFilterRule, &FilterStructRule]);
 
 /// A simple redecution rule that simplifies a [`FilterArray`] whose child is also a
 /// [`FilterArray`].
@@ -39,6 +42,19 @@ impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
         let new_array = child.child.filter(combined_mask)?;
 
         Ok(Some(new_array.into_array()))
+    }
+}
+
+#[derive(Debug)]
+struct TrivialFilterRule;
+
+impl ArrayReduceRule<FilterVTable> for TrivialFilterRule {
+    fn reduce(&self, array: &FilterArray) -> VortexResult<Option<ArrayRef>> {
+        match array.filter_mask() {
+            Mask::AllTrue(_) => Ok(Some(array.child.clone())),
+            Mask::AllFalse(_) => Ok(Some(Canonical::empty(array.dtype()).into_array())),
+            Mask::Values(_) => Ok(None),
+        }
     }
 }
 

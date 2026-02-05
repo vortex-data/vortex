@@ -16,7 +16,6 @@ use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::SliceVTable;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::patches::PatchesMetadata;
@@ -42,6 +41,7 @@ use vortex_error::vortex_err;
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
+use crate::alp::rules::PARENT_KERNELS;
 
 vtable!(ALP);
 
@@ -173,28 +173,10 @@ impl VTable for ALPVTable {
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // CPU-only: if parent is SliceArray, perform slicing of the buffer and any patches
-        // Note that this triggers compute (binary searching Patches) which we cannot do when the
-        // buffers live in GPU memory.
-        if let Some(slice_array) = parent.as_opt::<SliceVTable>() {
-            let range = slice_array.slice_range().clone();
-            let sliced_alp = ALPArray::new(
-                array.encoded().slice(range.clone())?,
-                array.exponents(),
-                array
-                    .patches()
-                    .map(|p| p.slice(range))
-                    .transpose()?
-                    .flatten(),
-            )
-            .into_array();
-            return Ok(Some(sliced_alp));
-        }
-
-        Ok(None)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

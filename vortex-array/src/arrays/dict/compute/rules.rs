@@ -13,8 +13,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::DictArray;
 use crate::arrays::DictVTable;
-use crate::arrays::FilterArray;
-use crate::arrays::FilterVTable;
+use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
@@ -24,30 +23,11 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
 pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
-    ParentRuleSet::lift(&DictionaryFilterPushDownRule),
+    ParentRuleSet::lift(&FilterReduceAdaptor(DictVTable)),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(DictVTable)),
 ]);
-
-#[derive(Debug)]
-struct DictionaryFilterPushDownRule;
-
-impl ArrayParentReduceRule<DictVTable> for DictionaryFilterPushDownRule {
-    type Parent = FilterVTable;
-
-    fn reduce_parent(
-        &self,
-        array: &DictArray,
-        parent: &FilterArray,
-        _child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        let new_codes = array.codes().filter(parent.filter_mask().clone())?;
-        let new_dict =
-            unsafe { DictArray::new_unchecked(new_codes, array.values().clone()) }.into_array();
-        Ok(Some(new_dict))
-    }
-}
 
 /// Push down a scalar function to run only over the values of a dictionary array.
 #[derive(Debug)]

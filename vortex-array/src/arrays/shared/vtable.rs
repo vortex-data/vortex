@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -94,11 +93,6 @@ impl VTable for SharedVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.canonicalize(ctx)?.into_array())
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced = array.current_array_ref().slice(range)?;
-        Ok(Some(SharedArray::new(sliced).into_array()))
     }
 }
 

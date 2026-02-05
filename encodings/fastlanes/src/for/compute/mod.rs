@@ -9,8 +9,7 @@ mod is_sorted;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
+use vortex_array::arrays::FilterReduce;
 use vortex_array::compute::TakeKernel;
 use vortex_array::compute::TakeKernelAdapter;
 use vortex_array::compute::take;
@@ -33,17 +32,15 @@ impl TakeKernel for FoRVTable {
 
 register_kernel!(TakeKernelAdapter(FoRVTable).lift());
 
-impl FilterKernel for FoRVTable {
-    fn filter(&self, array: &FoRArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl FilterReduce for FoRVTable {
+    fn filter(array: &FoRArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         FoRArray::try_new(
             array.encoded().filter(mask.clone())?,
             array.reference_scalar().clone(),
         )
-        .map(|a| a.into_array())
+        .map(|a| Some(a.into_array()))
     }
 }
-
-register_kernel!(FilterKernelAdapter(FoRVTable).lift());
 
 #[cfg(test)]
 mod test {

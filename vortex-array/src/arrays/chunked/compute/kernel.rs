@@ -2,8 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use crate::arrays::ChunkedVTable;
+use crate::arrays::FilterExecuteAdaptor;
 use crate::arrays::SliceExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<ChunkedVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(ChunkedVTable))]);
+pub(crate) static PARENT_KERNELS: ParentKernelSet<ChunkedVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&SliceExecuteAdaptor(ChunkedVTable)),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(ChunkedVTable)),
+]);
