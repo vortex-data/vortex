@@ -55,7 +55,7 @@ pub trait SliceKernel: VTable {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub fn precondition<V: VTable>(
+fn precondition<V: VTable>(
     array: &V::Array,
     range: &Range<usize>,
 ) -> VortexResult<Option<ArrayRef>> {
@@ -76,7 +76,7 @@ pub fn precondition<V: VTable>(
     Ok(None)
 }
 
-pub fn postcondition<V: VTable>(
+fn postcondition<V: VTable>(
     slice: &ArrayRef,
     array: &V::Array,
     range: &Range<usize>,
