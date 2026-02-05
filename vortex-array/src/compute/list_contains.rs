@@ -153,9 +153,6 @@ impl ComputeFnVTable for ListContains {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&LIST_CONTAINS_FN, args)? {
-            return Ok(output);
-        }
 
         let nullability = array.dtype().nullability() | value.dtype().nullability();
 

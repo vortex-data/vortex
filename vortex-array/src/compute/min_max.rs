@@ -180,9 +180,6 @@ fn min_max_impl(
             return MinMaxResult::from_scalar(output.unwrap_scalar()?);
         }
     }
-    if let Some(output) = array.invoke(&MIN_MAX_FN, &args)? {
-        return MinMaxResult::from_scalar(output.unwrap_scalar()?);
-    }
 
     if !array.is_canonical() {
         let array = array.to_canonical()?;

@@ -72,9 +72,6 @@ impl ComputeFnVTable for Cast {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&CAST_FN, args)? {
-            return Ok(output);
-        }
 
         // Otherwise, we fall back to the canonical implementations.
         tracing::debug!(

@@ -189,9 +189,6 @@ impl ComputeFnVTable for Compare {
                 return Ok(output);
             }
         }
-        if let Some(output) = lhs.invoke(&COMPARE_FN, args)? {
-            return Ok(output);
-        }
 
         // Try inverting the operator and swapping the arguments
         let inverted_args = InvocationArgs {
@@ -202,9 +199,6 @@ impl ComputeFnVTable for Compare {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
             }
-        }
-        if let Some(output) = rhs.invoke(&COMPARE_FN, &inverted_args)? {
-            return Ok(output);
         }
 
         // Only log missing compare implementation if there's possibly better one than arrow,

@@ -181,9 +181,6 @@ fn is_constant_impl(
             return Ok(output.unwrap_scalar()?.as_bool().value());
         }
     }
-    if let Some(output) = array.invoke(&IS_CONSTANT_FN, &args)? {
-        return Ok(output.unwrap_scalar()?.as_bool().value());
-    }
 
     tracing::debug!(
         "No is_constant implementation found for {}",

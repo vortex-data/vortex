@@ -34,7 +34,6 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::NotSupported;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
@@ -56,7 +55,6 @@ impl VTable for FilterVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID

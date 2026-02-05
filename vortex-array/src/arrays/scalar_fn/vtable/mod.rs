@@ -42,7 +42,6 @@ use crate::matcher::Matcher;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 vtable!(ScalarFn);
@@ -57,7 +56,6 @@ impl VTable for ScalarFnVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.scalar_fn.id()

@@ -31,7 +31,6 @@ use crate::vtable::VTable;
 
 mod array;
 mod canonical;
-mod compute;
 mod operations;
 mod validity;
 mod visitor;
@@ -54,7 +53,6 @@ impl VTable for ChunkedVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID

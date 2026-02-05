@@ -170,18 +170,12 @@ fn take_impl(
             return output.unwrap_array();
         }
     }
-    if let Some(output) = indices.invoke(&TAKE_FROM_FN, &args)? {
-        return output.unwrap_array();
-    }
 
     // Then look for a Take kernel
     for kernel in kernels {
         if let Some(output) = kernel.invoke(&args)? {
             return output.unwrap_array();
         }
-    }
-    if let Some(output) = array.invoke(&TAKE_FN, &args)? {
-        return output.unwrap_array();
     }
 
     // Otherwise, canonicalize and try again.

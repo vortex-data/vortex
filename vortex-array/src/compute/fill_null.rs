@@ -123,9 +123,6 @@ impl ComputeFnVTable for FillNull {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&FILL_NULL_FN, args)? {
-            return Ok(output);
-        }
 
         tracing::debug!("FillNullFn not implemented for {}", array.encoding_id());
         if !array.is_canonical() {

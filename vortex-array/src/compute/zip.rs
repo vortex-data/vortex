@@ -78,10 +78,6 @@ impl ComputeFnVTable for Zip {
             }
         }
 
-        if let Some(output) = if_true.invoke(&ZIP_FN, args)? {
-            return Ok(output);
-        }
-
         // TODO(os): add invert_mask opt and check if if_false has a kernel like:
         //           kernel.invoke(Args(if_false, if_true, mask, invert_mask = true))
 

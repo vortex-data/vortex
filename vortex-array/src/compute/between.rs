@@ -146,9 +146,6 @@ impl ComputeFnVTable for Between {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&BETWEEN_FN, args)? {
-            return Ok(output);
-        }
 
         // Otherwise, fall back to the default Arrow implementation
         // TODO(joe): should we try to canonicalize the array and try between

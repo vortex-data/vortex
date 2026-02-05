@@ -139,9 +139,6 @@ impl ComputeFnVTable for MaskFn {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&MASK_FN, args)? {
-            return Ok(output);
-        }
 
         // Fallback: implement using Arrow kernels.
         tracing::debug!("No mask implementation found for {}", array.encoding_id());

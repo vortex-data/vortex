@@ -106,9 +106,6 @@ impl ComputeFnVTable for Like {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&LIKE_FN, args)? {
-            return Ok(output);
-        }
 
         // Otherwise, we fall back to the Arrow implementation
         Ok(arrow_like(array, pattern, options)?.into())
