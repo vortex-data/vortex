@@ -85,6 +85,13 @@ on:
               "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact",
               "scale_factor": "100"
             },
+            {
+              "id": "polarsignals",
+              "subcommand": "polarsignals",
+              "name": "PolarSignals Profiling",
+              "targets": "datafusion:vortex",
+              "scale_factor": "1"
+            },
           ]
 
 jobs:
