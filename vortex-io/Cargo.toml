@@ -22,7 +22,6 @@ async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
-custom-labels = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
 getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
 handle = "1.0.2"
@@ -42,6 +41,9 @@ vortex-buffer = { workspace = true }
 vortex-error = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-session = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+custom-labels = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Smol is our default impl, so we don't want it to be optional, but it cannot be part of wasm
