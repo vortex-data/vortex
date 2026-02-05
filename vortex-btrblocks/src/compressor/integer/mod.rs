@@ -134,16 +134,18 @@ impl Hash for dyn IntegerScheme {
 }
 
 /// Unique identifier for integer compression schemes.
+///
+/// NOTE: Variant order matters for tie-breaking; `For` must precede `BitPacking` to avoid unnecessary patches.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum IntCode {
     /// No compression applied.
     Uncompressed,
     /// Constant encoding for arrays with a single distinct value.
     Constant,
-    /// BitPacking encoding - compresses non-negative integers by reducing bit width.
-    BitPacking,
     /// Frame of Reference encoding - subtracts minimum value then bitpacks.
     For,
+    /// BitPacking encoding - compresses non-negative integers by reducing bit width.
+    BitPacking,
     /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
     ZigZag,
     /// Sparse encoding - optimizes null-dominated or single-value-dominated arrays.
