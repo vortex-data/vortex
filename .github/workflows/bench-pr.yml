@@ -63,6 +63,8 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
+      - uses: ./.github/actions/system-info
+
       - name: Build binary
         shell: bash
         env:

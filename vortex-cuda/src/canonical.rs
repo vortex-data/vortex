@@ -13,6 +13,7 @@ use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::BoolArrayParts;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::DecimalArrayParts;
+use vortex_array::arrays::ExtensionArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::StructArray;
@@ -128,6 +129,19 @@ impl CanonicalCudaExt for Canonical {
                 Ok(Canonical::VarBinView(unsafe {
                     VarBinViewArray::new_unchecked(host_views, host_buffers, dtype, validity)
                 }))
+            }
+            Canonical::Extension(ext) => {
+                // Copy the storage array to host and rewrap in ExtensionArray.
+                let host_storage = ext
+                    .storage()
+                    .to_canonical()?
+                    .into_host()
+                    .await?
+                    .into_array();
+                Ok(Canonical::Extension(ExtensionArray::new(
+                    ext.ext_dtype().clone(),
+                    host_storage,
+                )))
             }
             c => todo!("{} not implemented", c.dtype()),
         }

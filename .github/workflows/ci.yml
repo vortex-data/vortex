@@ -647,6 +647,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: ./.github/actions/system-info
       - name: Install Codspeed
         run: cargo install --force cargo-codspeed --locked
       - name: Build benchmarks
