@@ -15,7 +15,6 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::IntoArray;
-use crate::arrays::ConstantVTable;
 
 /// Marker trait for types that an [`ArrayRef`] can be executed into.
 ///
@@ -131,10 +130,10 @@ impl Drop for ExecutionCtx {
 ///
 /// It attempts to take the smallest possible step of execution such that the returned array
 /// is incrementally more "executed" than the input array. In other words, it is closer to becoming
-/// a constant value or a canonical array.
+/// a canonical array.
 ///
 /// The execution steps are as follows:
-/// 0. Check for termination conditions: constant or canonical.
+/// 0. Check for canonical.
 /// 1. Attempt to call `reduce_parent` on each child.
 /// 2. Attempt to `reduce` the array with metadata-only optimizations.
 /// 3. Attempt to call `execute_parent` on each child.
@@ -145,11 +144,7 @@ impl Drop for ExecutionCtx {
 /// [`crate::arrays::PrimitiveArray`]).
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        // 0. Check for termination conditions
-        if let Some(constant) = array.as_opt::<ConstantVTable>() {
-            ctx.log(format_args!("-> constant({})", constant.scalar()));
-            return Ok(constant.to_array());
-        }
+        // 0. Check for canonical
         if let Some(canonical) = array.as_opt::<AnyCanonical>() {
             ctx.log(format_args!("-> canonical {}", array));
             return Ok(Canonical::from(canonical).into_array());
@@ -165,6 +160,7 @@ impl Executable for ArrayRef {
                     array,
                     reduced_parent
                 ));
+                reduced_parent.statistics().inherit_from(array.statistics());
                 return Ok(reduced_parent);
             }
         }
@@ -172,6 +168,7 @@ impl Executable for ArrayRef {
         // 2. reduce (metadata-only rewrites)
         if let Some(reduced) = array.vtable().reduce(&array)? {
             ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
+            reduced.statistics().inherit_from(array.statistics());
             return Ok(reduced);
         }
 
@@ -188,6 +185,9 @@ impl Executable for ArrayRef {
                     array,
                     executed_parent
                 ));
+                executed_parent
+                    .statistics()
+                    .inherit_from(array.statistics());
                 return Ok(executed_parent);
             }
         }
@@ -199,6 +199,7 @@ impl Executable for ArrayRef {
             .vtable()
             .execute(&array, ctx)
             .map(|c| c.into_array())?;
+        array.statistics().inherit_from(array.statistics());
         ctx.log(format_args!("-> {}", array.as_ref()));
 
         Ok(array)
