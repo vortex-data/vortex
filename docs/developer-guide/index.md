@@ -5,25 +5,10 @@ Guide for extending, embedding, and contributing to the Vortex ecosystem.
 ```{toctree}
 ---
 maxdepth: 2
-caption: Extending Vortex
 ---
 
-extending/extension-dtypes
-extending/writing-an-encoding
-extending/writing-a-layout
-extending/writing-a-compute-fn
-```
-
-```{toctree}
----
-maxdepth: 2
-caption: Engine Integrations
----
-
-embedding/ffi
-embedding/cxx
-embedding/scan-api
-embedding/gpu
+extending/index
+embedding/index
 ```
 
 ```{toctree}
