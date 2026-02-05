@@ -21,10 +21,9 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
-use crate::arrays::slice::rules::RULES;
+use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -103,7 +102,7 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         // Execute the child to get canonical form, then slice it
         let canonical = array.child.clone().execute::<Canonical>(ctx)?;
         let result = canonical.as_ref().slice(array.range.clone())?;
@@ -116,19 +115,12 @@ impl VTable for SliceVTable {
         result.execute::<Canonical>(ctx)
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let inner_range = array.slice_range();
-
-        let combined_start = inner_range.start + range.start;
-        let combined_end = inner_range.start + range.end;
-
-        Ok(Some(
-            SliceArray::new(array.child().clone(), combined_start..combined_end).into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

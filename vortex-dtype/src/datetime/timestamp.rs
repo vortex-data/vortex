@@ -22,11 +22,11 @@ use crate::extension::ExtDTypeVTable;
 use crate::extension::ExtID;
 
 /// Timestamp DType.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Timestamp;
 
 impl Timestamp {
-    /// Creates a new Timestamp extension dtype with the given time unit and nullability.
+    /// Creates a new Timestamp extension =dtype with the given time unit and nullability.
     pub fn new(time_unit: TimeUnit, nullability: Nullability) -> ExtDType<Self> {
         Self::new_with_tz(time_unit, None, nullability)
     }
@@ -120,7 +120,11 @@ impl ExtDTypeVTable for Timestamp {
         })
     }
 
-    fn validate(&self, _metadata: &Self::Metadata, storage_dtype: &DType) -> VortexResult<()> {
+    fn validate_dtype(
+        &self,
+        _metadata: &Self::Metadata,
+        storage_dtype: &DType,
+    ) -> VortexResult<()> {
         vortex_ensure!(
             matches!(storage_dtype, DType::Primitive(PType::I64, _)),
             "Timestamp storage dtype must be i64"

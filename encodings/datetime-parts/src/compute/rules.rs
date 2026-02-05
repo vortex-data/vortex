@@ -10,10 +10,10 @@ use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
-use vortex_array::matchers::Exact;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
@@ -29,6 +29,7 @@ use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
 ]);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
@@ -37,11 +38,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSe
 struct DTPFilterPushDownRule;
 
 impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,
@@ -88,10 +85,6 @@ struct DTPComparisonPushDownRule;
 
 impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> AnyScalarFn {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,

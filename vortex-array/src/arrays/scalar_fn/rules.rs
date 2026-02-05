@@ -20,13 +20,13 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -39,8 +39,10 @@ pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnAbstractReduceRule,
 ]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ScalarFnVTable)),
+]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
@@ -160,11 +162,7 @@ impl ReduceCtx for ArrayReduceCtx {
 struct ScalarFnUnaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

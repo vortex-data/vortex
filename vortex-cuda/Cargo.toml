@@ -34,6 +34,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
+vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
@@ -41,6 +42,8 @@ vortex-fastlanes = { workspace = true }
 vortex-io = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-nvcomp = { path = "nvcomp" }
+vortex-runend = { workspace = true }
+vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-session = { workspace = true }
 vortex-utils = { workspace = true }
@@ -74,4 +77,12 @@ harness = false
 
 [[bench]]
 name = "filter_cuda"
+harness = false
+
+[[bench]]
+name = "runend_cuda"
+harness = false
+
+[[bench]]
+name = "date_time_parts_cuda"
 harness = false

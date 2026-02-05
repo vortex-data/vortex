@@ -205,10 +205,8 @@ impl VarBinArray {
             vortex_ensure!(is_sorted, "offsets must be sorted");
         }
 
-        // Skip host-only validation when buffers are on the GPU.
-        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
-
-        if !offsets_on_device && bytes.is_on_host() {
+        // Skip host-only validation when offsets/bytes are not host-resident.
+        if offsets.is_host() && bytes.is_on_host() {
             let last_offset = offsets
                 .scalar_at(offsets.len() - 1)?
                 .as_primitive()
@@ -232,9 +230,10 @@ impl VarBinArray {
             );
         }
 
-        // Validate UTF-8 for Utf8 dtype. Skip when buffers are on device.
-        if matches!(dtype, DType::Utf8(_))
-            && !offsets_on_device
+        // Validate UTF-8 for Utf8 dtype. Skip when offsets/bytes are not host-resident.
+        if offsets.is_host()
+            && bytes.is_on_host()
+            && matches!(dtype, DType::Utf8(_))
             && let Some(bytes) = bytes.as_host_opt()
         {
             let primitive_offsets = offsets.to_primitive();
@@ -384,28 +383,6 @@ impl VarBinArray {
 impl VarBinArray {
     /// Return an array containing the same data, but where the internal `offsets` start at zero
     /// and all wasted space in the bytes child has been clipped.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # fn main() -> vortex_error::VortexResult<()> {
-    /// # use vortex_array::arrays::VarBinArray;
-    /// # use vortex_array::arrays::VarBinVTable;
-    /// # use vortex_dtype::DType;
-    /// # use vortex_dtype::Nullability::NonNullable;
-    /// let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
-    /// let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
-    ///
-    /// // After slicing, there is some unused data at the front of the bytes.
-    /// assert_eq!(sliced.offset_at(0), 3);
-    ///
-    /// // But after zeroing the offsets, the extraneous data is gone.
-    /// let truncated = sliced.zero_offsets();
-    /// assert_eq!(truncated.offset_at(0), 0);
-    /// assert_eq!(truncated.len(), 2);
-    /// # Ok(())
-    /// # }
-    /// ```
     #[doc(hidden)]
     pub fn zero_offsets(self) -> Self {
         if self.is_empty() {

@@ -11,7 +11,6 @@ use crate::arrays::FilterVTable;
 use crate::arrays::StructArray;
 use crate::arrays::StructArrayParts;
 use crate::arrays::StructVTable;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -28,11 +27,7 @@ pub(super) const RULES: ReduceRuleSet<FilterVTable> = ReduceRuleSet::new(&[&Filt
 struct FilterFilterRule;
 
 impl ArrayParentReduceRule<FilterVTable> for FilterFilterRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

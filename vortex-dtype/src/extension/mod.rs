@@ -47,7 +47,7 @@ impl<V: ExtDTypeVTable> ExtDType<V> {
         metadata: V::Metadata,
         storage_dtype: DType,
     ) -> VortexResult<Self> {
-        vtable.validate(&metadata, &storage_dtype)?;
+        vtable.validate_dtype(&metadata, &storage_dtype)?;
         Ok(Self(Arc::new(ExtDTypeAdapter::<V> {
             vtable,
             metadata,

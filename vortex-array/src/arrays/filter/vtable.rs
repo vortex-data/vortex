@@ -104,7 +104,7 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
             return Ok(canonical);
         }

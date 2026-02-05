@@ -63,6 +63,8 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
+      - uses: ./.github/actions/system-info
+
       - name: Build binary
         shell: bash
         env:
@@ -138,7 +140,7 @@ jobs:
             # 🚨🚨🚨❌❌❌ BENCHMARK FAILED ❌❌❌🚨🚨🚨
 
             Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
-          comment-tag: bench-pr-failure-${{ matrix.benchmark.id }}
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:
     needs: label_trigger

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -15,10 +13,10 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
+use crate::arrays::list::compute::kernel::PARENT_KERNELS;
+use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
@@ -29,11 +27,9 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -63,15 +59,12 @@ impl VTable for ListVTable {
         Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ListArray::new(
-                array.elements().clone(),
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.validity().slice(range)?,
-            )
-            .into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn metadata(array: &ListArray) -> VortexResult<Self::Metadata> {
@@ -150,7 +143,7 @@ impl VTable for ListVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::List(list_view_from_list(array.clone(), ctx)?))
     }
 
@@ -159,7 +152,7 @@ impl VTable for ListVTable {
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }

@@ -228,6 +228,19 @@ impl NativeDecimalType for i256 {
     }
 }
 
+impl Display for DecimalType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecimalType::I8 => write!(f, "i8"),
+            DecimalType::I16 => write!(f, "i16"),
+            DecimalType::I32 => write!(f, "i32"),
+            DecimalType::I64 => write!(f, "i64"),
+            DecimalType::I128 => write!(f, "i128"),
+            DecimalType::I256 => write!(f, "i256"),
+        }
+    }
+}
+
 impl TryFrom<PType> for DecimalType {
     type Error = VortexError;
 

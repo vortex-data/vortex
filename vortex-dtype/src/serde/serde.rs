@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
@@ -172,8 +173,8 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
             where
                 A: EnumAccess<'de>,
             {
-                let (variant, access) = data.variant::<&str>()?;
-                match variant {
+                let (variant, access) = data.variant::<Cow<'_, str>>()?;
+                match variant.as_ref() {
                     "Null" => {
                         access.unit_variant()?;
                         Ok(DType::Null)
@@ -216,7 +217,7 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, DType> {
                             .newtype_variant_seed(DTypeSerde::<ExtDTypeRef>::new(self.session))?;
                         Ok(DType::Extension(ext))
                     }
-                    _ => Err(de::Error::unknown_variant(variant, VARIANTS)),
+                    _ => Err(de::Error::unknown_variant(&variant, VARIANTS)),
                 }
             }
         }
@@ -404,8 +405,8 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, StructFields> {
                 let mut names: Option<FieldNames> = None;
                 let mut dtypes: Option<Vec<DType>> = None;
 
-                while let Some(key) = map.next_key::<&str>()? {
-                    match key {
+                while let Some(key) = map.next_key::<Cow<'_, str>>()? {
+                    match key.as_ref() {
                         "names" => {
                             if names.is_some() {
                                 return Err(de::Error::duplicate_field("names"));
@@ -536,8 +537,8 @@ impl<'de> DeserializeSeed<'de> for DTypeSerde<'_, ExtDTypeRef> {
                 let mut storage_dtype: Option<DType> = None;
                 let mut metadata: Option<Vec<u8>> = None;
 
-                while let Some(key) = map.next_key::<&str>()? {
-                    match key {
+                while let Some(key) = map.next_key::<Cow<'_, str>>()? {
+                    match key.as_ref() {
                         "id" => {
                             if id.is_some() {
                                 return Err(de::Error::duplicate_field("id"));

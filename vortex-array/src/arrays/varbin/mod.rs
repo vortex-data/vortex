@@ -4,7 +4,7 @@
 mod array;
 pub use array::VarBinArray;
 
-mod compute;
+pub(crate) mod compute;
 pub(crate) use compute::varbin_compute_min_max;
 // For use in `varbinview`.
 

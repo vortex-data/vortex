@@ -291,6 +291,14 @@ impl ListArray {
         &self.offsets
     }
 
+    /// Returns the element dtype of the list array.
+    pub fn element_dtype(&self) -> &Arc<DType> {
+        match &self.dtype {
+            DType::List(element_dtype, _) => element_dtype,
+            _ => vortex_panic!("ListArray has invalid dtype {}", self.dtype),
+        }
+    }
+
     /// Returns the elements array.
     pub fn elements(&self) -> &ArrayRef {
         &self.elements
