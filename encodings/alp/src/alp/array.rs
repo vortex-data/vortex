@@ -174,7 +174,7 @@ impl VTable for ALPVTable {
         )?))
     }
 
-    fn reduce_parent(
+    fn duce_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
@@ -188,25 +188,6 @@ impl VTable for ALPVTable {
         _child_idx: usize,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // CPU-only: if parent is SliceArray, perform slicing of the buffer and any patches
-        // Note that this triggers compute (binary searching Patches) which we cannot do when the
-        // buffers live in GPU memory.
-        if let Some(slice_array) = parent.as_opt::<SliceVTable>() {
-            let range = slice_array.slice_range().clone();
-            let sliced_alp = ALPArray::new(
-                array.encoded().slice(range.clone())?,
-                array.exponents(),
-                array
-                    .patches()
-                    .map(|p| p.slice(range))
-                    .transpose()?
-                    .flatten(),
-            )
-            .into_array();
-            return Ok(Some(sliced_alp));
-        }
-
-        Ok(None)
     }
 }
 

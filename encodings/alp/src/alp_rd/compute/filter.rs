@@ -3,6 +3,7 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -10,7 +11,7 @@ use vortex_mask::Mask;
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-impl FilterReduce for ALPRDVTable {
+impl FilterKernel for ALPRDVTable {
     fn filter(array: &ALPRDArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()

@@ -218,14 +218,6 @@ impl VTable for ALPRDVTable {
         Ok(())
     }
 
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::alp_rd::rules::PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         let left_parts = array.left_parts().clone().execute::<PrimitiveArray>(ctx)?;
         let right_parts = array.right_parts().clone().execute::<PrimitiveArray>(ctx)?;

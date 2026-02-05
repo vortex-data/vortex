@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -9,8 +11,12 @@ use vortex_mask::Mask;
 use crate::ALPArray;
 use crate::ALPVTable;
 
-impl FilterReduce for ALPVTable {
-    fn filter(array: &ALPArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+impl FilterKernel for ALPVTable {
+    fn filter(
+        array: &ALPArray,
+        mask: &Mask,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))
