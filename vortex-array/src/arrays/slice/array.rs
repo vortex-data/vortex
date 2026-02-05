@@ -3,6 +3,8 @@
 
 use std::ops::Range;
 
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
@@ -21,7 +23,7 @@ pub struct SliceArrayParts {
 }
 
 impl SliceArray {
-    pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
+    pub fn try_new(child: ArrayRef, range: Range<usize>) -> VortexResult<Self> {
         if range.end > child.len() {
             vortex_panic!(
                 "SliceArray range out of bounds: range {:?} exceeds child array length {}",
@@ -29,11 +31,15 @@ impl SliceArray {
                 child.len()
             );
         }
-        Self {
+        Ok(Self {
             child,
             range,
             stats: ArrayStats::default(),
-        }
+        })
+    }
+
+    pub fn new(child: ArrayRef, range: Range<usize>) -> Self {
+        Self::try_new(child, range).vortex_expect("failed")
     }
 
     /// The range used to slice the child array.

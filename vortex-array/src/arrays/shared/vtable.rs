@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -15,7 +14,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::shared::SharedArray;
 use crate::hash::ArrayEq;
@@ -93,11 +91,6 @@ impl VTable for SharedVTable {
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         array.canonicalize(ctx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced = array.current_array_ref().slice(range)?;
-        Ok(Some(SharedArray::new(sliced).into_array()))
     }
 }
 
