@@ -10,9 +10,9 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -165,12 +165,9 @@ impl VTable for ALPVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // TODO(joe): take by value
-        Ok(Canonical::Primitive(execute_decompress(
-            array.clone(),
-            ctx,
-        )?))
+        Ok(execute_decompress(array.clone(), ctx)?.into_array())
     }
 
     fn execute_parent(
@@ -457,6 +454,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;

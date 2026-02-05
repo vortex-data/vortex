@@ -47,7 +47,15 @@ def parse_queries(value: str | None) -> list[int] | None:
     """Parse comma-separated query numbers."""
     if not value:
         return None
-    return [int(q.strip()) for q in value.split(",")]
+
+    result = set()
+    for part in value.split(","):
+        if "-" in part:
+            start, end = part.split("-", 1)
+            result.update(range(int(start), int(end) + 1))
+        else:
+            result.add(int(part))
+    return sorted(result)
 
 
 def run_ref_auto_complete() -> list[str]:

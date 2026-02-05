@@ -24,7 +24,6 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
@@ -87,8 +86,8 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         builder: &mut dyn ArrayBuilder,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<()> {
-        let canonical = Self::canonicalize(array, ctx)?;
-        builder.extend_from_array(canonical.as_ref());
+        let array = Self::execute(array, ctx)?;
+        builder.extend_from_array(array.as_ref());
         Ok(())
     }
 
@@ -136,17 +135,32 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// of children must be expected.
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()>;
 
-    /// Execute this array to produce a [`Canonical`].
+    /// Execute this array to produce an [`ArrayRef`].
     ///
-    /// The returned [`Canonical`] must be the appropriate one for the array's logical
-    /// type (they are one-to-one with Vortex `DType`s), and should respect the output nullability
-    /// of the array.
+    /// Array execution is designed such that repeated execution of an array will eventually
+    /// converge to a canonical representation. Implementations of this function should therefore
+    /// ensure they make progress towards that goal.
+    ///
+    /// This includes fully evaluating the array, such us decoding run-end encoding, or executing
+    /// one of the array's children and re-building the array with the executed child.
+    ///
+    /// It is recommended to only perform a single step of execution per call to this function,
+    /// such that surrounding arrays have an opportunity to perform their own parent reduction
+    /// or execution logic.
+    ///
+    /// The returned array must be logically equivalent to the input array. In other words, the
+    /// recursively canonicalized forms of both arrays must be equal.
     ///
     /// Debug builds will panic if the returned array is of the wrong type, wrong length, or
     /// incorrectly contains null values.
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
+    ///
+    // TODO(ngates): in the future, we may pass a "target encoding hint" such that this array
+    //  can produce a more optimal representation for the parent. This could be used to preserve
+    //  varbin vs varbinview or list vs listview encodings when the parent knows it prefers
+    //  one representation over another, such as when exporting to a specific Arrow array.
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Attempt to execute the parent of this array to produce a [`Canonical`].
+    /// Attempt to execute the parent of this array.
     ///
     /// This function allows arrays to plug in specialized execution logic for their parent. For
     /// example, strings compressed as FSST arrays can implement a custom equality comparison when

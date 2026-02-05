@@ -11,7 +11,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::arrays::struct_::StructArray;
@@ -130,8 +129,8 @@ impl VTable for StructVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Struct(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.to_array())
     }
 
     fn reduce_parent(

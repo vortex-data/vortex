@@ -14,8 +14,8 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -129,7 +129,7 @@ impl VTable for DecimalBytePartsVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         to_canonical_decimal(array, ctx)
     }
 }
@@ -242,7 +242,7 @@ impl BaseArrayVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 fn to_canonical_decimal(
     array: &DecimalBytePartsArray,
     ctx: &mut ExecutionCtx,
-) -> VortexResult<Canonical> {
+) -> VortexResult<ArrayRef> {
     // TODO(joe): support parts len != 1
     let prim = array.msp.clone().execute::<PrimitiveArray>(ctx)?;
     // Depending on the decimal type and the min/max of the primitive array we can choose
@@ -251,13 +251,14 @@ fn to_canonical_decimal(
     Ok(match_each_signed_integer_ptype!(prim.ptype(), |P| {
         // SAFETY: The primitive array's buffer is already validated with correct type.
         // The decimal dtype matches the array's dtype, and validity is preserved.
-        Canonical::Decimal(unsafe {
+        unsafe {
             DecimalArray::new_unchecked(
                 prim.to_buffer::<P>(),
                 *array.decimal_dtype(),
                 prim.validity().clone(),
             )
-        })
+        }
+        .into_array()
     }))
 }
 

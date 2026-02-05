@@ -10,9 +10,9 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -153,8 +153,8 @@ impl VTable for DateTimePartsVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Extension(decode_to_temporal(array, ctx)?.into()))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(decode_to_temporal(array, ctx)?.into_array())
     }
 
     fn reduce_parent(

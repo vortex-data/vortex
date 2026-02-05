@@ -20,7 +20,6 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -89,11 +88,7 @@ impl VTable for Mask {
         Ok(arg_dtypes[0].as_nullable())
     }
 
-    fn execute(
-        &self,
-        _options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [input, mask_array]: [ArrayRef; _] = args
             .inputs
             .try_into()

@@ -605,29 +605,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = V::canonicalize(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
-
-        assert_eq!(
-            self.len(),
-            canonical.as_ref().len(),
-            "Canonical length mismatch {}. Expected {} but encoded into {}.",
-            self.encoding_id(),
-            self.len(),
-            canonical.as_ref().len()
-        );
-        assert_eq!(
-            self.dtype(),
-            canonical.as_ref().dtype(),
-            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
-            self.encoding_id(),
-            self.dtype(),
-            canonical.as_ref().dtype()
-        );
-        canonical
-            .as_ref()
-            .statistics()
-            .inherit_from(self.statistics());
-        Ok(canonical)
+        self.to_array()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     fn append_to_builder(

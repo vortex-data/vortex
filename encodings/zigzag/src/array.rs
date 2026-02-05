@@ -9,9 +9,9 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -97,10 +97,8 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(zigzag_decode(
-            array.encoded().clone().execute(ctx)?,
-        )))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(zigzag_decode(array.encoded().clone().execute(ctx)?).into_array())
     }
 
     fn reduce_parent(

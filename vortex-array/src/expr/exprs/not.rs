@@ -7,14 +7,20 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
-use crate::compute::invert;
+use crate::Array;
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
+use crate::arrays::ConstantArray;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -75,13 +81,25 @@ impl VTable for Not {
         Ok(child_dtype.clone())
     }
 
-    fn execute(
-        &self,
-        _data: &Self::Options,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let child = args.inputs.pop().vortex_expect("Missing input child");
-        invert(&child)?.execute(args.ctx)
+
+        // For constant boolean
+        if let Some(scalar) = child.as_constant() {
+            let value = match scalar.as_bool().value() {
+                Some(b) => Scalar::bool(!b, child.dtype().nullability()),
+                None => Scalar::null(child.dtype().clone()),
+            };
+            return Ok(ConstantArray::new(value, args.row_count).into_array());
+        }
+
+        // For boolean array
+        if let Some(bool) = child.as_opt::<BoolVTable>() {
+            return Ok(BoolArray::new(!bool.to_bit_buffer(), bool.validity()?).into_array());
+        }
+
+        // Otherwise, execute and try again
+        child.execute::<ArrayRef>(args.ctx)?.not()
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {

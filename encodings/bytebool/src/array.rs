@@ -9,9 +9,9 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayEq;
 use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
@@ -115,10 +115,10 @@ impl VTable for ByteBoolVTable {
         crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
-        Ok(Canonical::Bool(BoolArray::new(boolean_buffer, validity)))
+        Ok(BoolArray::new(boolean_buffer, validity).into_array())
     }
 }
 

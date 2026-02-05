@@ -4,8 +4,8 @@
 use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -121,8 +121,8 @@ impl VTable for DeltaVTable {
         DeltaArray::try_new(bases, deltas, metadata.0.offset as usize, len)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(delta_decompress(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(delta_decompress(array, ctx)?.into_array())
     }
 }
 

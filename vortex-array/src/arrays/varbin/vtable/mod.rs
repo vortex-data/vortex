@@ -10,9 +10,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -146,8 +146,8 @@ impl VTable for VarBinVTable {
         kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        varbin_to_canonical(array, ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(varbin_to_canonical(array, ctx)?.into_array())
     }
 }
 

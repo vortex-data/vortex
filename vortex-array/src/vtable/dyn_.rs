@@ -16,7 +16,6 @@ use vortex_error::vortex_ensure;
 use crate::Array;
 use crate::ArrayAdapter;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -56,8 +55,8 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 
-    /// See [`VTable::canonicalize`]
-    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical>;
+    /// See [`VTable::execute`]
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
     /// See [`VTable::execute_parent`]
     fn execute_parent(
@@ -141,8 +140,8 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         Ok(Some(reduced))
     }
 
-    fn canonicalize(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let result = V::canonicalize(downcast::<V>(array), ctx)?;
+    fn execute(&self, array: &ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let result = V::execute(downcast::<V>(array), ctx)?;
 
         if cfg!(debug_assertions) {
             vortex_ensure!(
@@ -156,6 +155,12 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
                 self
             );
         }
+
+        // TODO(ngates): do we want to do this on every execution? We used to in to_canonical.
+        result
+            .as_ref()
+            .statistics()
+            .inherit_from(array.statistics());
 
         Ok(result)
     }

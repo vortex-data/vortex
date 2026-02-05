@@ -13,7 +13,6 @@ use vortex_error::vortex_err;
 use vortex_vector::binaryview::BinaryView;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::arrays::varbinview::VarBinViewArray;
@@ -127,7 +126,7 @@ impl VTable for VarBinViewVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::VarBinView(array.clone()))
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.to_array())
     }
 }

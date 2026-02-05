@@ -12,12 +12,13 @@ use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::compute::list_contains as compute_list_contains;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -96,11 +97,7 @@ impl VTable for ListContains {
         Ok(DType::Bool(nullability))
     }
 
-    fn execute(
-        &self,
-        _options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [list_array, value_array]: [ArrayRef; _] = args
             .inputs
             .try_into()
@@ -110,7 +107,7 @@ impl VTable for ListContains {
             && let Some(value_scalar) = value_array.as_constant()
         {
             let result = compute_contains_scalar(&list_scalar, &value_scalar)?;
-            return Ok(ExecutionResult::constant(result, args.row_count));
+            return Ok(ConstantArray::new(result, args.row_count).into_array());
         }
 
         compute_list_contains(list_array.as_ref(), value_array.as_ref())?.execute(args.ctx)

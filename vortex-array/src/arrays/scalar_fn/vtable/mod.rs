@@ -20,9 +20,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::AnyColumnar;
 use crate::Array;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
@@ -34,7 +34,6 @@ use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::ScalarFn;
@@ -125,36 +124,27 @@ impl VTable for ScalarFnVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        let children = &array.children;
+
+        // If all children are AnyColumnar, we expect the scalar function to return a real array,
+        // not another scalar function.
+        let must_return = children.iter().all(|c| c.is::<AnyColumnar>());
+
+        ctx.log(format_args!("scalar_fn({}): executing", array.scalar_fn,));
         let args = ExecutionArgs {
-            inputs: array.children.clone(),
+            inputs: children.to_vec(),
             row_count: array.len,
             ctx,
         };
+        let result = array.scalar_fn.execute(args)?;
 
-        let result = array
-            .scalar_fn
-            .execute(args)?
-            .into_array()
-            .execute::<Canonical>(ctx)?;
-
-        debug_assert_eq!(
-            result.dtype(),
-            &array.dtype,
-            "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
-            result.dtype(),
-            array.dtype
-        );
-
-        debug_assert_eq!(
-            result.len(),
-            array.len(),
-            "Scalar function {} returned len {:?} but expected {:?}",
-            array.scalar_fn,
-            result.len(),
-            array.len()
-        );
+        if must_return && result.is::<ScalarFnVTable>() {
+            vortex_bail!(
+                "Scalar function {} returned another ScalarFnArray with all columnar inputs, a concrete array was expected",
+                array.scalar_fn
+            );
+        }
 
         Ok(result)
     }
@@ -317,11 +307,7 @@ impl expr::VTable for ArrayExpr {
         Ok(options.0.dtype().clone())
     }
 
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         crate::Executable::execute(options.0.clone(), args.ctx)
     }
 

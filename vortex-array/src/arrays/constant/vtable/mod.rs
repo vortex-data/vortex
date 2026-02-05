@@ -11,9 +11,9 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
@@ -25,7 +25,7 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod canonical;
+pub(crate) mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -100,7 +100,7 @@ impl VTable for ConstantVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        constant_canonicalize(array)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(constant_canonicalize(array)?.into_array())
     }
 }

@@ -11,11 +11,13 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
+use crate::AnyColumnar;
+use crate::ArrayRef;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
@@ -82,16 +84,24 @@ impl VTable for Cast {
         Ok(dtype.clone())
     }
 
-    fn execute(
-        &self,
-        target_dtype: &DType,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, target_dtype: &DType, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let input = args
             .inputs
             .pop()
             .vortex_expect("missing input for Cast expression");
-        compute_cast(input.as_ref(), target_dtype)?.execute(args.ctx)
+
+        match input.as_opt::<AnyColumnar>() {
+            None => {
+                // If the input is not columnar, execute it and try again
+                input
+                    .execute::<ArrayRef>(args.ctx)?
+                    .cast(target_dtype.clone())
+            }
+            Some(columnar) => {
+                // TODO(ngates): inline casting logic for scalars / canonical here.
+                compute_cast(columnar.as_ref(), target_dtype)
+            }
+        }
     }
 
     fn reduce(

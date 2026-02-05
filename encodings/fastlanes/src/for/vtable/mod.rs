@@ -5,9 +5,9 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -108,8 +108,8 @@ impl VTable for FoRVTable {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(decompress(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(decompress(array, ctx)?.into_array())
     }
 }
 
