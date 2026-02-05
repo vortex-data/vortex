@@ -70,7 +70,7 @@ can be *compressed* — an array of integers might be stored as a FastLanes bit-
 than a flat buffer. Arrays form trees: a compressed array contains child arrays and buffers that
 together define the encoding.
 
-**[Compute](scalar_fns.md)** functions operate directly on compressed arrays where possible, avoiding
+**[Compute](expressions.md)** functions operate directly on compressed arrays where possible, avoiding
 decompression. The compute layer dispatches to encoding-specific kernel implementations, falling
 back to canonical (Arrow-compatible) implementations when no specialized kernel exists. Compute
 functions are either scalar (element-wise) or aggregate (group-wise), and can be extended via
@@ -99,7 +99,7 @@ possibly-compressed Vortex arrays.
 
 ## Scan API
 
-The **[Scan API](scan.md)** provides an abstract table scan interface that can sit between any storage backend
+The **[Scan API](scanning.md)** provides an abstract table scan interface that can sit between any storage backend
 and query engine while supporting each engine's internal optimized data representations. For example, the
 Vortex x DuckDB integration returns compressed `FSST` arrays directly to DuckDB without the unnecessary
 decompression imposed by using Arrow as an intermediary.

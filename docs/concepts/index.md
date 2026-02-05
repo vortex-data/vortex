@@ -11,9 +11,8 @@ maxdepth: 2
 overview
 dtypes
 arrays
-execution
-scalar_fns
+expressions
 layouts
-scan
-extension-types
+file-format
+scanning
 ```
