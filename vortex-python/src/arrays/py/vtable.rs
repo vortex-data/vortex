@@ -22,14 +22,10 @@ use vortex::array::validity::Validity;
 use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::BaseArrayVTable;
-use vortex::array::vtable::ComputeVTable;
 use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
 use vortex::array::vtable::VisitorVTable;
-use vortex::compute::ComputeFn;
-use vortex::compute::InvocationArgs;
-use vortex::compute::Output;
 use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
@@ -54,7 +50,6 @@ impl VTable for PythonVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = Self;
 
     fn id(array: &Self::Array) -> ArrayId {
         array.id.clone()
@@ -161,16 +156,6 @@ impl VisitorVTable<PythonVTable> for PythonVTable {
     }
 
     fn visit_children(_array: &PythonArray, _visitor: &mut dyn ArrayChildVisitor) {
-        todo!()
-    }
-}
-
-impl ComputeVTable<PythonVTable> for PythonVTable {
-    fn invoke(
-        _array: &PythonArray,
-        _compute_fn: &ComputeFn,
-        _args: &InvocationArgs,
-    ) -> VortexResult<Option<Output>> {
         todo!()
     }
 }

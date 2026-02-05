@@ -13,7 +13,6 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_dtype::DType;
@@ -45,7 +44,6 @@ impl VTable for FoRVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID

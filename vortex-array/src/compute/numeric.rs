@@ -156,11 +156,6 @@ impl ComputeFnVTable for Numeric {
             }
         }
 
-        // Check if LHS supports the operation directly.
-        if let Some(output) = lhs.invoke(&NUMERIC_FN, args)? {
-            return Ok(output);
-        }
-
         // Check if RHS supports the operation directly.
         let inverted_args = InvocationArgs {
             inputs: &[rhs.into(), lhs.into()],
@@ -170,9 +165,6 @@ impl ComputeFnVTable for Numeric {
             if let Some(output) = kernel.invoke(&inverted_args)? {
                 return Ok(output);
             }
-        }
-        if let Some(output) = rhs.invoke(&NUMERIC_FN, &inverted_args)? {
-            return Ok(output);
         }
 
         tracing::debug!(

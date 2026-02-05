@@ -142,13 +142,6 @@ fn nan_count_impl(array: &dyn Array, kernels: &[ArcRef<dyn Kernel>]) -> VortexRe
                 .ok_or_else(|| vortex_err!("NaN count should not return null"));
         }
     }
-    if let Some(output) = array.invoke(&NAN_COUNT_FN, &args)? {
-        return output
-            .unwrap_scalar()?
-            .as_primitive()
-            .as_::<usize>()
-            .ok_or_else(|| vortex_err!("NaN count should not return null"));
-    }
 
     if !array.is_canonical() {
         let canonical = array.to_canonical()?;

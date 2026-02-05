@@ -22,7 +22,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromChild;
 
@@ -37,7 +36,6 @@ impl VTable for ExtensionVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID

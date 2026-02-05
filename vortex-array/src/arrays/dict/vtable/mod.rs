@@ -27,7 +27,6 @@ use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
@@ -53,7 +52,6 @@ impl VTable for DictVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID

@@ -279,9 +279,6 @@ fn is_sorted_impl(
             return Ok(output.unwrap_scalar()?.as_bool().value());
         }
     }
-    if let Some(output) = array.invoke(&IS_SORTED_FN, &args)? {
-        return Ok(output.unwrap_scalar()?.as_bool().value());
-    }
 
     if !array.is_canonical() {
         tracing::debug!(

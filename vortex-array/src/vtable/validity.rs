@@ -2,12 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_error::vortex_panic;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::validity::Validity;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
@@ -17,15 +15,6 @@ pub trait ValidityVTable<V: VTable> {
     ///
     /// - The array DType is nullable.
     fn validity(array: &V::Array) -> VortexResult<Validity>;
-}
-
-impl<V: VTable> ValidityVTable<V> for NotSupported {
-    fn validity(array: &V::Array) -> VortexResult<Validity> {
-        vortex_panic!(
-            "Legacy validity is not supported for {} arrays",
-            array.encoding_id()
-        )
-    }
 }
 
 /// An implementation of the [`ValidityVTable`] for arrays that hold validity as a child array.

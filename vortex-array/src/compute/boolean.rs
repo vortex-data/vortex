@@ -145,9 +145,6 @@ impl ComputeFnVTable for Boolean {
                 return Ok(output);
             }
         }
-        if let Some(output) = lhs.invoke(&BOOLEAN_FN, args)? {
-            return Ok(output);
-        }
 
         let inverse_args = InvocationArgs {
             inputs: &[rhs.into(), lhs.into()],
@@ -157,9 +154,6 @@ impl ComputeFnVTable for Boolean {
             if let Some(output) = kernel.invoke(&inverse_args)? {
                 return Ok(output);
             }
-        }
-        if let Some(output) = rhs.invoke(&BOOLEAN_FN, &inverse_args)? {
-            return Ok(output);
         }
 
         tracing::debug!(

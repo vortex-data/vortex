@@ -45,9 +45,6 @@ use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
 use crate::builders::ArrayBuilder;
 use crate::compute;
-use crate::compute::ComputeFn;
-use crate::compute::InvocationArgs;
-use crate::compute::Output;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProviderExt;
@@ -59,7 +56,6 @@ use crate::validity::Validity;
 use crate::vtable::ArrayId;
 use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
-use crate::vtable::ComputeVTable;
 use crate::vtable::DynVTable;
 use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
@@ -158,25 +154,6 @@ pub trait Array:
 
     /// Replaces the children of the array with the given array references.
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
-
-    /// Optionally invoke a kernel for the given compute function.
-    ///
-    /// These encoding-specific kernels are independent of kernels registered directly with
-    /// compute functions using [`ComputeFn::register_kernel`], and are attempted only if none of
-    /// the function-specific kernels returns a result.
-    ///
-    /// This allows encodings the opportunity to generically implement many compute functions
-    /// that share some property, for example [`ComputeFn::is_elementwise`], without prior
-    /// knowledge of the function itself, while still allowing users to override the implementation
-    /// of compute functions for built-in encodings. For an example, see the implementation for
-    /// chunked arrays.
-    ///
-    /// The first input in the [`InvocationArgs`] is always the array itself.
-    ///
-    /// Warning: do not call `compute_fn.invoke(args)` directly, as this will result in a recursive
-    /// call.
-    fn invoke(&self, compute_fn: &ComputeFn, args: &InvocationArgs)
-    -> VortexResult<Option<Output>>;
 }
 
 impl Array for Arc<dyn Array> {
@@ -289,14 +266,6 @@ impl Array for Arc<dyn Array> {
 
     fn with_children(&self, children: Vec<ArrayRef>) -> VortexResult<ArrayRef> {
         self.as_ref().with_children(children)
-    }
-
-    fn invoke(
-        &self,
-        compute_fn: &ComputeFn,
-        args: &InvocationArgs,
-    ) -> VortexResult<Option<Output>> {
-        self.as_ref().invoke(compute_fn, args)
     }
 }
 
@@ -642,14 +611,6 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         let mut this = self.0.clone();
         V::with_children(&mut this, children)?;
         Ok(this.into_array())
-    }
-
-    fn invoke(
-        &self,
-        compute_fn: &ComputeFn,
-        args: &InvocationArgs,
-    ) -> VortexResult<Option<Output>> {
-        <V::ComputeVTable as ComputeVTable<V>>::invoke(&self.0, compute_fn, args)
     }
 }
 

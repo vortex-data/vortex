@@ -60,9 +60,6 @@ impl ComputeFnVTable for Invert {
                 return Ok(output);
             }
         }
-        if let Some(output) = array.invoke(&INVERT_FN, args)? {
-            return Ok(output);
-        }
 
         // Otherwise, we canonicalize into a boolean array and invert.
         tracing::debug!(

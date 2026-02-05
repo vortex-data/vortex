@@ -251,9 +251,6 @@ pub fn sum_impl(
             return output.unwrap_scalar();
         }
     }
-    if let Some(output) = array.invoke(&SUM_FN, &args)? {
-        return output.unwrap_scalar();
-    }
 
     // Otherwise, canonicalize and try again.
     tracing::debug!("No sum implementation found for {}", array.encoding_id());

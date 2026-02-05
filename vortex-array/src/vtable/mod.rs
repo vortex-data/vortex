@@ -4,7 +4,6 @@
 //! This module contains the VTable definitions for a Vortex encoding.
 
 mod array;
-mod compute;
 mod dyn_;
 mod operations;
 mod validity;
@@ -14,7 +13,6 @@ use std::fmt::Debug;
 use std::ops::Deref;
 
 pub use array::*;
-pub use compute::*;
 pub use dyn_::*;
 pub use operations::*;
 pub use validity::*;
@@ -35,9 +33,6 @@ use crate::serde::ArrayChildren;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// Some of these vtables are optional, such as the [`ComputeVTable`],
-/// which can be disabled by assigning to the [`NotSupported`] type.
-///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
 /// traits.
 ///
@@ -54,10 +49,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
-
-    /// Optionally enable implementing dynamic compute dispatch for this encoding.
-    /// Can be disabled by assigning to the [`NotSupported`] type.
-    type ComputeVTable: ComputeVTable<Self>;
 
     /// Returns the ID of the array.
     fn id(array: &Self::Array) -> ArrayId;

@@ -21,7 +21,6 @@ use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
@@ -48,8 +47,6 @@ impl VTable for ConstantVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
-    // TODO(ngates): implement a compute kernel for elementwise operations
-    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
