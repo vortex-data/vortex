@@ -3,27 +3,26 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DateTimePartsArray;
 use crate::DateTimePartsVTable;
 
-impl FilterKernel for DateTimePartsVTable {
-    fn filter(&self, array: &DateTimePartsArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(DateTimePartsArray::try_new(
-            array.dtype().clone(),
-            array.days().filter(mask.clone())?,
-            array.seconds().filter(mask.clone())?,
-            array.subseconds().filter(mask.clone())?,
-        )?
-        .into_array())
+impl FilterReduce for DateTimePartsVTable {
+    fn filter(array: &DateTimePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            DateTimePartsArray::try_new(
+                array.dtype().clone(),
+                array.days().filter(mask.clone())?,
+                array.seconds().filter(mask.clone())?,
+                array.subseconds().filter(mask.clone())?,
+            )?
+            .into_array(),
+        ))
     }
 }
-register_kernel!(FilterKernelAdapter(DateTimePartsVTable).lift());
 
 #[cfg(test)]
 mod test {

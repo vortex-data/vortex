@@ -2,9 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::ExecutionCtx;
+use vortex_array::arrays::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -12,7 +11,11 @@ use crate::ALPArray;
 use crate::ALPVTable;
 
 impl FilterKernel for ALPVTable {
-    fn filter(&self, array: &ALPArray, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(
+        array: &ALPArray,
+        mask: &Mask,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let patches = array
             .patches()
             .map(|p| p.filter(mask))
@@ -21,18 +24,18 @@ impl FilterKernel for ALPVTable {
 
         // SAFETY: filtering the values does not change correctness
         unsafe {
-            Ok(ALPArray::new_unchecked(
-                array.encoded().filter(mask.clone())?,
-                array.exponents(),
-                patches,
-                array.dtype().clone(),
-            )
-            .to_array())
+            Ok(Some(
+                ALPArray::new_unchecked(
+                    array.encoded().filter(mask.clone())?,
+                    array.exponents(),
+                    patches,
+                    array.dtype().clone(),
+                )
+                .to_array(),
+            ))
         }
     }
 }
-
-register_kernel!(FilterKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {

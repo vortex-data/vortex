@@ -5,9 +5,9 @@ use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 
-use crate::SparseVTable;
+use crate::ALPVTable;
 
-pub(crate) static PARENT_KERNELS: ParentKernelSet<SparseVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&FilterExecuteAdaptor(SparseVTable)),
-    ParentKernelSet::lift(&SliceExecuteAdaptor(SparseVTable)),
+pub(super) const PARENT_KERNELS: ParentKernelSet<ALPVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&FilterExecuteAdaptor(ALPVTable)),
+    ParentKernelSet::lift(&SliceExecuteAdaptor(ALPVTable)),
 ]);

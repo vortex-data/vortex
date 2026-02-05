@@ -2,23 +2,19 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
-impl FilterKernel for DecimalBytePartsVTable {
-    fn filter(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef> {
+impl FilterReduce for DecimalBytePartsVTable {
+    fn filter(array: &DecimalBytePartsArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         DecimalBytePartsArray::try_new(array.msp.filter(mask.clone())?, *array.decimal_dtype())
-            .map(|d| d.to_array())
+            .map(|d| Some(d.to_array()))
     }
 }
-
-register_kernel!(FilterKernelAdapter(DecimalBytePartsVTable).lift());
 
 #[cfg(test)]
 mod test {

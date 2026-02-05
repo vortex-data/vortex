@@ -8,7 +8,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::SliceKernel;
-use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
@@ -35,7 +34,7 @@ impl SliceKernel for BitPackedVTable {
             BitPackedArray::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
                 array.dtype().clone(),
-                array.validity().clone().slice(range.clone())?,
+                array.validity()?.slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))

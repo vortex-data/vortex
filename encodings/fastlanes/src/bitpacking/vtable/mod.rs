@@ -30,9 +30,7 @@ use vortex_error::vortex_err;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::rules::RULES;
-use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
-
+use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 mod array;
 mod kernels;
 mod operations;
@@ -259,14 +257,6 @@ impl VTable for BitPackedVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
     }
 }
 
