@@ -143,6 +143,6 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
     fn visit_buffers(_array: &SharedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(array: &SharedArray, visitor: &mut dyn ArrayChildVisitor) {
-        array.visit_children(visitor);
+        visitor.visit_child("source", &array.current_array_ref());
     }
 }

@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_panic;
 
 use crate::ArrayRef;
 use crate::Canonical;
@@ -54,22 +54,18 @@ impl SharedArray {
         }
     }
 
-    pub fn source_if_any(&self) -> Option<ArrayRef> {
-        match &*self.state.read() {
-            SharedState::Source(source) => Some(source.clone()),
-            SharedState::Cached(_) => None,
-        }
+    pub fn as_source(&self) -> ArrayRef {
+        let SharedState::Source(source) = &*self.state.read() else {
+            vortex_panic!("already cached");
+        };
+        source.clone()
     }
 
     pub(super) fn canonicalize(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         if let Some(existing) = self.cached() {
             return Ok(existing);
         }
-        let source = match self.source_if_any() {
-            Some(source) => source,
-            None => return Ok(self.cached().vortex_expect("cache present when no source")),
-        };
-        let canonical = source.execute::<Canonical>(ctx)?;
+        let canonical = self.as_source().execute::<Canonical>(ctx)?;
         Ok(self.cache_or_return(canonical))
     }
 
@@ -83,10 +79,5 @@ impl SharedArray {
     pub(super) fn set_source(&mut self, source: ArrayRef) {
         self.dtype = source.dtype().clone();
         *self.state.write() = SharedState::Source(source);
-    }
-
-    pub(super) fn visit_children(&self, visitor: &mut dyn crate::ArrayChildVisitor) {
-        let child = self.current_array_ref();
-        visitor.visit_child("source", &child);
     }
 }
