@@ -2,7 +2,7 @@
 
 .vortex-wordmark {
     display: block;
-    max-width: 400px;
+    max-width: min(400px, 100%);
     margin: 1.5rem auto 2.5rem;
 }
 
