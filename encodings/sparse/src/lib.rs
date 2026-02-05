@@ -175,7 +175,7 @@ impl VTable for SparseVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         canonicalize_sparse(array)
     }
 }

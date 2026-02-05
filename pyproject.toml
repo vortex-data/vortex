@@ -32,6 +32,10 @@ dev = [
     "ruff>=0.7.1",
     "ray>=2.48",
     "pytest-benchmark>=5.1.0",
+    # forced transitive bumps
+    "urllib3>=2.6.3",
+    "filelock>=3.20.3",
+    "protobuf>=6.33.5",
 ]
 
 [tool.uv]

@@ -17,8 +17,8 @@ use vortex_array::expr::ExactExpr;
 use vortex_array::expr::Expression;
 use vortex_array::expr::Merge;
 use vortex_array::expr::Pack;
-use vortex_array::expr::annotate_scope_access;
 use vortex_array::expr::col;
+use vortex_array::expr::make_free_field_annotator;
 use vortex_array::expr::root;
 use vortex_array::expr::transform::PartitionedExpr;
 use vortex_array::expr::transform::partition;
@@ -166,7 +166,7 @@ impl StructReader {
                 let mut partitioned = partition(
                     expr.clone(),
                     self.dtype(),
-                    annotate_scope_access(
+                    make_free_field_annotator(
                         self.dtype()
                             .as_struct_fields_opt()
                             .vortex_expect("We know it's a struct DType"),
@@ -405,6 +405,7 @@ mod tests {
     use vortex_dtype::FieldName;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_dtype::StructFields;
     use vortex_io::runtime::single::block_on;
     use vortex_mask::Mask;
     use vortex_scalar::Scalar;
@@ -699,7 +700,7 @@ mod tests {
         #[from(nested_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         // Project out the nested struct field.
-        // The projection should preserve the nulls of the `a` column when we select out the
+        // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
         let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = select(
@@ -712,9 +713,21 @@ mod tests {
             .unwrap();
 
         let result = block_on(move |_| project).unwrap();
-        assert!(result.dtype().is_struct());
 
-        // Struct scalars holding the "c" field value scalars
+        // The result is a nullable struct (because root.a.b is nullable) with a non-nullable
+        // field "c" (because the original field was non-nullable).
+        assert_eq!(
+            result.dtype(),
+            &DType::Struct(
+                StructFields::from_iter([(
+                    "c",
+                    DType::Primitive(PType::I32, Nullability::NonNullable)
+                )]),
+                Nullability::Nullable,
+            )
+        );
+
+        // Row 0: struct is valid, field "c" is 4.
         assert_eq!(
             result
                 .scalar_at(0)
@@ -722,17 +735,13 @@ mod tests {
                 .as_struct()
                 .field_by_idx(0)
                 .unwrap(),
-            Scalar::primitive(4, Nullability::Nullable)
+            Scalar::primitive(4, Nullability::NonNullable)
         );
-        assert!(
-            result
-                .scalar_at(1)
-                .unwrap()
-                .as_struct()
-                .field_by_idx(0)
-                .unwrap()
-                .is_null(),
-        );
+
+        // Row 1: struct is null (because root.a.b was null at this row).
+        assert!(result.scalar_at(1).unwrap().as_struct().is_null());
+
+        // Row 2: struct is valid, field "c" is 6.
         assert_eq!(
             result
                 .scalar_at(2)
@@ -740,7 +749,7 @@ mod tests {
                 .as_struct()
                 .field_by_idx(0)
                 .unwrap(),
-            Scalar::primitive(6, Nullability::Nullable)
+            Scalar::primitive(6, Nullability::NonNullable)
         );
     }
 

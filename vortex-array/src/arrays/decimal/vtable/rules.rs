@@ -10,7 +10,6 @@ use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
@@ -26,11 +25,7 @@ pub(super) static RULES: ParentRuleSet<DecimalVTable> =
 pub struct DecimalMaskedValidityRule;
 
 impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
-    type Parent = Exact<MaskedVTable>;
-
-    fn parent(&self) -> Exact<MaskedVTable> {
-        Exact::new()
-    }
+    type Parent = MaskedVTable;
 
     fn reduce_parent(
         &self,

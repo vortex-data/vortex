@@ -12,6 +12,7 @@ use std::task::Poll;
 use futures::FutureExt;
 use futures::StreamExt;
 use futures::channel::mpsc;
+use futures::future;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexResult;
@@ -123,46 +124,45 @@ impl FileSegmentSource {
 
 impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
-        // We eagerly create the read future here assuming the behaviour of [`FileRead`], where
+        // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
-        let maybe_fut = self.segments.get(*id as usize).cloned().map(|spec| {
-            let SegmentSpec {
-                offset,
-                length,
-                alignment,
-            } = spec;
-
-            let (send, recv) = oneshot::channel();
-            let id = self.next_id.fetch_add(1, Ordering::Relaxed);
-            let event = ReadEvent::Request(ReadRequest {
-                id,
-                offset,
-                length: length as usize,
-                alignment,
-                callback: send,
-            });
-
-            // If we fail to submit the event, we create a future that has failed.
-            if let Err(e) = self.events.unbounded_send(event) {
-                return async move { Err(vortex_err!("Failed to submit read request: {e}")) }
-                    .boxed();
+        let spec = match self.segments.get(*id as usize).cloned() {
+            Some(spec) => spec,
+            None => {
+                return future::ready(Err(vortex_err!("Missing segment: {}", id))).boxed();
             }
+        };
 
-            ReadFuture {
-                id,
-                recv,
-                polled: false,
-                events: self.events.clone(),
-            }
-            .boxed()
+        let SegmentSpec {
+            offset,
+            length,
+            alignment,
+        } = spec;
+
+        let (send, recv) = oneshot::channel();
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let event = ReadEvent::Request(ReadRequest {
+            id,
+            offset,
+            length: length as usize,
+            alignment,
+            callback: send,
         });
 
-        async move {
-            maybe_fut
-                .ok_or_else(|| vortex_err!("Missing segment: {}", id))?
-                .await
+        // If we fail to submit the event, we create a future that has failed.
+        if let Err(e) = self.events.unbounded_send(event) {
+            return future::ready(Err(vortex_err!("Failed to submit read request: {e}"))).boxed();
         }
-        .boxed()
+
+        let fut = ReadFuture {
+            id,
+            recv,
+            polled: false,
+            events: self.events.clone(),
+        };
+
+        // One allocation: we only box the returned SegmentFuture, not the inner ReadFuture.
+        fut.boxed()
     }
 }
 

@@ -104,7 +104,7 @@ impl VTable for ZigZagVTable {
         ))
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(zigzag_decode(
             array.encoded().clone().execute(ctx)?,
         )))

@@ -262,7 +262,7 @@ fn test_list_scalar_to_arrow_todo() {
 fn test_non_temporal_extension_to_arrow_todo() {
     use vortex_dtype::ExtID;
 
-    #[derive(Debug, Clone, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct SomeExt;
     impl ExtDTypeVTable for SomeExt {
         type Metadata = String;
@@ -279,7 +279,11 @@ fn test_non_temporal_extension_to_arrow_todo() {
             vortex_bail!("not implemented")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }

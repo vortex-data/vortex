@@ -1,14 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod dictionary;
-mod stats;
+pub(crate) mod dictionary;
+pub(super) mod stats;
 
-use std::fmt::Debug;
 use std::hash::Hash;
+use std::hash::Hasher;
 
+use enum_iterator::Sequence;
 pub use stats::IntegerStats;
 use vortex_array::ArrayRef;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
@@ -16,6 +18,7 @@ use vortex_array::arrays::DictArray;
 use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveVTable;
+use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -34,141 +37,196 @@ use vortex_sparse::SparseVTable;
 use vortex_zigzag::ZigZagArray;
 use vortex_zigzag::zigzag_encode;
 
+use self::dictionary::dictionary_encode;
+use crate::BtrBlocksCompressor;
+use crate::CanonicalCompressor;
 use crate::Compressor;
+use crate::CompressorContext;
 use crate::CompressorStats;
+use crate::Excludes;
 use crate::GenerateStatsOptions;
 use crate::Scheme;
-use crate::estimate_compression_ratio_with_sampling;
-use crate::integer::dictionary::dictionary_encode;
-use crate::patches::compress_patches;
-use crate::rle::RLEScheme;
+use crate::SchemeExt;
+use crate::compressor::patches::compress_patches;
+use crate::compressor::rle;
+use crate::compressor::rle::RLEScheme;
+
+/// All available integer compression schemes.
+pub const ALL_INT_SCHEMES: &[&dyn IntegerScheme] = &[
+    &ConstantScheme,
+    &FORScheme,
+    &ZigZagScheme,
+    &BitPackingScheme,
+    &SparseScheme,
+    &DictScheme,
+    &RunEndScheme,
+    &SequenceScheme,
+    &RLE_INTEGER_SCHEME,
+];
 
 /// [`Compressor`] for signed and unsigned integers.
-pub struct IntCompressor;
+#[derive(Clone, Copy)]
+pub struct IntCompressor<'a> {
+    /// Reference to the parent compressor.
+    pub btr_blocks_compressor: &'a dyn CanonicalCompressor,
+}
 
-impl Compressor for IntCompressor {
+impl<'a> Compressor for IntCompressor<'a> {
     type ArrayVTable = PrimitiveVTable;
     type SchemeType = dyn IntegerScheme;
     type StatsType = IntegerStats;
 
-    fn schemes() -> &'static [&'static dyn IntegerScheme] {
-        &[
-            &ConstantScheme,
-            &FORScheme,
-            &ZigZagScheme,
-            &BitPackingScheme,
-            &SparseScheme,
-            &DictScheme,
-            &RunEndScheme,
-            &SequenceScheme,
-            &RLE_INTEGER_SCHEME,
-        ]
+    fn schemes(&self) -> &[&'static dyn IntegerScheme] {
+        self.btr_blocks_compressor.int_schemes()
     }
 
-    fn default_scheme() -> &'static Self::SchemeType {
+    fn default_scheme(&self) -> &'static Self::SchemeType {
         &UncompressedScheme
     }
 
-    fn dict_scheme_code() -> IntCode {
-        DICT_SCHEME
-    }
-}
-
-impl IntCompressor {
-    pub(crate) fn compress_no_dict(
-        array: &PrimitiveArray,
-        is_sample: bool,
-        allowed_cascading: usize,
-        excludes: &[IntCode],
-    ) -> VortexResult<ArrayRef> {
-        let stats = IntegerStats::generate_opts(
-            array,
-            GenerateStatsOptions {
-                count_distinct_values: false,
-            },
-        );
-
-        let scheme = Self::choose_scheme(&stats, is_sample, allowed_cascading, excludes)?;
-        let output = scheme.compress(&stats, is_sample, allowed_cascading, excludes)?;
-
-        if output.nbytes() < array.nbytes() {
-            Ok(output)
+    fn gen_stats(&self, array: &<Self::ArrayVTable as VTable>::Array) -> Self::StatsType {
+        if self
+            .btr_blocks_compressor
+            .int_schemes()
+            .iter()
+            .any(|s| s.code() == IntCode::Dict)
+        {
+            IntegerStats::generate_opts(
+                array,
+                GenerateStatsOptions {
+                    count_distinct_values: true,
+                },
+            )
         } else {
-            tracing::debug!("resulting tree too large: {}", output.display_tree());
-            Ok(array.to_array())
+            IntegerStats::generate_opts(
+                array,
+                GenerateStatsOptions {
+                    count_distinct_values: false,
+                },
+            )
         }
     }
 }
 
-pub trait IntegerScheme: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
+pub trait IntegerScheme:
+    Scheme<StatsType = IntegerStats, CodeType = IntCode> + Send + Sync
+{
+}
 
 // Auto-impl
-impl<T> IntegerScheme for T where T: Scheme<StatsType = IntegerStats, CodeType = IntCode> {}
+impl<T> IntegerScheme for T where
+    T: Scheme<StatsType = IntegerStats, CodeType = IntCode> + Send + Sync
+{
+}
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct IntCode(u8);
+impl PartialEq for dyn IntegerScheme {
+    fn eq(&self, other: &Self) -> bool {
+        self.code() == other.code()
+    }
+}
 
-const UNCOMPRESSED_SCHEME: IntCode = IntCode(0);
-const CONSTANT_SCHEME: IntCode = IntCode(1);
-const FOR_SCHEME: IntCode = IntCode(2);
-const ZIGZAG_SCHEME: IntCode = IntCode(3);
-const BITPACKING_SCHEME: IntCode = IntCode(4);
-const SPARSE_SCHEME: IntCode = IntCode(5);
-const DICT_SCHEME: IntCode = IntCode(6);
-const RUN_END_SCHEME: IntCode = IntCode(7);
-const SEQUENCE_SCHEME: IntCode = IntCode(8);
-const RUN_LENGTH_SCHEME: IntCode = IntCode(9);
+impl Eq for dyn IntegerScheme {}
 
-#[derive(Debug, Copy, Clone)]
+impl Hash for dyn IntegerScheme {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.code().hash(state)
+    }
+}
+
+/// Unique identifier for integer compression schemes.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
+pub enum IntCode {
+    /// No compression applied.
+    Uncompressed,
+    /// Constant encoding for arrays with a single distinct value.
+    Constant,
+    /// Frame of Reference encoding - subtracts minimum value then bitpacks.
+    For,
+    /// ZigZag encoding - transforms negative integers to positive for better bitpacking.
+    ZigZag,
+    /// BitPacking encoding - compresses non-negative integers by reducing bit width.
+    BitPacking,
+    /// Sparse encoding - optimizes null-dominated or single-value-dominated arrays.
+    Sparse,
+    /// Dictionary encoding - creates a dictionary of unique values.
+    Dict,
+    /// Run-end encoding - run-length encoding with end positions.
+    RunEnd,
+    /// Sequence encoding - detects sequential patterns.
+    Sequence,
+    /// RLE encoding - generic run-length encoding.
+    Rle,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+
 pub struct UncompressedScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+
 pub struct ConstantScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+
 pub struct FORScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ZigZagScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BitPackingScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SparseScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DictScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct RunEndScheme;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SequenceScheme;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
 
-pub const RLE_INTEGER_SCHEME: RLEScheme<IntegerStats, IntCode> = RLEScheme::new(
-    RUN_LENGTH_SCHEME,
-    |values, is_sample, allowed_cascading, excludes| {
-        IntCompressor::compress_no_dict(values, is_sample, allowed_cascading, excludes)
-    },
-);
+/// Configuration for integer RLE compression.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct IntRLEConfig;
+
+impl rle::RLEConfig for IntRLEConfig {
+    type Stats = IntegerStats;
+    type Code = IntCode;
+
+    const CODE: IntCode = IntCode::Rle;
+
+    fn compress_values(
+        compressor: &BtrBlocksCompressor,
+        values: &PrimitiveArray,
+        ctx: CompressorContext,
+        excludes: &[IntCode],
+    ) -> VortexResult<ArrayRef> {
+        compressor.compress_canonical(Canonical::Primitive(values.clone()), ctx, excludes.into())
+    }
+}
+
+/// RLE scheme for integer compression.
+pub const RLE_INTEGER_SCHEME: RLEScheme<IntRLEConfig> = RLEScheme::new();
 
 impl Scheme for UncompressedScheme {
     type StatsType = IntegerStats;
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        UNCOMPRESSED_SCHEME
+        IntCode::Uncompressed
     }
 
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         _stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // no compression
@@ -177,9 +235,9 @@ impl Scheme for UncompressedScheme {
 
     fn compress(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         Ok(stats.source().to_array())
@@ -191,7 +249,7 @@ impl Scheme for ConstantScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        CONSTANT_SCHEME
+        IntCode::Constant
     }
 
     fn is_constant(&self) -> bool {
@@ -200,13 +258,13 @@ impl Scheme for ConstantScheme {
 
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        _allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Never yield ConstantScheme for a sample, it could be a false-positive.
-        if is_sample {
+        if ctx.is_sample {
             return Ok(0.0);
         }
 
@@ -220,9 +278,9 @@ impl Scheme for ConstantScheme {
 
     fn compress(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let scalar_idx =
@@ -252,18 +310,18 @@ impl Scheme for FORScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        FOR_SCHEME
+        IntCode::For
     }
 
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Only apply if we are not at the leaf
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -301,9 +359,9 @@ impl Scheme for FORScheme {
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        _allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let for_array = FoRArray::encode(stats.src.clone())?;
@@ -319,7 +377,12 @@ impl Scheme for FORScheme {
         // of bitpacking.
         // NOTE: we could delegate in the future if we had another downstream codec that performs
         //  as well.
-        let compressed = BitPackingScheme.compress(&biased_stats, is_sample, 0, excludes)?;
+        let leaf_ctx = CompressorContext {
+            is_sample: ctx.is_sample,
+            allowed_cascading: 0,
+        };
+        let compressed =
+            BitPackingScheme.compress(compressor, &biased_stats, leaf_ctx, excludes)?;
 
         let for_compressed = FoRArray::try_new(compressed, for_array.reference_scalar().clone())?;
         for_compressed
@@ -335,18 +398,18 @@ impl Scheme for ZigZagScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        ZIGZAG_SCHEME
+        IntCode::ZigZag
     }
 
     fn expected_compression_ratio(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // ZigZag is only useful when we cascade it with another encoding
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -361,20 +424,14 @@ impl Scheme for ZigZagScheme {
         }
 
         // Run compression on a sample to see how it performs.
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         // Zigzag encode the values, then recursively compress the inner values.
@@ -391,8 +448,11 @@ impl Scheme for ZigZagScheme {
         ];
         new_excludes.extend_from_slice(excludes);
 
-        let compressed =
-            IntCompressor::compress(&encoded, is_sample, allowed_cascading - 1, &new_excludes)?;
+        let compressed = compressor.compress_canonical(
+            Canonical::Primitive(encoded),
+            ctx.descend(),
+            Excludes::int_only(&new_excludes),
+        )?;
 
         tracing::debug!("zigzag output: {}", compressed.display_tree());
 
@@ -405,14 +465,14 @@ impl Scheme for BitPackingScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        BITPACKING_SCHEME
+        IntCode::BitPacking
     }
 
     fn expected_compression_ratio(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // BitPacking only works for non-negative values
@@ -425,20 +485,14 @@ impl Scheme for BitPackingScheme {
             return Ok(0.0);
         }
 
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
         let histogram = bit_width_histogram(stats.source())?;
@@ -461,19 +515,19 @@ impl Scheme for SparseScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        SPARSE_SCHEME
+        IntCode::Sparse
     }
 
     // We can avoid asserting the encoding tree instead.
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Only use `SparseScheme` if we can cascade.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -506,12 +560,12 @@ impl Scheme for SparseScheme {
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
         let (top_pvalue, top_count) = stats.typed.top_value_and_count();
         if top_count as usize == stats.src.len() {
             // top_value is the only value, use ConstantScheme
@@ -537,23 +591,21 @@ impl Scheme for SparseScheme {
 
         if let Some(sparse) = sparse_encoded.as_opt::<SparseVTable>() {
             // Compress the values
-            let mut new_excludes = vec![SparseScheme.code()];
+            let mut new_excludes = vec![SparseScheme.code(), IntCode::Dict];
             new_excludes.extend_from_slice(excludes);
 
-            let compressed_values = IntCompressor::compress_no_dict(
-                &sparse.patches().values().to_primitive(),
-                is_sample,
-                allowed_cascading - 1,
-                &new_excludes,
+            let compressed_values = compressor.compress_canonical(
+                Canonical::Primitive(sparse.patches().values().to_primitive()),
+                ctx.descend(),
+                Excludes::int_only(&new_excludes),
             )?;
 
             let indices = sparse.patches().indices().to_primitive().narrow()?;
 
-            let compressed_indices = IntCompressor::compress_no_dict(
-                &indices,
-                is_sample,
-                allowed_cascading - 1,
-                &new_excludes,
+            let compressed_indices = compressor.compress_canonical(
+                Canonical::Primitive(indices),
+                ctx.descend(),
+                Excludes::int_only(&new_excludes),
             )?;
 
             SparseArray::try_new(
@@ -574,18 +626,18 @@ impl Scheme for DictScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        DICT_SCHEME
+        IntCode::Dict
     }
 
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        _is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         _excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // Dict should not be terminal.
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
@@ -619,12 +671,12 @@ impl Scheme for DictScheme {
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
 
         // TODO(aduffy): we can be more prescriptive: we know that codes will EITHER be
         //    RLE or FOR + BP. Cascading probably wastes some time here.
@@ -633,14 +685,13 @@ impl Scheme for DictScheme {
 
         // Cascade the codes child
         // Don't allow SequenceArray as the codes child as it merely adds extra indirection without actually compressing data.
-        let mut new_excludes = vec![DICT_SCHEME, SEQUENCE_SCHEME];
+        let mut new_excludes = vec![IntCode::Dict, IntCode::Sequence];
         new_excludes.extend_from_slice(excludes);
 
-        let compressed_codes = IntCompressor::compress_no_dict(
-            &dict.codes().to_primitive().narrow()?,
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
+        let compressed_codes = compressor.compress_canonical(
+            Canonical::Primitive(dict.codes().to_primitive().narrow()?),
+            ctx.descend(),
+            Excludes::int_only(&new_excludes),
         )?;
 
         // SAFETY: compressing codes does not change their values
@@ -659,14 +710,14 @@ impl Scheme for RunEndScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> IntCode {
-        RUN_END_SCHEME
+        IntCode::RunEnd
     }
 
     fn expected_compression_ratio(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<f64> {
         // If the run length is below the threshold, drop it.
@@ -674,28 +725,22 @@ impl Scheme for RunEndScheme {
             return Ok(0.0);
         }
 
-        if allowed_cascading == 0 {
+        if ctx.allowed_cascading == 0 {
             return Ok(0.0);
         }
 
         // Run compression on a sample, see how it performs.
-        estimate_compression_ratio_with_sampling(
-            self,
-            stats,
-            is_sample,
-            allowed_cascading,
-            excludes,
-        )
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
     }
 
     fn compress(
         &self,
+        compressor: &BtrBlocksCompressor,
         stats: &IntegerStats,
-        is_sample: bool,
-        allowed_cascading: usize,
+        ctx: CompressorContext,
         excludes: &[IntCode],
     ) -> VortexResult<ArrayRef> {
-        assert!(allowed_cascading > 0);
+        assert!(ctx.allowed_cascading > 0);
 
         // run-end encode the ends
         let (ends, values) = runend_encode(&stats.src);
@@ -703,26 +748,16 @@ impl Scheme for RunEndScheme {
         let mut new_excludes = vec![RunEndScheme.code(), DictScheme.code()];
         new_excludes.extend_from_slice(excludes);
 
-        let ends_stats = IntegerStats::generate_opts(
-            &ends.to_primitive(),
-            GenerateStatsOptions {
-                count_distinct_values: false,
-            },
-        );
-        let ends_scheme = IntCompressor::choose_scheme(
-            &ends_stats,
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
+        let compressed_ends = compressor.compress_canonical(
+            Canonical::Primitive(ends.to_primitive()),
+            ctx.descend(),
+            Excludes::int_only(&new_excludes),
         )?;
-        let compressed_ends =
-            ends_scheme.compress(&ends_stats, is_sample, allowed_cascading - 1, &new_excludes)?;
 
-        let compressed_values = IntCompressor::compress_no_dict(
-            &values.to_primitive(),
-            is_sample,
-            allowed_cascading - 1,
-            &new_excludes,
+        let compressed_values = compressor.compress_canonical(
+            Canonical::Primitive(values.to_primitive()),
+            ctx.descend(),
+            Excludes::int_only(&new_excludes),
         )?;
 
         // SAFETY: compression doesn't affect invariants
@@ -740,19 +775,28 @@ impl Scheme for SequenceScheme {
     type CodeType = IntCode;
 
     fn code(&self) -> Self::CodeType {
-        SEQUENCE_SCHEME
+        IntCode::Sequence
     }
 
     fn expected_compression_ratio(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<f64> {
         if stats.null_count > 0 {
             return Ok(0.0);
         }
+
+        // If the distinct_values_count was computed (!= u32::MAX)
+        // Then all values in a sequence must be unique.
+        if stats.distinct_values_count != u32::MAX
+            && stats.distinct_values_count as usize != stats.src.len()
+        {
+            return Ok(0.0);
+        }
+
         // Since two values are required to store base and multiplier the
         // compression ratio is divided by 2.
         Ok(sequence_encode(&stats.src)?
@@ -762,9 +806,9 @@ impl Scheme for SequenceScheme {
 
     fn compress(
         &self,
+        _compressor: &BtrBlocksCompressor,
         stats: &Self::StatsType,
-        _is_sample: bool,
-        _allowed_cascading: usize,
+        _ctx: CompressorContext,
         _excludes: &[Self::CodeType],
     ) -> VortexResult<ArrayRef> {
         if stats.null_count > 0 {
@@ -797,28 +841,29 @@ mod tests {
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
 
-    use crate::Compressor;
+    use super::IntegerStats;
+    use super::RLE_INTEGER_SCHEME;
+    use super::SequenceScheme;
+    use super::SparseScheme;
+    use crate::BtrBlocksCompressor;
+    use crate::CompressorContext;
+    use crate::CompressorExt;
     use crate::CompressorStats;
-    use crate::FloatCompressor;
     use crate::Scheme;
-    use crate::integer::IntCompressor;
-    use crate::integer::IntegerStats;
-    use crate::integer::RLE_INTEGER_SCHEME;
-    use crate::integer::SequenceScheme;
-    use crate::integer::SparseScheme;
 
     #[test]
-    fn test_empty() {
+    fn test_empty() -> VortexResult<()> {
         // Make sure empty array compression does not fail
-        let result = IntCompressor::compress(
+        let btr = BtrBlocksCompressor::default();
+        let result = btr.integer_compressor().compress(
+            &btr,
             &PrimitiveArray::new(Buffer::<i32>::empty(), Validity::NonNullable),
-            false,
-            3,
+            CompressorContext::default(),
             &[],
-        )
-        .unwrap();
+        )?;
 
         assert!(result.is_empty());
+        Ok(())
     }
 
     #[test]
@@ -842,7 +887,13 @@ mod tests {
         }
 
         let primitive = codes.freeze().into_array().to_primitive();
-        let compressed = IntCompressor::compress(&primitive, false, 3, &[])?;
+        let btr = BtrBlocksCompressor::default();
+        let compressed = btr.integer_compressor().compress(
+            &btr,
+            &primitive,
+            CompressorContext::default(),
+            &[],
+        )?;
         assert!(compressed.is::<DictVTable>());
         Ok(())
     }
@@ -853,7 +904,13 @@ mod tests {
             buffer![189u8, 189, 189, 0, 46],
             Validity::from_iter(vec![true, true, true, true, false]),
         );
-        let compressed = SparseScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
+        let btr = BtrBlocksCompressor::default();
+        let compressed = SparseScheme.compress(
+            &btr,
+            &IntegerStats::generate(&array),
+            CompressorContext::default(),
+            &[],
+        )?;
         assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected =
@@ -871,7 +928,13 @@ mod tests {
                 false, false, false, false, false, false, false, false, false, false, true,
             ]),
         );
-        let compressed = SparseScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
+        let btr = BtrBlocksCompressor::default();
+        let compressed = SparseScheme.compress(
+            &btr,
+            &IntegerStats::generate(&array),
+            CompressorContext::default(),
+            &[],
+        )?;
         assert!(compressed.is::<SparseVTable>());
         let decoded = compressed.clone();
         let expected = PrimitiveArray::new(
@@ -887,7 +950,13 @@ mod tests {
     fn nullable_sequence() -> VortexResult<()> {
         let values = (0i32..20).step_by(7).collect_vec();
         let array = PrimitiveArray::from_option_iter(values.clone().into_iter().map(Some));
-        let compressed = SequenceScheme.compress(&IntegerStats::generate(&array), false, 3, &[])?;
+        let btr = BtrBlocksCompressor::default();
+        let compressed = SequenceScheme.compress(
+            &btr,
+            &IntegerStats::generate(&array),
+            CompressorContext::default(),
+            &[],
+        )?;
         assert!(compressed.is::<SequenceVTable>());
         let decoded = compressed;
         let expected = PrimitiveArray::from_option_iter(values.into_iter().map(Some)).into_array();
@@ -903,8 +972,13 @@ mod tests {
         values.extend(iter::repeat_n(987i32, 150));
 
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed =
-            RLE_INTEGER_SCHEME.compress(&IntegerStats::generate(&array), false, 3, &[])?;
+        let btr = BtrBlocksCompressor::default();
+        let compressed = RLE_INTEGER_SCHEME.compress(
+            &btr,
+            &IntegerStats::generate(&array),
+            CompressorContext::default(),
+            &[],
+        )?;
 
         let decoded = compressed;
         let expected = Buffer::copy_from(&values).into_array();
@@ -922,9 +996,11 @@ mod tests {
             .flat_map(|list_idx| {
                 (0..ELEMENTS_PER_LIST).map(move |elem_idx| (list_idx * 1000 + elem_idx) as f64)
             })
-            .collect::<PrimitiveArray>();
+            .collect::<PrimitiveArray>()
+            .into_array();
 
-        drop(FloatCompressor::compress(&prim, false, 3, &[])?);
+        let btr = BtrBlocksCompressor::default();
+        drop(btr.compress(prim.as_ref())?);
 
         Ok(())
     }
@@ -940,6 +1016,7 @@ mod scheme_selection_tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
+    use vortex_error::VortexResult;
     use vortex_fastlanes::BitPackedVTable;
     use vortex_fastlanes::FoRVTable;
     use vortex_fastlanes::RLEVTable;
@@ -947,35 +1024,48 @@ mod scheme_selection_tests {
     use vortex_sequence::SequenceVTable;
     use vortex_sparse::SparseVTable;
 
-    use crate::Compressor;
-    use crate::integer::IntCompressor;
+    use crate::BtrBlocksCompressor;
+    use crate::CompressorContext;
+    use crate::CompressorExt;
 
     #[test]
-    fn test_constant_compressed() {
+    fn test_constant_compressed() -> VortexResult<()> {
         let values: Vec<i32> = iter::repeat_n(42, 100).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<ConstantVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_for_compressed() {
+    fn test_for_compressed() -> VortexResult<()> {
         let values: Vec<i32> = (0..1000).map(|i| 1_000_000 + ((i * 37) % 100)).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<FoRVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_bitpacking_compressed() {
+    fn test_bitpacking_compressed() -> VortexResult<()> {
         let values: Vec<u32> = (0..1000).map(|i| i % 16).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<BitPackedVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_sparse_compressed() {
+    fn test_sparse_compressed() -> VortexResult<()> {
         let mut values: Vec<i32> = Vec::new();
         for i in 0..1000 {
             if i % 20 == 0 {
@@ -985,12 +1075,16 @@ mod scheme_selection_tests {
             }
         }
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<SparseVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_dict_compressed() {
+    fn test_dict_compressed() -> VortexResult<()> {
         use rand::RngCore;
         use rand::SeedableRng;
         use rand::rngs::StdRng;
@@ -1011,37 +1105,53 @@ mod scheme_selection_tests {
         }
 
         let array = PrimitiveArray::new(Buffer::copy_from(&codes), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<DictVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_runend_compressed() {
+    fn test_runend_compressed() -> VortexResult<()> {
         let mut values: Vec<i32> = Vec::new();
         for i in 0..100 {
             values.extend(iter::repeat_n((i32::MAX - 50).wrapping_add(i), 10));
         }
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<RunEndVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_sequence_compressed() {
+    fn test_sequence_compressed() -> VortexResult<()> {
         let values: Vec<i32> = (0..1000).map(|i| i * 7).collect();
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<SequenceVTable>());
+        Ok(())
     }
 
     #[test]
-    fn test_rle_compressed() {
+    fn test_rle_compressed() -> VortexResult<()> {
         let mut values: Vec<i32> = Vec::new();
         for i in 0..10 {
             values.extend(iter::repeat_n(i, 100));
         }
         let array = PrimitiveArray::new(Buffer::copy_from(&values), Validity::NonNullable);
-        let compressed = IntCompressor::compress(&array, false, 3, &[]).unwrap();
+        let btr = BtrBlocksCompressor::default();
+        let compressed =
+            btr.integer_compressor()
+                .compress(&btr, &array, CompressorContext::default(), &[])?;
         assert!(compressed.is::<RLEVTable>());
+        Ok(())
     }
 }

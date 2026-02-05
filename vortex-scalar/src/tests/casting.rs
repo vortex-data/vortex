@@ -24,7 +24,7 @@ mod tests {
     use crate::Scalar;
     use crate::ScalarValue;
 
-    #[derive(Clone, Debug, Default)]
+    #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
     struct Apples;
     impl ExtDTypeVTable for Apples {
         type Metadata = usize;
@@ -33,7 +33,11 @@ mod tests {
             ExtID::new_ref("apples")
         }
 
-        fn validate(&self, _options: &Self::Metadata, _storage_dtype: &DType) -> VortexResult<()> {
+        fn validate_dtype(
+            &self,
+            _options: &Self::Metadata,
+            _storage_dtype: &DType,
+        ) -> VortexResult<()> {
             Ok(())
         }
     }
@@ -311,7 +315,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_coercion() {
         // Create an extension type with f16 storage
-        #[derive(Debug, Clone, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct F16Ext;
         impl ExtDTypeVTable for F16Ext {
             type Metadata = usize;
@@ -320,7 +324,7 @@ mod tests {
                 ExtID::new_ref("f16_ext")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,
@@ -356,7 +360,7 @@ mod tests {
     #[test]
     fn test_extension_dtype_nested_struct_coercion() {
         // Create an extension type with struct storage that contains f16 field
-        #[derive(Debug, Clone, Default)]
+        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
         struct StructExt;
         impl ExtDTypeVTable for StructExt {
             type Metadata = usize;
@@ -365,7 +369,7 @@ mod tests {
                 ExtID::new_ref("struct_ext")
             }
 
-            fn validate(
+            fn validate_dtype(
                 &self,
                 _options: &Self::Metadata,
                 _storage_dtype: &DType,

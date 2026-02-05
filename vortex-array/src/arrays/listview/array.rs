@@ -264,11 +264,8 @@ impl ListViewArray {
             );
         }
 
-        // Skip host-only validation when buffers are on the GPU.
-        let offsets_on_device = offsets.buffer_handles().iter().any(|h| h.is_on_device());
-        let sizes_on_device = sizes.buffer_handles().iter().any(|h| h.is_on_device());
-
-        if !offsets_on_device && !sizes_on_device {
+        // Skip host-only validation when offsets/sizes are not host-resident.
+        if offsets.is_host() && sizes.is_host() {
             let offsets_primitive = offsets.to_primitive();
             let sizes_primitive = sizes.to_primitive();
 

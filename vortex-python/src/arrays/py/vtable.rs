@@ -111,7 +111,7 @@ impl VTable for PythonVTable {
         Ok(())
     }
 
-    fn execute(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(_array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         todo!()
     }
 }

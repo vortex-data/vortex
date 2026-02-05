@@ -134,7 +134,7 @@ impl VTable for StructVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Struct(array.clone()))
     }
 

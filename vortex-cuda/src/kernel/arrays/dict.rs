@@ -18,7 +18,6 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
-use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
@@ -200,16 +199,6 @@ async fn execute_dict_decimal_typed<
         ..
     } = codes.into_parts();
 
-    // Determine value type suffix for kernel name
-    let value_suffix = match V::DECIMAL_TYPE {
-        DecimalType::I8 => "i8",
-        DecimalType::I16 => "i16",
-        DecimalType::I32 => "i32",
-        DecimalType::I64 => "i64",
-        DecimalType::I128 => "i128",
-        DecimalType::I256 => "i256",
-    };
-
     // Copy buffers to device if needed
     // Note: We use u8 for the buffer type since we're treating these as raw bytes
     let values_device = if values_buffer.is_on_device() {
@@ -234,7 +223,10 @@ async fn execute_dict_decimal_typed<
     let output_view = output_device.as_view::<V>();
 
     // Load kernel function using string suffixes
-    let cuda_function = ctx.load_function("dict", &[value_suffix, &C::PTYPE.to_string()])?;
+    let cuda_function = ctx.load_function(
+        "dict",
+        &[&V::DECIMAL_TYPE.to_string(), &C::PTYPE.to_string()],
+    )?;
     let mut launch_builder = ctx.launch_builder(&cuda_function);
 
     launch_builder.arg(&codes_view);

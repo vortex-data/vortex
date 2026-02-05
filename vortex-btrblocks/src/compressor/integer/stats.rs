@@ -23,7 +23,7 @@ use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::CompressorStats;
 use crate::GenerateStatsOptions;
-use crate::rle::RLEStats;
+use crate::compressor::rle::RLEStats;
 use crate::sample::sample;
 
 #[derive(Clone, Debug)]
@@ -437,9 +437,9 @@ mod tests {
     use vortex_buffer::buffer;
     use vortex_error::VortexResult;
 
+    use super::IntegerStats;
+    use super::typed_int_stats;
     use crate::CompressorStats;
-    use crate::integer::IntegerStats;
-    use crate::integer::stats::typed_int_stats;
 
     #[test]
     fn test_naive_count_distinct_values() -> VortexResult<()> {

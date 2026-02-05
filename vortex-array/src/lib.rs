@@ -48,7 +48,7 @@ pub mod iter;
 pub mod kernel;
 pub mod mask;
 mod mask_future;
-pub mod matchers;
+pub mod matcher;
 mod metadata;
 pub mod normalize;
 pub mod optimizer;

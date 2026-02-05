@@ -12,16 +12,26 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
+use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
 use crate::builders::builder_with_capacity;
+use crate::matcher::Matcher;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -452,6 +462,62 @@ impl From<Canonical> for ArrayRef {
             Canonical::FixedSizeList(a) => a.into_array(),
             Canonical::VarBinView(a) => a.into_array(),
             Canonical::Extension(a) => a.into_array(),
+        }
+    }
+}
+
+/// A view into a canonical array type.
+#[derive(Debug, Clone)]
+pub enum CanonicalView<'a> {
+    Null(&'a NullArray),
+    Bool(&'a BoolArray),
+    Primitive(&'a PrimitiveArray),
+    Decimal(&'a DecimalArray),
+    VarBinView(&'a VarBinViewArray),
+    List(&'a ListViewArray),
+    FixedSizeList(&'a FixedSizeListArray),
+    Struct(&'a StructArray),
+    Extension(&'a ExtensionArray),
+}
+
+/// A matcher for any canonical array type.
+pub struct AnyCanonical;
+impl Matcher for AnyCanonical {
+    type Match<'a> = CanonicalView<'a>;
+
+    fn matches(array: &dyn Array) -> bool {
+        array.is::<NullVTable>()
+            || array.is::<BoolVTable>()
+            || array.is::<PrimitiveVTable>()
+            || array.is::<DecimalVTable>()
+            || array.is::<StructVTable>()
+            || array.is::<ListViewVTable>()
+            || array.is::<FixedSizeListVTable>()
+            || array.is::<VarBinViewVTable>()
+            || array.is::<ExtensionVTable>()
+    }
+
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+        if let Some(a) = array.as_opt::<NullVTable>() {
+            Some(CanonicalView::Null(a))
+        } else if let Some(a) = array.as_opt::<BoolVTable>() {
+            Some(CanonicalView::Bool(a))
+        } else if let Some(a) = array.as_opt::<PrimitiveVTable>() {
+            Some(CanonicalView::Primitive(a))
+        } else if let Some(a) = array.as_opt::<DecimalVTable>() {
+            Some(CanonicalView::Decimal(a))
+        } else if let Some(a) = array.as_opt::<StructVTable>() {
+            Some(CanonicalView::Struct(a))
+        } else if let Some(a) = array.as_opt::<ListViewVTable>() {
+            Some(CanonicalView::List(a))
+        } else if let Some(a) = array.as_opt::<FixedSizeListVTable>() {
+            Some(CanonicalView::FixedSizeList(a))
+        } else if let Some(a) = array.as_opt::<VarBinViewVTable>() {
+            Some(CanonicalView::VarBinView(a))
+        } else {
+            array
+                .as_opt::<ExtensionVTable>()
+                .map(CanonicalView::Extension)
         }
     }
 }

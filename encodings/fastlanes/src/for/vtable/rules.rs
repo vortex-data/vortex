@@ -6,7 +6,6 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
-use vortex_array::matchers::Exact;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
@@ -21,11 +20,7 @@ pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> =
 struct FoRFilterPushDownRule;
 
 impl ArrayParentReduceRule<FoRVTable> for FoRFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::new()
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

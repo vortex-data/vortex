@@ -10,7 +10,6 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
@@ -26,11 +25,7 @@ pub(super) const RULES: ParentRuleSet<PrimitiveVTable> =
 pub struct PrimitiveMaskedValidityRule;
 
 impl ArrayParentReduceRule<PrimitiveVTable> for PrimitiveMaskedValidityRule {
-    type Parent = Exact<MaskedVTable>;
-
-    fn parent(&self) -> Exact<MaskedVTable> {
-        Exact::new()
-    }
+    type Parent = MaskedVTable;
 
     fn reduce_parent(
         &self,
