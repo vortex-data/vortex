@@ -146,10 +146,12 @@ pub mod select_opts {
     }
 }
 /// Options for `vortex.case_when`
+/// Encodes num_when_then_pairs and has_else into a single u32 (num_children).
+/// num_children = num_when_then_pairs * 2 + (has_else ? 1 : 0)
+/// has_else = num_children % 2 == 1
+/// num_when_then_pairs = num_children / 2
 #[derive(Clone, Copy, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct CaseWhenOpts {
     #[prost(uint32, tag = "1")]
-    pub num_when_then_pairs: u32,
-    #[prost(bool, tag = "2")]
-    pub has_else: bool,
+    pub num_children: u32,
 }

@@ -67,27 +67,25 @@ impl VTable for CaseWhen {
     }
 
     fn serialize(&self, options: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+        let num_children = 2 + if options.has_else { 1 } else { 0 };
         Ok(Some(
-            pb::CaseWhenOpts {
-                // For backwards compatibility, binary is num_when_then_pairs=1
-                num_when_then_pairs: 1,
-                has_else: options.has_else,
-            }
-            .encode_to_vec(),
+            pb::CaseWhenOpts { num_children }.encode_to_vec(),
         ))
     }
 
     fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
         let opts = pb::CaseWhenOpts::decode(metadata)?;
-        // We only support binary (1 when/then pair) now
-        if opts.num_when_then_pairs != 1 {
+        // We only support binary form:
+        // - 2 children: [when, then]
+        // - 3 children: [when, then, else]
+        if !matches!(opts.num_children, 2 | 3) {
             vortex_bail!(
-                "CaseWhen only supports binary form (1 when/then pair), got {}",
-                opts.num_when_then_pairs
+                "CaseWhen only supports binary form (2 or 3 children), got {}",
+                opts.num_children
             );
         }
         Ok(CaseWhenOptions {
-            has_else: opts.has_else,
+            has_else: opts.num_children == 3,
         })
     }
 
