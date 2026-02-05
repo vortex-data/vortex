@@ -121,7 +121,7 @@ impl Executable for CanonicalOutput {
             )));
         }
 
-        tracing::debug!("Executing array {}:\n{}", array, array.display_tree());
+        tracing::debug!("Executing array {}:\n{}", array, array.encoding_id());
         Ok(CanonicalOutput::Array(array.execute(ctx)?))
     }
 }

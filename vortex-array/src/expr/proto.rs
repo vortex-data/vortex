@@ -51,7 +51,7 @@ impl Expression {
             .children
             .iter()
             .map(|e| Expression::from_proto(e, session))
-            .collect::<VortexResult<Arc<_>>>()?;
+            .collect::<VortexResult<Vec<_>>>()?;
 
         Expression::try_new(vtable.deserialize(expr.metadata(), session)?, children)
     }

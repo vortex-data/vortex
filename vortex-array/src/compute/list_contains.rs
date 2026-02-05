@@ -233,6 +233,7 @@ fn constant_list_scalar_contains(
     let len = values.len();
     let mut result: Option<ArrayRef> = None;
     let false_scalar = Scalar::bool(false, nullability);
+
     for element in elements {
         let res = compute::fill_null(
             &compute::compare(

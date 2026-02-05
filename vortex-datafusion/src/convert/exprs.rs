@@ -28,7 +28,7 @@ use vortex::expr::Expression;
 use vortex::expr::Like;
 use vortex::expr::Operator;
 use vortex::expr::VTableExt;
-use vortex::expr::and;
+use vortex::expr::and_collect;
 use vortex::expr::cast;
 use vortex::expr::get_item;
 use vortex::expr::is_null;
@@ -57,7 +57,7 @@ pub(crate) fn make_vortex_predicate(
         .map(|e| expr_convertor.convert(e.as_ref()))
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(exprs.into_iter().reduce(and))
+    Ok(and_collect(exprs))
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.

@@ -29,7 +29,7 @@ pub struct Expression {
     /// The scalar fn for this node.
     scalar_fn: ScalarFn,
     /// Any children of this expression.
-    children: Arc<[Expression]>,
+    children: Arc<Vec<Expression>>,
 }
 
 impl Deref for Expression {
@@ -44,9 +44,9 @@ impl Expression {
     /// Create a new expression node from a scalar_fn expression and its children.
     pub fn try_new(
         scalar_fn: ScalarFn,
-        children: impl Into<Arc<[Expression]>>,
+        children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Self> {
-        let children: Arc<[Expression]> = children.into();
+        let children = Vec::from_iter(children);
 
         vortex_ensure!(
             scalar_fn.signature().arity().matches(children.len()),
@@ -57,7 +57,7 @@ impl Expression {
 
         Ok(Self {
             scalar_fn,
-            children,
+            children: children.into(),
         })
     }
 
@@ -67,7 +67,7 @@ impl Expression {
     }
 
     /// Returns the children of this expression.
-    pub fn children(&self) -> &Arc<[Expression]> {
+    pub fn children(&self) -> &Arc<Vec<Expression>> {
         &self.children
     }
 
@@ -77,15 +77,18 @@ impl Expression {
     }
 
     /// Replace the children of this expression with the provided new children.
-    pub fn with_children(mut self, children: impl Into<Arc<[Expression]>>) -> VortexResult<Self> {
-        let children = children.into();
+    pub fn with_children(
+        mut self,
+        children: impl IntoIterator<Item = Expression>,
+    ) -> VortexResult<Self> {
+        let children = Vec::from_iter(children);
         vortex_ensure!(
             self.signature().arity().matches(children.len()),
             "Expression arity mismatch: expected {} children but got {}",
             self.signature().arity(),
             children.len()
         );
-        self.children = children;
+        self.children = Arc::new(children);
         Ok(self)
     }
 
@@ -223,5 +226,20 @@ impl Expression {
 impl Display for Expression {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         self.fmt_sql(f)
+    }
+}
+
+/// Iterative drop for expression to avoid stack overflows.
+impl Drop for Expression {
+    fn drop(&mut self) {
+        if let Some(children) = Arc::get_mut(&mut self.children) {
+            let mut children_to_drop = std::mem::take(children);
+
+            while let Some(mut child) = children_to_drop.pop() {
+                if let Some(expr_children) = Arc::get_mut(&mut child.children) {
+                    children_to_drop.append(expr_children);
+                }
+            }
+        }
     }
 }
