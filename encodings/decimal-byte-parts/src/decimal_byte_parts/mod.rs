@@ -6,7 +6,6 @@ mod rules;
 mod slice;
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use prost::Message as _;
 use vortex_array::Array;

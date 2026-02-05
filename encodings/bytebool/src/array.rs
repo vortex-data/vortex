@@ -11,6 +11,7 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;

@@ -5,6 +5,7 @@ use fastlanes::FastLanes;
 use prost::Message;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;

@@ -12,7 +12,6 @@ use vortex_scalar::Scalar;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -33,6 +32,8 @@ use crate::vtable::VisitorVTable;
 
 vtable!(Shared);
 
+// TODO(ngates): consider hooking Shared into the iterative execution model. Cache either the
+//  most executed, or after each iteration, and return a shared cache for each execution.
 #[derive(Debug)]
 pub struct SharedVTable;
 
@@ -91,8 +92,8 @@ impl VTable for SharedVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        array.canonicalize(ctx)
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(array.canonicalize(ctx)?.into_array())
     }
 
     fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {

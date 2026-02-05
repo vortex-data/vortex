@@ -12,6 +12,7 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;

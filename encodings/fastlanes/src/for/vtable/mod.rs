@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;

@@ -12,6 +12,7 @@ use vortex_error::vortex_ensure;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
+use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
 use crate::arrays::list::compute::kernel::PARENT_KERNELS;
