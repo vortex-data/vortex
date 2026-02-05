@@ -454,41 +454,26 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Ok(self.to_array());
         }
 
-        assert!(
+        vortex_ensure!(
             start <= self.len(),
             "OutOfBounds: start {start} > length {}",
             self.len()
         );
-        assert!(
+        vortex_ensure!(
             stop <= self.len(),
             "OutOfBounds: stop {stop} > length {}",
             self.len()
         );
 
-        assert!(start <= stop, "start ({start}) must be <= stop ({stop})");
+        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
 
         if start == stop {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = SliceArray::new(self.to_array(), range)
+        let sliced = SliceArray::try_new(self.to_array(), range)?
             .into_array()
             .optimize()?;
-
-        assert_eq!(
-            sliced.len(),
-            stop - start,
-            "Slice length mismatch {}",
-            self.encoding_id()
-        );
-
-        // Slightly more expensive, so only do this in debug builds.
-        debug_assert_eq!(
-            sliced.dtype(),
-            self.dtype(),
-            "Slice dtype mismatch {}",
-            self.encoding_id()
-        );
 
         // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<ConstantVTable>() {
