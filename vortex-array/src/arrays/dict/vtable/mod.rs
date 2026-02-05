@@ -171,15 +171,6 @@ impl VTable for DictVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
-
-    fn execute_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-        ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::arrays::dict::compute::kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
 }
 
 /// Check for fast-path execution conditions.
