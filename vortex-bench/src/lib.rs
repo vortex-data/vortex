@@ -15,6 +15,7 @@ use clickbench::ClickBenchBenchmark;
 use clickbench::Flavor;
 use fineweb::FinewebBenchmark;
 use itertools::Itertools;
+use polarsignals::PolarSignalsBenchmark;
 use public_bi::PBIDataset;
 use public_bi::PublicBiBenchmark;
 use realnest::gharchive::GithubArchiveBenchmark;
@@ -43,6 +44,7 @@ pub mod fineweb;
 pub mod measurements;
 pub mod memory;
 pub mod output;
+pub mod polarsignals;
 pub mod public_bi;
 pub mod random_access;
 pub mod realnest;
@@ -236,6 +238,8 @@ pub enum BenchmarkArg {
     Fineweb,
     #[clap(name = "gharchive")]
     GhArchive,
+    #[clap(name = "polarsignals")]
+    PolarSignals,
     #[clap(name = "public-bi")]
     PublicBi,
 }
@@ -280,6 +284,11 @@ pub fn create_benchmark(b: BenchmarkArg, opts: &Opts) -> anyhow::Result<Box<dyn 
         BenchmarkArg::GhArchive => {
             let remote_data_dir = opts.get_as::<String>(REMOTE_DATA_KEY);
             let benchmark = GithubArchiveBenchmark::with_remote_data_dir(remote_data_dir)?;
+            Ok(Box::new(benchmark) as _)
+        }
+        BenchmarkArg::PolarSignals => {
+            let scale_factor = opts.get_as::<usize>(SCALE_FACTOR_KEY).unwrap_or(1);
+            let benchmark = PolarSignalsBenchmark::new(scale_factor)?;
             Ok(Box::new(benchmark) as _)
         }
         BenchmarkArg::PublicBi => {

@@ -43,6 +43,8 @@ pub enum BenchmarkDataset {
     PublicBi { name: String },
     #[serde(rename = "statpopgen")]
     StatPopGen { n_rows: u64 },
+    #[serde(rename = "polarsignals")]
+    PolarSignals { n_rows: usize },
     #[serde(rename = "fineweb")]
     Fineweb,
     #[serde(rename = "gharchive")]
@@ -57,6 +59,7 @@ impl BenchmarkDataset {
             BenchmarkDataset::ClickBench { .. } => "clickbench",
             BenchmarkDataset::PublicBi { .. } => "public-bi",
             BenchmarkDataset::StatPopGen { .. } => "statpopgen",
+            BenchmarkDataset::PolarSignals { .. } => "polarsignals",
             BenchmarkDataset::Fineweb => "fineweb",
             BenchmarkDataset::GhArchive => "gharchive",
         }
@@ -74,6 +77,9 @@ impl Display for BenchmarkDataset {
             },
             BenchmarkDataset::PublicBi { name } => write!(f, "public-bi({name})"),
             BenchmarkDataset::StatPopGen { n_rows } => write!(f, "statpopgen(n_rows={n_rows})"),
+            BenchmarkDataset::PolarSignals { n_rows } => {
+                write!(f, "polarsignals(n_rows={n_rows})")
+            }
             BenchmarkDataset::Fineweb => write!(f, "fineweb"),
             BenchmarkDataset::GhArchive => write!(f, "gharchive"),
         }
@@ -115,6 +121,7 @@ impl BenchmarkDataset {
             ],
             BenchmarkDataset::ClickBench { .. } | BenchmarkDataset::PublicBi { .. } => todo!(),
             BenchmarkDataset::StatPopGen { .. } => &["statpopgen"],
+            BenchmarkDataset::PolarSignals { .. } => &["stacktraces"],
             BenchmarkDataset::Fineweb => &["fineweb"],
             BenchmarkDataset::GhArchive => &["events"],
         }

@@ -220,10 +220,20 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
                 let pattern = benchmark.pattern(table.name, format);
                 let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
 
-                let mut config = ListingTableConfig::new(table_url).with_listing_options(
-                    ListingOptions::new(file_format.clone())
-                        .with_session_config_options(session.state().config()),
-                );
+                let mut listing_options = ListingOptions::new(file_format.clone())
+                    .with_session_config_options(session.state().config());
+                if benchmark.dataset_name() == "polarsignals" && format == Format::Parquet {
+                    // Work around a DataFusion bug (fixed in 53.0.0) where the
+                    // constant-column optimization extracts ScalarValues using
+                    // the statistic scalar type, which may not match the table
+                    // column type.
+                    // See: https://github.com/apache/datafusion/pull/20042
+                    // TODO(asubiotto): Remove this after the datafusion 53
+                    // upgrade.
+                    listing_options = listing_options.with_collect_stat(false);
+                }
+                let mut config =
+                    ListingTableConfig::new(table_url).with_listing_options(listing_options);
 
                 config = match table.schema.as_ref() {
                     Some(schema) => config.with_schema(Arc::new(schema.clone())),
