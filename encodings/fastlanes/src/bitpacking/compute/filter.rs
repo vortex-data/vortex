@@ -28,7 +28,7 @@ use crate::BitPackedVTable;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
-pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
+const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
     // TODO(connor): Where did these numbers come from? Add a public link after validating them.
     // These numbers probably don't work for in-place filtering either.
     match ptype.byte_width() {

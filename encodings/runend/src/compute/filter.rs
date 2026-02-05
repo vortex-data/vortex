@@ -73,31 +73,6 @@ impl FilterKernel for RunEndVTable {
     }
 }
 
-// We expose this function to our benchmarks.
-pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-    let primitive_run_ends = array.ends().to_primitive();
-    let (run_ends, values_mask) =
-        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-            filter_run_end_primitive(
-                primitive_run_ends.as_slice::<P>(),
-                array.offset() as u64,
-                array.len() as u64,
-                mask.values()
-                    .vortex_expect("AllTrue and AllFalse handled by filter fn")
-                    .bit_buffer(),
-            )?
-        });
-    let values = array.values().filter(values_mask)?;
-
-    // SAFETY: enforced by filter_run_end_primitive
-    unsafe {
-        Ok(
-            RunEndArray::new_unchecked(run_ends.into_array(), values, 0, mask.true_count())
-                .into_array(),
-        )
-    }
-}
-
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
@@ -142,43 +117,18 @@ fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitiv
 mod tests {
     use vortex_array::Array;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use super::filter_run_end;
     use crate::RunEndArray;
-    use crate::RunEndVTable;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
-    }
-
-    #[test]
-    fn run_end_filter() {
-        let arr = ree_array();
-        let filtered = filter_run_end(
-            &arr,
-            &Mask::from_iter([
-                true, true, false, false, false, false, false, false, false, false, true, true,
-            ]),
-        )
-        .unwrap();
-        let filtered_run_end = filtered.as_::<RunEndVTable>();
-
-        assert_arrays_eq!(
-            filtered_run_end.ends().to_primitive(),
-            PrimitiveArray::from_iter([2u8, 4])
-        );
-        assert_arrays_eq!(
-            filtered_run_end.values().to_primitive(),
-            PrimitiveArray::from_iter([1i32, 5])
-        );
     }
 
     #[test]

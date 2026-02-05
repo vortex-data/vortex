@@ -92,10 +92,7 @@ impl FilterKernel for ListVTable {
 const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 
 /// Construct an element mask from contiguous list offsets and a selection mask.
-pub fn element_mask_from_offsets<O: IntegerPType>(
-    offsets: &[O],
-    selection: &Arc<MaskValues>,
-) -> Mask {
+fn element_mask_from_offsets<O: IntegerPType>(offsets: &[O], selection: &Arc<MaskValues>) -> Mask {
     let first_offset = offsets.first().map_or(0, |first_offset| first_offset.as_());
     let last_offset = offsets.last().map_or(0, |last_offset| last_offset.as_());
     let len = last_offset - first_offset;
