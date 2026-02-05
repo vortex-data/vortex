@@ -17,13 +17,14 @@ use std::mem;
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use arrow_array::Array;
+use arrow_array::ArrayRef;
 use arrow_array::Decimal128Array;
 use arrow_array::UInt32Array;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
-use arrow_array::{Array, ArrayRef};
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
