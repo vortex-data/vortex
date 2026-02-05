@@ -146,7 +146,7 @@ where
         if output.nbytes() < array.nbytes() {
             Ok(output)
         } else {
-            tracing::debug!("resulting tree too large: {}", output.display_tree());
+            tracing::debug!("resulting tree too large: {}", output.encoding_id());
             Ok(array.to_array())
         }
     }

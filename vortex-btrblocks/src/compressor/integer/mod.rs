@@ -454,7 +454,7 @@ impl Scheme for ZigZagScheme {
             Excludes::int_only(&new_excludes),
         )?;
 
-        tracing::debug!("zigzag output: {}", compressed.display_tree());
+        tracing::debug!("zigzag output: {}", compressed.encoding_id());
 
         Ok(ZigZagArray::try_new(compressed)?.into_array())
     }

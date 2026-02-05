@@ -499,7 +499,7 @@ impl Node for Expression {
         &'a self,
         mut f: F,
     ) -> VortexResult<TraversalOrder> {
-        self.children().as_ref().apply_ref_elements(&mut f)
+        self.children().as_ref().apply_elements(&mut f)
     }
 
     fn map_children<F: FnMut(Self) -> VortexResult<Transformed<Self>>>(

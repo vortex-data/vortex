@@ -8,11 +8,9 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
-use crate::ArrayRef;
 use crate::compute;
 use crate::compute::add;
 use crate::compute::and_kleene;
@@ -105,24 +103,23 @@ impl VTable for Binary {
     }
 
     fn execute(&self, op: &Operator, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
-        let [lhs, rhs]: [ArrayRef; _] = args
-            .inputs
-            .try_into()
-            .map_err(|_| vortex_err!("Wrong arg count"))?;
+        let [lhs, rhs] = &args.inputs[..] else {
+            vortex_bail!("Wrong arg count")
+        };
 
         match op {
-            Operator::Eq => compare(&lhs, &rhs, compute::Operator::Eq),
-            Operator::NotEq => compare(&lhs, &rhs, compute::Operator::NotEq),
-            Operator::Lt => compare(&lhs, &rhs, compute::Operator::Lt),
-            Operator::Lte => compare(&lhs, &rhs, compute::Operator::Lte),
-            Operator::Gt => compare(&lhs, &rhs, compute::Operator::Gt),
-            Operator::Gte => compare(&lhs, &rhs, compute::Operator::Gte),
-            Operator::And => and_kleene(&lhs, &rhs),
-            Operator::Or => or_kleene(&lhs, &rhs),
-            Operator::Add => add(&lhs, &rhs),
-            Operator::Sub => sub(&lhs, &rhs),
-            Operator::Mul => mul(&lhs, &rhs),
-            Operator::Div => div(&lhs, &rhs),
+            Operator::Eq => compare(lhs, rhs, compute::Operator::Eq),
+            Operator::NotEq => compare(lhs, rhs, compute::Operator::NotEq),
+            Operator::Lt => compare(lhs, rhs, compute::Operator::Lt),
+            Operator::Lte => compare(lhs, rhs, compute::Operator::Lte),
+            Operator::Gt => compare(lhs, rhs, compute::Operator::Gt),
+            Operator::Gte => compare(lhs, rhs, compute::Operator::Gte),
+            Operator::And => and_kleene(lhs, rhs),
+            Operator::Or => or_kleene(lhs, rhs),
+            Operator::Add => add(lhs, rhs),
+            Operator::Sub => sub(lhs, rhs),
+            Operator::Mul => mul(lhs, rhs),
+            Operator::Div => div(lhs, rhs),
         }?
         .execute(args.ctx)
     }
@@ -440,16 +437,18 @@ pub fn or(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Or binary expression")
 }
 
-/// Collects a list of `or`ed values into a single vortex, expr
-/// [x, y, z] => x or (y or z)
+/// Collects a list of `or`ed values into a single expression using a balanced tree.
+///
+/// This creates a balanced binary tree to avoid deep nesting that could cause
+/// stack overflow during drop or evaluation.
+///
+/// [a, b, c, d] => or(or(a, b), or(c, d))
 pub fn or_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
-    I::IntoIter: DoubleEndedIterator<Item = Expression>,
 {
-    let mut iter = iter.into_iter();
-    let first = iter.next_back()?;
-    Some(iter.rfold(first, |acc, elem| or(elem, acc)))
+    let exprs: Vec<_> = iter.into_iter().collect();
+    balanced_reduce(exprs, or)
 }
 
 /// Create a new [`Binary`] using the [`And`](crate::expr::exprs::operators::Operator::And) operator.
@@ -474,26 +473,53 @@ pub fn and(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create And binary expression")
 }
 
-/// Collects a list of `and`ed values into a single vortex, expr
-/// [x, y, z] => x and (y and z)
+/// Collects a list of `and`ed values into a single expression using a balanced tree.
+///
+/// This creates a balanced binary tree to avoid deep nesting that could cause
+/// stack overflow during drop or evaluation.
+///
+/// [a, b, c, d] => and(and(a, b), and(c, d))
 pub fn and_collect<I>(iter: I) -> Option<Expression>
 where
     I: IntoIterator<Item = Expression>,
-    I::IntoIter: DoubleEndedIterator<Item = Expression>,
 {
-    let mut iter = iter.into_iter();
-    let first = iter.next_back()?;
-    Some(iter.rfold(first, |acc, elem| and(elem, acc)))
+    let exprs: Vec<_> = iter.into_iter().collect();
+    balanced_reduce(exprs, and)
 }
 
-/// Collects a list of `and`ed values into a single vortex, expr
-/// [x, y, z] => x and (y and z)
-pub fn and_collect_right<I>(iter: I) -> Option<Expression>
+/// Helper function to reduce a list of expressions into a balanced binary tree.
+fn balanced_reduce<F>(mut exprs: Vec<Expression>, combine: F) -> Option<Expression>
 where
-    I: IntoIterator<Item = Expression>,
+    F: Fn(Expression, Expression) -> Expression + Copy,
 {
-    let iter = iter.into_iter();
-    iter.reduce(and)
+    if exprs.is_empty() {
+        return None;
+    }
+    if exprs.len() == 1 {
+        return exprs.pop();
+    }
+
+    // Iteratively combine pairs until we have a single expression
+    while exprs.len() > 1 {
+        let mut next_level = Vec::with_capacity(exprs.len().div_ceil(2));
+        let mut chunks = exprs.chunks_exact(2);
+
+        for chunk in chunks.by_ref() {
+            // chunk is guaranteed to have exactly 2 elements
+            let left = chunk[0].clone();
+            let right = chunk[1].clone();
+            next_level.push(combine(left, right));
+        }
+
+        // Handle the remainder (odd element)
+        if let Some(last) = chunks.remainder().first() {
+            next_level.push(last.clone());
+        }
+
+        exprs = next_level;
+    }
+
+    exprs.pop()
 }
 
 /// Create a new [`Binary`] using the [`Add`](crate::expr::exprs::operators::Operator::Add) operator.
@@ -536,20 +562,37 @@ mod tests {
     use crate::expr::test_harness;
 
     #[test]
-    fn and_collect_left_assoc() {
-        let values = vec![lit(1), lit(2), lit(3)];
-        assert_eq!(
-            Some(and(lit(1), and(lit(2), lit(3)))),
-            and_collect(values.into_iter())
-        );
-    }
-
-    #[test]
-    fn and_collect_right_assoc() {
+    fn and_collect_balanced() {
+        // 3 elements: and(and(1, 2), 3)
         let values = vec![lit(1), lit(2), lit(3)];
         assert_eq!(
             Some(and(and(lit(1), lit(2)), lit(3))),
-            and_collect_right(values.into_iter())
+            and_collect(values.into_iter())
+        );
+
+        // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
+        let values = vec![lit(1), lit(2), lit(3), lit(4)];
+        assert_eq!(
+            Some(and(and(lit(1), lit(2)), and(lit(3), lit(4)))),
+            and_collect(values.into_iter())
+        );
+
+        // 1 element: just the element
+        let values = vec![lit(1)];
+        assert_eq!(Some(lit(1)), and_collect(values.into_iter()));
+
+        // 0 elements: None
+        let values: Vec<Expression> = vec![];
+        assert_eq!(None, and_collect(values.into_iter()));
+    }
+
+    #[test]
+    fn or_collect_balanced() {
+        // 4 elements: or(or(1, 2), or(3, 4)) - perfectly balanced
+        let values = vec![lit(1), lit(2), lit(3), lit(4)];
+        assert_eq!(
+            Some(or(or(lit(1), lit(2)), or(lit(3), lit(4)))),
+            or_collect(values.into_iter())
         );
     }
 

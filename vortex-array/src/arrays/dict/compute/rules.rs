@@ -83,7 +83,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
             tracing::trace!(
                 "Not pushing down fallible scalar function {} over dictionary with sparse codes {}",
                 parent.scalar_fn(),
-                array.display_tree(),
+                array.encoding_id(),
             );
             return Ok(None);
         }
@@ -106,7 +106,7 @@ impl ArrayParentReduceRule<DictVTable> for DictionaryScalarFnValuesPushDownRule 
             tracing::trace!(
                 "Not pushing down null-sensitive scalar function {} over dictionary with null codes {}",
                 parent.scalar_fn(),
-                array.display_tree(),
+                array.encoding_id(),
             );
             return Ok(None);
         }

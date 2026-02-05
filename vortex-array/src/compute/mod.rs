@@ -156,7 +156,7 @@ impl ComputeFn {
                 args.inputs
                     .iter()
                     .filter_map(|input| input.array())
-                    .format_with(",", |array, f| f(&array.display_tree()))
+                    .format_with(",", |array, f| f(&array.encoding_id()))
             );
         }
         if output.len() != expected_len {
