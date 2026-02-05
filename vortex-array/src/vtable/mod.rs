@@ -186,21 +186,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         _ = (array, parent, child_idx);
         Ok(None)
     }
-
-    /// Perform a constant-time slice of the array.
-    ///
-    /// If an encoding cannot perform this slice in constant time, it should instead return Ok(None).
-    ///
-    /// This function returns [`ArrayRef`] since some encodings can return a simpler array for
-    /// some slices, for example a [`crate::arrays::ChunkedArray`] may slice into a single chunk.
-    ///
-    /// ## Preconditions
-    ///
-    /// Bounds-checking has already been performed by the time this function is called.
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        _ = (array, range);
-        Ok(None)
-    }
 }
 
 /// Placeholder type used to indicate when a particular vtable is not supported by the encoding.

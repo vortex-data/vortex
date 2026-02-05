@@ -471,8 +471,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = V::slice(&self.0, range.clone())?
-            .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
+        let sliced = SliceArray::new(self.to_array(), range)
+            .into_array()
             .optimize()?;
 
         assert_eq!(
