@@ -62,7 +62,7 @@ jobs:
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
-          
+
       - uses: ./.github/actions/system-info
 
       - name: Build binary
