@@ -6,7 +6,8 @@ use std::fmt::Formatter;
 
 use itertools::Itertools;
 use prost::Message;
-use vortex_dtype::{DType, FieldName};
+use vortex_dtype::DType;
+use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -16,6 +17,7 @@ use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
+
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr;
