@@ -26,9 +26,6 @@ use crate::arrays::ListVTable;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-#[derive(Debug)]
-pub(super) struct ListFilterKernel;
-
 impl FilterKernel for ListVTable {
     fn filter(
         array: &ListArray,
