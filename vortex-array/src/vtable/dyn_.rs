@@ -102,14 +102,14 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         vortex_ensure!(
             reduced.len() == array.len(),
             "Reduced array length mismatch from {} to {}",
-            array.display_tree(),
-            reduced.display_tree()
+            array.encoding_id(),
+            reduced.encoding_id()
         );
         vortex_ensure!(
             reduced.dtype() == array.dtype(),
             "Reduced array dtype mismatch from {} to {}",
-            array.display_tree(),
-            reduced.display_tree()
+            array.encoding_id(),
+            reduced.encoding_id()
         );
         Ok(Some(reduced))
     }
@@ -127,14 +127,14 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         vortex_ensure!(
             reduced.len() == parent.len(),
             "Reduced array length mismatch from {} to {}",
-            parent.display_tree(),
-            reduced.display_tree()
+            parent.encoding_id(),
+            reduced.encoding_id()
         );
         vortex_ensure!(
             reduced.dtype() == parent.dtype(),
             "Reduced array dtype mismatch from {} to {}",
-            parent.display_tree(),
-            reduced.display_tree()
+            parent.encoding_id(),
+            reduced.encoding_id()
         );
 
         Ok(Some(reduced))

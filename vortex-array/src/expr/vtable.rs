@@ -325,7 +325,7 @@ pub trait VTableExt: VTable {
     fn new_expr(
         &'static self,
         options: Self::Options,
-        children: impl Into<Arc<[Expression]>>,
+        children: impl IntoIterator<Item = Expression>,
     ) -> Expression {
         Self::try_new_expr(self, options, children).vortex_expect("Failed to create expression")
     }
@@ -334,9 +334,9 @@ pub trait VTableExt: VTable {
     fn try_new_expr(
         &'static self,
         options: Self::Options,
-        children: impl Into<Arc<[Expression]>>,
+        children: impl IntoIterator<Item = Expression>,
     ) -> VortexResult<Expression> {
-        Expression::try_new(self.bind(options), children.into())
+        Expression::try_new(self.bind(options), children)
     }
 }
 impl<V: VTable> VTableExt for V {}

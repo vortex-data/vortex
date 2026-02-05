@@ -24,7 +24,7 @@ use crate::expr::Expression;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
-use crate::expr::exprs::binary::and;
+use crate::expr::and_collect;
 use crate::expr::exprs::binary::gt;
 use crate::expr::exprs::binary::lt;
 use crate::expr::exprs::binary::or;
@@ -139,15 +139,12 @@ impl VTable for ListContains {
             let value_max = needle.stat_max(catalog)?;
             let value_min = needle.stat_min(catalog)?;
 
-            return list_
-                .iter()
-                .map(move |v| {
-                    or(
-                        lt(value_max.clone(), lit(v.clone())),
-                        gt(value_min.clone(), lit(v.clone())),
-                    )
-                })
-                .reduce(and);
+            return and_collect(list_.iter().map(move |v| {
+                or(
+                    lt(value_max.clone(), lit(v.clone())),
+                    gt(value_min.clone(), lit(v.clone())),
+                )
+            }));
         }
 
         None
