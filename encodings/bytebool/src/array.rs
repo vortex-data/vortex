@@ -122,6 +122,10 @@ impl VTable for ByteBoolVTable {
     }
 }
 
+/// Boolean array storing values using Rust's `bool` type (one byte per value).
+///
+/// More memory-intensive than bit-packed `BoolArray`, but useful when data is already
+/// byte-aligned or byte-oriented operations are more efficient.
 #[derive(Clone, Debug)]
 pub struct ByteBoolArray {
     dtype: DType,
@@ -130,14 +134,20 @@ pub struct ByteBoolArray {
     stats_set: ArrayStats,
 }
 
+/// VTable for the ByteBool encoding.
 #[derive(Debug)]
 pub struct ByteBoolVTable;
 
 impl ByteBoolVTable {
-    pub const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
+    const ID: ArrayId = ArrayId::new_ref("vortex.bytebool");
 }
 
 impl ByteBoolArray {
+    /// Creates a new `ByteBoolArray` from a buffer of bytes and validity information.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the buffer length doesn't match the validity length.
     pub fn new(buffer: BufferHandle, validity: Validity) -> Self {
         let length = buffer.len();
         if let Some(vlen) = validity.maybe_len()
@@ -157,6 +167,12 @@ impl ByteBoolArray {
         }
     }
 
+    /// Creates a `ByteBoolArray` from a `Vec<bool>` and validity.
+    ///
+    /// # Safety
+    ///
+    /// Internally transmutes `Vec<bool>` to `Vec<u8>`, which is safe because
+    /// Rust guarantees `bool` has the same representation as `u8` with values 0 or 1.
     // TODO(ngates): deprecate construction from vec
     pub fn from_vec<V: Into<Validity>>(data: Vec<bool>, validity: V) -> Self {
         let validity = validity.into();
@@ -165,13 +181,15 @@ impl ByteBoolArray {
         Self::new(BufferHandle::new_host(ByteBuffer::from(data)), validity)
     }
 
+    /// Returns a reference to the underlying byte buffer.
     pub fn buffer(&self) -> &BufferHandle {
         &self.buffer
     }
 
+    /// Returns the array data as a slice of bools.
     pub fn as_slice(&self) -> &[bool] {
         // Safety: The internal buffer contains byte-sized bools
-        unsafe { std::mem::transmute(self.buffer().as_host().as_slice()) }
+        unsafe { std::mem::transmute::<&[u8], &[bool]>(self.buffer().as_host().as_slice()) }
     }
 }
 
