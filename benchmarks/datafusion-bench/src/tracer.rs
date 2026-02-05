@@ -53,14 +53,15 @@ impl JoinSetTracer for LabelsJoinSetTracer {
         &self,
         fut: BoxFuture<'static, Box<dyn Any + Send>>,
     ) -> BoxFuture<'static, Box<dyn Any + Send>> {
-        fut.with_current_labels().boxed()
+        let labelset = get_labelset_from_global();
+        fut.with_labelset(labelset).boxed()
     }
 
     fn trace_block(
         &self,
         f: Box<dyn FnOnce() -> Box<dyn Any + Send> + Send>,
     ) -> Box<dyn FnOnce() -> Box<dyn Any + Send> + Send> {
-        let mut labelset = Labelset::clone_from_current();
+        let mut labelset = get_labelset_from_global();
         Box::new(move || labelset.enter(f))
     }
 }
