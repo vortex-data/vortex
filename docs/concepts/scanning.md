@@ -10,23 +10,12 @@ N x M problem of having N different storage backends and M different query engin
 interface that both sides can implement against.
 
 ```
-                            Scan API
+    Storage                                  Query Engines
+    ───────                                  ─────────────
 
-    Storage                Source                Query Engines
-    ───────              ──────────              ─────────────
-
-    ┌──────────┐      ┌──────────────┐       ┌───────────┐
-    │  Vortex  ├─────►│              ├──────►│  DuckDB   │
-    │  Files   │      │  ScanRequest │       └───────────┘
-    └──────────┘      │  ─────────►  │       ┌───────────┐
-    ┌──────────┐      │              ├──────►│DataFusion │
-    │ Parquet  ├─────►│  ◄── Splits  │       └───────────┘
-    │  Files   │      │              │       ┌───────────┐
-    └──────────┘      │              ├──────►│   Spark   │
-    ┌──────────┐      │              │       └───────────┘
-    │ Iceberg  ├─────►│              │
-    │ Tables   │      └──────────────┘
-    └──────────┘
+    Vortex Files   ──► ┌──────────────┐ ──►  DuckDB
+    Parquet Files  ──► │   Scan API   │ ──►  DataFusion
+    Iceberg Tables ──► └──────────────┘ ──►  Spark
 ```
 
 Storage backends implement the `Source` trait for reads. Query engines issue a scan request
@@ -101,13 +90,3 @@ scan requests and consuming the resulting array stream in their preferred format
 exist for DuckDB, DataFusion, Spark, and Trino, with each engine converting its native filter
 and projection representations into Vortex [expressions](expressions.md).
 
-## Relationship to Layouts and Files
-
-The Scan API sits above the [layout](layouts.md) and [file format](file-format.md) layers. A Vortex
-file exposes itself as a source by wrapping its top-level layout reader. The layout reader
-implements the three-phase evaluation pipeline (pruning, filtering, projection) using its knowledge
-of the physical data organization.
-
-Other storage backends can implement a source without using Vortex layouts at all. For example,
-a Parquet source might translate the scan request into Parquet's native predicate and projection
-pushdown mechanisms, then return results as Vortex arrays.

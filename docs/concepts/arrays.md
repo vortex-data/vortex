@@ -35,7 +35,7 @@ vortex.dict(utf8?, len=1112) nbytes=11.89 kB (0.10%) [all_valid]
 
 ## Encodings
 
-Each array has an associated encoding (vtable) that defines how the data is physically stored in memory. Vortex 
+Each array has an associated encoding that defines how the data is physically stored in memory. Vortex 
 ships with a number of built-in encodings, as well as a plugin system to allow third-party developers to
 define their own.
 

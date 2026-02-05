@@ -36,7 +36,7 @@ The contribution process is outlined below:
 3. Open a PR to indicate that the change is ready for review.
    - Ensure that you sign your work via DCO (see below).
    - Disclose LLM usage as described in [AI Assistance Notice](#ai-assistance-notice).
-   - CI requires approval from a committer for first-time contributors.
+   - CI requires approval from external committers.
 
 ## Governance
 
