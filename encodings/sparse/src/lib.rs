@@ -209,8 +209,9 @@ impl SparseArray {
         );
 
         if indices.is_host() {
-            vortex_ensure!(
-                indices.statistics().compute_is_strict_sorted() == Some(true),
+            debug_assert_eq!(
+                indices.statistics().compute_is_strict_sorted(),
+                Some(true),
                 "SparseArray: indices must be strict-sorted"
             );
 
