@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::any::type_name;
 use std::fmt;
 use std::fmt::Display;
 use std::sync::Arc;
@@ -34,7 +35,7 @@ impl dyn Array + '_ {
     pub fn execute<E: Executable>(self: Arc<Self>, ctx: &mut ExecutionCtx) -> VortexResult<E> {
         ctx.log_entry(
             &self,
-            format_args!("execute<{}> {}", short_type_name::<E>(), self),
+            format_args!("execute<{}> {}", type_name::<E>(), self),
         );
         E::execute(self, ctx)
     }
@@ -47,15 +48,10 @@ impl dyn Array + '_ {
     ) -> VortexResult<E> {
         ctx.log_entry(
             &self,
-            format_args!("{}: execute<{}> {}", name, short_type_name::<E>(), self),
+            format_args!("{}: execute<{}> {}", name, type_name::<E>(), self),
         );
         E::execute(self, ctx)
     }
-}
-
-fn short_type_name<T>() -> &'static str {
-    let full = std::any::type_name::<T>();
-    full.rsplit("::").next().unwrap_or(full)
 }
 
 /// Execution context for batch CPU compute.
