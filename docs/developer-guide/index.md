@@ -9,6 +9,7 @@ maxdepth: 2
 
 extending/index
 embedding/index
+benchmarking
 ```
 
 ```{toctree}
@@ -24,7 +25,7 @@ internals/vtables
 internals/execution
 internals/io
 internals/serialization
-internals/benchmarking
+internals/cuda
 ```
 
 ```{toctree}
