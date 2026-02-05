@@ -2,7 +2,8 @@
 
 Vortex uses the same binary representation for arrays in memory, on disk, and over the wire.
 Metadata is stored in FlatBuffers for O(1) field access without parsing, and data buffers are
-stored separately with alignment guarantees that enable zero-copy reads.
+stored separately with alignment guarantees that enable zero-copy reads. Appropriate padding is
+written into Vortex files to ensure that segments can be memory-mapped with correct alignment.
 
 ## Array Serialization
 
@@ -10,8 +11,8 @@ A serialized array consists of two parts: a FlatBuffer describing the array tree
 sequence of data buffers.
 
 The FlatBuffer contains an `ArrayNode` tree where each node records:
-- The encoding ID (as a dictionary-compressed index).
-- Encoding-specific metadata bytes.
+- The array ID (as an interned u16 index).
+- Array-specific metadata bytes.
 - References to child `ArrayNode`s.
 - Indices into the buffer table.
 - Optional statistics (min, max, null count, sort order, etc.).
@@ -27,7 +28,7 @@ On the wire, a serialized array is:
 ```
 
 Deserialization constructs an `ArrayParts` value that holds the FlatBuffer and buffer handles
-without copying. The array is then decoded by resolving the encoding ID through the session's
+without copying. The array is then decoded by resolving the array ID through the session's
 registry and calling `build()` on the corresponding vtable.
 
 ## IPC Format
@@ -51,6 +52,12 @@ Three message types are defined:
 The IPC format is used both for inter-process communication and as the wire protocol for remote
 source execution in the [Scan API](/concepts/scanning).
 
+:::{note}
+The IPC format is unstable and subject to change. It does not yet support shared arrays (e.g.
+a dictionary shared across multiple chunked arrays), which limits its efficiency for certain
+workloads. This is an area of active development.
+:::
+
 ## Segment Storage
 
 In a Vortex file, data buffers are stored as segments -- contiguous byte ranges at known offsets.
@@ -61,7 +68,7 @@ Each segment is described by a `SegmentSpec` containing:
 
 Layouts reference segments by `SegmentId`, which is an index into the footer's segment table.
 This indirection allows the same layout tree to be backed by different segment sources (local
-file, object store, in-memory cache, etc.) without changing the layout structure.
+file, object store, in-memory cache, etc.) without changing the layout structure. 
 
 ## File Footer
 

@@ -1,8 +1,8 @@
 # Benchmarking
 
-Vortex has a three-tier benchmarking system: microbenchmarks for individual operations,
-end-to-end SQL benchmarks for query-level performance, and an orchestrator for running and
-comparing benchmark suites.
+Vortex has two categories of benchmarks: microbenchmarks for individual operations, and SQL
+benchmarks for end-to-end query performance. The `bench-orchestrator` tool coordinates running
+SQL benchmarks across different engines without compiling them all into a single binary.
 
 ## Microbenchmarks
 
@@ -39,7 +39,7 @@ factors are configurable per suite (e.g. `--opt scale-factor=10.0` for TPC-H SF=
 
 ### Running SQL Benchmarks
 
-SQL benchmarks can be run directly:
+SQL benchmarks can be run directly via their per-engine binaries:
 
 ```bash
 cargo run --release --bin datafusion-bench -- <benchmark>
@@ -48,8 +48,12 @@ cargo run --release --bin duckdb-bench -- <benchmark>
 
 ## Orchestrator
 
-The `bench-orchestrator` is a Python CLI tool (`vx-bench`) that automates building, running,
-storing, and comparing benchmark results. Install it with:
+The `bench-orchestrator` is a Python CLI tool (`vx-bench`) that coordinates running benchmarks
+across multiple engines. It builds and invokes the per-engine binaries, stores results, and
+provides comparison tooling. This avoids compiling all engines into a single binary, which
+would be slow and create dependency conflicts.
+
+Install it with:
 
 ```bash
 uv tool install "bench_orchestrator @ ./bench-orchestrator/"
@@ -92,14 +96,16 @@ containing metadata (git commit, timestamp, configuration) and per-query timing 
 
 ## CI Benchmarks
 
-Benchmarks run automatically in CI on two triggers:
+Benchmarks run automatically on all commits to `develop` and can be run on-demand for PRs:
 
-- **Post-commit** -- compression and random access benchmarks run on every push to `develop`,
-  with results uploaded for historical tracking.
-- **PR benchmarks** -- triggered by the `action/benchmark` label or `[benchmark]` in the commit
-  message. Results are compared against the latest `develop` run and posted as a PR comment.
-- **SQL benchmarks** -- a parametric matrix of suites, engines, formats, and storage backends
-  (NVMe, S3) run on labeled PRs and scheduled triggers.
+- **Post-commit** -- compression, random access, and SQL benchmarks run on every commit to
+  `develop`, with results uploaded for historical tracking.
+- **PR benchmarks** -- triggered by the `action/benchmark` label. Results are compared against
+  the latest `develop` run and posted as a PR comment.
+- **SQL benchmarks** -- triggered by the `action/benchmark-sql` label. Runs a parametric matrix
+  of suites, engines, formats, and storage backends (NVMe, S3).
 
 All CI benchmarks run on dedicated instances with the `release_debug` profile and
 `-C target-cpu=native` to produce representative numbers.
+
+Results can be viewed at [bench.vortex.dev](https://bench.vortex.dev).

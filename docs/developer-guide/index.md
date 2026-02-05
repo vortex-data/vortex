@@ -21,7 +21,7 @@ internals/architecture
 internals/session
 internals/async-runtime
 internals/vtables
-internals/lazy-execution
+internals/execution
 internals/io
 internals/serialization
 internals/benchmarking
