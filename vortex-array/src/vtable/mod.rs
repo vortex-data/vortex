@@ -33,9 +33,6 @@ use crate::serde::ArrayChildren;
 /// The logic is split across several "VTable" traits to enable easier code organization than
 /// simply lumping everything into a single trait.
 ///
-/// Some of these vtables are optional, such as the [`ComputeVTable`],
-/// which can be disabled by assigning to the [`NotSupported`] type.
-///
 /// From this [`VTable`] trait, we derive implementations for the sealed [`Array`] and [`DynVTable`]
 /// traits.
 ///

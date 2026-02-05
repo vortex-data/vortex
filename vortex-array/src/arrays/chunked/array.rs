@@ -251,20 +251,6 @@ mod test {
     }
 
     #[test]
-    fn test_scalar_subtract() {
-        let chunked = chunked_array().into_array();
-        let to_subtract = 1u64;
-        let array = sub_scalar(&chunked, to_subtract.into()).unwrap();
-
-        let chunked = array.as_::<ChunkedVTable>();
-        let chunks_out = chunked.chunks();
-
-        assert_arrays_eq!(chunks_out[0], PrimitiveArray::from_iter([0u64, 1, 2]));
-        assert_arrays_eq!(chunks_out[1], PrimitiveArray::from_iter([3u64, 4, 5]));
-        assert_arrays_eq!(chunks_out[2], PrimitiveArray::from_iter([6u64, 7, 8]));
-    }
-
-    #[test]
     fn test_rechunk_one_chunk() {
         let chunked = ChunkedArray::try_new(
             vec![buffer![0u64].into_array()],
