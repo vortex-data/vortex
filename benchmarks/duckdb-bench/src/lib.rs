@@ -96,7 +96,13 @@ impl DuckClient {
             connection.query(&format!("SET vortex_max_threads = {}", thread_count))?;
         }
 
-        connection.query("INSTALL httpfs; LOAD httpfs;")?;
+        // Try to install/load httpfs for remote data access, but don't fail if unavailable
+        // (e.g., when using local files or when extension download fails)
+        if let Err(e) = connection.query("INSTALL httpfs; LOAD httpfs;") {
+            tracing::info!(
+                "Failed to load httpfs extension (may not be needed for local files): {e}"
+            );
+        }
 
         Ok((db, connection))
     }

@@ -69,15 +69,14 @@ impl<T: NativePType> ColumnExporter for PrimitiveExporter<T> {
 #[cfg(test)]
 mod tests {
     use itertools::Itertools;
-    use vortex::error::VortexExpect;
     use vortex_array::VortexSessionExecute;
 
     use super::*;
     use crate::SESSION;
     use crate::cpp;
-    use crate::duckdb::DUCKDB_STANDARD_VECTOR_SIZE;
     use crate::duckdb::DataChunk;
     use crate::duckdb::LogicalType;
+    use crate::duckdb::duckdb_vector_size;
 
     #[test]
     fn test_primitive_exporter() {
@@ -101,9 +100,11 @@ mod tests {
 
     #[test]
     fn test_long_primitive_exporter() {
+        let vector_size = duckdb_vector_size();
         const ARRAY_COUNT: usize = 2;
-        const LEN: usize = DUCKDB_STANDARD_VECTOR_SIZE * ARRAY_COUNT;
-        let arr = PrimitiveArray::from_iter(0..i32::try_from(LEN).vortex_expect(""));
+        let len = vector_size * ARRAY_COUNT;
+        #[expect(clippy::cast_possible_truncation, reason = "test data fits in i32")]
+        let arr = PrimitiveArray::from_iter(0..len as i32);
 
         {
             let mut chunk = (0..ARRAY_COUNT)
@@ -113,21 +114,17 @@ mod tests {
             for i in 0..ARRAY_COUNT {
                 new_exporter(arr.clone(), &mut SESSION.create_execution_ctx())
                     .unwrap()
-                    .export(
-                        i * DUCKDB_STANDARD_VECTOR_SIZE,
-                        DUCKDB_STANDARD_VECTOR_SIZE,
-                        &mut chunk[i].get_vector(0),
-                    )
+                    .export(i * vector_size, vector_size, &mut chunk[i].get_vector(0))
                     .unwrap();
-                chunk[i].set_len(DUCKDB_STANDARD_VECTOR_SIZE);
+                chunk[i].set_len(vector_size);
 
                 assert_eq!(
                     format!("{}", String::try_from(&chunk[i]).unwrap()),
                     format!(
                         r#"Chunk - [1 Columns]
-- FLAT INTEGER: {DUCKDB_STANDARD_VECTOR_SIZE} = [ {}]
+- FLAT INTEGER: {vector_size} = [ {}]
 "#,
-                        &(i * DUCKDB_STANDARD_VECTOR_SIZE..(i + 1) * DUCKDB_STANDARD_VECTOR_SIZE)
+                        &(i * vector_size..(i + 1) * vector_size)
                             .map(|i| i.to_string())
                             .join(", ")
                     )

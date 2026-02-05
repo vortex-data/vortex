@@ -14,8 +14,6 @@ extern "C" {
 #include "duckdb.h"
 
 
-#define DUCKDB_STANDARD_VECTOR_SIZE 2048
-
 /**
  * Global symbol visibility in the Vortex extension:
  * - Rust functions use C ABI with "_rust" suffix (e.g., vortex_init_rust)
