@@ -82,7 +82,7 @@ impl dyn Array + '_ {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct NullTyped<'a>(&'a dyn Array);
 
 pub struct BoolTyped<'a>(&'a dyn Array);
@@ -150,13 +150,13 @@ impl IndexOrd<PValue> for PrimitiveTyped<'_> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct Utf8Typed<'a>(&'a dyn Array);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct BinaryTyped<'a>(&'a dyn Array);
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct DecimalTyped<'a>(&'a dyn Array);
 
 pub struct StructTyped<'a>(&'a dyn Array);
@@ -181,7 +181,7 @@ impl StructTyped<'_> {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct ListTyped<'a>(&'a dyn Array);
 
 pub struct ExtensionTyped<'a>(&'a dyn Array);

@@ -19,7 +19,7 @@ use crate::error::PyVortexError;
 ///
 /// The user-code object is expected to subclass the abstract base class `vx.PyArray` which
 /// will ensure the object implements the necessary methods.
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Debug, Clone)]
 pub struct PythonArray {
     pub(super) id: ArrayId,
