@@ -5,15 +5,16 @@ mod cast;
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
-use vortex_array::arrays::TakeReduce;
-use vortex_array::arrays::TakeReduceAdaptor;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::compute::mask;
 use vortex_array::compute::take;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -33,15 +34,19 @@ fn take_zigzag(array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRe
     Ok(ZigZagArray::try_new(encoded)?.into_array())
 }
 
-impl TakeReduce for ZigZagVTable {
-    fn take(array: &ZigZagArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for ZigZagVTable {
+    fn take(
+        array: &ZigZagArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_zigzag(array, indices).map(Some)
     }
 }
 
 impl ZigZagVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 impl MaskKernel for ZigZagVTable {

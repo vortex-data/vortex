@@ -17,14 +17,15 @@ use vortex_mask::Mask;
 
 use super::DictArray;
 use super::DictVTable;
-use super::TakeReduce;
-use super::TakeReduceAdaptor;
+use super::TakeExecute;
+use super::TakeExecuteAdaptor;
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
 use crate::compute::take;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::kernel::ParentKernelSet;
 
 fn take_dict(array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
     let codes = take(array.codes(), indices)?;
@@ -33,15 +34,19 @@ fn take_dict(array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
     Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()).into_array() })
 }
 
-impl TakeReduce for DictVTable {
-    fn take(array: &DictArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for DictVTable {
+    fn take(
+        array: &DictArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_dict(array, indices).map(Some)
     }
 }
 
 impl DictVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 impl FilterReduce for DictVTable {

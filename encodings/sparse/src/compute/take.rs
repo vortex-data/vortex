@@ -3,11 +3,12 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::arrays::TakeReduce;
-use vortex_array::arrays::TakeReduceAdaptor;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
@@ -45,15 +46,19 @@ fn take_sparse(array: &SparseArray, take_indices: &dyn Array) -> VortexResult<Ar
     .into_array())
 }
 
-impl TakeReduce for SparseVTable {
-    fn take(array: &SparseArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for SparseVTable {
+    fn take(
+        array: &SparseArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_sparse(array, indices).map(Some)
     }
 }
 
 impl SparseVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

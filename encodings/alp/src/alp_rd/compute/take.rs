@@ -3,12 +3,13 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::TakeReduce;
-use vortex_array::arrays::TakeReduceAdaptor;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::fill_null;
 use vortex_array::compute::take;
-use vortex_array::optimizer::rules::ParentRuleSet;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -49,15 +50,19 @@ fn take_alprd(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef>
     .into_array())
 }
 
-impl TakeReduce for ALPRDVTable {
-    fn take(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for ALPRDVTable {
+    fn take(
+        array: &ALPRDArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_alprd(array, indices).map(Some)
     }
 }
 
 impl ALPRDVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

@@ -6,14 +6,15 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::arrays::TakeReduce;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::fill_null;
 use crate::compute::take;
-use crate::optimizer::rules::ParentRuleSet;
+use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 fn take_masked(array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -35,15 +36,19 @@ fn take_masked(array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRe
     Ok(MaskedArray::try_new(taken_child, taken_validity)?.into_array())
 }
 
-impl TakeReduce for MaskedVTable {
-    fn take(array: &MaskedArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for MaskedVTable {
+    fn take(
+        array: &MaskedArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_masked(array, indices).map(Some)
     }
 }
 
 impl MaskedVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

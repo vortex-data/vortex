@@ -3,13 +3,14 @@
 
 use vortex_error::VortexResult;
 
+use super::DictArray;
+use super::DictVTable;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::arrays::TakeArray;
-use crate::arrays::TakeVTable;
+use crate::compute::propagate_take_stats;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -54,6 +55,15 @@ pub fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<
         return Some(Canonical::empty(array.dtype()).into_array());
     }
 
+    // TODO(joe): shall we enable this seems expensive.
+    // if indices.all_invalid()? {
+    //     return Ok(
+    //         ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+    //             .into_array()
+    //             .into(),
+    //     );
+    // }
+
     None
 }
 
@@ -64,19 +74,23 @@ impl<V> ArrayParentReduceRule<V> for TakeReduceAdaptor<V>
 where
     V: TakeReduce,
 {
-    type Parent = TakeVTable;
+    type Parent = DictVTable;
 
     fn reduce_parent(
         &self,
         array: &V::Array,
-        parent: &TakeArray,
+        parent: &DictArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, parent.indices()) {
+        assert_eq!(child_idx, 1);
+        if let Some(result) = precondition::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
-        <V as TakeReduce>::take(array, parent.indices())
+        let result = <V as TakeReduce>::take(array, parent.codes())?;
+        if let Some(ref taken) = result {
+            propagate_take_stats(&**array, taken.as_ref(), parent.codes())?;
+        }
+        Ok(result)
     }
 }
 
@@ -87,7 +101,7 @@ impl<V> ExecuteParentKernel<V> for TakeExecuteAdaptor<V>
 where
     V: TakeExecute,
 {
-    type Parent = TakeVTable;
+    type Parent = DictVTable;
 
     fn execute_parent(
         &self,
@@ -96,10 +110,14 @@ where
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, parent.indices()) {
+        assert_eq!(child_idx, 1);
+        if let Some(result) = precondition::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
-        <V as TakeExecute>::take(array, parent.indices(), ctx)
+        let result = <V as TakeExecute>::take(array, parent.codes(), ctx)?;
+        if let Some(ref taken) = result {
+            propagate_take_stats(&**array, taken.as_ref(), parent.codes())?;
+        }
+        Ok(result)
     }
 }

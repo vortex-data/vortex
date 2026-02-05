@@ -7,13 +7,14 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::arrays::TakeReduce;
-use crate::arrays::TakeReduceAdaptor;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::{self};
-use crate::optimizer::rules::ParentRuleSet;
+use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -47,13 +48,17 @@ fn take_struct(array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRe
     .map(|a| a.into_array())
 }
 
-impl TakeReduce for StructVTable {
-    fn take(array: &StructArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+impl TakeExecute for StructVTable {
+    fn take(
+        array: &StructArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         take_struct(array, indices).map(Some)
     }
 }
 
 impl StructVTable {
-    pub const TAKE_RULES: ParentRuleSet<Self> =
-        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }

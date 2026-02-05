@@ -33,7 +33,6 @@ mod scalar_fn;
 mod shared;
 mod slice;
 mod struct_;
-mod take;
 mod varbin;
 mod varbinview;
 
@@ -60,6 +59,5 @@ pub use scalar_fn::*;
 pub use shared::*;
 pub use slice::*;
 pub use struct_::*;
-pub use take::*;
 pub use varbin::*;
 pub use varbinview::*;
