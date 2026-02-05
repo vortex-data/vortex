@@ -25,10 +25,18 @@ fn shared_array_caches_on_canonicalize() -> vortex_error::VortexResult<()> {
 
     let first = shared.canonicalize(&mut ctx)?;
     let cached = shared.cached().expect("canonicalize should cache result");
-    assert!(cached.as_ref().array_eq(first.as_ref(), HashPrecision::Value));
+    assert!(
+        cached
+            .as_ref()
+            .array_eq(first.as_ref(), HashPrecision::Value)
+    );
 
     let second = shared.canonicalize(&mut ctx)?;
-    assert!(second.as_ref().array_eq(first.as_ref(), HashPrecision::Value));
+    assert!(
+        second
+            .as_ref()
+            .array_eq(first.as_ref(), HashPrecision::Value)
+    );
 
     Ok(())
 }

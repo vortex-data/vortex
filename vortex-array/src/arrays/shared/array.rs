@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -12,7 +13,6 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::stats::ArrayStats;
-use vortex_dtype::DType;
 
 #[derive(Debug, Clone)]
 pub struct SharedArray {
@@ -67,12 +67,7 @@ impl SharedArray {
         }
         let source = match self.source_if_any() {
             Some(source) => source,
-            None => {
-                return Ok(
-                    self.cached()
-                        .vortex_expect("cache present when no source"),
-                )
-            }
+            None => return Ok(self.cached().vortex_expect("cache present when no source")),
         };
         let canonical = source.execute::<Canonical>(ctx)?;
         Ok(self.cache_or_return(canonical))
