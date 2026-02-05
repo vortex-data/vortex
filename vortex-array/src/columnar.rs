@@ -25,22 +25,22 @@ use crate::matcher::Matcher;
 /// canonical or constant form enabling efficient handling of constants during execution.
 pub enum Columnar {
     /// A columnar array in canonical form.
-    Array(Canonical),
+    Canonical(Canonical),
     /// A columnar array in constant form.
-    Scalar(ConstantArray),
+    Constant(ConstantArray),
 }
 
 impl Columnar {
     /// Creates a new columnar array from a scalar.
     pub fn constant<S: Into<Scalar>>(scalar: S, len: usize) -> Self {
-        Columnar::Scalar(ConstantArray::new(scalar.into(), len))
+        Columnar::Constant(ConstantArray::new(scalar.into(), len))
     }
 
     /// Returns the length of this columnar array.
     pub fn len(&self) -> usize {
         match self {
-            Columnar::Array(canonical) => canonical.len(),
-            Columnar::Scalar(constant) => constant.len(),
+            Columnar::Canonical(canonical) => canonical.len(),
+            Columnar::Constant(constant) => constant.len(),
         }
     }
 
@@ -52,8 +52,8 @@ impl Columnar {
     /// Returns the data type of this columnar array.
     pub fn dtype(&self) -> &DType {
         match self {
-            Columnar::Array(canonical) => canonical.dtype(),
-            Columnar::Scalar(constant) => constant.dtype(),
+            Columnar::Canonical(canonical) => canonical.dtype(),
+            Columnar::Constant(constant) => constant.dtype(),
         }
     }
 }
@@ -61,8 +61,8 @@ impl Columnar {
 impl IntoArray for Columnar {
     fn into_array(self) -> ArrayRef {
         match self {
-            Columnar::Array(canonical) => canonical.into_array(),
-            Columnar::Scalar(constant) => constant.into_array(),
+            Columnar::Canonical(canonical) => canonical.into_array(),
+            Columnar::Constant(constant) => constant.into_array(),
         }
     }
 }
@@ -79,11 +79,11 @@ impl Executable for Columnar {
             // Check for termination conditions
             if let Some(constant) = array.as_opt::<ConstantVTable>() {
                 ctx.log(format_args!("-> constant({})", constant.scalar()));
-                return Ok(Columnar::Scalar(constant.clone()));
+                return Ok(Columnar::Constant(constant.clone()));
             }
             if let Some(canonical) = array.as_opt::<AnyCanonical>() {
                 ctx.log(format_args!("-> canonical {}", array));
-                return Ok(Columnar::Array(canonical.into()));
+                return Ok(Columnar::Canonical(canonical.into()));
             }
 
             // Otherwise execute the array one step
@@ -97,14 +97,14 @@ impl Executable for Columnar {
 
 pub enum ColumnarView<'a> {
     Canonical(CanonicalView<'a>),
-    Scalar(&'a ConstantArray),
+    Constant(&'a ConstantArray),
 }
 
 impl<'a> AsRef<dyn Array> for ColumnarView<'a> {
     fn as_ref(&self) -> &dyn Array {
         match self {
             ColumnarView::Canonical(canonical) => canonical.as_ref(),
-            ColumnarView::Scalar(constant) => constant.as_ref(),
+            ColumnarView::Constant(constant) => constant.as_ref(),
         }
     }
 }
@@ -115,7 +115,7 @@ impl Matcher for AnyColumnar {
 
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
-            Some(ColumnarView::Scalar(constant))
+            Some(ColumnarView::Constant(constant))
         } else {
             array.as_opt::<AnyCanonical>().map(ColumnarView::Canonical)
         }

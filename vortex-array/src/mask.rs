@@ -30,10 +30,10 @@ impl Executable for Mask {
 
         let array_len = array.len();
         Ok(match array.execute(ctx)? {
-            Columnar::Scalar(s) => {
+            Columnar::Constant(s) => {
                 Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
             }
-            Columnar::Array(a) => {
+            Columnar::Canonical(a) => {
                 let bool = a.into_array().execute::<BoolArray>(ctx)?;
                 let mask = bool.validity_mask()?;
                 let bits = bool.into_bit_buffer();

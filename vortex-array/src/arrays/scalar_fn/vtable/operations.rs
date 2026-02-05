@@ -32,14 +32,14 @@ impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
         let result = array.scalar_fn.execute(args)?;
 
         let scalar = match result.execute::<Columnar>(&mut ctx)? {
-            Columnar::Array(arr) => {
+            Columnar::Canonical(arr) => {
                 tracing::info!(
                     "Scalar function {} returned non-constant array from execution over all scalar inputs",
                     array.scalar_fn,
                 );
                 arr.as_ref().scalar_at(0)?
             }
-            Columnar::Scalar(constant) => constant.scalar().clone(),
+            Columnar::Constant(constant) => constant.scalar().clone(),
         };
 
         debug_assert_eq!(
