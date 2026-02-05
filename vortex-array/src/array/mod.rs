@@ -454,41 +454,26 @@ impl<V: VTable> Array for ArrayAdapter<V> {
             return Ok(self.to_array());
         }
 
-        assert!(
+        vortex_ensure!(
             start <= self.len(),
             "OutOfBounds: start {start} > length {}",
             self.len()
         );
-        assert!(
+        vortex_ensure!(
             stop <= self.len(),
             "OutOfBounds: stop {stop} > length {}",
             self.len()
         );
 
-        assert!(start <= stop, "start ({start}) must be <= stop ({stop})");
+        vortex_ensure!(start <= stop, "start ({start}) must be <= stop ({stop})");
 
         if start == stop {
             return Ok(Canonical::empty(self.dtype()).into_array());
         }
 
-        let sliced = V::slice(&self.0, range.clone())?
-            .unwrap_or_else(|| SliceArray::new(self.to_array(), range).to_array())
+        let sliced = SliceArray::try_new(self.to_array(), range)?
+            .into_array()
             .optimize()?;
-
-        assert_eq!(
-            sliced.len(),
-            stop - start,
-            "Slice length mismatch {}",
-            self.encoding_id()
-        );
-
-        // Slightly more expensive, so only do this in debug builds.
-        debug_assert_eq!(
-            sliced.dtype(),
-            self.dtype(),
-            "Slice dtype mismatch {}",
-            self.encoding_id()
-        );
 
         // Propagate some stats from the original array to the sliced array.
         if !sliced.is::<ConstantVTable>() {
@@ -601,8 +586,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                 vortex_ensure!(array.len() == self.len(), "Validity array length mismatch");
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
-                    "Validity array for must be non-nullable boolean: {}",
-                    self.to_array().display_tree(),
+                    "Validity array is not non-nullable boolean: {}",
+                    self.encoding_id(),
                 );
             }
             Ok(validity)
@@ -620,29 +605,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn to_canonical(&self) -> VortexResult<Canonical> {
-        let canonical = V::canonicalize(&self.0, &mut LEGACY_SESSION.create_execution_ctx())?;
-
-        assert_eq!(
-            self.len(),
-            canonical.as_ref().len(),
-            "Canonical length mismatch {}. Expected {} but encoded into {}.",
-            self.encoding_id(),
-            self.len(),
-            canonical.as_ref().len()
-        );
-        assert_eq!(
-            self.dtype(),
-            canonical.as_ref().dtype(),
-            "Canonical dtype mismatch {}. Expected {} but encoded into {}.",
-            self.encoding_id(),
-            self.dtype(),
-            canonical.as_ref().dtype()
-        );
-        canonical
-            .as_ref()
-            .statistics()
-            .inherit_from(self.statistics());
-        Ok(canonical)
+        self.to_array()
+            .execute(&mut LEGACY_SESSION.create_execution_ctx())
     }
 
     fn append_to_builder(

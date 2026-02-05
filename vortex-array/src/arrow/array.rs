@@ -17,7 +17,6 @@ use vortex_scalar::Scalar;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
-use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -86,9 +85,8 @@ impl VTable for ArrowVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())?
-            .execute::<Canonical>(ctx)
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        ArrayRef::from_arrow(array.inner.as_ref(), array.dtype.is_nullable())
     }
 }
 

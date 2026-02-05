@@ -14,6 +14,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 
+use crate::AnyCanonical;
 use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -21,10 +22,9 @@ use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
 use crate::Canonical;
-use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
-use crate::arrays::slice::rules::RULES;
+use crate::arrays::slice::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -103,32 +103,29 @@ impl VTable for SliceVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // Execute the child to get canonical form, then slice it
-        let canonical = array.child.clone().execute::<Canonical>(ctx)?;
-        let result = canonical.as_ref().slice(array.range.clone())?;
-        assert!(
-            result.is_canonical(),
-            "this must be canonical fix the slice impl for the dtype {} showing this error",
-            array.dtype()
-        );
-        // TODO(joe): this is a downcast not a execute.
-        result.execute::<Canonical>(ctx)
+        let Some(canonical) = array.child.as_opt::<AnyCanonical>() else {
+            // If the child is not canonical, recurse.
+            return array
+                .child
+                .clone()
+                .execute::<ArrayRef>(ctx)?
+                .slice(array.slice_range().clone());
+        };
+
+        // TODO(ngates): we should inline canonical slice logic here.
+        Canonical::from(canonical)
+            .as_ref()
+            .slice(array.range.clone())
     }
 
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let inner_range = array.slice_range();
-
-        let combined_start = inner_range.start + range.start;
-        let combined_end = inner_range.start + range.end;
-
-        Ok(Some(
-            SliceArray::new(array.child().clone(), combined_start..combined_end).into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -7,6 +7,7 @@ mod compare;
 mod filter;
 mod mask;
 mod nan_count;
+mod slice;
 mod take;
 
 #[cfg(test)]

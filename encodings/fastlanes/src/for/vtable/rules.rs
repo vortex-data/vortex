@@ -5,7 +5,9 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
+use vortex_array::arrays::FilterReduceAdaptor;
 use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
@@ -13,8 +15,11 @@ use vortex_error::VortexResult;
 use crate::FoRArray;
 use crate::FoRVTable;
 
-pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&FoRFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<FoRVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&FoRFilterPushDownRule),
+    ParentRuleSet::lift(&FilterReduceAdaptor(FoRVTable)),
+    ParentRuleSet::lift(&SliceReduceAdaptor(FoRVTable)),
+]);
 
 #[derive(Debug)]
 struct FoRFilterPushDownRule;

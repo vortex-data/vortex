@@ -63,7 +63,11 @@ pub(super) fn to_arrow_list<O: OffsetSizeTrait + NativePType>(
 
     // Otherwise, we execute the array to become a ListViewArray.
     let list_view = array.execute::<ListViewArray>(ctx)?;
-    list_view_to_list::<O>(list_view, elements_field, ctx)
+    if list_view.is_zero_copy_to_list() {
+        list_view_zctl::<O>(list_view, elements_field, ctx)
+    } else {
+        list_view_to_list::<O>(list_view, elements_field, ctx)
+    }
 
     // FIXME(ngates): we need this PR from arrow-rs:
     //  https://github.com/apache/arrow-rs/pull/8735
@@ -256,11 +260,12 @@ mod tests {
 
     use arrow_array::Array;
     use arrow_array::GenericListArray;
+    use arrow_array::Int32Array;
     use arrow_schema::DataType;
     use arrow_schema::Field;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
-    use vortex_dtype::Nullability;
+    use vortex_dtype::Nullability::NonNullable;
     use vortex_error::VortexResult;
 
     use crate::Canonical;
@@ -308,10 +313,7 @@ mod tests {
         // Verify the values in the first list.
         let first_list = list.value(0);
         assert_eq!(first_list.len(), 3);
-        let first_values = first_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let first_values = first_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(first_values.value(0), 1);
         assert_eq!(first_values.value(1), 2);
         assert_eq!(first_values.value(2), 3);
@@ -319,10 +321,7 @@ mod tests {
         // Verify the values in the second list.
         let second_list = list.value(1);
         assert_eq!(second_list.len(), 2);
-        let second_values = second_list
-            .as_any()
-            .downcast_ref::<arrow_array::Int32Array>()
-            .unwrap();
+        let second_values = second_list.as_any().downcast_ref::<Int32Array>().unwrap();
         assert_eq!(second_values.value(0), 4);
         assert_eq!(second_values.value(1), 5);
         Ok(())
@@ -368,11 +367,8 @@ mod tests {
     #[test]
     fn test_to_arrow_list_empty_zctl() -> VortexResult<()> {
         let dtype = DType::List(
-            Arc::new(DType::Primitive(
-                vortex_dtype::PType::I32,
-                Nullability::NonNullable,
-            )),
-            Nullability::NonNullable,
+            Arc::new(DType::Primitive(vortex_dtype::PType::I32, NonNullable)),
+            NonNullable,
         );
         let list_array = unsafe {
             Canonical::empty(&dtype)

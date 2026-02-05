@@ -3,11 +3,14 @@
 
 mod cast;
 mod fill_null;
+pub(crate) mod filter;
 mod invert;
 mod is_constant;
 mod is_sorted;
 mod mask;
 mod min_max;
+pub mod rules;
+mod slice;
 mod sum;
 mod take;
 

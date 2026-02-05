@@ -9,6 +9,8 @@ mod is_sorted;
 mod mask;
 mod min_max;
 mod nan_count;
+pub(crate) mod rules;
+mod slice;
 mod sum;
 mod take;
 

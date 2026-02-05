@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_array::ArrayRef;
-use vortex_array::CanonicalOutput;
+use vortex_array::Columnar;
 use vortex_array::VortexSessionExecute;
 use vortex_array::expr::Expression;
 use vortex_array::expr::pruning::checked_pruning_expr;
@@ -137,10 +137,10 @@ impl VortexFile {
         Ok(
             match file_stats
                 .apply(&predicate)?
-                .execute::<CanonicalOutput>(&mut ctx)?
+                .execute::<Columnar>(&mut ctx)?
             {
-                CanonicalOutput::Constant(c) => c.scalar().as_bool().value() == Some(true),
-                CanonicalOutput::Array(_) => false,
+                Columnar::Constant(s) => s.scalar().as_bool().value() == Some(true),
+                Columnar::Canonical(_) => false,
             },
         )
     }

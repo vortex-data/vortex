@@ -12,10 +12,12 @@ use vortex_proto::expr as pb;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -77,8 +79,8 @@ impl VTable for Literal {
         Ok(options.dtype().clone())
     }
 
-    fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ExecutionResult> {
-        Ok(ExecutionResult::constant(scalar.clone(), args.row_count))
+    fn execute(&self, scalar: &Scalar, args: ExecutionArgs) -> VortexResult<ArrayRef> {
+        Ok(ConstantArray::new(scalar.clone(), args.row_count).into_array())
     }
 
     fn stat_expression(

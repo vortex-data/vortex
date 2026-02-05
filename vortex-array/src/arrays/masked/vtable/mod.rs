@@ -6,8 +6,6 @@ mod canonical;
 mod operations;
 mod validity;
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -23,11 +21,11 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
@@ -67,21 +65,6 @@ impl VTable for MaskedVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone())?;
-        let validity = array.validity.slice(range)?;
-
-        Ok(Some(
-            MaskedArray {
-                child,
-                validity,
-                dtype: array.dtype.clone(),
-                stats: ArrayStats::default(),
-            }
-            .into_array(),
-        ))
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -124,14 +107,15 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
-            return ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
-                .into_array()
-                .execute::<Canonical>(ctx);
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
+                    .into_array(),
+            );
         }
 
         // NB: We intentionally do NOT have a fast path for `validity_mask.all_true()`.
@@ -141,22 +125,15 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &validity_mask, ctx)?;
+        Ok(mask_validity_canonical(child, &validity_mask, ctx)?.into_array())
+    }
 
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Mask result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
-        vortex_ensure!(
-            canonical.len() == array.len(),
-            "Mask result length mismatch: expected {}, got {}",
-            array.len(),
-            canonical.len()
-        );
-
-        Ok(canonical)
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

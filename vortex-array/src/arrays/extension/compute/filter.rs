@@ -8,18 +8,16 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::FilterKernel;
-use crate::compute::FilterKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::filter::FilterReduce;
 
-impl FilterKernel for ExtensionVTable {
-    fn filter(&self, array: &ExtensionArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(ExtensionArray::new(
-            array.ext_dtype().clone(),
-            array.storage().filter(mask.clone())?,
-        )
-        .into_array())
+impl FilterReduce for ExtensionVTable {
+    fn filter(array: &ExtensionArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ExtensionArray::new(
+                array.ext_dtype().clone(),
+                array.storage().filter(mask.clone())?,
+            )
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(ExtensionVTable).lift());

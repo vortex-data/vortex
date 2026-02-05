@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
@@ -57,7 +55,7 @@ fn execute_expr(expr: &Expression, row_count: usize) -> VortexResult<ArrayRef> {
 
 impl ValidityVTable<ScalarFnVTable> for ScalarFnVTable {
     fn validity(array: &ScalarFnArray) -> VortexResult<Validity> {
-        let inputs: Arc<[_]> = array
+        let inputs: Vec<_> = array
             .children
             .iter()
             .map(|child| {

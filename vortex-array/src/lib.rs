@@ -17,6 +17,7 @@ use std::sync::LazyLock;
 
 pub use array::*;
 pub use canonical::*;
+pub use columnar::*;
 pub use context::*;
 pub use executor::*;
 pub use hash::*;
@@ -37,6 +38,7 @@ pub mod builders;
 pub mod builtins;
 mod canonical;
 pub(crate) mod canonical_to_vector;
+mod columnar;
 pub mod compute;
 mod context;
 pub mod display;
@@ -74,5 +76,5 @@ pub mod flatbuffers {
 // TODO(ngates): canonicalize doesn't currently take a session, therefore we cannot invoke execute
 //  from the new array encodings to support back-compat for legacy encodings. So we hold a session
 //  here...
-static LEGACY_SESSION: LazyLock<VortexSession> =
+pub static LEGACY_SESSION: LazyLock<VortexSession> =
     LazyLock::new(|| VortexSession::empty().with::<ArraySession>());

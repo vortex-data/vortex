@@ -19,7 +19,7 @@ use crate::ArrayChildVisitor;
 use crate::ArrayEq;
 use crate::ArrayHash;
 use crate::ArrayRef;
-use crate::Canonical;
+use crate::IntoArray;
 use crate::Precision;
 use crate::arrays::filter::array::FilterArray;
 use crate::arrays::filter::execute::execute_filter;
@@ -104,7 +104,7 @@ impl VTable for FilterVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         if let Some(canonical) = execute_filter_fast_paths(array, ctx)? {
             return Ok(canonical);
         }
@@ -114,24 +114,7 @@ impl VTable for FilterVTable {
 
         // We rely on the optimization pass that runs prior to this execution for filter pushdown,
         // so now we can just execute the filter without worrying.
-        let canonical = execute_filter(array.child.clone().execute(ctx)?, mask_values);
-
-        // Verify the resulting length and type.
-        let result_len = array.mask.true_count();
-        vortex_ensure!(
-            canonical.as_ref().len() == result_len,
-            "Filter result length mismatch: expected {}, got {}",
-            result_len,
-            canonical.as_ref().len()
-        );
-        vortex_ensure!(
-            canonical.as_ref().dtype() == array.dtype(),
-            "Filter result dtype mismatch: expected {:?}, got {:?}",
-            array.dtype(),
-            canonical.as_ref().dtype()
-        );
-
-        Ok(canonical)
+        Ok(execute_filter(array.child.clone().execute(ctx)?, mask_values).into_array())
     }
 
     fn reduce_parent(

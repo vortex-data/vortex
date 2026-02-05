@@ -58,7 +58,7 @@ impl<V: VTable> ParentKernelSet<V> {
     }
 }
 
-pub trait ExecuteParentKernel<V: VTable>: Debug {
+pub trait ExecuteParentKernel<V: VTable>: Debug + Send + Sync + 'static {
     type Parent: Matcher;
 
     /// Attempt to execute the parent array fused with the child array.
@@ -71,7 +71,7 @@ pub trait ExecuteParentKernel<V: VTable>: Debug {
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub trait DynParentKernel<V: VTable> {
+pub trait DynParentKernel<V: VTable>: Send + Sync {
     fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn execute_parent(

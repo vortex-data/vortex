@@ -15,7 +15,7 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantVTable;
-use crate::executor::CanonicalOutput;
+use crate::columnar::Columnar;
 
 impl Executable for Mask {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
@@ -30,10 +30,10 @@ impl Executable for Mask {
 
         let array_len = array.len();
         Ok(match array.execute(ctx)? {
-            CanonicalOutput::Constant(c) => {
-                Mask::new(array_len, c.scalar().as_bool().value().unwrap_or(false))
+            Columnar::Constant(s) => {
+                Mask::new(array_len, s.scalar().as_bool().value().unwrap_or(false))
             }
-            CanonicalOutput::Array(a) => {
+            Columnar::Canonical(a) => {
                 let bool = a.into_array().execute::<BoolArray>(ctx)?;
                 let mask = bool.validity_mask()?;
                 let bits = bool.into_bit_buffer();

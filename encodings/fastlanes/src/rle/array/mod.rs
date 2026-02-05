@@ -477,11 +477,20 @@ mod tests {
     fn test_rle_serialization_slice() {
         let primitive = PrimitiveArray::from_iter((0..2048).map(|i| (i / 100) as u32));
         let rle_array = RLEArray::encode(&primitive).unwrap();
-        let sliced = rle_array.slice(100..200).unwrap();
+
+        let sliced = RLEArray::try_new(
+            rle_array.values().clone(),
+            rle_array.indices().clone(),
+            rle_array.values_idx_offsets().clone(),
+            100,
+            100,
+        )
+        .unwrap();
         assert_eq!(sliced.len(), 100);
 
         let ctx = ArrayContext::empty();
         let serialized = sliced
+            .to_array()
             .serialize(&ctx, &SerializeOptions::default())
             .unwrap();
 

@@ -18,13 +18,13 @@ use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Pack;
 use crate::expr::SimplifyCtx;
@@ -141,7 +141,7 @@ impl VTable for Select {
         &self,
         selection: &FieldSelection,
         mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    ) -> VortexResult<ArrayRef> {
         let child = args
             .inputs
             .pop()

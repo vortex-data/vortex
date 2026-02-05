@@ -14,14 +14,11 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::Canonical;
-use crate::arrays::ConstantVTable;
 use crate::compute::BetweenOptions;
 use crate::compute::between as between_compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::StatsCatalog;
 use crate::expr::VTable;
@@ -145,21 +142,13 @@ impl VTable for Between {
         ))
     }
 
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let [arr, lower, upper]: [ArrayRef; _] = args
             .inputs
             .try_into()
             .map_err(|_| vortex_err!("Expected 3 arguments for Between expression",))?;
 
-        let result = between_compute(arr.as_ref(), lower.as_ref(), upper.as_ref(), options)?;
-        Ok(match result.try_into::<ConstantVTable>() {
-            Ok(constant) => ExecutionResult::Scalar(constant),
-            Err(arr) => ExecutionResult::Array(arr.execute::<Canonical>(args.ctx)?),
-        })
+        between_compute(arr.as_ref(), lower.as_ref(), upper.as_ref(), options)
     }
 
     fn stat_falsification(

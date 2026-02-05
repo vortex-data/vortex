@@ -7,6 +7,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -16,8 +17,10 @@ use vortex_error::VortexResult;
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&RunEndSliceKernel)]);
+pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&RunEndSliceKernel),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(RunEndVTable)),
+]);
 
 /// Kernel to execute slicing on a RunEnd array.
 ///

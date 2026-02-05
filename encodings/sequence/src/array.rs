@@ -2,20 +2,17 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
-use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -43,12 +40,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_mask::AllOr;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 
 vtable!(Sequence);
 
@@ -288,7 +285,7 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         let prim = match_each_native_ptype!(array.ptype(), |P| {
             let base = array.base().cast::<P>();
             let multiplier = array.multiplier().cast::<P>();
@@ -299,7 +296,7 @@ impl VTable for SequenceVTable {
             PrimitiveArray::new(values, array.dtype.nullability().into())
         });
 
-        Ok(Canonical::Primitive(prim))
+        Ok(prim.into_array())
     }
 
     fn execute_parent(
@@ -308,70 +305,16 @@ impl VTable for SequenceVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // Try parent kernels first (e.g., comparison fusion)
-        if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
-            return Ok(Some(result));
-        }
-
-        // Special-case filtered execution.
-        let Some(filter) = parent.as_opt::<FilterVTable>() else {
-            return Ok(None);
-        };
-
-        match filter.filter_mask().indices() {
-            AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(Canonical::empty(array.dtype()).into_array())),
-            AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
-                let base = array.base().cast::<P>();
-                let multiplier = array.multiplier().cast::<P>();
-                execute_iter(
-                    base,
-                    multiplier,
-                    indices.iter().copied(),
-                    array.dtype().nullability(),
-                )
-                .into_array()
-            }))),
-        }
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn reduce_parent(
-        _array: &SequenceArray,
-        _parent: &ArrayRef,
-        _child_idx: usize,
+        array: &SequenceArray,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
+        RULES.evaluate(array, parent, child_idx)
     }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            SequenceArray::unchecked_new(
-                array.index_value(range.start),
-                array.multiplier,
-                array.ptype(),
-                array.dtype().nullability(),
-                range.len(),
-            )
-            .to_array(),
-        ))
-    }
-}
-
-fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
-    base: P,
-    multiplier: P,
-    iter: I,
-    nullability: Nullability,
-) -> PrimitiveArray {
-    let values = if multiplier == <P>::one() {
-        BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
-    } else {
-        BufferMut::from_iter(
-            iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-        )
-    };
-
-    PrimitiveArray::new(values, nullability.into())
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {

@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
@@ -32,9 +30,7 @@ use vortex_error::vortex_err;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::rules::RULES;
-use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
-
+use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 mod array;
 mod kernels;
 mod operations;
@@ -250,8 +246,8 @@ impl VTable for BitPackedVTable {
         })
     }
 
-    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        Ok(Canonical::Primitive(unpack_array(array, ctx)?))
+    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
+        Ok(unpack_array(array, ctx)?.into_array())
     }
 
     fn execute_parent(
@@ -261,18 +257,6 @@ impl VTable for BitPackedVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
-    }
-
-    fn reduce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(_array: &Self::Array, _range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
     }
 }
 

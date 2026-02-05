@@ -15,6 +15,7 @@ use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
 use crate::compute::mask;
@@ -22,7 +23,6 @@ use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
@@ -106,11 +106,7 @@ impl VTable for GetItem {
         Ok(field_dtype)
     }
 
-    fn execute(
-        &self,
-        field_name: &FieldName,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, field_name: &FieldName, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let input = args
             .inputs
             .pop()

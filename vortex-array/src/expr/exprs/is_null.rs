@@ -9,12 +9,14 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
+use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::StatsCatalog;
@@ -73,21 +75,17 @@ impl VTable for IsNull {
         Ok(DType::Bool(Nullability::NonNullable))
     }
 
-    fn execute(
-        &self,
-        _data: &Self::Options,
-        mut args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<ArrayRef> {
         let child = args.inputs.pop().vortex_expect("Missing input child");
         if let Some(scalar) = child.as_constant() {
-            return Ok(ExecutionResult::constant(scalar.is_null(), args.row_count));
+            return Ok(ConstantArray::new(scalar.is_null(), args.row_count).into_array());
         }
 
         Ok(match child.validity()? {
             Validity::NonNullable | Validity::AllValid => {
-                ExecutionResult::constant(false, args.row_count)
+                ConstantArray::new(false, args.row_count).into_array()
             }
-            Validity::AllInvalid => ExecutionResult::constant(true, args.row_count),
+            Validity::AllInvalid => ConstantArray::new(true, args.row_count).into_array(),
             Validity::Array(a) => a.not()?.execute(args.ctx)?,
         })
     }

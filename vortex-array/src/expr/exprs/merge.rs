@@ -17,12 +17,12 @@ use vortex_error::vortex_bail;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
+use crate::ArrayRef;
 use crate::IntoArray as _;
 use crate::arrays::StructArray;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
-use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::GetItem;
@@ -137,11 +137,7 @@ impl VTable for Merge {
         ))
     }
 
-    fn execute(
-        &self,
-        options: &Self::Options,
-        args: ExecutionArgs,
-    ) -> VortexResult<ExecutionResult> {
+    fn execute(&self, options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
         // Collect fields in order of appearance. Later fields overwrite earlier fields.
         let mut field_names = Vec::new();
         let mut arrays = Vec::new();
@@ -179,9 +175,10 @@ impl VTable for Merge {
         // TODO(DK): When children are allowed to be nullable, this needs to change.
         let validity = Validity::NonNullable;
         let len = args.row_count;
-        StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
-            .into_array()
-            .execute(args.ctx)
+        Ok(
+            StructArray::try_new(FieldNames::from(field_names), arrays, len, validity)?
+                .into_array(),
+        )
     }
 
     fn reduce(
