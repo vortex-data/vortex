@@ -14,7 +14,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
+pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(BoolVTable)),
 ]);

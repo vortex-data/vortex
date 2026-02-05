@@ -28,14 +28,12 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
 
-use crate::arrays::varbin::vtable::rules::PARENT_RULES;
+use crate::arrays::varbin::compute::rules::PARENT_RULES;
 
 vtable!(VarBin);
 

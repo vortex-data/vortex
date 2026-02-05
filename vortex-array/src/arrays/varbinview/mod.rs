@@ -8,7 +8,7 @@ pub use array::VarBinViewArrayParts;
 mod accessor;
 pub(crate) mod compact;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::VarBinViewVTable;

@@ -25,14 +25,10 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod operations;
-pub mod rules;
-mod slice;
 mod validity;
 mod visitor;
 
-pub use rules::BoolMaskedValidityRule;
-
-use crate::arrays::bool::vtable::rules::RULES;
+use crate::arrays::bool::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Bool);

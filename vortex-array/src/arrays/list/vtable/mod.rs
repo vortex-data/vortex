@@ -15,8 +15,8 @@ use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::arrays::ListArray;
-use crate::arrays::list::vtable::kernel::PARENT_KERNELS;
-use crate::arrays::list::vtable::rules::PARENT_RULES;
+use crate::arrays::list::compute::kernel::PARENT_KERNELS;
+use crate::arrays::list::compute::rules::PARENT_RULES;
 use crate::arrays::list_view_from_list;
 use crate::buffer::BufferHandle;
 use crate::metadata::DeserializeMetadata;
@@ -30,10 +30,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod kernel;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 

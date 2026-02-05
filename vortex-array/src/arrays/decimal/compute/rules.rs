@@ -18,7 +18,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
+pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DecimalMaskedValidityRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(DecimalVTable)),
 ]);

@@ -50,8 +50,9 @@ pub fn slice_array(binary_array: ArrayRef) {
 
 #[test]
 fn test_zero_offsets() -> vortex_error::VortexResult<()> {
-    use crate::arrays::VarBinVTable;
     use vortex_dtype::Nullability::NonNullable;
+
+    use crate::arrays::VarBinVTable;
 
     let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
     let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();

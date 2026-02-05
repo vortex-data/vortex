@@ -14,7 +14,7 @@ use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ExtensionFilterPushDownRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(ExtensionVTable)),
 ]);

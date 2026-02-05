@@ -4,8 +4,6 @@
 mod array;
 mod canonical;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 
@@ -20,7 +18,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::vtable::rules::PARENT_RULES;
+use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;

@@ -23,15 +23,12 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-pub mod rules;
-mod slice;
 mod validity;
 mod visitor;
 
-pub use rules::PrimitiveMaskedValidityRule;
 use vortex_buffer::Alignment;
 
-use crate::arrays::primitive::vtable::rules::RULES;
+use crate::arrays::primitive::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Primitive);

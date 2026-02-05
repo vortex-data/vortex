@@ -21,7 +21,7 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::vtable::rules::PARENT_RULES;
+use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -31,10 +31,7 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod kernel;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 
@@ -181,7 +178,7 @@ impl VTable for DictVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        crate::arrays::dict::compute::kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

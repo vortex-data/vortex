@@ -15,8 +15,8 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
-use crate::arrays::constant::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -27,8 +27,6 @@ use crate::vtable::VTable;
 mod array;
 mod canonical;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 

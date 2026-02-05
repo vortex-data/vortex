@@ -15,7 +15,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[
+pub(crate) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
     ParentRuleSet::lift(&SliceReduceAdaptor(PrimitiveVTable)),
 ]);

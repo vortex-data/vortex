@@ -15,7 +15,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::arrays::struct_::StructArray;
-use crate::arrays::struct_::vtable::rules::PARENT_RULES;
+use crate::arrays::struct_::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -26,8 +26,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 

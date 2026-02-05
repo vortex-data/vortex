@@ -4,8 +4,6 @@
 mod array;
 mod canonical;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 
 use vortex_dtype::DType;
@@ -23,8 +21,8 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
-use crate::arrays::masked::vtable::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;

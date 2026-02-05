@@ -15,7 +15,7 @@ use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ListViewVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<ListViewVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ListViewFilterPushDown),
     ParentRuleSet::lift(&SliceReduceAdaptor(ListViewVTable)),
 ]);

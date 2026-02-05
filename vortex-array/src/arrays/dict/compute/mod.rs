@@ -7,8 +7,11 @@ mod compare;
 mod fill_null;
 mod is_constant;
 mod is_sorted;
+pub(crate) mod kernel;
 mod like;
 mod min_max;
+pub(crate) mod rules;
+mod slice;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;

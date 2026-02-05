@@ -28,13 +28,10 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-pub mod rules;
 mod validity;
 mod visitor;
 
-pub use rules::DecimalMaskedValidityRule;
-
-use crate::arrays::decimal::vtable::rules::RULES;
+use crate::arrays::decimal::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Decimal);

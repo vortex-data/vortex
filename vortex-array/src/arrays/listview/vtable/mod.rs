@@ -16,7 +16,7 @@ use crate::ExecutionCtx;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::vtable::rules::PARENT_RULES;
+use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -28,8 +28,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-mod rules;
-mod slice;
 mod validity;
 mod visitor;
 

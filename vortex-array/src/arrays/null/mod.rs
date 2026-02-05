@@ -15,7 +15,7 @@ use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::Precision;
-use crate::arrays::null::rules::PARENT_RULES;
+use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
@@ -30,9 +30,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
-mod compute;
-mod rules;
-mod slice;
+pub(crate) mod compute;
 
 vtable!(Null);
 

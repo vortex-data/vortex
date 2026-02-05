@@ -5,5 +5,5 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::SliceExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-pub(super) static PARENT_KERNELS: ParentKernelSet<ChunkedVTable> =
+pub(crate) static PARENT_KERNELS: ParentKernelSet<ChunkedVTable> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&SliceExecuteAdaptor(ChunkedVTable))]);

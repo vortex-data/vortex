@@ -22,7 +22,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DictionaryFilterPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
