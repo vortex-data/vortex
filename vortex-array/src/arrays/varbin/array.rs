@@ -383,28 +383,6 @@ impl VarBinArray {
 impl VarBinArray {
     /// Return an array containing the same data, but where the internal `offsets` start at zero
     /// and all wasted space in the bytes child has been clipped.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # fn main() -> vortex_error::VortexResult<()> {
-    /// # use vortex_array::arrays::VarBinArray;
-    /// # use vortex_array::arrays::VarBinVTable;
-    /// # use vortex_dtype::DType;
-    /// # use vortex_dtype::Nullability::NonNullable;
-    /// let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
-    /// let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
-    ///
-    /// // After slicing, there is some unused data at the front of the bytes.
-    /// assert_eq!(sliced.offset_at(0), 3);
-    ///
-    /// // But after zeroing the offsets, the extraneous data is gone.
-    /// let truncated = sliced.zero_offsets();
-    /// assert_eq!(truncated.offset_at(0), 0);
-    /// assert_eq!(truncated.len(), 2);
-    /// # Ok(())
-    /// # }
-    /// ```
     #[doc(hidden)]
     pub fn zero_offsets(self) -> Self {
         if self.is_empty() {

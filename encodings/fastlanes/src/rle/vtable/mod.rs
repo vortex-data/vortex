@@ -25,7 +25,6 @@ use crate::rle::kernel::PARENT_KERNELS;
 
 mod array;
 mod operations;
-mod rules;
 mod validity;
 mod visitor;
 
@@ -60,47 +59,6 @@ impl VTable for RLEVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        use vortex_array::IntoArray;
-
-        use crate::FL_CHUNK_SIZE;
-
-        let offset_in_chunk = array.offset();
-        let chunk_start_idx = (offset_in_chunk + range.start) / FL_CHUNK_SIZE;
-        let chunk_end_idx = (offset_in_chunk + range.end).div_ceil(FL_CHUNK_SIZE);
-
-        let values_start_idx = array.values_idx_offset(chunk_start_idx);
-        let values_end_idx = if chunk_end_idx < array.values_idx_offsets().len() {
-            array.values_idx_offset(chunk_end_idx)
-        } else {
-            array.values().len()
-        };
-
-        let sliced_values = array.values().slice(values_start_idx..values_end_idx)?;
-
-        let sliced_values_idx_offsets = array
-            .values_idx_offsets()
-            .slice(chunk_start_idx..chunk_end_idx)?;
-
-        let sliced_indices = array
-            .indices()
-            .slice(chunk_start_idx * FL_CHUNK_SIZE..chunk_end_idx * FL_CHUNK_SIZE)?;
-
-        // SAFETY: Slicing preserves all invariants.
-        Ok(Some(unsafe {
-            RLEArray::new_unchecked(
-                sliced_values,
-                sliced_indices,
-                sliced_values_idx_offsets,
-                array.dtype().clone(),
-                // Keep the offset relative to the first chunk.
-                (array.offset() + range.start) % FL_CHUNK_SIZE,
-                range.len(),
-            )
-            .into_array()
-        }))
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -190,14 +148,6 @@ impl VTable for RLEVTable {
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         Ok(Canonical::Primitive(rle_decompress(array, ctx)?))
-    }
-
-    fn reduce_parent(
-        array: &RLEArray,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 

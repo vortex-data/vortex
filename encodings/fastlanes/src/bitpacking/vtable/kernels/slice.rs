@@ -2,40 +2,24 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::cmp::max;
+use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::SliceArray;
-use vortex_array::arrays::SliceVTable;
-use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::arrays::SliceKernel;
+use vortex_array::vtable::ValidityHelper;
 use vortex_error::VortexResult;
 
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
 
-/// Kernel to execute slicing fused with bit-packed decoding.
-#[derive(Debug)]
-pub(crate) struct BitPackingSliceKernel;
-
-impl ExecuteParentKernel<BitPackedVTable> for BitPackingSliceKernel {
-    type Parent = SliceVTable;
-
-    fn execute_parent(
-        &self,
+impl SliceKernel for BitPackedVTable {
+    fn slice(
         array: &BitPackedArray,
-        parent: &SliceArray,
-        _child_idx: usize,
+        range: Range<usize>,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        // TODO(joe): fix me https://github.com/vortex-data/vortex/pull/5958#discussion_r2696436008
-        // If buffers are on device, we cannot eagerly slice because Patches::slice
-        // requires binary search on the indices which needs host memory for now
-        if !array.is_host() {
-            return Ok(None);
-        }
-
-        let range = parent.slice_range().clone();
         let offset_start = range.start + array.offset() as usize;
         let offset_stop = range.end + array.offset() as usize;
         let offset = offset_start % 1024;
@@ -50,8 +34,8 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingSliceKernel {
         Ok(Some(unsafe {
             BitPackedArray::new_unchecked(
                 array.packed().slice(encoded_start..encoded_stop),
-                array.dtype.clone(),
-                array.validity()?.slice(range.clone())?,
+                array.dtype().clone(),
+                array.validity().clone().slice(range.clone())?,
                 array
                     .patches()
                     .map(|p| p.slice(range.clone()))

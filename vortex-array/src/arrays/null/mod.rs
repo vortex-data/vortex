@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -15,8 +14,8 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::Precision;
+use crate::arrays::null::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::stats::ArrayStats;
@@ -31,7 +30,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
 
-mod compute;
+pub(crate) mod compute;
 
 vtable!(Null);
 
@@ -81,8 +80,12 @@ impl VTable for NullVTable {
         Ok(())
     }
 
-    fn slice(_array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(NullArray::new(range.len()).into_array()))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {

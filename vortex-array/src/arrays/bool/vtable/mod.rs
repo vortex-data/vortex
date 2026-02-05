@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -13,7 +11,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::BoolArray;
@@ -23,19 +20,15 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod canonical;
 mod operations;
-pub mod rules;
 mod validity;
 mod visitor;
 
-pub use rules::BoolMaskedValidityRule;
-
-use crate::arrays::bool::vtable::rules::RULES;
+use crate::arrays::bool::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Bool);
@@ -129,16 +122,6 @@ impl VTable for BoolVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            BoolArray::new(
-                array.to_bit_buffer().slice(range.clone()),
-                array.validity().slice(range)?,
-            )
-            .into_array(),
-        ))
     }
 }
 

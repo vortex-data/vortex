@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
@@ -269,10 +267,6 @@ impl VTable for BitPackedVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(_array: &Self::Array, _range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
     }
 }
 

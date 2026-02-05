@@ -9,7 +9,7 @@ pub use arbitrary::ArbitraryConstantArray;
 mod array;
 pub use array::ConstantArray;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 

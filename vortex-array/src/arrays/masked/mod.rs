@@ -4,7 +4,7 @@
 mod array;
 pub use array::MaskedArray;
 
-mod compute;
+pub(crate) mod compute;
 mod execute;
 
 pub use execute::mask_validity_canonical;

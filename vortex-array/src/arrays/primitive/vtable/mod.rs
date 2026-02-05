@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
-use vortex_dtype::NativePType;
 use vortex_dtype::PType;
-use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -16,7 +12,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::arrays::PrimitiveArray;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
@@ -24,19 +19,16 @@ use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-pub mod rules;
 mod validity;
 mod visitor;
 
-pub use rules::PrimitiveMaskedValidityRule;
 use vortex_buffer::Alignment;
 
-use crate::arrays::primitive::vtable::rules::RULES;
+use crate::arrays::primitive::compute::rules::RULES;
 use crate::vtable::ArrayId;
 
 vtable!(Primitive);
@@ -142,18 +134,6 @@ impl VTable for PrimitiveVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let result = match_each_native_ptype!(array.ptype(), |T| {
-            PrimitiveArray::from_buffer_handle(
-                array.buffer_handle().slice_typed::<T>(range.clone()),
-                T::PTYPE,
-                array.validity().slice(range)?,
-            )
-            .into_array()
-        });
-        Ok(Some(result))
     }
 }
 

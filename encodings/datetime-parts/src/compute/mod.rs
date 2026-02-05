@@ -7,6 +7,7 @@ mod filter;
 mod is_constant;
 mod mask;
 pub(super) mod rules;
+mod slice;
 mod take;
 
 #[cfg(test)]

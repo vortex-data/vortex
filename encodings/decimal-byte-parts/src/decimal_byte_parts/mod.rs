@@ -3,9 +3,9 @@
 
 mod compute;
 mod rules;
+mod slice;
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use prost::Message as _;
 use vortex_array::Array;
@@ -16,7 +16,6 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -128,14 +127,6 @@ impl VTable for DecimalBytePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range)?, *array.decimal_dtype())
-                .into_array()
-        }))
     }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {

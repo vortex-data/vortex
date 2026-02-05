@@ -9,6 +9,8 @@ mod is_constant;
 mod is_sorted;
 mod like;
 mod min_max;
+pub(crate) mod rules;
+mod slice;
 
 use vortex_error::VortexResult;
 use vortex_mask::Mask;

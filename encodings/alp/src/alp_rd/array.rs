@@ -14,7 +14,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -45,6 +44,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
 
+use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd_decode;
 
 vtable!(ALPRD);
@@ -76,27 +76,6 @@ impl VTable for ALPRDVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: std::ops::Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let left_parts_exceptions = array
-            .left_parts_patches()
-            .map(|patches| patches.slice(range.clone()))
-            .transpose()?
-            .flatten();
-
-        // SAFETY: slicing components does not change the encoded values
-        Ok(Some(unsafe {
-            ALPRDArray::new_unchecked(
-                array.dtype().clone(),
-                array.left_parts().slice(range.clone())?,
-                array.left_parts_dictionary().clone(),
-                array.right_parts().slice(range)?,
-                array.right_bit_width(),
-                left_parts_exceptions,
-            )
-            .into_array()
-        }))
     }
 
     fn metadata(array: &ALPRDArray) -> VortexResult<Self::Metadata> {
@@ -279,6 +258,15 @@ impl VTable for ALPRDVTable {
         };
 
         Ok(Canonical::Primitive(decoded_array))
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

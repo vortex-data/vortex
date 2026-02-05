@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -15,11 +13,10 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ListViewArray;
-use crate::arrays::listview::vtable::rules::PARENT_RULES;
+use crate::arrays::listview::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -27,12 +24,10 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
 mod operations;
-mod rules;
 mod validity;
 mod visitor;
 
@@ -68,22 +63,6 @@ impl VTable for ListViewVTable {
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: Slicing the components of an existing valid array is still valid.
-        Ok(Some(
-            unsafe {
-                ListViewArray::new_unchecked(
-                    array.elements().clone(),
-                    array.offsets().slice(range.clone())?,
-                    array.sizes().slice(range.clone())?,
-                    array.validity().slice(range)?,
-                )
-                .with_zero_copy_to_list(array.is_zero_copy_to_list())
-            }
-            .into_array(),
-        ))
     }
 
     fn metadata(array: &ListViewArray) -> VortexResult<Self::Metadata> {

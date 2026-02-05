@@ -138,6 +138,7 @@ impl BitBuffer {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
     }

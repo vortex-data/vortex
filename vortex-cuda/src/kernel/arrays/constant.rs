@@ -226,8 +226,8 @@ mod tests {
     #[case::i16(make_constant_array(-1234i16, 5000))]
     #[case::i32(make_constant_array(-100000i32, 5000))]
     #[case::i64(make_constant_array(-1000000i64, 5000))]
-    #[case::f32(make_constant_array(3.14f32, 5000))]
-    #[case::f64(make_constant_array(2.71828f64, 5000))]
+    #[case::f32(make_constant_array(1.23f32, 5000))]
+    #[case::f64(make_constant_array(4.56789f64, 5000))]
     #[tokio::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,

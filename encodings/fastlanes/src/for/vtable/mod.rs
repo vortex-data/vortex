@@ -3,13 +3,11 @@
 
 use std::fmt::Debug;
 use std::fmt::Formatter;
-use std::ops::Range;
 
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
@@ -32,6 +30,7 @@ use crate::r#for::vtable::rules::PARENT_RULES;
 mod array;
 mod operations;
 mod rules;
+mod slice;
 mod validity;
 mod visitor;
 
@@ -107,17 +106,6 @@ impl VTable for FoRVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: Just slicing encoded data does not affect FOR.
-        Ok(Some(unsafe {
-            FoRArray::new_unchecked(
-                array.encoded().slice(range)?,
-                array.reference_scalar().clone(),
-            )
-            .into_array()
-        }))
     }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {

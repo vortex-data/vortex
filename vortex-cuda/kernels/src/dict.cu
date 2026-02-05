@@ -47,4 +47,3 @@ extern "C" __global__ void dict_##value_suffix##_##index_suffix( \
 
 // Generate for all native ptypes & decimal values
 FOR_EACH_NUMERIC(GENERATE_DICT_FOR_ALL_INDICES)
-

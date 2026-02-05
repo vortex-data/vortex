@@ -10,12 +10,15 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ListViewVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ListViewFilterPushDown)]);
+pub(crate) const PARENT_RULES: ParentRuleSet<ListViewVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ListViewFilterPushDown),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ListViewVTable)),
+]);
 
 #[derive(Debug)]
 struct ListViewFilterPushDown;

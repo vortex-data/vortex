@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -15,7 +13,6 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -26,7 +23,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -36,6 +32,8 @@ mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
+
+use crate::arrays::varbin::compute::rules::PARENT_RULES;
 
 vtable!(VarBin);
 
@@ -130,16 +128,12 @@ impl VTable for VarBinVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(unsafe {
-            VarBinArray::new_unchecked(
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.bytes().clone(),
-                array.dtype().clone(),
-                array.validity().slice(range)?,
-            )
-            .into_array()
-        }))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {

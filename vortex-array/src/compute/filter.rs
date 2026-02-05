@@ -215,6 +215,7 @@ pub trait FilterKernel: VTable {
     /// Additionally, the array length is guaranteed to have the same length as the selection mask.
     ///
     /// Finally, the array validity mask is guaranteed not to have a true count of 0 (all nulls).
+    // TODO(joe): add execution context
     fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef>;
 }
 

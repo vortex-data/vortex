@@ -159,9 +159,9 @@ impl<'a> ValueRef<'a> {
 
 impl<'a> Debug for ValueRef<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
-        write!(f, "{}", unsafe { CStr::from_ptr(debug).to_string_lossy() })?;
-        unsafe { cpp::duckdb_free(debug.cast()) };
+        let ptr = unsafe { cpp::duckdb_value_to_string(self.as_ptr()) };
+        write!(f, "{}", unsafe { CStr::from_ptr(ptr).to_string_lossy() })?;
+        unsafe { cpp::duckdb_free(ptr.cast()) };
         Ok(())
     }
 }
@@ -248,11 +248,10 @@ impl Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let debug = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
-        let str = unsafe { CStr::from_ptr(debug) }
-            .to_string_lossy()
-            .to_string();
-        f.write_str(&str)?;
+        let ptr = unsafe { cpp::duckdb_vx_value_to_string(self.as_ptr()) };
+        write!(f, "{}", unsafe { CStr::from_ptr(ptr) }.to_string_lossy())?;
+        unsafe { cpp::duckdb_free(ptr.cast()) };
+
         Ok(())
     }
 }
@@ -264,7 +263,7 @@ pub fn i128_from_parts(high: i64, low: u64) -> i128 {
 
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.to_string())
+        write!(f, "{self}",)
     }
 }
 
