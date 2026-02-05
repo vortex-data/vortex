@@ -100,9 +100,9 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone().try_to_host_sync()?;
+        let bytes = buffers[0].clone();
 
-        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+        VarBinArray::try_new_from_handle(offsets, bytes, dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

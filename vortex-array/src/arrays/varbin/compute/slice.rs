@@ -20,9 +20,9 @@ impl SliceReduce for VarBinVTable {
 impl VarBinVTable {
     pub fn _slice(array: &VarBinArray, range: Range<usize>) -> VortexResult<ArrayRef> {
         Ok(unsafe {
-            VarBinArray::new_unchecked(
+            VarBinArray::new_unchecked_from_handle(
                 array.offsets().slice(range.start..range.end + 1)?,
-                array.bytes().clone(),
+                array.bytes_handle().clone(),
                 array.dtype().clone(),
                 array.validity()?.slice(range)?,
             )
