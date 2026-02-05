@@ -231,24 +231,10 @@ mod test {
 
     use crate::IntoArray;
     use crate::array::Array;
-    use crate::arrays::ChunkedVTable;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
-    use crate::compute::sub_scalar;
     use crate::validity::Validity;
-
-    fn chunked_array() -> ChunkedArray {
-        ChunkedArray::try_new(
-            vec![
-                buffer![1u64, 2, 3].into_array(),
-                buffer![4u64, 5, 6].into_array(),
-                buffer![7u64, 8, 9].into_array(),
-            ],
-            DType::Primitive(PType::U64, Nullability::NonNullable),
-        )
-        .unwrap()
-    }
 
     #[test]
     fn test_rechunk_one_chunk() {
