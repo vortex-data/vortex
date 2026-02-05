@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-#![allow(clippy::expect_used)]
-#![allow(clippy::unwrap_in_result)]
-
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -34,11 +31,14 @@ impl Histogram {
 
     /// Returns the estimated quantile value, which must be in the [0.0, 1.0] range, will panic otherwise.
     /// Returns `None` if the histogram is empty.
+    #[allow(clippy::expect_used)]
+    #[allow(clippy::unwrap_in_result)]
     pub fn quantile(&self, quantile: f64) -> Option<f64> {
         assert!(
             (0.0..=1.0).contains(&quantile),
             "quantile must be between 0.0 and 1.0"
         );
+
         self.0
             .read()
             .quantile(quantile)

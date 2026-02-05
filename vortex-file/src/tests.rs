@@ -1664,7 +1664,6 @@ mod cuda_tests {
     use vortex_io::session::RuntimeSessionExt;
     use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     use vortex_layout::session::LayoutSession;
-    use vortex_metrics::VortexMetrics;
     use vortex_session::VortexSession;
 
     use crate::OpenOptionsSessionExt;
@@ -1672,7 +1671,6 @@ mod cuda_tests {
 
     static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
         let mut session = VortexSession::empty()
-            .with::<VortexMetrics>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ExprSession>()
