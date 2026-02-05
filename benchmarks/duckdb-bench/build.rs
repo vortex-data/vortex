@@ -19,7 +19,6 @@
 /// The dynamic DuckDB library is preferred over the static version, as DuckDB's
 /// static lib is not self-contained. This means that it includes symbols which
 /// are not defined as part of the static library.
-
 fn main() {
     // Propagate DuckDB rpath from vortex-duckdb
     let duckdb_lib = std::env::var("DEP_DUCKDB_LIB_DIR").unwrap();

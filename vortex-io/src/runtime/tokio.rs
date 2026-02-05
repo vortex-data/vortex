@@ -85,7 +85,7 @@ impl Executor for tokio::runtime::Handle {
         }
         #[cfg(not(unix))]
         {
-            Box::new(tokio::runtime::Handle::spawn_blocking(task)).abort_handle()
+            Box::new(tokio::runtime::Handle::spawn_blocking(self, task).abort_handle())
         }
     }
 }
