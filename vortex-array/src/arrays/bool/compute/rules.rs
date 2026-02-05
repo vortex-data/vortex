@@ -9,12 +9,15 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const RULES: ParentRuleSet<BoolVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&BoolMaskedValidityRule)]);
+pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&BoolMaskedValidityRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(BoolVTable)),
+]);
 
 /// Rule to push down validity masking from MaskedArray parent into BoolArray child.
 ///

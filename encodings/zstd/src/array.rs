@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 use std::sync::Arc;
 
 use itertools::Itertools as _;
@@ -176,8 +175,12 @@ impl VTable for ZstdVTable {
         array.decompress()?.execute(ctx)
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 

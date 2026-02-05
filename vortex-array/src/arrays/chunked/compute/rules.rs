@@ -16,7 +16,7 @@ use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
 ]);

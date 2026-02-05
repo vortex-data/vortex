@@ -8,10 +8,10 @@ use fastlanes::BitPacking;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::arrays::FilterArray;
-use vortex_array::arrays::FilterVTable;
+use vortex_array::arrays::FilterExecuteAdaptor;
+use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::kernel::ExecuteParentKernel;
+use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -29,11 +29,10 @@ use crate::BitPackedArray;
 use crate::BitPackedVTable;
 use crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD;
 use crate::bitpacking::vtable::kernels::chunked_indices;
-use crate::bitpacking::vtable::kernels::slice::BitPackingSliceKernel;
 
 pub(crate) const PARENT_KERNELS: ParentKernelSet<BitPackedVTable> = ParentKernelSet::new(&[
-    ParentKernelSet::lift(&BitPackingFilterKernel),
-    ParentKernelSet::lift(&BitPackingSliceKernel),
+    ParentKernelSet::lift(&FilterExecuteAdaptor(BitPackedVTable)),
+    ParentKernelSet::lift(&SliceExecuteAdaptor(BitPackedVTable)),
 ]);
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
@@ -52,20 +51,13 @@ pub const fn unpack_then_filter_threshold(ptype: PType) -> f64 {
 }
 
 /// Kernel to execute filtering directly on a bit-packed array.
-#[derive(Debug)]
-struct BitPackingFilterKernel;
-
-impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
-    type Parent = FilterVTable;
-
-    fn execute_parent(
-        &self,
+impl FilterKernel for BitPackedVTable {
+    fn filter(
         array: &BitPackedArray,
-        parent: &FilterArray,
-        _child_idx: usize,
+        mask: &Mask,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let values = match parent.filter_mask() {
+        let values = match mask {
             Mask::AllTrue(_) | Mask::AllFalse(_) => {
                 return Ok(None);
             }
@@ -82,7 +74,7 @@ impl ExecuteParentKernel<BitPackedVTable> for BitPackingFilterKernel {
         let mut primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
             let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
 
-            let validity = Validity::from_mask(validity, parent.dtype().nullability());
+            let validity = Validity::from_mask(validity, array.dtype().nullability());
             // reinterpret_cast for signed types.
             PrimitiveArray::new(buffer, validity).reinterpret_cast(array.ptype())
         });

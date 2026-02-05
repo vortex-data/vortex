@@ -4,7 +4,6 @@
 use std::cmp;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use pco::ChunkConfig;
 use pco::PagingSpec;
@@ -172,12 +171,16 @@ impl VTable for PcoVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(array._slice(range.start, range.end).into_array()))
-    }
-
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.decompress()?.into_array())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 }
 

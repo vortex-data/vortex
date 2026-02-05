@@ -4,8 +4,8 @@
 mod filter;
 
 use crate::arrays::ListVTable;
-use crate::arrays::list::vtable::kernel::filter::ListFilterKernel;
+use crate::arrays::list::compute::kernel::filter::ListFilterKernel;
 use crate::kernel::ParentKernelSet;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<ListVTable> =
+pub(crate) const PARENT_KERNELS: ParentKernelSet<ListVTable> =
     ParentKernelSet::new(&[ParentKernelSet::lift(&ListFilterKernel)]);

@@ -3,6 +3,7 @@
 
 mod compute;
 mod rules;
+mod slice;
 
 use std::hash::Hash;
 use std::ops::Range;
@@ -127,14 +128,6 @@ impl VTable for DecimalBytePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        // SAFETY: slicing encoded MSP does not change the encoded values
-        Ok(Some(unsafe {
-            DecimalBytePartsArray::new_unchecked(array.msp.slice(range)?, *array.decimal_dtype())
-                .into_array()
-        }))
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {

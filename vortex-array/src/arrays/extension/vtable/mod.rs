@@ -4,11 +4,8 @@
 mod array;
 mod canonical;
 mod operations;
-mod rules;
 mod validity;
 mod visitor;
-
-use std::ops::Range;
 
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -19,9 +16,8 @@ use vortex_error::vortex_ensure;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::arrays::extension::ExtensionArray;
-use crate::arrays::extension::vtable::rules::PARENT_RULES;
+use crate::arrays::extension::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::vtable;
@@ -99,13 +95,6 @@ impl VTable for ExtensionVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ExtensionArray::new(array.ext_dtype().clone(), array.storage().slice(range)?)
-                .into_array(),
-        ))
     }
 }
 

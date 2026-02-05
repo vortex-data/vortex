@@ -11,6 +11,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayExt;
 use crate::arrays::ScalarFnArrayView;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::builtins::ArrayBuiltins;
@@ -23,9 +24,10 @@ use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-pub(super) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
+pub(crate) const PARENT_RULES: ParentRuleSet<StructVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&StructCastPushDownRule),
     ParentRuleSet::lift(&StructGetItemRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(StructVTable)),
 ]);
 
 /// Rule to push down cast into struct fields.

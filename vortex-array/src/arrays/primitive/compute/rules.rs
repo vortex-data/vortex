@@ -10,12 +10,15 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) const RULES: ParentRuleSet<PrimitiveVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&PrimitiveMaskedValidityRule)]);
+pub(crate) const RULES: ParentRuleSet<PrimitiveVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&PrimitiveMaskedValidityRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(PrimitiveVTable)),
+]);
 
 /// Rule to push down validity masking from MaskedArray parent into PrimitiveArray child.
 ///

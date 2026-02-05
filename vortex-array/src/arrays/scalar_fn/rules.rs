@@ -20,6 +20,7 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
@@ -38,8 +39,10 @@ pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnAbstractReduceRule,
 ]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ScalarFnVTable)),
+]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]

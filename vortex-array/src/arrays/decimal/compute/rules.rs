@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::ops::Range;
+
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexResult;
 
@@ -10,12 +12,16 @@ use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
+use crate::arrays::SliceReduce;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-pub(super) static RULES: ParentRuleSet<DecimalVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&DecimalMaskedValidityRule)]);
+pub(crate) static RULES: ParentRuleSet<DecimalVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&DecimalMaskedValidityRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DecimalVTable)),
+]);
 
 /// Rule to push down validity masking from MaskedArray parent into DecimalArray child.
 ///
@@ -49,5 +55,18 @@ impl ArrayParentReduceRule<DecimalVTable> for DecimalMaskedValidityRule {
         });
 
         Ok(Some(masked_array))
+    }
+}
+
+impl SliceReduce for DecimalVTable {
+    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
+        let result = match_each_decimal_value_type!(array.values_type(), |D| {
+            let sliced = array.buffer::<D>().slice(range.clone());
+            let validity = array.validity().clone().slice(range)?;
+            // SAFETY: Slicing preserves all DecimalArray invariants
+            unsafe { DecimalArray::new_unchecked(sliced, array.decimal_dtype(), validity) }
+                .into_array()
+        });
+        Ok(Some(result))
     }
 }

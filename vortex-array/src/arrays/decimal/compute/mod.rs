@@ -7,6 +7,7 @@ mod fill_null;
 mod is_constant;
 mod is_sorted;
 mod min_max;
+pub mod rules;
 mod sum;
 mod take;
 

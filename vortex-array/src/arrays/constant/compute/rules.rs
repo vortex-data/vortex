@@ -9,11 +9,14 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ConstantVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ConstantFilterRule)]);
+pub(crate) const PARENT_RULES: ParentRuleSet<ConstantVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ConstantFilterRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ConstantVTable)),
+]);
 
 #[derive(Debug)]
 struct ConstantFilterRule;

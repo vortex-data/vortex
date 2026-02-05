@@ -3,6 +3,8 @@
 
 mod array;
 mod compute;
+mod rules;
+mod slice;
 #[cfg(test)]
 mod test;
 

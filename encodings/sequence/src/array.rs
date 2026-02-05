@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
@@ -49,6 +48,7 @@ use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
 use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 
 vtable!(Sequence);
 
@@ -336,24 +336,11 @@ impl VTable for SequenceVTable {
     }
 
     fn reduce_parent(
-        _array: &SequenceArray,
-        _parent: &ArrayRef,
-        _child_idx: usize,
+        array: &SequenceArray,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            SequenceArray::unchecked_new(
-                array.index_value(range.start),
-                array.multiplier,
-                array.ptype(),
-                array.dtype().nullability(),
-                range.len(),
-            )
-            .to_array(),
-        ))
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

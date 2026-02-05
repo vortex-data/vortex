@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -38,6 +37,7 @@ use vortex_scalar::Scalar;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
+use crate::rules::RULES;
 use crate::zigzag_decode;
 
 vtable!(ZigZag);
@@ -97,14 +97,16 @@ impl VTable for ZigZagVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ZigZagArray::new(array.encoded().slice(range)?).into_array(),
-        ))
-    }
-
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(zigzag_decode(array.encoded().clone().execute(ctx)?).into_array())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 

@@ -10,11 +10,14 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
-pub(super) const PARENT_RULES: ParentRuleSet<ExtensionVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ExtensionFilterPushDownRule)]);
+pub(crate) const PARENT_RULES: ParentRuleSet<ExtensionVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ExtensionFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ExtensionVTable)),
+]);
 
 /// Push filter operations into the storage array of an extension array.
 #[derive(Debug)]

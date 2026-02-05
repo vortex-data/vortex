@@ -3,7 +3,6 @@
 
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::Range;
 
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
@@ -12,7 +11,6 @@ use vortex_array::ArrayHash;
 use vortex_array::ArrayRef;
 use vortex_array::EmptyMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::arrays::BoolArray;
 use vortex_array::buffer::BufferHandle;
@@ -108,14 +106,12 @@ impl VTable for ByteBoolVTable {
         Ok(())
     }
 
-    fn slice(array: &ByteBoolArray, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            ByteBoolArray::new(
-                array.buffer().slice(range.clone()),
-                array.validity().slice(range)?,
-            )
-            .into_array(),
-        ))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {

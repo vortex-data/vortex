@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -14,7 +12,6 @@ use vortex_error::vortex_err;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -25,7 +22,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
@@ -35,6 +31,8 @@ mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
+
+use crate::arrays::varbin::compute::rules::PARENT_RULES;
 
 vtable!(VarBin);
 
@@ -101,9 +99,9 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone().try_to_host_sync()?;
+        let bytes = buffers[0].clone();
 
-        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
+        VarBinArray::try_new_from_handle(offsets, bytes, dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -129,16 +127,12 @@ impl VTable for VarBinVTable {
         Ok(())
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(unsafe {
-            VarBinArray::new_unchecked(
-                array.offsets().slice(range.start..range.end + 1)?,
-                array.bytes().clone(),
-                array.dtype().clone(),
-                array.validity().slice(range)?,
-            )
-            .into_array()
-        }))
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
