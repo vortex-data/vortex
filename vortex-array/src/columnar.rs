@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::env::VarError;
+use std::sync::LazyLock;
+
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
 use crate::AnyCanonical;
@@ -75,7 +79,18 @@ impl IntoArray for Columnar {
 /// don't expect to ever reach this limit.
 impl Executable for Columnar {
     fn execute(mut array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
-        for _ in 0..128 {
+        static MAX_ITERATIONS: LazyLock<usize> =
+            LazyLock::new(|| match std::env::var("VORTEX_MAX_ITERATIONS") {
+                Ok(val) => val.parse::<usize>().unwrap_or_else(|e| {
+                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid usize: {e}")
+                }),
+                Err(VarError::NotPresent) => 128,
+                Err(VarError::NotUnicode(_)) => {
+                    vortex_panic!("VORTEX_MAX_ITERATIONS is not a valid unicode string")
+                }
+            });
+
+        for _ in 0..*MAX_ITERATIONS {
             // Check for termination conditions
             if let Some(constant) = array.as_opt::<ConstantVTable>() {
                 ctx.log(format_args!("-> constant({})", constant.scalar()));

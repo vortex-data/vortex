@@ -189,8 +189,7 @@ impl Executable for ArrayRef {
         }
 
         // 4. execute (optimized execution)
-        // TODO(ngates): move over to calling Array::execute
-        ctx.log(format_args!("canonicalize {}", array));
+        ctx.log(format_args!("executing {}", array));
         let array = array
             .vtable()
             .execute(&array, ctx)
