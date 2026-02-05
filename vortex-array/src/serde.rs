@@ -269,7 +269,7 @@ pub trait ArrayChildren {
     }
 }
 
-impl ArrayChildren for Vec<ArrayRef> {
+impl ArrayChildren for &[ArrayRef] {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
         let array = self[index].clone();
         assert_eq!(array.len(), len);
@@ -278,7 +278,7 @@ impl ArrayChildren for Vec<ArrayRef> {
     }
 
     fn len(&self) -> usize {
-        self.len()
+        <[_]>::len(self)
     }
 }
 

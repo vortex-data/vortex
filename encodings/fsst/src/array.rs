@@ -536,11 +536,11 @@ mod test {
     /// deserialized.
     #[test]
     fn test_back_compat() {
-        let symbols = Buffer::<Symbol>::copy_from(&[
+        let symbols = Buffer::<Symbol>::copy_from([
             Symbol::from_slice(b"abc00000"),
             Symbol::from_slice(b"defghijk"),
         ]);
-        let symbol_lengths = Buffer::<u8>::copy_from(&[3, 8]);
+        let symbol_lengths = Buffer::<u8>::copy_from([3, 8]);
 
         let compressor = Compressor::rebuild_from(symbols.as_slice(), symbol_lengths.as_slice());
         let fsst_array = fsst_compress_iter(
@@ -581,7 +581,7 @@ mod test {
                 codes_offsets_ptype: 0,
             }),
             &buffers,
-            &children,
+            &children.as_slice(),
         )
         .unwrap();
 
