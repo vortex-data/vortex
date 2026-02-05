@@ -28,3 +28,14 @@ internals/duckdb
 internals/spark
 internals/trino
 ```
+
+```{toctree}
+---
+maxdepth: 2
+caption: Integrations
+---
+
+integrations/datafusion
+integrations/duckdb
+integrations/spark
+```
