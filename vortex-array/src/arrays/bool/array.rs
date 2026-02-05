@@ -219,14 +219,14 @@ impl BoolArray {
 
     /// Returns the underlying [`BitBuffer`] of the array.
     pub fn to_bit_buffer(&self) -> BitBuffer {
-        self.clone().into_bit_buffer()
+        let buffer = self.bits.as_host().clone();
+
+        BitBuffer::new_with_offset(buffer, self.len, self.offset)
     }
 
     /// Returns the underlying [`BitBuffer`] of the array
     pub fn into_bit_buffer(self) -> BitBuffer {
-        let buffer = self.bits.as_host().clone();
-
-        BitBuffer::new_with_offset(buffer, self.len, self.offset)
+        self.to_bit_buffer()
     }
 
     pub fn to_mask(&self) -> Mask {

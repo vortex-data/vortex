@@ -156,13 +156,8 @@ impl DictArray {
     /// This is primarily useful for testing and debugging.
     pub fn validate_all_values_referenced(&self) -> VortexResult<()> {
         if self.all_values_referenced {
-            // Skip host-only validation when buffers are on the GPU.
-            let codes_on_device = self
-                .codes()
-                .buffer_handles()
-                .iter()
-                .any(|h| h.is_on_device());
-            if codes_on_device {
+            // Skip host-only validation when codes are not host-resident.
+            if !self.codes().is_host() {
                 return Ok(());
             }
 
