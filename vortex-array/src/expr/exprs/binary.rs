@@ -509,11 +509,13 @@ where
         }
 
         if !exprs.len().is_multiple_of(2) {
-            exprs[exprs_len / 2] = exprs[exprs.len() - 1].clone();
-            exprs.truncate(exprs_len.div_ceil(2));
-        } else {
-            exprs.truncate(exprs_len.div_ceil(2));
+            // We want the odd nodes to be inside the tree and not at root
+            let lhs = exprs[(exprs.len() / 2) - 1].clone();
+            let rhs = exprs[exprs.len() - 1].clone();
+            exprs[exprs_len / 2 - 1] = combine(lhs, rhs);
         }
+
+        exprs.truncate(exprs_len / 2);
     }
 
     exprs.pop()
@@ -560,37 +562,54 @@ mod tests {
 
     #[test]
     fn and_collect_balanced() {
-        // 3 elements: and(and(1, 2), 3)
-        let values = vec![lit(1), lit(2), lit(3)];
-        assert_eq!(
-            Some(and(and(lit(1), lit(2)), lit(3))),
-            and_collect(values.into_iter())
-        );
+        let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];
+
+        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
+        vortex.binary(and)
+        ├── lhs: vortex.binary(and)
+        │   ├── lhs: vortex.literal(1i32)
+        │   └── rhs: vortex.literal(2i32)
+        └── rhs: vortex.binary(and)
+            ├── lhs: vortex.binary(and)
+            │   ├── lhs: vortex.literal(3i32)
+            │   └── rhs: vortex.literal(4i32)
+            └── rhs: vortex.literal(5i32)
+        ");
 
         // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
-        assert_eq!(
-            Some(and(and(lit(1), lit(2)), and(lit(3), lit(4)))),
-            and_collect(values.into_iter())
-        );
+        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
+        vortex.binary(and)
+        ├── lhs: vortex.binary(and)
+        │   ├── lhs: vortex.literal(1i32)
+        │   └── rhs: vortex.literal(2i32)
+        └── rhs: vortex.binary(and)
+            ├── lhs: vortex.literal(3i32)
+            └── rhs: vortex.literal(4i32)
+        ");
 
         // 1 element: just the element
         let values = vec![lit(1)];
-        assert_eq!(Some(lit(1)), and_collect(values.into_iter()));
+        insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @"vortex.literal(1i32)");
 
         // 0 elements: None
         let values: Vec<Expression> = vec![];
-        assert_eq!(None, and_collect(values.into_iter()));
+        assert!(and_collect(values.into_iter()).is_none());
     }
 
     #[test]
     fn or_collect_balanced() {
         // 4 elements: or(or(1, 2), or(3, 4)) - perfectly balanced
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
-        assert_eq!(
-            Some(or(or(lit(1), lit(2)), or(lit(3), lit(4)))),
-            or_collect(values.into_iter())
-        );
+        insta::assert_snapshot!(or_collect(values.into_iter()).unwrap().display_tree(), @r"
+        vortex.binary(or)
+        ├── lhs: vortex.binary(or)
+        │   ├── lhs: vortex.literal(1i32)
+        │   └── rhs: vortex.literal(2i32)
+        └── rhs: vortex.binary(or)
+            ├── lhs: vortex.literal(3i32)
+            └── rhs: vortex.literal(4i32)
+        ");
     }
 
     #[test]
