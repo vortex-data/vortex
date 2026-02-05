@@ -133,6 +133,7 @@ impl BitBufferMut {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new `BitBufferMut`
+    #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, mut f: F) -> Self {
         let mut buffer = BufferMut::with_capacity(len.div_ceil(64) * 8);
 
