@@ -16,7 +16,6 @@ use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
 use vortex_session::VortexSession;
-use vortex_vector::match_each_dvector_mut;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::expr;
