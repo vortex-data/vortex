@@ -182,7 +182,7 @@ impl VTable for FSSTVTable {
             let codes_offsets = children.get(
                 1,
                 &DType::Primitive(
-                    metadata.codes_offsets_ptype.into(),
+                    PType::try_from(metadata.codes_offsets_ptype)?,
                     Nullability::NonNullable,
                 ),
                 // VarBin offsets are len + 1
