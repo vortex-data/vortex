@@ -21,9 +21,10 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
 
+use super::chunked_indices;
+use super::take::UNPACK_CHUNK_THRESHOLD;
 use crate::BitPackedArray;
 use crate::BitPackedVTable;
-use crate::bitpacking::compute::chunked_indices;
 
 /// The threshold over which it is faster to fully unpack the entire [`BitPackedArray`] and then
 /// filter the result than to unpack only specific bitpacked values into the output buffer.
@@ -63,8 +64,6 @@ impl FilterKernel for BitPackedVTable {
         // Filter and patch using the correct unsigned type for FastLanes, then cast to signed if needed.
         let mut primitive = match_each_unsigned_integer_ptype!(array.ptype().to_unsigned(), |U| {
             let (buffer, validity) = filter_primitive_without_patches::<U>(array, values)?;
-
-            let validity = Validity::from_mask(validity, array.dtype().nullability());
             // reinterpret_cast for signed types.
             PrimitiveArray::new(buffer, validity).reinterpret_cast(array.ptype())
         });
@@ -97,20 +96,13 @@ impl FilterKernel for BitPackedVTable {
 fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: &BitPackedArray,
     selection: &Arc<MaskValues>,
-) -> VortexResult<(Buffer<U>, Mask)> {
+) -> VortexResult<(Buffer<U>, Validity)> {
     let values = filter_with_indices(array, selection.indices());
     let validity = array
-        .validity_mask()?
-        .filter(&Mask::Values(selection.clone()))
-        .into_mut();
+        .validity()
+        .filter(&Mask::Values(selection.clone()))?;
 
-    debug_assert_eq!(
-        values.len(),
-        validity.len(),
-        "`filter_with_indices` was somehow incorrect"
-    );
-
-    Ok((values.freeze(), validity.freeze()))
+    Ok((values.freeze(), validity))
 }
 
 fn filter_with_indices<T: NativePType + BitPacking>(
