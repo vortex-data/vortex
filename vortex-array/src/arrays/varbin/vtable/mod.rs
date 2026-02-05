@@ -10,9 +10,9 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
@@ -21,6 +21,7 @@ use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
+use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
@@ -52,6 +53,7 @@ impl VTable for VarBinVTable {
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
+    type ComputeVTable = NotSupported;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -99,9 +101,9 @@ impl VTable for VarBinVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let bytes = buffers[0].clone();
+        let bytes = buffers[0].clone().try_to_host_sync()?;
 
-        VarBinArray::try_new_from_handle(offsets, bytes, dtype.clone(), validity)
+        VarBinArray::try_new(offsets, bytes, dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -144,8 +146,8 @@ impl VTable for VarBinVTable {
         kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(varbin_to_canonical(array, ctx)?.into_array())
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        varbin_to_canonical(array, ctx)
     }
 }
 

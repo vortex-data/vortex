@@ -31,6 +31,7 @@ use crate::vtable::VTable;
 
 mod array;
 mod canonical;
+mod compute;
 mod operations;
 mod validity;
 mod visitor;
@@ -53,6 +54,7 @@ impl VTable for ChunkedVTable {
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
+    type ComputeVTable = Self;
 
     fn id(_array: &Self::Array) -> ArrayId {
         Self::ID
@@ -167,8 +169,8 @@ impl VTable for ChunkedVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(_canonicalize(array, ctx)?.into_array())
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        _canonicalize(array, ctx)
     }
 
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {

@@ -168,6 +168,14 @@ impl VTable for ALPVTable {
         Ok(execute_decompress(array.clone(), ctx)?.into_array())
     }
 
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::alp::rules::PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,

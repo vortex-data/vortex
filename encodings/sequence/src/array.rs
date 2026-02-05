@@ -9,7 +9,6 @@ use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
