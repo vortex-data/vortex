@@ -99,7 +99,7 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
 ) -> VortexResult<(Buffer<U>, Validity)> {
     let values = filter_with_indices(array, selection.indices());
     let validity = array
-        .validity()
+        .validity()?
         .filter(&Mask::Values(selection.clone()))?;
 
     Ok((values.freeze(), validity))
@@ -120,7 +120,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
     // Group the indices by the FastLanes chunk they belong to.
     let chunk_size = 128 * bit_width / size_of::<T>();
 
-    chunked_indices(indices, offset, |chunk_idx, indices_within_chunk| {
+    chunked_indices(indices.iter().copied(), offset, |chunk_idx, indices_within_chunk| {
         let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
 
         if indices_within_chunk.len() == 1024 {
@@ -134,9 +134,7 @@ fn filter_with_indices<T: NativePType + BitPacking>(
                     &mut values.as_mut_slice()[values_len..],
                 );
             }
-        } else if indices_within_chunk.len()
-            > crate::bitpacking::vtable::kernels::UNPACK_CHUNK_THRESHOLD
-        {
+        } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
             // Unpack into a temporary chunk and then copy the values.
             unsafe {
                 let dst: &mut [MaybeUninit<T>] = &mut unpacked;
