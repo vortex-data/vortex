@@ -537,6 +537,19 @@ jobs:
             --no-fail-fast \
             --target x86_64-unknown-linux-gnu \
             --verbose
+      - name: CUDA Sanitizers
+        run: |
+          for TEST_BIN in $(cargo test -p vortex-cuda --no-run --message-format=json | grep -oP '"executable":"\K[^"]*'); do
+            echo "Running sanitizers on: $TEST_BIN"
+            compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1 "$TEST_BIN"
+            echo "\n\n"
+            compute-sanitizer --tool racecheck --error-exitcode 1 "$TEST_BIN"
+            echo "\n\n"
+            compute-sanitizer --tool synccheck --error-exitcode 1 "$TEST_BIN"
+            echo "\n\n"
+            compute-sanitizer --tool initcheck --error-exitcode 1 "$TEST_BIN"
+            echo "\n\n"
+          done
 
   rust-test-other:
     name: "Rust tests (${{ matrix.os }})"
