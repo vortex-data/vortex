@@ -118,6 +118,8 @@ bibtex_bibfiles = ["references.bib"]
 
 _doxygen_xml_dir = str(Path(__file__).parent / "_build" / "doxygen-cpp" / "xml")
 
+os.makedirs(os.path.dirname(_doxygen_xml_dir), exist_ok=True)
+
 if not shutil.which("doxygen"):
     raise RuntimeError("doxygen is required to build the docs but was not found on PATH")
 subprocess.run(["doxygen", "Doxyfile.cpp"], cwd=Path(__file__).parent, check=True)
