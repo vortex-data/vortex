@@ -34,6 +34,7 @@ vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-cub = { path = "cub" }
 vortex-cuda-macros = { workspace = true }
+vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-error = { workspace = true }
@@ -80,4 +81,8 @@ harness = false
 
 [[bench]]
 name = "runend_cuda"
+harness = false
+
+[[bench]]
+name = "date_time_parts_cuda"
 harness = false
