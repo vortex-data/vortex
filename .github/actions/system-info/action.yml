@@ -1,0 +1,31 @@
+name: "System Info"
+description: "Print CPU, memory, and disk information for benchmark runners"
+
+runs:
+  using: "composite"
+  steps:
+    - name: CPU, Memory & Disk Info
+      shell: bash
+      run: |
+        echo "=== CPU Model ==="
+        lscpu
+        echo "=== /proc/cpuinfo summary ==="
+        grep -m1 "model name" /proc/cpuinfo
+        nproc
+        echo "=== CPU Flags ==="
+        grep -m1 "flags" /proc/cpuinfo
+
+        echo "=== Memory ==="
+        free -h
+        echo "=== /proc/meminfo ==="
+        cat /proc/meminfo
+
+        echo "=== Block Devices ==="
+        lsblk
+        echo "=== Disk Usage ==="
+        df -hT
+        echo "=== Mounts ==="
+        mount | grep -E "^/dev"
+        echo "=== NVMe Devices ==="
+        ls -la /dev/nvme* 2>/dev/null || echo "No NVMe"
+        sudo nvme list 2>/dev/null || true
