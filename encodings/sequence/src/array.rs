@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::hash::Hash;
-use std::ops::Range;
 
 use num_traits::cast::FromPrimitive;
 use vortex_array::ArrayBufferVisitor;
@@ -11,6 +10,7 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
 use vortex_array::Precision;
 use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
@@ -21,14 +21,9 @@ use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
 use vortex_array::validity::Validity;
-use vortex_array::vectors::VectorIntoArray;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
-use vortex_array::vtable::ArrayVTable;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::BaseArrayVTable;
-use vortex_array::vtable::CanonicalVTable;
-use vortex_array::vtable::EncodeVTable;
 use vortex_array::vtable::NotSupported;
 use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
@@ -48,15 +43,12 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::AllOr;
-use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
-use vortex_vector::VectorMut;
-use vortex_vector::VectorMutOps;
-use vortex_vector::primitive::PVector;
 
 use crate::kernel::PARENT_KERNELS;
+use crate::rules::RULES;
 
 vtable!(Sequence);
 
@@ -68,13 +60,22 @@ pub struct SequenceMetadata {
     multiplier: Option<vortex_proto::scalar::ScalarValue>,
 }
 
+/// Components of [`SequenceArray`].
+pub struct SequenceArrayParts {
+    pub base: PValue,
+    pub multiplier: PValue,
+    pub len: usize,
+    pub ptype: PType,
+    pub nullability: Nullability,
+}
+
 #[derive(Clone, Debug)]
 /// An array representing the equation `A[i] = base + i * multiplier`.
 pub struct SequenceArray {
     base: PValue,
     multiplier: PValue,
     dtype: DType,
-    pub(crate) length: usize,
+    pub(crate) len: usize,
     stats_set: ArrayStats,
 }
 
@@ -133,7 +134,7 @@ impl SequenceArray {
             base,
             multiplier,
             dtype,
-            length,
+            len: length,
             // TODO(joe): add stats, on construct or on use?
             stats_set: Default::default(),
         }
@@ -173,7 +174,7 @@ impl SequenceArray {
     }
 
     pub(crate) fn index_value(&self, idx: usize) -> PValue {
-        assert!(idx < self.length, "index_value({idx}): index out of bounds");
+        assert!(idx < self.len, "index_value({idx}): index out of bounds");
 
         match_each_native_ptype!(self.ptype(), |P| {
             let base = self.base.cast::<P>();
@@ -186,8 +187,18 @@ impl SequenceArray {
 
     /// Returns the validated final value of a sequence array
     pub fn last(&self) -> PValue {
-        Self::try_last(self.base, self.multiplier, self.ptype(), self.length)
+        Self::try_last(self.base, self.multiplier, self.ptype(), self.len)
             .vortex_expect("validated array")
+    }
+
+    pub fn into_parts(self) -> SequenceArrayParts {
+        SequenceArrayParts {
+            base: self.base,
+            multiplier: self.multiplier,
+            len: self.len,
+            ptype: self.dtype.as_ptype(),
+            nullability: self.dtype.nullability(),
+        }
     }
 }
 
@@ -197,19 +208,13 @@ impl VTable for SequenceVTable {
     type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.sequence")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        SequenceVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &SequenceArray) -> VortexResult<Self::Metadata> {
@@ -230,7 +235,6 @@ impl VTable for SequenceVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -284,15 +288,26 @@ impl VTable for SequenceVTable {
         Ok(())
     }
 
-    // TODO(joe): impl execute without to_canonical
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let prim = match_each_native_ptype!(array.ptype(), |P| {
+            let base = array.base().cast::<P>();
+            let multiplier = array.multiplier().cast::<P>();
+            let values = BufferMut::from_iter(
+                (0..array.len())
+                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
+            );
+            PrimitiveArray::new(values, array.dtype.nullability().into())
+        });
 
-    // TODO(joe): remove via vector.
+        Ok(Canonical::Primitive(prim))
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
         child_idx: usize,
         ctx: &mut ExecutionCtx,
-    ) -> VortexResult<Option<Canonical>> {
+    ) -> VortexResult<Option<ArrayRef>> {
         // Try parent kernels first (e.g., comparison fusion)
         if let Some(result) = PARENT_KERNELS.execute(array, parent, child_idx, ctx)? {
             return Ok(Some(result));
@@ -305,35 +320,27 @@ impl VTable for SequenceVTable {
 
         match filter.filter_mask().indices() {
             AllOr::All => Ok(None),
-            AllOr::None => Ok(Some(VectorMut::with_capacity(array.dtype(), 0).freeze())),
+            AllOr::None => Ok(Some(Canonical::empty(array.dtype()).into_array())),
             AllOr::Some(indices) => Ok(Some(match_each_native_ptype!(array.ptype(), |P| {
                 let base = array.base().cast::<P>();
                 let multiplier = array.multiplier().cast::<P>();
-                execute_iter(base, multiplier, indices.iter().copied(), indices.len()).into()
+                execute_iter(
+                    base,
+                    multiplier,
+                    indices.iter().copied(),
+                    array.dtype().nullability(),
+                )
+                .into_array()
             }))),
         }
-        .map(|a| a.map(|a| a.into_array(array.dtype())))
     }
 
     fn reduce_parent(
-        _array: &SequenceArray,
-        _parent: &ArrayRef,
-        _child_idx: usize,
+        array: &SequenceArray,
+        parent: &ArrayRef,
+        child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        Ok(None)
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        Ok(Some(
-            SequenceArray::unchecked_new(
-                array.index_value(range.start),
-                array.multiplier,
-                array.ptype(),
-                array.dtype().nullability(),
-                range.len(),
-            )
-            .to_array(),
-        ))
+        RULES.evaluate(array, parent, child_idx)
     }
 }
 
@@ -341,8 +348,8 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
     base: P,
     multiplier: P,
     iter: I,
-    len: usize,
-) -> PVector<P> {
+    nullability: Nullability,
+) -> PrimitiveArray {
     let values = if multiplier == <P>::one() {
         BufferMut::from_iter(iter.map(|i| base + <P>::from_usize(i).vortex_expect("must fit")))
     } else {
@@ -351,12 +358,12 @@ fn execute_iter<P: NativePType, I: Iterator<Item = usize>>(
         )
     };
 
-    PVector::<P>::new(values.freeze(), Mask::new_true(len))
+    PrimitiveArray::new(values, nullability.into())
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
     fn len(array: &SequenceArray) -> usize {
-        array.length
+        array.len
     }
 
     fn dtype(array: &SequenceArray) -> &DType {
@@ -375,61 +382,29 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
         array.base.hash(state);
         array.multiplier.hash(state);
         array.dtype.hash(state);
-        array.length.hash(state);
+        array.len.hash(state);
     }
 
     fn array_eq(array: &SequenceArray, other: &SequenceArray, _precision: Precision) -> bool {
         array.base == other.base
             && array.multiplier == other.multiplier
             && array.dtype == other.dtype
-            && array.length == other.length
-    }
-}
-
-impl CanonicalVTable<SequenceVTable> for SequenceVTable {
-    fn canonicalize(array: &SequenceArray) -> VortexResult<Canonical> {
-        let prim = match_each_native_ptype!(array.ptype(), |P| {
-            let base = array.base().cast::<P>();
-            let multiplier = array.multiplier().cast::<P>();
-            let values = BufferMut::from_iter(
-                (0..array.len())
-                    .map(|i| base + <P>::from_usize(i).vortex_expect("must fit") * multiplier),
-            );
-            PrimitiveArray::new(values, array.dtype.nullability().into())
-        });
-
-        Ok(Canonical::Primitive(prim))
+            && array.len == other.len
     }
 }
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn scalar_at(array: &SequenceArray, index: usize) -> Scalar {
-        Scalar::new(
+    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
+        Ok(Scalar::new(
             array.dtype().clone(),
             ScalarValue::from(array.index_value(index)),
-        )
+        ))
     }
 }
 
 impl ValidityVTable<SequenceVTable> for SequenceVTable {
-    fn is_valid(_array: &SequenceArray, _index: usize) -> bool {
-        true
-    }
-
-    fn all_valid(_array: &SequenceArray) -> bool {
-        true
-    }
-
-    fn all_invalid(_array: &SequenceArray) -> bool {
-        false
-    }
-
     fn validity(_array: &SequenceArray) -> VortexResult<Validity> {
         Ok(Validity::AllValid)
-    }
-
-    fn validity_mask(array: &SequenceArray) -> Mask {
-        Mask::AllTrue(array.len())
     }
 }
 
@@ -444,15 +419,8 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
 #[derive(Debug)]
 pub struct SequenceVTable;
 
-impl EncodeVTable<SequenceVTable> for SequenceVTable {
-    fn encode(
-        _vtable: &SequenceVTable,
-        _canonical: &Canonical,
-        _like: Option<&SequenceArray>,
-    ) -> VortexResult<Option<SequenceArray>> {
-        // TODO(joe): hook up compressor
-        Ok(None)
-    }
+impl SequenceVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.sequence");
 }
 
 #[cfg(test)]
@@ -478,7 +446,8 @@ mod tests {
     fn test_sequence_slice_canonical() {
         let arr = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .slice(2..3);
+            .slice(2..3)
+            .unwrap();
 
         let canon = PrimitiveArray::from_iter((2..3).map(|i| 2i64 + i * 3));
 
@@ -489,7 +458,8 @@ mod tests {
     fn test_sequence_scalar_at() {
         let scalar = SequenceArray::typed_new(2i64, 3, Nullability::NonNullable, 4)
             .unwrap()
-            .scalar_at(2);
+            .scalar_at(2)
+            .unwrap();
 
         assert_eq!(
             scalar,

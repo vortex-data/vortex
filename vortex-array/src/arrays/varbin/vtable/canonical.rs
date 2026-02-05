@@ -3,62 +3,44 @@
 
 use std::sync::Arc;
 
-use arrow_array::BinaryViewArray;
-use arrow_array::StringViewArray;
-use arrow_array::cast::AsArray;
-use arrow_schema::DataType;
-use vortex_dtype::DType;
-use vortex_error::VortexExpect;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 
-use crate::ArrayRef;
 use crate::Canonical;
-use crate::ToCanonical;
-use crate::arrays::VarBinVTable;
+use crate::ExecutionCtx;
+use crate::arrays::PrimitiveArray;
+use crate::arrays::VarBinViewArray;
+use crate::arrays::build_views::MAX_BUFFER_LEN;
+use crate::arrays::build_views::build_views;
+use crate::arrays::build_views::offsets_to_lengths;
 use crate::arrays::varbin::VarBinArray;
-use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
-use crate::vtable::CanonicalVTable;
 
-impl CanonicalVTable<VarBinVTable> for VarBinVTable {
-    fn canonicalize(array: &VarBinArray) -> VortexResult<Canonical> {
-        let dtype = array.dtype().clone();
-        let nullable = dtype.is_nullable();
+/// Converts a VarBinArray to its canonical form (VarBinViewArray).
+///
+/// This is a shared helper used by both `canonicalize` and `execute`.
+pub(crate) fn varbin_to_canonical(
+    array: &VarBinArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    // Zero the offsets first to ensure the bytes buffer starts at 0
+    let array = array.clone().zero_offsets();
+    let (dtype, bytes, offsets, validity) = array.into_parts();
 
-        let array = array.clone().zero_offsets();
-        assert_eq!(array.offset_at(0), 0);
+    // offsets_to_lengths
+    let offsets = offsets.execute::<PrimitiveArray>(ctx)?;
+    let bytes = bytes.unwrap_host().into_mut();
 
-        let array_ref = array
-            .to_array()
-            .into_arrow_preferred()
-            .vortex_expect("VarBinArray must be convertible to arrow array");
+    match_each_integer_ptype!(offsets.ptype(), |P| {
+        let lens = offsets_to_lengths(offsets.as_slice::<P>());
+        let (buffers, views) = build_views(0, MAX_BUFFER_LEN, bytes, lens.as_slice());
 
-        let array = match (&dtype, array_ref.data_type()) {
-            (DType::Utf8(_), DataType::Utf8) => {
-                Arc::new(StringViewArray::from(array_ref.as_string::<i32>()))
-                    as Arc<dyn arrow_array::Array>
-            }
-            (DType::Utf8(_), DataType::LargeUtf8) => {
-                Arc::new(StringViewArray::from(array_ref.as_string::<i64>()))
-                    as Arc<dyn arrow_array::Array>
-            }
+        let varbinview =
+            unsafe { VarBinViewArray::new_unchecked(views, Arc::from(buffers), dtype, validity) };
 
-            (DType::Binary(_), DataType::Binary) => {
-                Arc::new(BinaryViewArray::from(array_ref.as_binary::<i32>()))
-            }
-            (DType::Binary(_), DataType::LargeBinary) => {
-                Arc::new(BinaryViewArray::from(array_ref.as_binary::<i64>()))
-            }
-            // If its already a view, no need to do anything
-            (DType::Binary(_), DataType::BinaryView) | (DType::Utf8(_), DataType::Utf8View) => {
-                array_ref
-            }
-            _ => unreachable!("VarBinArray must have Utf8 or Binary dtype, instead got: {dtype}",),
-        };
-        Ok(Canonical::VarBinView(
-            ArrayRef::from_arrow(array.as_ref(), nullable).to_varbinview(),
-        ))
-    }
+        // Create VarBinViewArray with the original bytes buffer and computed views
+        // SAFETY: views are correctly computed from valid offsets
+        Ok(Canonical::VarBinView(varbinview))
+    })
 }
 
 #[cfg(test)]
@@ -83,18 +65,19 @@ mod tests {
         varbin.append_value("1234567890123".as_bytes());
         let varbin = varbin.finish(dtype.clone());
 
+        let varbin = varbin.slice(1..4).unwrap();
+
         let canonical = varbin.to_varbinview();
         assert_eq!(canonical.dtype(), &dtype);
 
-        assert!(!canonical.is_valid(0));
-        assert!(!canonical.is_valid(1));
+        assert!(!canonical.is_valid(0).unwrap());
 
         // First value is inlined (12 bytes)
-        assert!(canonical.views()[2].is_inlined());
-        assert_eq!(canonical.bytes_at(2).as_slice(), "123456789012".as_bytes());
+        assert!(canonical.views()[1].is_inlined());
+        assert_eq!(canonical.bytes_at(1).as_slice(), "123456789012".as_bytes());
 
         // Second value is not inlined (13 bytes)
-        assert!(!canonical.views()[3].is_inlined());
-        assert_eq!(canonical.bytes_at(3).as_slice(), "1234567890123".as_bytes());
+        assert!(!canonical.views()[2].is_inlined());
+        assert_eq!(canonical.bytes_at(2).as_slice(), "1234567890123".as_bytes());
     }
 }

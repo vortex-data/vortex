@@ -27,10 +27,6 @@ pub(crate) struct RunEndScalarFnRule;
 impl ArrayParentReduceRule<RunEndVTable> for RunEndScalarFnRule {
     type Parent = AnyScalarFn;
 
-    fn parent(&self) -> AnyScalarFn {
-        AnyScalarFn
-    }
-
     fn reduce_parent(
         &self,
         run_end: &RunEndArray,

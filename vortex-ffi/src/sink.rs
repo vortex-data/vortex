@@ -87,6 +87,7 @@ pub unsafe extern "C-unwind" fn vx_array_sink_push(
     error_out: *mut *mut vx_error,
 ) {
     let array = vx_array::as_ref(array);
+    // TODO(joe): propagate this error up instead of expecting
     let sink = unsafe { sink.as_mut().vortex_expect("null array stream") };
     try_or_default(error_out, || {
         RUNTIME

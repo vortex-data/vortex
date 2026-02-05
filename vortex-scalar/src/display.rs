@@ -26,22 +26,17 @@ impl Display for Scalar {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
-    use vortex_dtype::ExtDType;
-    use vortex_dtype::ExtMetadata;
     use vortex_dtype::FieldName;
     use vortex_dtype::Nullability::NonNullable;
     use vortex_dtype::Nullability::Nullable;
     use vortex_dtype::PType;
     use vortex_dtype::StructFields;
-    use vortex_dtype::datetime::DATE_ID;
-    use vortex_dtype::datetime::TIME_ID;
-    use vortex_dtype::datetime::TIMESTAMP_ID;
-    use vortex_dtype::datetime::TemporalMetadata;
+    use vortex_dtype::datetime::Date;
+    use vortex_dtype::datetime::Time;
     use vortex_dtype::datetime::TimeUnit;
+    use vortex_dtype::datetime::Timestamp;
 
     use crate::InnerScalarValue;
     use crate::PValue;
@@ -201,11 +196,7 @@ mod tests {
     #[test]
     fn display_time() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
-                TIME_ID.clone(),
-                Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Time(TimeUnit::Seconds))),
-            )))
+            DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -225,11 +216,7 @@ mod tests {
     #[test]
     fn display_date() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
-                DATE_ID.clone(),
-                Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Date(TimeUnit::Days))),
-            )))
+            DType::Extension(Date::new(TimeUnit::Days, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -271,14 +258,7 @@ mod tests {
     #[test]
     fn display_local_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(PType::I32, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::Seconds,
-                    None,
-                ))),
-            )))
+            DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased())
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
@@ -301,14 +281,10 @@ mod tests {
     #[test]
     fn display_zoned_timestamp() {
         fn dtype() -> DType {
-            DType::Extension(Arc::new(ExtDType::new(
-                TIMESTAMP_ID.clone(),
-                Arc::new(DType::Primitive(PType::I64, Nullable)),
-                Some(ExtMetadata::from(TemporalMetadata::Timestamp(
-                    TimeUnit::Seconds,
-                    Some(String::from("Pacific/Guam")),
-                ))),
-            )))
+            DType::Extension(
+                Timestamp::new_with_tz(TimeUnit::Seconds, Some("Pacific/Guam".into()), Nullable)
+                    .erased(),
+            )
         }
 
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");

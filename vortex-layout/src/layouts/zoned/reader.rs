@@ -150,6 +150,11 @@ impl ZonedReader {
 
     /// Returns a pruning mask where `true` means the chunk _can be pruned_.
     fn pruning_mask_future(&self, expr: Expression) -> Option<SharedPruningResult> {
+        // Check cache first with read-only lock
+        if let Some(result) = self.pruning_result.get(&expr) {
+            return result.value().clone();
+        }
+
         self.pruning_result
             .entry(expr.clone())
             .or_insert_with(|| match self.pruning_predicate(expr.clone()) {
@@ -463,7 +468,6 @@ mod test {
                 .await
                 .unwrap();
 
-            assert_eq!(result.len(), 9);
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })
@@ -488,14 +492,11 @@ mod test {
                 )
                 .unwrap()
                 .await
-                .unwrap()
-                .to_bit_buffer()
-                .iter()
-                .collect::<Vec<_>>();
+                .unwrap();
 
             assert_eq!(
-                result.as_slice(),
-                &[false, false, false, false, false, false, true, true, true]
+                result,
+                Mask::from_iter([false, false, false, false, false, false, true, true, true])
             );
         })
     }

@@ -101,16 +101,6 @@ impl VTable for DictVTable {
         )?))
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        _layout: &Self::Layout,
-        _name: Arc<str>,
-        _segment_source: Arc<dyn SegmentSource>,
-        _ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        todo!()
-    }
-
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -118,7 +108,7 @@ impl VTable for DictVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: ArrayContext,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         let values = children.child(0, dtype)?;
         let codes_nullable = metadata

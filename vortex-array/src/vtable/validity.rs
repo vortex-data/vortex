@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
-use vortex_mask::Mask;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -13,64 +11,15 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 pub trait ValidityVTable<V: VTable> {
-    fn is_valid(array: &V::Array, index: usize) -> bool;
-
-    fn all_valid(array: &V::Array) -> bool;
-
-    fn all_invalid(array: &V::Array) -> bool;
-
-    /// Returns the number of valid elements in the array.
-    ///
-    /// ## Post-conditions
-    /// - The count is less than or equal to the length of the array.
-    fn valid_count(array: &V::Array) -> usize {
-        Self::validity_mask(array).true_count()
-    }
-
-    /// Returns the number of invalid elements in the array.
-    ///
-    /// ## Post-conditions
-    /// - The count is less than or equal to the length of the array.
-    fn invalid_count(array: &V::Array) -> usize {
-        Self::validity_mask(array).false_count()
-    }
-
     /// Returns the [`Validity`] of the array.
     ///
     /// ## Pre-conditions
     ///
     /// - The array DType is nullable.
     fn validity(array: &V::Array) -> VortexResult<Validity>;
-
-    fn validity_mask(array: &V::Array) -> Mask {
-        Self::validity(array)
-            .vortex_expect("TODO: make this fallible")
-            .to_mask(array.len())
-    }
 }
 
 impl<V: VTable> ValidityVTable<V> for NotSupported {
-    fn is_valid(array: &V::Array, _index: usize) -> bool {
-        vortex_panic!(
-            "Legacy is_valid is not supported for {} arrays",
-            array.encoding_id()
-        )
-    }
-
-    fn all_valid(array: &V::Array) -> bool {
-        vortex_panic!(
-            "Legacy all_valid is not supported for {} arrays",
-            array.encoding_id()
-        )
-    }
-
-    fn all_invalid(array: &V::Array) -> bool {
-        vortex_panic!(
-            "Legacy all_invalid is not supported for {} arrays",
-            array.encoding_id()
-        )
-    }
-
     fn validity(array: &V::Array) -> VortexResult<Validity> {
         vortex_panic!(
             "Legacy validity is not supported for {} arrays",
@@ -91,18 +40,6 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValidityHelper
 where
     V::Array: ValidityHelper,
 {
-    fn is_valid(array: &V::Array, index: usize) -> bool {
-        array.validity().is_valid(index)
-    }
-
-    fn all_valid(array: &V::Array) -> bool {
-        array.validity().all_valid(array.len())
-    }
-
-    fn all_invalid(array: &V::Array) -> bool {
-        array.validity().all_invalid(array.len())
-    }
-
     fn validity(array: &V::Array) -> VortexResult<Validity> {
         Ok(array.validity().clone())
     }
@@ -115,7 +52,7 @@ pub struct ValidityVTableFromValiditySliceHelper;
 pub trait ValiditySliceHelper {
     fn unsliced_validity_and_slice(&self) -> (&Validity, usize, usize);
 
-    fn sliced_validity(&self) -> Validity {
+    fn sliced_validity(&self) -> VortexResult<Validity> {
         let (unsliced_validity, start, stop) = self.unsliced_validity_and_slice();
         unsliced_validity.slice(start..stop)
     }
@@ -125,21 +62,8 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromValiditySliceHelper
 where
     V::Array: ValiditySliceHelper,
 {
-    fn is_valid(array: &V::Array, index: usize) -> bool {
-        let (unsliced_validity, start, _) = array.unsliced_validity_and_slice();
-        unsliced_validity.is_valid(start + index)
-    }
-
-    fn all_valid(array: &V::Array) -> bool {
-        array.sliced_validity().all_valid(array.len())
-    }
-
-    fn all_invalid(array: &V::Array) -> bool {
-        array.sliced_validity().all_invalid(array.len())
-    }
-
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(array.sliced_validity())
+        array.sliced_validity()
     }
 }
 
@@ -155,24 +79,8 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChild
 where
     V: ValidityChild<V>,
 {
-    fn is_valid(array: &V::Array, index: usize) -> bool {
-        V::validity_child(array).is_valid(index)
-    }
-
-    fn all_valid(array: &V::Array) -> bool {
-        V::validity_child(array).all_valid()
-    }
-
-    fn all_invalid(array: &V::Array) -> bool {
-        V::validity_child(array).all_invalid()
-    }
-
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        Ok(Validity::Array(V::validity_child(array).to_array()))
-    }
-
-    fn validity_mask(array: &V::Array) -> Mask {
-        V::validity_child(array).validity_mask()
+        V::validity_child(array).validity()
     }
 }
 
@@ -183,7 +91,7 @@ pub struct ValidityVTableFromChildSliceHelper;
 pub trait ValidityChildSliceHelper {
     fn unsliced_child_and_slice(&self) -> (&ArrayRef, usize, usize);
 
-    fn sliced_child_array(&self) -> ArrayRef {
+    fn sliced_child_array(&self) -> VortexResult<ArrayRef> {
         let (unsliced_validity, start, stop) = self.unsliced_child_and_slice();
         unsliced_validity.slice(start..stop)
     }
@@ -193,20 +101,7 @@ impl<V: VTable> ValidityVTable<V> for ValidityVTableFromChildSliceHelper
 where
     V::Array: ValidityChildSliceHelper,
 {
-    fn is_valid(array: &V::Array, index: usize) -> bool {
-        let (unsliced_validity, start, _) = array.unsliced_child_and_slice();
-        unsliced_validity.is_valid(start + index)
-    }
-
-    fn all_valid(array: &V::Array) -> bool {
-        array.sliced_child_array().all_valid()
-    }
-
-    fn all_invalid(array: &V::Array) -> bool {
-        array.sliced_child_array().all_invalid()
-    }
-
     fn validity(array: &V::Array) -> VortexResult<Validity> {
-        array.sliced_child_array().validity()
+        array.sliced_child_array()?.validity()
     }
 }

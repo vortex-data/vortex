@@ -111,20 +111,6 @@ impl VTable for ZonedVTable {
         )?))
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        // skip prunning and immediately return data child
-        layout
-            .children
-            .child(0, layout.dtype())?
-            .new_gpu_reader(name, segment_source, ctx)
-    }
-
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -132,7 +118,7 @@ impl VTable for ZonedVTable {
         metadata: &ZonedMetadata,
         _segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        _ctx: ArrayContext,
+        _ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         Ok(ZonedLayout {
             dtype: dtype.clone(),

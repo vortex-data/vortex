@@ -58,6 +58,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
+          enable-sccache: "false"
 
       - name: Install llvm
         uses: aminya/setup-cpp@v1

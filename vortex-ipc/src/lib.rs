@@ -14,3 +14,18 @@
 pub mod iterator;
 pub mod messages;
 pub mod stream;
+
+#[cfg(test)]
+mod test {
+    use std::sync::LazyLock;
+
+    use vortex_array::session::ArraySession;
+    use vortex_dtype::session::DTypeSession;
+    use vortex_session::VortexSession;
+
+    pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+        VortexSession::empty()
+            .with::<DTypeSession>()
+            .with::<ArraySession>()
+    });
+}

@@ -37,10 +37,10 @@ impl PyArrayContext {
     }
 
     fn __str__(&self) -> String {
-        self.0.encodings().iter().join(", ")
+        self.0.to_ids().iter().join(", ")
     }
 
     fn __len__(&self) -> usize {
-        self.encodings().len()
+        self.to_ids().len()
     }
 }

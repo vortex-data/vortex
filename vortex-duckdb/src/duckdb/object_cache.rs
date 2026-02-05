@@ -60,7 +60,7 @@ impl ObjectCacheRef<'_> {
         unsafe {
             let opaque_ptr = cpp::duckdb_vx_object_cache_get(self.as_ptr(), key_cstr.as_ptr());
             (!opaque_ptr.is_null())
-                .then_some((opaque_ptr as *const T).as_ref())
+                .then_some(opaque_ptr.cast::<T>().as_ref())
                 .flatten()
         }
     }

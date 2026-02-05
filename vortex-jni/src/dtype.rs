@@ -20,15 +20,14 @@ use jni::sys::jobject;
 use jni::sys::jstring;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::ExtDType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
 use vortex::dtype::StructFields;
-use vortex::dtype::datetime::DATE_ID;
-use vortex::dtype::datetime::TIME_ID;
-use vortex::dtype::datetime::TIMESTAMP_ID;
-use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::AnyTemporal;
+use vortex::dtype::datetime::Date;
+use vortex::dtype::datetime::Time;
 use vortex::dtype::datetime::TimeUnit;
+use vortex::dtype::datetime::Timestamp;
 use vortex::error::vortex_err;
 
 use crate::errors::JNIError;
@@ -205,7 +204,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isDate(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        if ext_dtype.id().as_ref() == DATE_ID.as_ref() {
+        if ext_dtype.is::<Date>() {
             Ok(JNI_TRUE)
         } else {
             Ok(JNI_FALSE)
@@ -226,7 +225,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTime(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        if ext_dtype.id().as_ref() == TIME_ID.as_ref() {
+        if ext_dtype.is::<Time>() {
             Ok(JNI_TRUE)
         } else {
             Ok(JNI_FALSE)
@@ -246,8 +245,7 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_isTimestamp(
         let DType::Extension(ext_dtype) = dtype else {
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
-
-        if ext_dtype.id().as_ref() == TIMESTAMP_ID.as_ref() {
+        if ext_dtype.is::<Timestamp>() {
             Ok(JNI_TRUE)
         } else {
             Ok(JNI_FALSE)
@@ -268,8 +266,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeUnit(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        let temporal = TemporalMetadata::try_from(ext_dtype)?;
-        Ok(match temporal.time_unit() {
+        let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
+            throw_runtime!("DType should be a temporal type, was {dtype}");
+        };
+
+        Ok(match opts.time_unit() {
             TimeUnit::Nanoseconds => 0,
             TimeUnit::Microseconds => 1,
             TimeUnit::Milliseconds => 2,
@@ -292,13 +293,11 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_getTimeZone(
             throw_runtime!("DType should be an EXTENSION, was {dtype}");
         };
 
-        if ext_dtype.id().as_ref() != TIMESTAMP_ID.as_ref() {
+        let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
             throw_runtime!("DType should be a TIMESTAMP, was {dtype}");
-        }
+        };
 
-        let temporal = TemporalMetadata::try_from(ext_dtype)?;
-
-        if let Some(time_zone) = temporal.time_zone() {
+        if let Some(time_zone) = opts.tz.as_ref() {
             Ok(env.new_string(time_zone)?.into_raw())
         } else {
             Ok(JObject::null().into_raw())
@@ -571,18 +570,14 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newTimestamp<'loca
                 env.get_string(&zone)?
                     .to_str()
                     .map_err(|_| JNIError::Vortex(vortex_err!("Invalid UTF-8 in zone")))?
-                    .to_string(),
+                    .into(),
             )
         };
 
-        let metadata = TemporalMetadata::Timestamp(time_unit, tz);
-        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
-            TIMESTAMP_ID.clone(),
-            Arc::new(DType::Primitive(PType::I64, to_nullability(is_nullable))),
-            Some(metadata.into()),
-        )));
-
-        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+        let dtype = DType::Extension(
+            Timestamp::new_with_tz(time_unit, tz, to_nullability(is_nullable)).erased(),
+        );
+        Ok(Box::into_raw(Box::new(dtype)) as jlong)
     })
 }
 
@@ -596,21 +591,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newDate(
 ) -> jlong {
     try_or_throw(&mut env, |_| {
         let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
-
-        let ptype = match time_unit {
-            TimeUnit::Days => PType::I32,
-            TimeUnit::Milliseconds => PType::I64,
-            unit => throw_runtime!("invalid time_unit for Date type {unit}"),
-        };
-
-        let metadata = TemporalMetadata::Date(time_unit);
-        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
-            DATE_ID.clone(),
-            Arc::new(DType::Primitive(ptype, to_nullability(is_nullable))),
-            Some(metadata.into()),
-        )));
-
-        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+        let dtype = DType::Extension(Date::new(time_unit, to_nullability(is_nullable)).erased());
+        Ok(Box::into_raw(Box::new(dtype)) as jlong)
     })
 }
 
@@ -624,21 +606,8 @@ pub extern "system" fn Java_dev_vortex_jni_NativeDTypeMethods_newTime(
 ) -> jlong {
     try_or_throw(&mut env, |_| {
         let time_unit = TimeUnit::try_from(time_unit as u8).map_err(JNIError::Vortex)?;
-
-        let ptype = match time_unit {
-            TimeUnit::Seconds | TimeUnit::Milliseconds => PType::I32,
-            TimeUnit::Microseconds | TimeUnit::Nanoseconds => PType::I64,
-            unit => throw_runtime!("invalid time_unit for Time type {unit}"),
-        };
-
-        let metadata = TemporalMetadata::Time(time_unit);
-        let timestamp_type = DType::Extension(Arc::new(ExtDType::new(
-            TIME_ID.clone(),
-            Arc::new(DType::Primitive(ptype, to_nullability(is_nullable))),
-            Some(metadata.into()),
-        )));
-
-        Ok(Box::into_raw(Box::new(timestamp_type)) as jlong)
+        let dtype = DType::Extension(Time::new(time_unit, to_nullability(is_nullable)).erased());
+        Ok(Box::into_raw(Box::new(dtype)) as jlong)
     })
 }
 

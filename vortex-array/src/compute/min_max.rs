@@ -146,7 +146,7 @@ fn min_max_impl(
     array: &dyn Array,
     kernels: &[ArcRef<dyn Kernel>],
 ) -> VortexResult<Option<MinMaxResult>> {
-    if array.is_empty() || array.valid_count() == 0 {
+    if array.is_empty() || array.valid_count()? == 0 {
         return Ok(None);
     }
 
@@ -257,7 +257,7 @@ mod tests {
 
     #[test]
     fn test_bool_max() {
-        let p = BoolArray::from_bit_buffer(
+        let p = BoolArray::new(
             BitBuffer::from([true, true, true].as_slice()),
             Validity::NonNullable,
         );
@@ -269,7 +269,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::from_bit_buffer(
+        let p = BoolArray::new(
             BitBuffer::from([false, false, false].as_slice()),
             Validity::NonNullable,
         );
@@ -281,7 +281,7 @@ mod tests {
             })
         );
 
-        let p = BoolArray::from_bit_buffer(
+        let p = BoolArray::new(
             BitBuffer::from([false, true, false].as_slice()),
             Validity::NonNullable,
         );

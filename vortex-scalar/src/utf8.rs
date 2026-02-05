@@ -22,6 +22,72 @@ use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
+/// Types that can hold a valid UTF-8 string.
+pub trait StringLike: private::Sealed + Sized {
+    /// Replace the last codepoint in the string with the next codepoint.
+    ///
+    /// This operation will attempt to reuse the original memory.
+    ///
+    /// If incrementing the last char fails, or if the string is empty,
+    /// we return an Err with the original unmodified string.
+    fn increment(self) -> Result<Self, Self>;
+}
+
+mod private {
+    use vortex_buffer::BufferString;
+
+    use crate::StringLike;
+
+    pub trait Sealed {}
+
+    impl Sealed for String {}
+
+    impl StringLike for String {
+        fn increment(mut self) -> Result<String, String> {
+            let Some(last_char) = self.pop() else {
+                return Ok(self);
+            };
+
+            if let Some(next_char) = char::from_u32(last_char as u32 + 1) {
+                self.push(next_char);
+                Ok(self)
+            } else {
+                // Return the original string
+                self.push(last_char);
+                Err(self)
+            }
+        }
+    }
+
+    impl Sealed for BufferString {}
+
+    impl StringLike for BufferString {
+        #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+        fn increment(self) -> Result<BufferString, BufferString> {
+            if self.is_empty() {
+                return Err(self);
+            }
+
+            // Chop off the last char and return it here.
+            let (last_idx, last_char) = self.char_indices().last().expect("non-empty");
+            if let Some(next_char) = char::from_u32(last_char as u32 + 1)
+                && next_char.len_utf8() == last_char.len_utf8()
+            {
+                // Because the next char has the same byte width as the last char, we can overwrite
+                // the memory directly.
+                let mut bytes = self.into_inner().into_mut();
+                next_char.encode_utf8(&mut bytes.as_mut()[last_idx..]);
+
+                // SAFETY: we overwrite the last valid char with new valid char, so
+                //  the buffer continues to hold valid UTF-8 data.
+                unsafe { Ok(BufferString::new_unchecked(bytes.freeze())) }
+            } else {
+                Err(self)
+            }
+        }
+    }
+}
+
 /// A scalar value representing a UTF-8 encoded string.
 ///
 /// This type provides a view into a UTF-8 string scalar value, which can be either
@@ -92,7 +158,8 @@ impl<'a> Utf8Scalar<'a> {
         self.value.as_ref().map(|v| v.as_ref())
     }
 
-    /// Constructs a value at most `max_length` in size that's greater than this value.
+    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
+    /// this.
     ///
     /// Returns None if constructing a greater value would overflow.
     pub fn upper_bound(self, max_length: usize) -> Option<Self> {
@@ -102,29 +169,16 @@ impl<'a> Utf8Scalar<'a> {
                     .rfind(|p| value.is_char_boundary(*p))
                     .vortex_expect("Failed to find utf8 character boundary");
 
-                let utf8_mut = value
-                    .get(..utf8_split_pos)
-                    .vortex_expect("Slicing with existing index");
+                let sliced = value.inner().slice(..utf8_split_pos);
+                drop(value);
 
-                for (idx, original_char) in utf8_mut.char_indices().rev() {
-                    let original_len = original_char.len_utf8();
-                    if let Some(next_char) = char::from_u32(original_char as u32 + 1) {
-                        // do not allow increasing byte width of incremented char
-                        if next_char.len_utf8() == original_len {
-                            let sliced = value.inner().slice(0..idx + original_len);
-                            drop(value);
-                            let mut result = sliced.into_mut();
-                            next_char.encode_utf8(&mut result[idx..]);
-                            return Some(Self {
-                                dtype: self.dtype,
-                                value: Some(Arc::new(unsafe {
-                                    BufferString::new_unchecked(result.freeze())
-                                })),
-                            });
-                        }
-                    }
-                }
-                None
+                // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
+                let sliced_buf = unsafe { BufferString::new_unchecked(sliced) };
+                let incremented = sliced_buf.increment().ok()?;
+                Some(Self {
+                    dtype: self.dtype,
+                    value: Some(Arc::new(incremented)),
+                })
             } else {
                 Some(Self {
                     dtype: self.dtype,
@@ -382,6 +436,7 @@ mod tests {
     #[test]
     fn upper_bound_overflow() {
         let utf8 = Scalar::utf8("🂑🂒🂓", Nullability::NonNullable);
+
         assert!(
             Utf8Scalar::try_from(&utf8)
                 .vortex_expect("utf8 scalar conversion should succeed")

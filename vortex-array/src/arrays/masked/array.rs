@@ -4,10 +4,8 @@
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
-use crate::compute::mask;
 use crate::stats::ArrayStats;
 use crate::validity::Validity;
 
@@ -25,7 +23,7 @@ impl MaskedArray {
             vortex_bail!("MaskedArray must have nullable validity, got {validity:?}")
         }
 
-        if !child.all_valid() {
+        if !child.all_valid()? {
             vortex_bail!("MaskedArray children must not have nulls");
         }
 
@@ -49,16 +47,5 @@ impl MaskedArray {
 
     pub fn child(&self) -> &ArrayRef {
         &self.child
-    }
-
-    pub(crate) fn masked_child(&self) -> VortexResult<ArrayRef> {
-        // Invert the validity mask - we want to set values to null where validity is false.
-        let inverted_mask = !self.validity.to_mask(self.len());
-        mask(&self.child, &inverted_mask)
-    }
-
-    /// Get the validity mask for this array.
-    pub fn validity_mask(&self) -> Mask {
-        self.validity.to_mask(self.len())
     }
 }

@@ -24,11 +24,12 @@ fn test_search_sorted_primitive(
     #[case] value: i32,
     #[case] side: SearchSortedSide,
     #[case] expected: SearchResult,
-) {
+) -> vortex_error::VortexResult<()> {
     let res = array
         .as_primitive_typed()
-        .search_sorted(&Some(PValue::from(value)), side);
+        .search_sorted(&Some(PValue::from(value)), side)?;
     assert_eq!(res, expected);
+    Ok(())
 }
 
 #[test]

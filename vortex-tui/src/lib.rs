@@ -22,6 +22,7 @@
 #![deny(clippy::missing_safety_doc)]
 #![deny(missing_docs)]
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::CommandFactory;
@@ -79,13 +80,30 @@ impl Commands {
 
 /// Main entrypoint for `vx` that launches a [`VortexSession`].
 ///
+/// Parses arguments from [`std::env::args_os`]. See [`launch_from`] to supply explicit arguments.
+///
 /// # Errors
 ///
 /// Raises any errors from subcommands.
 pub async fn launch(session: &VortexSession) -> anyhow::Result<()> {
-    env_logger::init();
+    launch_from(session, std::env::args_os()).await
+}
 
-    let cli = Cli::parse();
+/// Launch `vx` with explicit command-line arguments.
+///
+/// This is useful when embedding the TUI inside another process (e.g. Python) where
+/// [`std::env::args`] may not reflect the intended arguments.
+///
+/// # Errors
+///
+/// Raises any errors from subcommands.
+pub async fn launch_from(
+    session: &VortexSession,
+    args: impl IntoIterator<Item = impl Into<OsString> + Clone>,
+) -> anyhow::Result<()> {
+    let _ = env_logger::try_init();
+
+    let cli = Cli::parse_from(args);
 
     let path = cli.command.file_path();
     if !std::fs::exists(path)? {

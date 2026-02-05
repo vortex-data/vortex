@@ -258,8 +258,7 @@ mod tests {
                 validity_builder.append(b);
             }
             let validity = Validity::Array(
-                BoolArray::from_bit_buffer(validity_builder.freeze(), Validity::NonNullable)
-                    .into_array(),
+                BoolArray::new(validity_builder.freeze(), Validity::NonNullable).into_array(),
             );
             let array1 = PrimitiveArray::new(buffer![1i64, 2, 3, 4, 5], validity);
             let layout1 = FlatLayoutStrategy::default()

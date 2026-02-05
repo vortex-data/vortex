@@ -38,7 +38,7 @@ com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava (2 c
 
 com.google.j2objc:j2objc-annotations:3.1 (1 constraints: b809f1a0)
 
-com.google.protobuf:protobuf-java:4.33.2 (4 constraints: dc2bfd00)
+com.google.protobuf:protobuf-java:4.33.5 (4 constraints: df2b5f02)
 
 com.ibm.icu:icu4j:77.1 (2 constraints: 671acb77)
 
@@ -386,9 +386,9 @@ oro:oro:2.0.8 (2 constraints: 1e1d4d7b)
 
 [Test dependencies]
 
-ch.qos.logback:logback-classic:1.5.25 (1 constraints: 3f05403b)
+ch.qos.logback:logback-classic:1.5.27 (1 constraints: 4105423b)
 
-ch.qos.logback:logback-core:1.5.25 (1 constraints: 3e0d452a)
+ch.qos.logback:logback-core:1.5.27 (1 constraints: 400d472a)
 
 org.junit:junit-bom:6.0.2 (7 constraints: 6f74267c)
 

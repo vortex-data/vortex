@@ -10,15 +10,15 @@ use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
-use vortex_array::matchers::Exact;
 use vortex_array::optimizer::ArrayOptimizer;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 
@@ -29,6 +29,7 @@ use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
 ]);
 
 /// Push the filter into the days column of a date time parts, we could extend this to other fields
@@ -37,11 +38,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSe
 struct DTPFilterPushDownRule;
 
 impl ArrayParentReduceRule<DateTimePartsVTable> for DTPFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,
@@ -88,10 +85,6 @@ struct DTPComparisonPushDownRule;
 
 impl ArrayParentReduceRule<DateTimePartsVTable> for DTPComparisonPushDownRule {
     type Parent = AnyScalarFn;
-
-    fn parent(&self) -> AnyScalarFn {
-        AnyScalarFn
-    }
 
     fn reduce_parent(
         &self,
@@ -161,8 +154,8 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
         return None;
     };
 
-    let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref()).ok()?;
-    let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit()).ok()?;
+    let options = ext_dtype.metadata::<Timestamp>();
+    let ts_parts = timestamp::split(timestamp, options.unit).ok()?;
 
     // Only allow pushdown if seconds and subseconds are zero
     if ts_parts.seconds != 0 || ts_parts.subseconds != 0 {
@@ -190,8 +183,8 @@ mod tests {
     use vortex_array::optimizer::ArrayOptimizer;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
-    use vortex_buffer::buffer;
     use vortex_dtype::datetime::TimeUnit;
+    use vortex_dtype::datetime::TimestampOptions;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -230,12 +223,13 @@ mod tests {
             TimeUnit::Days => panic!("Days not supported"),
         };
         let timestamp = day * SECONDS_PER_DAY * multiplier;
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![timestamp], Validity::NonNullable).into_array(),
-            time_unit,
-            None,
+        let scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: time_unit,
+                tz: None,
+            },
+            timestamp.into(),
         );
-        let scalar = Scalar::extension(temporal.ext_dtype(), timestamp.into());
         ConstantArray::new(scalar, len).into_array()
     }
 
@@ -249,12 +243,13 @@ mod tests {
             TimeUnit::Days => panic!("Days not supported"),
         };
         let timestamp = (day * SECONDS_PER_DAY + seconds) * multiplier;
-        let temporal = TemporalArray::new_timestamp(
-            PrimitiveArray::new(buffer![timestamp], Validity::NonNullable).into_array(),
-            time_unit,
-            None,
+        let scalar = Scalar::extension::<Timestamp>(
+            TimestampOptions {
+                unit: time_unit,
+                tz: None,
+            },
+            timestamp.into(),
         );
-        let scalar = Scalar::extension(temporal.ext_dtype(), timestamp.into());
         ConstantArray::new(scalar, len).into_array()
     }
 

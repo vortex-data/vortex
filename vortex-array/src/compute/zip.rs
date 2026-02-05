@@ -228,11 +228,11 @@ fn zip_impl_with_builder(
         AllOr::None => Ok(if_false.to_array()),
         AllOr::Some(slices) => {
             for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start));
-                builder.extend_from_array(&if_true.slice(*start..*end));
+                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
+                builder.extend_from_array(&if_true.slice(*start..*end)?);
             }
             if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len()));
+                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
             }
             Ok(builder.finish())
         }
@@ -251,12 +251,12 @@ mod tests {
 
     use crate::Array;
     use crate::IntoArray;
-    use crate::ToCanonical;
     use crate::arrays::ConstantArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
     use crate::arrays::VarBinViewVTable;
     use crate::arrow::IntoArrowArray;
+    use crate::assert_arrays_eq;
     use crate::builders::ArrayBuilder;
     use crate::builders::BufferGrowthStrategy;
     use crate::builders::VarBinViewBuilder;
@@ -271,10 +271,7 @@ mod tests {
         let result = zip(&if_true, &if_false, &mask).unwrap();
         let expected = buffer![10, 2, 3, 40, 5].into_array();
 
-        assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            expected.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(result, expected);
     }
 
     #[test]
@@ -285,11 +282,10 @@ mod tests {
             PrimitiveArray::from_option_iter([Some(1), Some(2), Some(3), None]).into_array();
 
         let result = zip(&if_true, &if_false, &mask).unwrap();
+        let expected =
+            PrimitiveArray::from_option_iter([Some(10), Some(20), Some(30), Some(40)]).into_array();
 
-        assert_eq!(
-            result.to_primitive().as_slice::<i32>(),
-            if_true.to_primitive().as_slice::<i32>()
-        );
+        assert_arrays_eq!(result, expected);
 
         // result must be nullable even if_true was not
         assert_eq!(result.dtype(), if_false.dtype())
@@ -331,9 +327,9 @@ mod tests {
         insta::assert_snapshot!(result.display_tree(), @r"
         root: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
           metadata: EmptyMetadata
-          buffer (align=1): 29 B (1.75%)
-          buffer (align=1): 28 B (1.69%)
-          buffer (align=16): 1.60 kB (96.56%)
+          buffer: buffer_0 host 29 B (align=1) (1.75%)
+          buffer: buffer_1 host 28 B (align=1) (1.69%)
+          buffer: views host 1.60 kB (align=16) (96.56%)
         ");
 
         // test wrapped in a struct
@@ -350,9 +346,9 @@ mod tests {
           metadata: EmptyMetadata
           nested: vortex.varbinview(utf8?, len=100) nbytes=1.66 kB (100.00%) [all_valid]
             metadata: EmptyMetadata
-            buffer (align=1): 29 B (1.75%)
-            buffer (align=1): 28 B (1.69%)
-            buffer (align=16): 1.60 kB (96.56%)
+            buffer: buffer_0 host 29 B (align=1) (1.75%)
+            buffer: buffer_1 host 28 B (align=1) (1.69%)
+            buffer: views host 1.60 kB (align=16) (96.56%)
         ");
     }
 

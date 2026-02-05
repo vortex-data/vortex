@@ -3,11 +3,12 @@
 
 mod array;
 pub use array::DecimalArray;
+pub use array::DecimalArrayParts;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
-pub use vtable::DecimalMaskedValidityRule;
+pub use compute::rules::DecimalMaskedValidityRule;
 pub use vtable::DecimalVTable;
 
 mod utils;

@@ -49,6 +49,7 @@ impl TakeImpl for TakeKernelAVX2 {
 /// The caller must ensure that if the validity has a length, it is the same length as the indices,
 /// and that the `avx2` feature is enabled.
 #[target_feature(enable = "avx2")]
+#[allow(unused)]
 unsafe fn take_primitive_avx2<V, I>(
     values: &[V],
     indices: &[I],

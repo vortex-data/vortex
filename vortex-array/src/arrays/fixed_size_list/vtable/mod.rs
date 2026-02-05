@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -10,23 +8,21 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
-use crate::IntoArray;
+use crate::ExecutionCtx;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::fixed_size_list::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
-use crate::vtable::ValidityHelper;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod canonical;
 mod operations;
 mod validity;
 mod visitor;
@@ -36,45 +32,31 @@ vtable!(FixedSizeList);
 #[derive(Debug)]
 pub struct FixedSizeListVTable;
 
+impl FixedSizeListVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.fixed_size_list");
+}
+
 impl VTable for FixedSizeListVTable {
     type Array = FixedSizeListArray;
 
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.fixed_size_list")
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let new_len = range.len();
-        let list_size = array.list_size() as usize;
-
-        // SAFETY: Slicing preserves FixedSizeListArray invariants
-        Ok(Some(
-            unsafe {
-                FixedSizeListArray::new_unchecked(
-                    array
-                        .elements()
-                        .slice(range.start * list_size..range.end * list_size),
-                    array.list_size(),
-                    array.validity().slice(range),
-                    new_len,
-                )
-            }
-            .into_array(),
-        ))
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        FixedSizeListVTable.as_vtable()
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {
@@ -93,7 +75,6 @@ impl VTable for FixedSizeListVTable {
     ///
     /// This method expects 1 or 2 children (a second child indicates a validity array).
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -150,5 +131,9 @@ impl VTable for FixedSizeListVTable {
             FixedSizeListArray::try_new(elements, array.list_size(), validity, array.len())?;
         *array = new_array;
         Ok(())
+    }
+
+    fn canonicalize(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        Ok(Canonical::FixedSizeList(array.clone()))
     }
 }

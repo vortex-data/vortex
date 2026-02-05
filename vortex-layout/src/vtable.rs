@@ -65,15 +65,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         session: &VortexSession,
     ) -> VortexResult<LayoutReaderRef>;
 
-    #[cfg(gpu_unstable)]
-    /// Create a new reader for the layout that uses a gpu device
-    fn new_gpu_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
-
     /// Construct a new [`Layout`] from the provided parts.
     fn build(
         encoding: &Self::Encoding,
@@ -82,7 +73,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout>;
 
     /// Replaces the children of the layout with the given layout references.

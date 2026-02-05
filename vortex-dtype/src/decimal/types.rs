@@ -8,9 +8,12 @@ use std::panic::RefUnwindSafe;
 use num_traits::ConstOne;
 use num_traits::ConstZero;
 use paste::paste;
+use vortex_error::VortexError;
+use vortex_error::vortex_bail;
 
 use crate::BigCast;
 use crate::DecimalDType;
+use crate::PType;
 use crate::decimal::max_precision::MAX_DECIMAL256_FOR_EACH_PRECISION;
 use crate::decimal::max_precision::MIN_DECIMAL256_FOR_EACH_PRECISION;
 use crate::i256;
@@ -222,5 +225,38 @@ impl NativeDecimalType for i256 {
 
     fn upcast<V: DecimalTypeUpcast>(input: V::Input<Self>) -> V {
         V::from_i256(input)
+    }
+}
+
+impl Display for DecimalType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DecimalType::I8 => write!(f, "i8"),
+            DecimalType::I16 => write!(f, "i16"),
+            DecimalType::I32 => write!(f, "i32"),
+            DecimalType::I64 => write!(f, "i64"),
+            DecimalType::I128 => write!(f, "i128"),
+            DecimalType::I256 => write!(f, "i256"),
+        }
+    }
+}
+
+impl TryFrom<PType> for DecimalType {
+    type Error = VortexError;
+
+    fn try_from(value: PType) -> Result<Self, Self::Error> {
+        Ok(match value {
+            PType::I8 => DecimalType::I8,
+            PType::I16 => DecimalType::I16,
+            PType::I32 => DecimalType::I32,
+            PType::I64 => DecimalType::I64,
+            p @ (PType::U8
+            | PType::U16
+            | PType::U32
+            | PType::U64
+            | PType::F16
+            | PType::F32
+            | PType::F64) => vortex_bail!("cannot convert ptype {p} to DecimalType"),
+        })
     }
 }

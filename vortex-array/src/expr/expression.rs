@@ -14,7 +14,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::ArrayRef;
 use crate::expr::Root;
 use crate::expr::ScalarFn;
 use crate::expr::StatsCatalog;
@@ -104,12 +103,11 @@ impl Expression {
         self.scalar_fn.return_dtype(&dtypes)
     }
 
-    /// Evaluates the expression in the given scope, returning an array.
-    pub fn evaluate(&self, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        if self.is::<Root>() {
-            return Ok(scope.clone());
-        }
-        self.scalar_fn.evaluate(self, scope)
+    /// Returns a new expression representing the validity mask output of this expression.
+    ///
+    /// The returned expression evaluates to a non-nullable boolean array.
+    pub fn validity(&self) -> VortexResult<Expression> {
+        self.scalar_fn.validity(self)
     }
 
     /// An expression over zone-statistics which implies all records in the zone evaluate to false.

@@ -43,12 +43,22 @@ impl fmt::Display for StatsDisplay<'_> {
                 write!(f, "nulls={}", nc)?;
             }
         } else if self.0.dtype().is_nullable() {
-            if self.0.all_valid() {
-                sep(f)?;
-                f.write_str("all_valid")?;
-            } else if self.0.all_invalid() {
-                sep(f)?;
-                f.write_str("all_invalid")?;
+            match self.0.all_valid() {
+                Ok(true) => {
+                    sep(f)?;
+                    f.write_str("all_valid")?;
+                }
+                Ok(false) => {
+                    if self.0.all_invalid().unwrap_or(false) {
+                        sep(f)?;
+                        f.write_str("all_invalid")?;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to check validity: {e}");
+                    sep(f)?;
+                    f.write_str("validity_failed")?;
+                }
             }
         }
 
@@ -149,17 +159,30 @@ impl<'a, 'b: 'a> TreeFormatter<'a, 'b> {
             array.metadata_fmt(i.fmt)?;
             writeln!(i.fmt)?;
 
-            for buffer in array.buffers() {
+            for (name, buffer) in array.named_buffers() {
                 let buffer_percent = if nbytes == 0 {
                     0.0
                 } else {
                     100_f64 * buffer.len() as f64 / nbytes as f64
                 };
+                let loc = if buffer.is_on_device() {
+                    "device"
+                } else if buffer.is_on_host() {
+                    "host"
+                } else {
+                    "location-unknown"
+                };
+                let align = if buffer.is_on_host() {
+                    buffer.as_host().alignment().to_string()
+                } else {
+                    "".to_string()
+                };
                 writeln!(
                     i,
-                    "buffer (align={}): {} ({:.2}%)",
-                    buffer.alignment(),
+                    "buffer: {} {loc} {} (align={}) ({:.2}%)",
+                    name,
                     format_size(buffer.len(), DECIMAL),
+                    align,
                     buffer_percent
                 )?;
             }

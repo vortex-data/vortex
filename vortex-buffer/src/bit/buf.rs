@@ -118,6 +118,11 @@ impl BitBuffer {
         }
     }
 
+    /// Create a bit buffer of `len` with `indices` set as true.
+    pub fn from_indices(len: usize, indices: &[usize]) -> BitBuffer {
+        BitBufferMut::from_indices(len, indices).freeze()
+    }
+
     /// Create a new empty `BitBuffer`.
     pub fn empty() -> Self {
         Self::new_set(0)
@@ -133,6 +138,7 @@ impl BitBuffer {
     }
 
     /// Invokes `f` with indexes `0..len` collecting the boolean results into a new [`BitBuffer`].
+    #[inline]
     pub fn collect_bool<F: FnMut(usize) -> bool>(len: usize, f: F) -> Self {
         BitBufferMut::collect_bool(len, f).freeze()
     }
@@ -370,6 +376,14 @@ impl FromIterator<bool> for BitBuffer {
     }
 }
 
+impl BitOr for BitBuffer {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        BitOr::bitor(&self, &rhs)
+    }
+}
+
 impl BitOr for &BitBuffer {
     type Output = BitBuffer;
 
@@ -407,6 +421,14 @@ impl BitAnd<&BitBuffer> for BitBuffer {
 
     fn bitand(self, rhs: &BitBuffer) -> Self::Output {
         (&self).bitand(rhs)
+    }
+}
+
+impl BitAnd<BitBuffer> for BitBuffer {
+    type Output = BitBuffer;
+
+    fn bitand(self, rhs: BitBuffer) -> Self::Output {
+        (&self).bitand(&rhs)
     }
 }
 

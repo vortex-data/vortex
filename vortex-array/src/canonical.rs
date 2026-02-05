@@ -12,16 +12,26 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::BoolVTable;
 use crate::arrays::DecimalArray;
+use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionArray;
+use crate::arrays::ExtensionVTable;
 use crate::arrays::FixedSizeListArray;
+use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
+use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
+use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
+use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewVTable;
 use crate::builders::builder_with_capacity;
+use crate::matcher::Matcher;
 
 /// An enum capturing the default uncompressed encodings for each [Vortex type](DType).
 ///
@@ -81,7 +91,7 @@ use crate::builders::builder_with_capacity;
 ///
 /// # For Developers
 ///
-/// If you add another variant to this enum, make sure to update [`Array::is_canonical`],
+/// If you add another variant to this enum, make sure to update `dyn Array::is_canonical`,
 /// and the fuzzer in `fuzz/fuzz_targets/array_ops.rs`.
 #[derive(Debug, Clone)]
 pub enum Canonical {
@@ -114,6 +124,20 @@ impl Canonical {
             Canonical::FixedSizeList(c) => c.len(),
             Canonical::Struct(c) => c.len(),
             Canonical::Extension(c) => c.len(),
+        }
+    }
+
+    pub fn dtype(&self) -> &DType {
+        match self {
+            Canonical::Null(c) => c.dtype(),
+            Canonical::Bool(c) => c.dtype(),
+            Canonical::Primitive(c) => c.dtype(),
+            Canonical::Decimal(c) => c.dtype(),
+            Canonical::VarBinView(c) => c.dtype(),
+            Canonical::List(c) => c.dtype(),
+            Canonical::FixedSizeList(c) => c.dtype(),
+            Canonical::Struct(c) => c.dtype(),
+            Canonical::Extension(c) => c.dtype(),
         }
     }
 
@@ -442,6 +466,62 @@ impl From<Canonical> for ArrayRef {
     }
 }
 
+/// A view into a canonical array type.
+#[derive(Debug, Clone)]
+pub enum CanonicalView<'a> {
+    Null(&'a NullArray),
+    Bool(&'a BoolArray),
+    Primitive(&'a PrimitiveArray),
+    Decimal(&'a DecimalArray),
+    VarBinView(&'a VarBinViewArray),
+    List(&'a ListViewArray),
+    FixedSizeList(&'a FixedSizeListArray),
+    Struct(&'a StructArray),
+    Extension(&'a ExtensionArray),
+}
+
+/// A matcher for any canonical array type.
+pub struct AnyCanonical;
+impl Matcher for AnyCanonical {
+    type Match<'a> = CanonicalView<'a>;
+
+    fn matches(array: &dyn Array) -> bool {
+        array.is::<NullVTable>()
+            || array.is::<BoolVTable>()
+            || array.is::<PrimitiveVTable>()
+            || array.is::<DecimalVTable>()
+            || array.is::<StructVTable>()
+            || array.is::<ListViewVTable>()
+            || array.is::<FixedSizeListVTable>()
+            || array.is::<VarBinViewVTable>()
+            || array.is::<ExtensionVTable>()
+    }
+
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+        if let Some(a) = array.as_opt::<NullVTable>() {
+            Some(CanonicalView::Null(a))
+        } else if let Some(a) = array.as_opt::<BoolVTable>() {
+            Some(CanonicalView::Bool(a))
+        } else if let Some(a) = array.as_opt::<PrimitiveVTable>() {
+            Some(CanonicalView::Primitive(a))
+        } else if let Some(a) = array.as_opt::<DecimalVTable>() {
+            Some(CanonicalView::Decimal(a))
+        } else if let Some(a) = array.as_opt::<StructVTable>() {
+            Some(CanonicalView::Struct(a))
+        } else if let Some(a) = array.as_opt::<ListViewVTable>() {
+            Some(CanonicalView::List(a))
+        } else if let Some(a) = array.as_opt::<FixedSizeListVTable>() {
+            Some(CanonicalView::FixedSizeList(a))
+        } else if let Some(a) = array.as_opt::<VarBinViewVTable>() {
+            Some(CanonicalView::VarBinView(a))
+        } else {
+            array
+                .as_opt::<ExtensionVTable>()
+                .map(CanonicalView::Extension)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use std::sync::Arc;
@@ -561,7 +641,7 @@ mod test {
             nulls.finish(),
         );
 
-        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true);
+        let vortex_struct = ArrayRef::from_arrow(&arrow_struct, true).unwrap();
 
         assert_eq!(
             &arrow_struct,
@@ -585,7 +665,7 @@ mod test {
         );
         let list_data_type = arrow_list.data_type();
 
-        let vortex_list = ArrayRef::from_arrow(&arrow_list, true);
+        let vortex_list = ArrayRef::from_arrow(&arrow_list, true).unwrap();
 
         let rt_arrow_list = vortex_list.into_arrow(list_data_type).unwrap();
 

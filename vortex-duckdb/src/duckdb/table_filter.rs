@@ -127,7 +127,7 @@ impl TableFilter {
 
                 let name = unsafe {
                     str::from_utf8_unchecked(std::slice::from_raw_parts(
-                        out.child_name as *const u8,
+                        out.child_name.cast::<u8>(),
                         out.child_name_len,
                     ))
                 };

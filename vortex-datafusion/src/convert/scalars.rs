@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::Arc;
-
 use datafusion_common::ScalarValue;
 use vortex::buffer::ByteBuffer;
 use vortex::dtype::DType;
@@ -10,10 +8,10 @@ use vortex::dtype::DecimalDType;
 use vortex::dtype::NativeDecimalType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
+use vortex::dtype::arrow::FromArrowType;
+use vortex::dtype::datetime::AnyTemporal;
 use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::TimeUnit;
-use vortex::dtype::datetime::arrow::make_temporal_ext_dtype;
-use vortex::dtype::datetime::is_temporal_ext_type;
 use vortex::dtype::half::f16;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
@@ -117,55 +115,47 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             DType::Extension(ext) => {
                 let storage_scalar = self.as_extension().storage();
 
-                // Special handling: temporal extension types in Vortex correspond to Arrow's
-                // temporal physical types.
-                if is_temporal_ext_type(ext.id()) {
-                    let metadata = TemporalMetadata::try_from(ext.as_ref())?;
-                    let pv = storage_scalar.as_primitive();
-                    return Ok(match metadata {
-                        TemporalMetadata::Time(u) => match u {
-                            TimeUnit::Nanoseconds => ScalarValue::Time64Nanosecond(pv.as_::<i64>()),
-                            TimeUnit::Microseconds => {
-                                ScalarValue::Time64Microsecond(pv.as_::<i64>())
-                            }
-                            TimeUnit::Milliseconds => {
-                                ScalarValue::Time32Millisecond(pv.as_::<i32>())
-                            }
-                            TimeUnit::Seconds => ScalarValue::Time32Second(pv.as_::<i32>()),
-                            TimeUnit::Days => {
-                                unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
-                            }
-                        },
-                        TemporalMetadata::Date(u) => match u {
-                            TimeUnit::Milliseconds => ScalarValue::Date64(pv.as_::<i64>()),
-                            TimeUnit::Days => ScalarValue::Date32(pv.as_::<i32>()),
-                            _ => unreachable!("Unsupported TimeUnit {u} for {}", ext.id()),
-                        },
-                        TemporalMetadata::Timestamp(u, tz) => match u {
-                            TimeUnit::Nanoseconds => ScalarValue::TimestampNanosecond(
-                                pv.as_::<i64>(),
-                                tz.map(|t| t.into()),
-                            ),
-                            TimeUnit::Microseconds => ScalarValue::TimestampMicrosecond(
-                                pv.as_::<i64>(),
-                                tz.map(|t| t.into()),
-                            ),
-                            TimeUnit::Milliseconds => ScalarValue::TimestampMillisecond(
-                                pv.as_::<i64>(),
-                                tz.map(|t| t.into()),
-                            ),
-                            TimeUnit::Seconds => {
-                                ScalarValue::TimestampSecond(pv.as_::<i64>(), tz.map(|t| t.into()))
-                            }
-                            TimeUnit::Days => {
-                                unreachable!("Unsupported TimeUnit {u} for {}", ext.id())
-                            }
-                        },
-                    });
-                } else {
+                let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
                     // Unknown extension type: perform scalar conversion using the canonical
                     // scalar DType.
-                    storage_scalar.try_to_df()?
+                    return storage_scalar.try_to_df();
+                };
+
+                // Special handling: temporal extension types in Vortex correspond to Arrow's
+                // temporal physical types.
+                let pv = storage_scalar.as_primitive();
+                match temporal {
+                    TemporalMetadata::Timestamp(unit, tz) => match unit {
+                        TimeUnit::Nanoseconds => {
+                            ScalarValue::TimestampNanosecond(pv.as_::<i64>(), tz.clone())
+                        }
+                        TimeUnit::Microseconds => {
+                            ScalarValue::TimestampMicrosecond(pv.as_::<i64>(), tz.clone())
+                        }
+                        TimeUnit::Milliseconds => {
+                            ScalarValue::TimestampMillisecond(pv.as_::<i64>(), tz.clone())
+                        }
+                        TimeUnit::Seconds => {
+                            ScalarValue::TimestampSecond(pv.as_::<i64>(), tz.clone())
+                        }
+                        TimeUnit::Days => {
+                            unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
+                        }
+                    },
+                    TemporalMetadata::Date(unit) => match unit {
+                        TimeUnit::Milliseconds => ScalarValue::Date64(pv.as_::<i64>()),
+                        TimeUnit::Days => ScalarValue::Date32(pv.as_::<i32>()),
+                        _ => unreachable!("Unsupported TimeUnit {unit} for {}", ext.id()),
+                    },
+                    TemporalMetadata::Time(unit) => match unit {
+                        TimeUnit::Nanoseconds => ScalarValue::Time64Nanosecond(pv.as_::<i64>()),
+                        TimeUnit::Microseconds => ScalarValue::Time64Microsecond(pv.as_::<i64>()),
+                        TimeUnit::Milliseconds => ScalarValue::Time32Millisecond(pv.as_::<i32>()),
+                        TimeUnit::Seconds => ScalarValue::Time32Second(pv.as_::<i32>()),
+                        TimeUnit::Days => {
+                            unreachable!("Unsupported TimeUnit {unit} for {}", ext.id())
+                        }
+                    },
                 }
             }
         })
@@ -226,10 +216,9 @@ impl FromDataFusion<ScalarValue> for Scalar {
             ScalarValue::Date32(v)
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => {
-                let ext_dtype = make_temporal_ext_dtype(&value.data_type())
-                    .with_nullability(Nullability::Nullable);
+                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype)),
+                    dtype,
                     v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )
@@ -241,9 +230,9 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMillisecond(v, _)
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
-                let ext_dtype = make_temporal_ext_dtype(&value.data_type());
+                let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
                 Scalar::new(
-                    DType::Extension(Arc::new(ext_dtype.with_nullability(Nullability::Nullable))),
+                    dtype,
                     v.map(vortex::scalar::ScalarValue::from)
                         .unwrap_or_else(vortex::scalar::ScalarValue::null),
                 )

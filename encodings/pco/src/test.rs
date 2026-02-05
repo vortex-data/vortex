@@ -2,26 +2,33 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 #![allow(clippy::cast_possible_truncation)]
 
+use std::sync::LazyLock;
+
 use vortex_array::ArrayContext;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::BoolArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::arrow::compute::to_arrow_preferred;
+use vortex_array::arrow::ArrowArrayExecutor;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
 use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
 use vortex_array::validity::Validity;
-use vortex_array::vtable::ArrayVTableExt;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
+
+static LEGACY_SESSION: LazyLock<VortexSession> =
+    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
 use crate::PcoArray;
 use crate::PcoVTable;
@@ -35,17 +42,17 @@ fn test_compress_decompress() {
     assert!(compressed.pages.len() < array.nbytes() as usize);
 
     // check full decompression works
-    let decompressed = compressed.decompress();
+    let decompressed = compressed.decompress().unwrap();
     assert_arrays_eq!(decompressed, PrimitiveArray::from_iter(data));
 
     // check slicing works
-    let slice = compressed.slice(100..105);
+    let slice = compressed.slice(100..105).unwrap();
     for i in 0_i32..5 {
         assert_nth_scalar!(slice, i as usize, 100 + i);
     }
     assert_arrays_eq!(slice, PrimitiveArray::from_iter([100, 101, 102, 103, 104]));
 
-    let slice = compressed.slice(200..200);
+    let slice = compressed.slice(200..200).unwrap();
     assert_arrays_eq!(slice, PrimitiveArray::from_iter(Vec::<i32>::new()));
 }
 
@@ -57,7 +64,7 @@ fn test_compress_decompress_small() {
     let expected = array.into_array();
     assert_arrays_eq!(compressed, expected);
 
-    let decompressed = compressed.decompress();
+    let decompressed = compressed.decompress().unwrap();
     assert_arrays_eq!(decompressed, expected);
 }
 
@@ -66,7 +73,7 @@ fn test_empty() {
     let data: Vec<i32> = vec![];
     let array = PrimitiveArray::from_iter(data.clone());
     let compressed = PcoArray::from_primitive(&array, 3, 100).unwrap();
-    let primitive = compressed.decompress();
+    let primitive = compressed.decompress().unwrap();
     assert_arrays_eq!(primitive, PrimitiveArray::from_iter(data));
 }
 
@@ -102,7 +109,7 @@ fn test_validity_and_multiple_chunks_and_pages() {
     assert_nth_scalar!(compressed, 199, 199);
 
     // check slicing works
-    let slice = compressed.slice(100..103);
+    let slice = compressed.slice(100..103).unwrap();
     assert_nth_scalar!(slice, 0, 100);
     assert_nth_scalar!(slice, 2, 102);
     let primitive = slice.to_primitive();
@@ -121,28 +128,25 @@ fn test_validity_vtable() {
         Validity::Array(BoolArray::from_iter(mask_bools.clone()).to_array()),
     );
     let compressed = PcoArray::from_primitive(&array, 3, 0).unwrap();
-    assert_eq!(compressed.validity_mask(), Mask::from_iter(mask_bools));
     assert_eq!(
-        compressed.slice(1..4).validity_mask(),
+        compressed.validity_mask().unwrap(),
+        Mask::from_iter(mask_bools)
+    );
+    assert_eq!(
+        compressed.slice(1..4).unwrap().validity_mask().unwrap(),
         Mask::from_iter(vec![true, true, false])
     );
 }
 
 #[test]
-fn test_serde() {
-    let data: BufferMut<i32> = (0..1_000_000).collect();
-    let pco = PcoArray::from_primitive(&PrimitiveArray::new(data, Validity::NonNullable), 3, 100)
-        .unwrap()
-        .to_array();
+fn test_serde() -> VortexResult<()> {
+    let data: PrimitiveArray = (0i32..1_000_000).collect();
+    let pco = PcoArray::from_primitive(&data, 3, 100)?.to_array();
 
     let session = ArraySession::default();
-    let context = ArrayContext::new(
-        session
-            .registry()
-            .items()
-            .chain([PcoVTable.as_vtable()])
-            .collect(),
-    );
+    session.registry().register(PcoVTable::ID, PcoVTable);
+
+    let context = ArrayContext::empty();
 
     let bytes = pco
         .serialize(
@@ -151,23 +155,23 @@ fn test_serde() {
                 offset: 0,
                 include_padding: true,
             },
-        )
-        .unwrap()
+        )?
         .into_iter()
         .flat_map(|x| x.into_iter())
         .collect::<BufferMut<u8>>()
         .freeze();
 
-    let parts = ArrayParts::try_from(bytes).unwrap();
-    let decoded = parts
-        .decode(
-            &context,
-            &DType::Primitive(PType::I32, Nullability::NonNullable),
-            1_000_000,
-        )
-        .unwrap();
-    assert_eq!(
-        &to_arrow_preferred(&pco).unwrap(),
-        &to_arrow_preferred(&decoded).unwrap()
-    );
+    let parts = ArrayParts::try_from(bytes)?;
+    let decoded = parts.decode(
+        &DType::Primitive(PType::I32, Nullability::NonNullable),
+        1_000_000,
+        &context,
+        session.registry(),
+    )?;
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let data_type = data.dtype().to_arrow_dtype()?;
+    let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
+    let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;
+    assert!(pco_arrow == decoded_arrow);
+    Ok(())
 }

@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-pub mod flatbuffers;
+//! Serde serialization and deserialization for DTypes
+
+pub(crate) mod flatbuffers;
 
 mod proto;
 
@@ -9,15 +11,21 @@ mod proto;
 #[cfg(feature = "serde")]
 mod serde;
 
+#[cfg(feature = "serde")]
+pub use serde::*;
+
 #[cfg(test)]
 #[cfg(feature = "serde")]
 mod test {
+    use serde::de::DeserializeSeed;
     use serde_test::Token;
     use serde_test::assert_tokens;
 
     use crate::DType;
     use crate::Nullability;
     use crate::PType;
+    use crate::serde::DTypeSerde;
+    use crate::test::SESSION;
 
     #[test]
     fn test_serde_ptype_json() {
@@ -40,7 +48,10 @@ mod test {
 
     #[test]
     fn test_serde_dtype() {
-        assert_tokens(
+        // Test that DType serializes correctly (we only test serialization since
+        // deserialization with serde_test has borrowing issues with enum variants)
+        use serde_test::assert_ser_tokens;
+        assert_ser_tokens(
             &DType::from(PType::U8),
             &[
                 Token::TupleVariant {
@@ -90,28 +101,16 @@ mod test {
               ],
               "dtypes": [
                 {
-                  "inner": {
-                    "Owned": {
-                      "Utf8": false
-                    }
-                  }
+                  "Utf8": false
                 },
                 {
-                  "inner": {
-                    "Owned": {
-                      "Primitive": [
-                        "i32",
-                        true
-                      ]
-                    }
-                  }
+                  "Primitive": [
+                    "i32",
+                    true
+                  ]
                 },
                 {
-                  "inner": {
-                    "Owned": {
-                      "Bool": false
-                    }
-                  }
+                  "Bool": false
                 }
               ]
             },
@@ -121,7 +120,37 @@ mod test {
         "#);
 
         // Deserialize back and verify round-trip
-        let deserialized: DType = serde_json::from_str(&json).unwrap();
+        let mut deserializer = serde_json::Deserializer::from_str(&json);
+        let deserialized: DType = DTypeSerde::<DType>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
         assert_eq!(struct_dtype, deserialized);
+    }
+
+    #[test]
+    fn test_serde_struct_fields_from_json_value() {
+        use serde::de::IntoDeserializer;
+
+        use crate::StructFields;
+
+        let fields = StructFields::from_iter([
+            ("name", DType::Utf8(Nullability::NonNullable)),
+            ("age", DType::Primitive(PType::I32, Nullability::Nullable)),
+        ]);
+
+        let value: serde_json::Value = serde_json::to_value(&fields).unwrap();
+
+        let json_str = value.to_string();
+        let mut deserializer = serde_json::Deserializer::from_str(&json_str);
+        let from_str: StructFields = DTypeSerde::<StructFields>::new(&SESSION)
+            .deserialize(&mut deserializer)
+            .unwrap();
+        assert_eq!(fields, from_str);
+
+        let deserializer = value.into_deserializer();
+        let from_value: StructFields = DTypeSerde::<StructFields>::new(&SESSION)
+            .deserialize(deserializer)
+            .unwrap();
+        assert_eq!(fields, from_value);
     }
 }

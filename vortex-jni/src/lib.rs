@@ -30,6 +30,7 @@ mod writer;
 
 // Shared Tokio runtime for all the async operations in this package.
 static TOKIO_RUNTIME: LazyLock<Runtime> = LazyLock::new(|| {
+    // TODO: propagate this error up instead of expecting
     Builder::new_multi_thread()
         .enable_all()
         .build()

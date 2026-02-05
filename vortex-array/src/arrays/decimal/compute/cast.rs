@@ -69,18 +69,18 @@ impl CastKernel for DecimalVTable {
             array.clone()
         };
 
-        // SAFETY: The byte buffer came from a valid DecimalArray with valid lengths.
-        Ok(Some(
-            unsafe {
-                DecimalArray::new_unchecked_from_byte_buffer(
-                    array.byte_buffer(),
+        // SAFETY: new_validity same length as previous validity, just cast
+        unsafe {
+            Ok(Some(
+                DecimalArray::new_unchecked_handle(
+                    array.buffer_handle().clone(),
                     array.values_type(),
                     *to_decimal_dtype,
                     new_validity,
                 )
-            }
-            .to_array(),
-        ))
+                .to_array(),
+            ))
+        }
     }
 }
 
@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(casted.len(), 3);
 
         // Check validity is preserved
-        let mask = casted.validity_mask();
+        let mask = casted.validity_mask().unwrap();
         assert!(mask.value(0));
         assert!(!mask.value(1));
         assert!(mask.value(2));

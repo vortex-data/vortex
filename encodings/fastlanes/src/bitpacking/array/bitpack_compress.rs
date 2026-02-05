@@ -6,6 +6,7 @@ use itertools::Itertools;
 use num_traits::PrimInt;
 use vortex_array::IntoArray;
 use vortex_array::arrays::PrimitiveArray;
+use vortex_array::buffer::BufferHandle;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -73,7 +74,7 @@ pub fn bitpack_encode(
     // SAFETY: all components validated above
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             patches,
@@ -107,7 +108,7 @@ pub unsafe fn bitpack_encode_unchecked(
     // SAFETY: checked by bitpack_unchecked
     let bitpacked = unsafe {
         BitPackedArray::new_unchecked(
-            packed,
+            BufferHandle::new_host(packed),
             array.dtype().clone(),
             array.validity().clone(),
             None,
@@ -210,7 +211,7 @@ pub fn gather_patches(
     };
 
     let array_len = parray.len();
-    let validity_mask = parray.validity_mask();
+    let validity_mask = parray.validity_mask()?;
 
     let patches = if array_len < u8::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -220,7 +221,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u16::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -230,7 +231,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else if array_len < u32::MAX as usize {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -240,7 +241,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     } else {
         match_each_integer_ptype!(parray.ptype(), |T| {
@@ -250,7 +251,7 @@ pub fn gather_patches(
                 num_exceptions_hint,
                 patch_validity,
                 validity_mask,
-            )
+            )?
         })
     };
 
@@ -263,7 +264,7 @@ fn gather_patches_impl<T, P>(
     num_exceptions_hint: usize,
     patch_validity: Validity,
     validity_mask: Mask,
-) -> Option<Patches>
+) -> VortexResult<Option<Patches>>
 where
     T: PrimInt + NativePType,
     P: IntegerPType,
@@ -288,15 +289,17 @@ where
         }
     }
 
-    (!indices.is_empty()).then(|| {
-        Patches::new(
+    if indices.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(Patches::new(
             data.len(),
             0,
             indices.into_array(),
             PrimitiveArray::new(values, patch_validity).into_array(),
             Some(chunk_offsets.into_array()),
-        )
-    })
+        )?))
+    }
 }
 
 pub fn bit_width_histogram(array: &PrimitiveArray) -> VortexResult<Vec<usize>> {
@@ -310,7 +313,7 @@ fn bit_width_histogram_typed<T: NativePType + PrimInt>(
         |v: T| (8 * size_of::<T>()) - (PrimInt::leading_zeros(v) as usize);
 
     let mut bit_widths = vec![0usize; size_of::<T>() * 8 + 1];
-    match array.validity_mask().bit_buffer() {
+    match array.validity_mask()?.bit_buffer() {
         AllOr::All => {
             // All values are valid.
             for v in array.as_slice::<T>() {
@@ -418,18 +421,26 @@ pub mod test_harness {
 
 #[cfg(test)]
 mod test {
+    use std::sync::LazyLock;
+
     use rand::SeedableRng;
     use rand::rngs::StdRng;
     use vortex_array::ToCanonical;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::ChunkedArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::builders::ArrayBuilder;
     use vortex_array::builders::PrimitiveBuilder;
+    use vortex_array::session::ArraySession;
     use vortex_buffer::Buffer;
     use vortex_error::VortexError;
+    use vortex_session::VortexSession;
 
     use super::*;
     use crate::bitpack_compress::test_harness::make_array;
+
+    static SESSION: LazyLock<VortexSession> =
+        LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
 
     #[test]
     fn test_best_bit_width() {
@@ -456,6 +467,7 @@ mod test {
             (0..(1 << 4)).collect::<Vec<_>>(),
             compressed
                 .validity_mask()
+                .unwrap()
                 .to_bit_buffer()
                 .set_indices()
                 .collect::<Vec<_>>()
@@ -484,7 +496,9 @@ mod test {
         let into_ca = chunked.clone().to_primitive();
         let mut primitive_builder =
             PrimitiveBuilder::<i32>::with_capacity(chunked.dtype().nullability(), 10 * 100);
-        chunked.clone().append_to_builder(&mut primitive_builder)?;
+        chunked
+            .clone()
+            .append_to_builder(&mut primitive_builder, &mut SESSION.create_execution_ctx())?;
         let ca_into = primitive_builder.finish();
 
         assert_arrays_eq!(into_ca, ca_into);

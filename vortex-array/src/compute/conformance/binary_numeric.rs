@@ -45,7 +45,11 @@ use crate::compute::numeric::numeric;
 fn to_vec_of_scalar(array: &dyn Array) -> Vec<Scalar> {
     // Not fast, but obviously correct
     (0..array.len())
-        .map(|index| array.scalar_at(index))
+        .map(|index| {
+            array
+                .scalar_at(index)
+                .vortex_expect("scalar_at should succeed in conformance test")
+        })
         .collect_vec()
 }
 

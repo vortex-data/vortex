@@ -11,6 +11,7 @@ use std::ptr;
 
 use vortex_buffer::BitView;
 use vortex_mask::Mask;
+use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
 
@@ -18,61 +19,102 @@ impl<T: Copy> Filter<Mask> for &mut [T] {
     type Output = Self;
 
     fn filter(self, selection: &Mask) -> Self::Output {
-        assert_eq!(
-            self.len(),
-            selection.len(),
-            "Mask length must equal the slice length"
-        );
+        // We delegate checking that the mask length is equal to self to the `MaskValues`
+        // filter implementation below.
+
         match selection {
             Mask::AllTrue(_) => self,
             Mask::AllFalse(_) => &mut self[..0],
-            Mask::Values(v) => {
-                // We choose to _always_ use slices here because iterating over indices will have
-                // strictly more loop iterations than slices, and the overhead over batched
-                // `ptr::copy(len)` is not worth it.
-                let slices = v.slices();
-
-                // SAFETY: We checked above that the selection mask has the same length as the
-                // buffer.
-                unsafe { filter_slices_in_place(self, slices) }
-            }
+            Mask::Values(v) => self.filter(v.as_ref()),
         }
     }
 }
 
-/// Filters a buffer in-place using slice ranges to determine which values to keep.
-///
-/// Returns the new length of the buffer.
-///
-/// # Safety
-///
-/// The slice ranges must be in the range of the `buffer`.
-unsafe fn filter_slices_in_place<'a, T: Copy>(
-    buffer: &'a mut [T],
-    slices: &[(usize, usize)],
-) -> &'a mut [T] {
-    let mut write_pos = 0;
+impl<T: Copy> Filter<MaskValues> for &mut [T] {
+    type Output = Self;
 
-    // For each range in the selection, copy all of the elements to the current write position.
-    for &(start, end) in slices {
-        // Note that we could add an if statement here that checks `if read_idx != write_idx`, but
-        // it's probably better to just avoid the branch misprediction.
+    fn filter(self, mask_values: &MaskValues) -> Self::Output {
+        assert_eq!(
+            self.len(),
+            mask_values.len(),
+            "Mask length must equal the slice length"
+        );
 
-        let len = end - start;
-
-        // SAFETY: The safety contract enforces that all ranges are within bounds.
-        unsafe {
-            ptr::copy(
-                buffer.as_ptr().add(start),
-                buffer.as_mut_ptr().add(write_pos),
-                len,
-            )
-        };
-
-        write_pos += len;
+        // We choose to _always_ use slices here because iterating over indices will have strictly
+        // more loop iterations than slices (more branches), and the overhead over batched
+        // `ptr::copy(len)` is not that high.
+        self.filter(mask_values.slices())
     }
+}
 
-    &mut buffer[..write_pos]
+impl<T: Copy> Filter<[usize]> for &mut [T] {
+    type Output = Self;
+
+    /// Filters by indices.
+    ///
+    /// The caller should ensure that the indices are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any index is out of bounds. With the additional constraint that the indices are
+    /// strictly increasing, the length of the indices must be less than or equal to the length of
+    /// `self`.
+    fn filter(self, indices: &[usize]) -> Self::Output {
+        let mut write_pos = 0;
+
+        for &idx in indices {
+            // SAFETY: indices should be within bounds and we're copying one element at a time.
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    self.as_ptr().add(idx),
+                    self.as_mut_ptr().add(write_pos),
+                    1,
+                )
+            };
+            write_pos += 1;
+        }
+
+        &mut self[..write_pos]
+    }
+}
+
+impl<T: Copy> Filter<[(usize, usize)]> for &mut [T] {
+    type Output = Self;
+
+    /// Filters by ranges of indices.
+    ///
+    /// The caller should ensure that the ranges are strictly increasing, otherwise the resulting
+    /// buffer might have strange values.
+    ///
+    /// # Panics
+    ///
+    /// Panics if any range is out of bounds. With the additional constraint that the ranges are
+    /// strictly increasing, the length of the `slices` array must be less than or equal to the
+    /// length of `self`.
+    fn filter(self, slices: &[(usize, usize)]) -> Self::Output {
+        let mut write_pos = 0;
+
+        // For each range in the selection, copy all of the elements to the current write position.
+        for &(start, end) in slices {
+            // Note that we could add an if statement here that checks `if start != write_pos`, but
+            // it's probably better to just avoid the branch misprediction.
+            let len = end - start;
+
+            // SAFETY: Slices should be within bounds.
+            unsafe {
+                ptr::copy(
+                    self.as_ptr().add(start),
+                    self.as_mut_ptr().add(write_pos),
+                    len,
+                )
+            };
+
+            write_pos += len;
+        }
+
+        &mut self[..write_pos]
+    }
 }
 
 impl<'a, const NB: usize, T: Copy> Filter<BitView<'a, NB>> for &mut [T] {

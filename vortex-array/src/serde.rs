@@ -22,7 +22,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
@@ -34,6 +33,7 @@ use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::buffer::BufferHandle;
+use crate::session::ArrayRegistry;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.
@@ -117,8 +117,10 @@ impl dyn Array + '_ {
 
         // Set up the flatbuffer builder
         let mut fbb = FlatBufferBuilder::new();
+
         let root = ArrayNodeFlatBuffer::try_new(ctx, self)?;
-        let fb_root = root.write_flatbuffer(&mut fbb);
+        let fb_root = root.try_write_flatbuffer(&mut fbb)?;
+
         let fb_buffers = fbb.create_vector(&fb_buffers);
         let fb_array = fba::Array::create(
             &mut fbb,
@@ -184,29 +186,33 @@ impl<'a> ArrayNodeFlatBuffer<'a> {
             buffer_idx: 0,
         })
     }
-}
 
-impl FlatBufferRoot for ArrayNodeFlatBuffer<'_> {}
-
-impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
-    type Target<'t> = fba::ArrayNode<'t>;
-
-    fn write_flatbuffer<'fb>(
+    pub fn try_write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
-        let encoding = self.ctx.encoding_idx(&self.array.encoding());
-        let metadata = self
-            .array
-            .metadata()
-            // TODO(ngates): add try_write_flatbuffer
-            .vortex_expect("Failed to serialize metadata")
-            .vortex_expect("Validated that all arrays support serialization");
+    ) -> VortexResult<WIPOffset<fba::ArrayNode<'fb>>> {
+        let encoding_idx = self
+            .ctx
+            .intern(&self.array.encoding_id())
+            // TODO(ngates): write_flatbuffer should return a result if this can fail.
+            .ok_or_else(|| {
+                vortex_err!(
+                    "Array encoding {} not permitted by ctx",
+                    self.array.encoding_id()
+                )
+            })?;
+
+        let metadata = self.array.metadata()?.ok_or_else(|| {
+            vortex_err!(
+                "Array {} does not support serialization",
+                self.array.encoding_id()
+            )
+        })?;
         let metadata = Some(fbb.create_vector(metadata.as_slice()));
 
         // Assign buffer indices for all child arrays.
         let nbuffers = u16::try_from(self.array.nbuffers())
-            .vortex_expect("Array can have at most u16::MAX buffers");
+            .map_err(|_| vortex_err!("Array can have at most u16::MAX buffers"))?;
         let mut child_buffer_idx = self.buffer_idx + nbuffers;
 
         let children = &self
@@ -220,29 +226,31 @@ impl WriteFlatBuffer for ArrayNodeFlatBuffer<'_> {
                     array: child,
                     buffer_idx: child_buffer_idx,
                 }
-                .write_flatbuffer(fbb);
+                .try_write_flatbuffer(fbb)?;
+
                 child_buffer_idx = u16::try_from(child.nbuffers_recursive())
                     .ok()
                     .and_then(|nbuffers| nbuffers.checked_add(child_buffer_idx))
-                    .vortex_expect("Too many buffers (u16) for Array");
-                msg
+                    .ok_or_else(|| vortex_err!("Too many buffers (u16) for Array"))?;
+
+                Ok(msg)
             })
-            .collect::<Vec<_>>();
+            .collect::<VortexResult<Vec<_>>>()?;
         let children = Some(fbb.create_vector(children));
 
         let buffers = Some(fbb.create_vector_from_iter((0..nbuffers).map(|i| i + self.buffer_idx)));
-        let stats = Some(self.array.statistics().write_flatbuffer(fbb));
+        let stats = Some(self.array.statistics().write_flatbuffer(fbb)?);
 
-        fba::ArrayNode::create(
+        Ok(fba::ArrayNode::create(
             fbb,
             &fba::ArrayNodeArgs {
-                encoding,
+                encoding: encoding_idx,
                 metadata,
                 children,
                 buffers,
                 stats,
             },
-        )
+        ))
     }
 }
 
@@ -292,27 +300,45 @@ impl Debug for ArrayParts {
 
 impl ArrayParts {
     /// Decode an [`ArrayParts`] into an [`ArrayRef`].
-    pub fn decode(&self, ctx: &ArrayContext, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        let encoding_id = self.flatbuffer().encoding();
-        let vtable = ctx
-            .lookup_encoding(encoding_id)
+    pub fn decode(
+        &self,
+        dtype: &DType,
+        len: usize,
+        ctx: &ArrayContext,
+        registry: &ArrayRegistry,
+    ) -> VortexResult<ArrayRef> {
+        let encoding_idx = self.flatbuffer().encoding();
+        let encoding_id = ctx
+            .resolve(encoding_idx)
+            .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
+        let vtable = registry
+            .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
         let buffers: Vec<_> = (0..self.nbuffers())
             .map(|idx| self.buffer(idx))
             .try_collect()?;
 
-        let children = ArrayPartsChildren { parts: self, ctx };
+        let children = ArrayPartsChildren {
+            parts: self,
+            ctx,
+            registry,
+        };
 
-        let decoded = vtable
-            .as_dyn()
-            .build(dtype, len, self.metadata(), &buffers, &children)?;
+        let decoded = vtable.build(
+            encoding_id.clone(),
+            dtype,
+            len,
+            self.metadata(),
+            &buffers,
+            &children,
+        )?;
 
         assert_eq!(
             decoded.len(),
             len,
             "Array decoded from {} has incorrect length {}, expected {}",
-            vtable.id(),
+            encoding_id,
             decoded.len(),
             len
         );
@@ -320,15 +346,15 @@ impl ArrayParts {
             decoded.dtype(),
             dtype,
             "Array decoded from {} has incorrect dtype {}, expected {}",
-            vtable.id(),
+            encoding_id,
             decoded.dtype(),
             dtype,
         );
         assert_eq!(
             decoded.encoding_id(),
-            vtable.id(),
+            encoding_id,
             "Array decoded from {} has incorrect encoding {}",
-            vtable.id(),
+            encoding_id,
             decoded.encoding_id(),
         );
 
@@ -464,10 +490,9 @@ impl ArrayParts {
         array_tree: ByteBuffer,
         segment: BufferHandle,
     ) -> VortexResult<Self> {
-        // TODO: this can also work with device buffers.
-        let segment = segment.try_to_host()?;
-        // We align each buffer individually, so we remove alignment requirements on the buffer.
-        let segment = segment.aligned(Alignment::none());
+        // We align each buffer individually, so we remove alignment requirements on the segment
+        // for host-resident buffers. Device buffers are sliced directly.
+        let segment = segment.ensure_aligned(Alignment::none())?;
 
         let fb_buffer = FlatBuffer::align_from(array_tree);
 
@@ -478,7 +503,7 @@ impl ArrayParts {
             let flatbuffer_loc = fb_root._tab.loc();
 
             let mut offset = 0;
-            let buffers: Arc<[_]> = fb_array
+            let buffers = fb_array
                 .buffers()
                 .unwrap_or_default()
                 .iter()
@@ -489,15 +514,13 @@ impl ArrayParts {
                     let buffer_len = fb_buf.length() as usize;
 
                     // Extract a buffer and ensure it's aligned, copying if necessary
-                    let buffer = segment
-                        .slice(offset..(offset + buffer_len))
-                        .aligned(Alignment::from_exponent(fb_buf.alignment_exponent()));
-
+                    let buffer = segment.slice(offset..(offset + buffer_len));
+                    let buffer = buffer
+                        .ensure_aligned(Alignment::from_exponent(fb_buf.alignment_exponent()))?;
                     offset += buffer_len;
-                    BufferHandle::new_host(buffer)
+                    Ok(buffer)
                 })
-                .collect();
-
+                .collect::<VortexResult<Arc<[_]>>>()?;
             (flatbuffer_loc, buffers)
         };
 
@@ -512,11 +535,14 @@ impl ArrayParts {
 struct ArrayPartsChildren<'a> {
     parts: &'a ArrayParts,
     ctx: &'a ArrayContext,
+    registry: &'a ArrayRegistry,
 }
 
 impl ArrayChildren for ArrayPartsChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
-        self.parts.child(index).decode(self.ctx, dtype, len)
+        self.parts
+            .child(index)
+            .decode(dtype, len, self.ctx, self.registry)
     }
 
     fn len(&self) -> usize {
@@ -583,6 +609,6 @@ impl TryFrom<BufferHandle> for ArrayParts {
     type Error = VortexError;
 
     fn try_from(value: BufferHandle) -> Result<Self, Self::Error> {
-        Self::try_from(value.try_to_host()?)
+        Self::try_from(value.try_to_host_sync()?)
     }
 }

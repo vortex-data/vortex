@@ -62,14 +62,6 @@ pub trait Layout: 'static + Send + Sync + Debug + private::Sealed {
     /// Get the segment IDs for this layout.
     fn segment_ids(&self) -> Vec<SegmentId>;
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef>;
-
     fn new_reader(
         &self,
         name: Arc<str>,
@@ -313,16 +305,6 @@ impl<V: VTable> Layout for LayoutAdapter<V> {
         V::segment_ids(&self.0)
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        &self,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        V::new_gpu_reader(&self.0, name, segment_source, ctx)
-    }
-
     fn new_reader(
         &self,
         name: Arc<str>,
@@ -344,6 +326,7 @@ mod private {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::ArrayContext;
 
     use super::*;
 
@@ -488,7 +471,6 @@ mod tests {
 
     #[test]
     fn test_struct_layout_display() {
-        use vortex_array::ArrayContext;
         use vortex_dtype::Nullability::NonNullable;
         use vortex_dtype::PType;
         use vortex_dtype::StructFields;

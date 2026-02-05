@@ -47,8 +47,8 @@ impl ZipKernel for ChunkedVTable {
             let take_until = lhs_rem.min(rhs_rem);
 
             let mask_slice = mask.slice(pos..pos + take_until);
-            let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until);
-            let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until);
+            let lhs_slice = lhs_chunk.slice(lhs_offset..lhs_offset + take_until)?;
+            let rhs_slice = rhs_chunk.slice(rhs_offset..rhs_offset + take_until)?;
 
             out_chunks.push(zip(lhs_slice.as_ref(), rhs_slice.as_ref(), &mask_slice)?);
 

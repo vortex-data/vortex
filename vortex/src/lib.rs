@@ -11,6 +11,7 @@ pub use vortex_array::compute;
 pub use vortex_array::expr;
 use vortex_array::expr::session::ExprSession;
 use vortex_array::session::ArraySession;
+use vortex_dtype::session::DTypeSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
 use vortex_metrics::VortexMetrics;
@@ -39,6 +40,7 @@ pub mod compressor {
 pub mod dtype {
     pub use vortex_dtype::*;
 }
+
 pub mod error {
     pub use vortex_error::*;
 }
@@ -90,10 +92,6 @@ pub mod session {
 
 pub mod utils {
     pub use vortex_utils::*;
-}
-
-pub mod vector {
-    pub use vortex_vector::*;
 }
 
 pub mod encodings {
@@ -158,10 +156,20 @@ impl VortexSessionDefault for VortexSession {
     fn default() -> VortexSession {
         let mut session = VortexSession::empty()
             .with::<VortexMetrics>()
+            .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()
             .with::<ExprSession>()
             .with::<RuntimeSession>();
+
+        #[cfg(all(feature = "cuda", target_os = "linux"))]
+        // Even if the CUDA feature is enabled we need to check at
+        // runtime whether CUDA is available in the current environment.
+        if vortex_cuda::cuda_available() {
+            use vortex_cuda::CudaSessionExt;
+            session = session.with::<vortex_cuda::CudaSession>();
+            vortex_cuda::initialize_cuda(&session.cuda_session());
+        }
 
         #[cfg(feature = "files")]
         file::register_default_encodings(&mut session);
@@ -177,7 +185,6 @@ impl VortexSessionDefault for VortexSession {
 mod test {
     use std::path::PathBuf;
 
-    use itertools::Itertools;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
@@ -221,9 +228,12 @@ mod test {
         .build()?;
 
         let dtype = DType::from_arrow(reader.schema());
-        let chunks = reader
-            .map_ok(|record_batch| ArrayRef::from_arrow(record_batch, false))
-            .try_collect()?;
+        let chunks: Vec<_> = reader
+            .map(|record_batch| {
+                let batch = record_batch?;
+                ArrayRef::from_arrow(batch, false)
+            })
+            .collect::<VortexResult<_>>()?;
         let vortex_array = ChunkedArray::try_new(chunks, dtype)?.into_array();
         // [convert]
 
@@ -250,7 +260,7 @@ mod test {
 
         // Or apply generally stronger compression with the compact compressor
         let compressed = CompactCompressor::default()
-            .with_values_per_page(8192)
+            .with_zstd_values_per_page(8192)
             .compress(array.as_ref())?;
         println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
@@ -310,7 +320,7 @@ mod test {
         session
             .write_options()
             .with_strategy(
-                WriteStrategyBuilder::new()
+                WriteStrategyBuilder::default()
                     .with_compressor(CompactCompressor::default())
                     .build(),
             )

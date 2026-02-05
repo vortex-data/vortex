@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ArrayVisitor;
+use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
@@ -19,13 +20,13 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnVTable;
+use crate::arrays::SliceReduceAdaptor;
 use crate::arrays::StructArray;
 use crate::expr::Pack;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::ScalarFn;
-use crate::matchers::Exact;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ArrayReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -38,8 +39,10 @@ pub(super) const RULES: ReduceRuleSet<ScalarFnVTable> = ReduceRuleSet::new(&[
     &ScalarFnAbstractReduceRule,
 ]);
 
-pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<ScalarFnVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&ScalarFnUnaryFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(ScalarFnVTable)),
+]);
 
 /// Converts a ScalarFnArray with Pack into a StructArray directly.
 #[derive(Debug)]
@@ -74,8 +77,12 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
         if !array.children.iter().all(|c| c.is::<ConstantVTable>()) {
             return Ok(None);
         }
-        let result = array.scalar_at(0);
-        Ok(Some(ConstantArray::new(result, array.len).into_array()))
+        if array.is_empty() {
+            Ok(Some(Canonical::empty(array.dtype()).into_array()))
+        } else {
+            let result = array.scalar_at(0)?;
+            Ok(Some(ConstantArray::new(result, array.len).into_array()))
+        }
     }
 }
 
@@ -155,11 +162,7 @@ impl ReduceCtx for ArrayReduceCtx {
 struct ScalarFnUnaryFilterPushDownRule;
 
 impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,
@@ -195,5 +198,43 @@ impl ArrayParentReduceRule<ScalarFnVTable> for ScalarFnUnaryFilterPushDownRule {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
+    use vortex_error::VortexExpect;
+
+    use crate::array::IntoArray;
+    use crate::arrays::ChunkedArray;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::PrimitiveArray;
+    use crate::expr::cast;
+    use crate::expr::is_null;
+    use crate::expr::root;
+
+    #[test]
+    fn test_empty_constants() {
+        let array = ChunkedArray::try_new(
+            vec![
+                ConstantArray::new(Some(1u64), 0).into_array(),
+                PrimitiveArray::from_iter(vec![2u64])
+                    .into_array()
+                    .apply(&cast(
+                        root(),
+                        DType::Primitive(PType::U64, Nullability::Nullable),
+                    ))
+                    .vortex_expect("casted"),
+            ],
+            DType::Primitive(PType::U64, Nullability::Nullable),
+        )
+        .vortex_expect("construction")
+        .to_array();
+
+        let expr = is_null(root());
+        array.apply(&expr).vortex_expect("expr evaluation");
     }
 }

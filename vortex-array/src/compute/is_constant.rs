@@ -141,12 +141,12 @@ fn is_constant_impl(
         return Ok(Some(true));
     }
 
-    let all_invalid = array.all_invalid();
+    let all_invalid = array.all_invalid()?;
     if all_invalid {
         return Ok(Some(true));
     }
 
-    let all_valid = array.all_valid();
+    let all_valid = array.all_valid()?;
 
     // If we have some nulls, array can't be constant
     if !all_valid && !all_invalid {

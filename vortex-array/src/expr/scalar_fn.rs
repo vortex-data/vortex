@@ -13,17 +13,20 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_utils::debug_with::DebugWith;
-use vortex_vector::Datum;
 
-use crate::ArrayRef;
+use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::ExprVTable;
 use crate::expr::Expression;
+use crate::expr::IsNull;
+use crate::expr::Not;
 use crate::expr::ReduceCtx;
 use crate::expr::ReduceNode;
 use crate::expr::ReduceNodeRef;
 use crate::expr::VTable;
+use crate::expr::VTableExt;
 use crate::expr::options::ExpressionOptions;
 use crate::expr::signature::ExpressionSignature;
 
@@ -113,16 +116,20 @@ impl ScalarFn {
             .return_dtype(self.options.deref(), arg_types)
     }
 
-    /// Evaluate the expression, returning an ArrayRef.
-    ///
-    /// NOTE: this function will soon be deprecated as all expressions will evaluate trivially
-    ///  into an ExprArray.
-    pub fn evaluate(&self, expr: &Expression, scope: &ArrayRef) -> VortexResult<ArrayRef> {
-        self.vtable.as_dyn().evaluate(expr, scope)
+    /// Transforms the expression into one representing the validity of this expression.
+    pub fn validity(&self, expr: &Expression) -> VortexResult<Expression> {
+        Ok(self.vtable.as_dyn().validity(expr)?.unwrap_or_else(|| {
+            // TODO(ngates): make validity a mandatory method on VTable to avoid this fallback.
+            // TODO(ngates): add an IsNotNull expression.
+            Not.new_expr(
+                EmptyOptions,
+                [IsNull.new_expr(EmptyOptions, [expr.clone()])],
+            )
+        }))
     }
 
     /// Execute the expression given the input arguments.
-    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<Datum> {
+    pub fn execute(&self, ctx: ExecutionArgs) -> VortexResult<ExecutionResult> {
         self.vtable.as_dyn().execute(self.options.deref(), ctx)
     }
 

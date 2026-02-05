@@ -164,16 +164,18 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
 
         assert_eq!(app.cursor.dtype(), array.dtype());
 
-        let field_arrays: Vec<ArrayRef> = struct_array.fields().to_vec();
+        let field_arrays: Vec<ArrayRef> = struct_array.unmasked_fields().to_vec();
 
         // TODO: trim the number of displayed rows and allow paging through column stats.
         let rows = (0..array.len()).map(|chunk_id| {
             std::iter::once(Cell::from(Text::from(format!("{chunk_id}"))))
-                .chain(
-                    field_arrays
-                        .iter()
-                        .map(|arr| Cell::from(Text::from(arr.scalar_at(chunk_id).to_string()))),
-                )
+                .chain(field_arrays.iter().map(|arr| {
+                    Cell::from(Text::from(
+                        arr.scalar_at(chunk_id)
+                            .vortex_expect("scalar_at failed")
+                            .to_string(),
+                    ))
+                }))
                 .collect::<Row>()
         });
 

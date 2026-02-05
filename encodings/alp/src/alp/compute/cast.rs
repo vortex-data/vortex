@@ -6,6 +6,7 @@ use vortex_array::IntoArray;
 use vortex_array::compute::CastKernel;
 use vortex_array::compute::CastKernelAdapter;
 use vortex_array::compute::cast;
+use vortex_array::patches::Patches;
 use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -27,13 +28,30 @@ impl CastKernel for ALPVTable {
                     .with_nullability(dtype.nullability()),
             )?;
 
+            let new_patches = array
+                .patches()
+                .map(|p| {
+                    if p.values().dtype() == dtype {
+                        Ok(p.clone())
+                    } else {
+                        Patches::new(
+                            p.array_len(),
+                            p.offset(),
+                            p.indices().clone(),
+                            cast(p.values(), dtype)?,
+                            p.chunk_offsets().clone(),
+                        )
+                    }
+                })
+                .transpose()?;
+
             // SAFETY: casting nullability doesn't alter the invariants
             unsafe {
                 Ok(Some(
                     ALPArray::new_unchecked(
                         new_encoded,
                         array.exponents(),
-                        array.patches().cloned(),
+                        new_patches,
                         dtype.clone(),
                     )
                     .into_array(),
@@ -51,11 +69,11 @@ register_kernel!(CastKernelAdapter(ALPVTable).lift());
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;
+    use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::cast;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
-    use vortex_array::vtable::ArrayVTableExt;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
@@ -63,15 +81,32 @@ mod tests {
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
 
-    use crate::ALPVTable;
+    use crate::alp_encode;
+
+    #[test]
+    fn issue_5766_test_cast_alp_with_patches_to_nullable() -> VortexResult<()> {
+        let values = buffer![1.234f32, f32::NAN, 2.345, f32::INFINITY, 3.456].into_array();
+        let alp = alp_encode(&values.to_primitive(), None)?;
+
+        assert!(
+            alp.patches().is_some(),
+            "Test requires ALP array with patches"
+        );
+
+        let nullable_dtype = DType::Primitive(PType::F32, Nullability::Nullable);
+        let casted = cast(alp.as_ref(), &nullable_dtype)?;
+
+        let expected = cast(&values, &nullable_dtype)?;
+
+        assert_arrays_eq!(casted.to_canonical()?.into_primitive(), expected);
+
+        Ok(())
+    }
 
     #[test]
     fn test_cast_alp_f32_to_f64() -> VortexResult<()> {
         let values = buffer![1.5f32, 2.5, 3.5, 4.5].into_array();
-        let alp = ALPVTable
-            .as_vtable()
-            .encode(&values.to_canonical()?, None)?
-            .vortex_expect("must encode");
+        let alp = alp_encode(&values.to_primitive(), None)?;
 
         let casted = cast(
             alp.as_ref(),
@@ -94,10 +129,7 @@ mod tests {
     #[test]
     fn test_cast_alp_to_int() -> VortexResult<()> {
         let values = buffer![1.0f32, 2.0, 3.0, 4.0].into_array();
-        let alp = ALPVTable
-            .as_vtable()
-            .encode(&values.to_canonical()?, None)?
-            .vortex_expect("must encode");
+        let alp = alp_encode(&values.to_primitive(), None)?;
 
         let casted = cast(
             alp.as_ref(),
@@ -121,10 +153,7 @@ mod tests {
     #[case(buffer![42.42f64].into_array())]
     #[case(buffer![0.0f32, -1.5, 2.5, -3.5, 4.5].into_array())]
     fn test_cast_alp_conformance(#[case] array: vortex_array::ArrayRef) -> VortexResult<()> {
-        let alp = ALPVTable
-            .as_vtable()
-            .encode(&array.to_canonical()?, None)?
-            .vortex_expect("cannot fail");
+        let alp = alp_encode(&array.to_primitive(), None).vortex_expect("cannot fail");
         test_cast_conformance(alp.as_ref());
 
         Ok(())

@@ -118,6 +118,8 @@ jobs:
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
 
+      - uses: ./.github/actions/system-info
+
       - name: Build binaries
         shell: bash
         env:
@@ -241,6 +243,16 @@ jobs:
           # There is exactly one comment per comment-tag. If a comment with this tag already exists,
           # this action will *update* the comment instead of posting a new comment. Therefore, each
           # unique benchmark configuration must have a unique comment-tag.
+          comment-tag: bench-pr-comment-${{ matrix.id }}
+
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ SQL BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.id }}
 
       - name: Upload Benchmark Results

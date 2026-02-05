@@ -32,6 +32,7 @@ impl vx_string {
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) -> *const vx_string {
     let slice = unsafe { slice::from_raw_parts(ptr.cast(), len) };
+    // TODO(joe): propagate this error up instead of expecting
     let string = String::from_utf8(slice.to_vec())
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))
         .vortex_expect("CString creation should succeed");
@@ -41,6 +42,7 @@ pub unsafe extern "C-unwind" fn vx_string_new(ptr: *const c_char, len: usize) ->
 /// Create a new Vortex UTF-8 string by copying from a null-terminated C-style string.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_string_new_from_cstr(ptr: *const c_char) -> *const vx_string {
+    // TODO(joe): propagate this error up instead of expecting
     let string = unsafe { CStr::from_ptr(ptr) }
         .to_str()
         .map_err(|e| vortex_err!("invalid utf-8: {e}"))
@@ -70,7 +72,7 @@ mod tests {
     fn test_string_new() {
         unsafe {
             let test_str = "hello world";
-            let ptr = test_str.as_ptr() as *const c_char;
+            let ptr = test_str.as_ptr().cast();
             let len = test_str.len();
 
             let vx_str = vx_string_new(ptr, len);
@@ -103,7 +105,7 @@ mod tests {
             let ptr = vx_string_ptr(vx_str);
             let len = vx_string_len(vx_str);
 
-            let slice = slice::from_raw_parts(ptr as *const u8, len);
+            let slice = slice::from_raw_parts(ptr.cast::<u8>(), len);
             let recovered = str::from_utf8_unchecked(slice);
             assert_eq!(recovered, "testing");
 
@@ -115,7 +117,7 @@ mod tests {
     fn test_empty_string() {
         unsafe {
             let empty = "";
-            let ptr = empty.as_ptr() as *const c_char;
+            let ptr = empty.as_ptr().cast();
             let vx_str = vx_string_new(ptr, 0);
 
             assert_eq!(vx_string_len(vx_str), 0);
@@ -129,7 +131,7 @@ mod tests {
     fn test_unicode_string() {
         unsafe {
             let unicode_str = "Hello 世界 🌍";
-            let ptr = unicode_str.as_ptr() as *const c_char;
+            let ptr = unicode_str.as_ptr().cast();
             let len = unicode_str.len();
 
             let vx_str = vx_string_new(ptr, len);

@@ -94,21 +94,6 @@ impl VTable for FlatVTable {
         )))
     }
 
-    #[cfg(gpu_unstable)]
-    fn new_gpu_reader(
-        layout: &Self::Layout,
-        name: Arc<str>,
-        segment_source: Arc<dyn SegmentSource>,
-        ctx: Arc<cudarc::driver::CudaContext>,
-    ) -> VortexResult<crate::gpu::GpuLayoutReaderRef> {
-        Ok(Arc::new(crate::gpu::layouts::flat::GpuFlatReader::new(
-            layout.clone(),
-            name,
-            segment_source,
-            ctx,
-        )))
-    }
-
     fn build(
         _encoding: &Self::Encoding,
         dtype: &DType,
@@ -116,7 +101,7 @@ impl VTable for FlatVTable {
         metadata: &<Self::Metadata as DeserializeMetadata>::Output,
         segment_ids: Vec<SegmentId>,
         _children: &dyn LayoutChildren,
-        ctx: ArrayContext,
+        ctx: &ArrayContext,
     ) -> VortexResult<Self::Layout> {
         if segment_ids.len() != 1 {
             vortex_bail!("Flat layout must have exactly one segment ID");
@@ -125,7 +110,7 @@ impl VTable for FlatVTable {
             row_count,
             dtype.clone(),
             segment_ids[0],
-            ctx,
+            ctx.clone(),
             metadata
                 .array_encoding_tree
                 .as_ref()

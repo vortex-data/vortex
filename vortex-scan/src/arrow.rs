@@ -67,7 +67,7 @@ fn to_record_batch(
     data_type: &DataType,
     ctx: &mut ExecutionCtx,
 ) -> VortexResult<RecordBatch> {
-    let arrow = chunk.execute_arrow(data_type, ctx)?;
+    let arrow = chunk.execute_arrow(Some(data_type), ctx)?;
     Ok(RecordBatch::from(arrow.as_struct().clone()))
 }
 
@@ -151,7 +151,7 @@ mod tests {
         );
 
         // Convert to Vortex
-        Ok(ArrayRef::from_arrow(&struct_array, true))
+        ArrayRef::from_arrow(&struct_array, true)
     }
 
     fn create_arrow_schema() -> Arc<Schema> {

@@ -17,6 +17,11 @@ path = "benchmarks-website/**"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "CC-BY-4.0"
 
+[[annotations]]
+path = "benchmarks-website-v2/**"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
 # Golden files are licensed under CC-BY-4.0.
 [[annotations]]
 path = "**/goldenfiles/**"
@@ -32,6 +37,12 @@ SPDX-License-Identifier = "CC-BY-4.0"
 
 [[annotations]]
 path = ["**/.gitignore", ".gitmodules", ".python-version", "**/*.lock", "**/*.lockfile", "**/*.toml", "renovate.json", ".idea/**", ".github/**", "codecov.yml", "java/gradle/wrapper/gradle-wrapper.properties"]
+precedence = "override"
+SPDX-FileCopyrightText = "Copyright the Vortex contributors"
+SPDX-License-Identifier = "Apache-2.0"
+
+[[annotations]]
+path = ["vortex-cuda/kernels/src/bit_unpack_*"]
 precedence = "override"
 SPDX-FileCopyrightText = "Copyright the Vortex contributors"
 SPDX-License-Identifier = "Apache-2.0"

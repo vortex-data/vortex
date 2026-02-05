@@ -12,6 +12,7 @@ use std::sync::Arc;
 use flatbuffers::FlatBufferBuilder;
 use flatbuffers::WIPOffset;
 use vortex_array::ArrayContext;
+use vortex_error::VortexResult;
 use vortex_flatbuffers::FlatBufferRoot;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::footer as fb;
@@ -40,16 +41,16 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
     fn write_flatbuffer<'fb>(
         &self,
         fbb: &mut FlatBufferBuilder<'fb>,
-    ) -> WIPOffset<Self::Target<'fb>> {
+    ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let segment_specs =
             fbb.create_vector_from_iter(self.segment_specs.iter().map(fb::SegmentSpec::from));
 
         let array_specs = self
             .ctx
-            .encodings()
+            .to_ids()
             .iter()
             .map(|e| {
-                let id = fbb.create_string(e.id().as_ref());
+                let id = fbb.create_string(e.as_ref());
                 fb::ArraySpec::create(fbb, &fb::ArraySpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
@@ -57,16 +58,16 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
 
         let layout_specs = self
             .layout_ctx
-            .encodings()
+            .to_ids()
             .iter()
             .map(|e| {
-                let id = fbb.create_string(e.id().as_ref());
+                let id = fbb.create_string(e.as_ref());
                 fb::LayoutSpec::create(fbb, &fb::LayoutSpecArgs { id: Some(id) })
             })
             .collect::<Vec<_>>();
         let layout_specs = fbb.create_vector(layout_specs.as_slice());
 
-        fb::Footer::create(
+        Ok(fb::Footer::create(
             fbb,
             &fb::FooterArgs {
                 segment_specs: Some(segment_specs),
@@ -75,6 +76,6 @@ impl WriteFlatBuffer for FooterFlatBufferWriter {
                 compression_specs: None,
                 encryption_specs: None,
             },
-        )
+        ))
     }
 }

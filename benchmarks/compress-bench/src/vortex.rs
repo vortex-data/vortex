@@ -17,7 +17,7 @@ use vortex::file::WriteOptionsSessionExt;
 use vortex_bench::Format;
 use vortex_bench::SESSION;
 use vortex_bench::compress::Compressor;
-use vortex_bench::conversions::parquet_to_vortex;
+use vortex_bench::conversions::parquet_to_vortex_chunks;
 
 /// Compressor implementation for Vortex format.
 pub struct VortexCompressor;
@@ -30,7 +30,7 @@ impl Compressor for VortexCompressor {
 
     async fn compress(&self, parquet_path: &Path) -> Result<(u64, Duration)> {
         // Read the parquet file as an array stream
-        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
+        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
 
         let mut buf = Vec::new();
         let start = Instant::now();
@@ -46,7 +46,7 @@ impl Compressor for VortexCompressor {
 
     async fn decompress(&self, parquet_path: &Path) -> Result<Duration> {
         // First compress to get the bytes we'll decompress
-        let uncompressed = parquet_to_vortex(parquet_path.to_path_buf()).await?;
+        let uncompressed = parquet_to_vortex_chunks(parquet_path.to_path_buf()).await?;
         let mut buf = Vec::new();
         let mut cursor = Cursor::new(&mut buf);
         SESSION

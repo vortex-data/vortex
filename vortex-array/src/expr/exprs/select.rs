@@ -3,7 +3,6 @@
 
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use prost::Message;
@@ -16,25 +15,22 @@ use vortex_error::vortex_err;
 use vortex_proto::expr::FieldNames as ProtoFieldNames;
 use vortex_proto::expr::SelectOpts;
 use vortex_proto::expr::select_opts::Opts;
-use vortex_vector::Datum;
-use vortex_vector::StructDatum;
-use vortex_vector::VectorOps;
-use vortex_vector::struct_::StructVector;
+use vortex_session::VortexSession;
 
-use crate::ArrayRef;
 use crate::IntoArray;
-use crate::ToCanonical;
+use crate::arrays::StructArray;
+use crate::expr;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
+use crate::expr::Pack;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
 use crate::expr::expression::Expression;
 use crate::expr::field::DisplayFieldNames;
-use crate::expr::get_item;
-use crate::expr::pack;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum FieldSelection {
@@ -51,7 +47,7 @@ impl VTable for Select {
         ExprId::new_ref("vortex.select")
     }
 
-    fn serialize(&self, instance: &Self::Options) -> VortexResult<Option<Vec<u8>>> {
+    fn serialize(&self, instance: &FieldSelection) -> VortexResult<Option<Vec<u8>>> {
         let opts = match instance {
             FieldSelection::Include(fields) => Opts::Include(ProtoFieldNames {
                 names: fields.iter().map(|f| f.to_string()).collect(),
@@ -65,8 +61,12 @@ impl VTable for Select {
         Ok(Some(select_opts.encode_to_vec()))
     }
 
-    fn deserialize(&self, metadata: &[u8]) -> VortexResult<Self::Options> {
-        let prost_metadata = SelectOpts::decode(metadata)?;
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<FieldSelection> {
+        let prost_metadata = SelectOpts::decode(_metadata)?;
 
         let select_opts = prost_metadata
             .opts
@@ -84,11 +84,11 @@ impl VTable for Select {
         Ok(field_selection)
     }
 
-    fn arity(&self, _options: &Self::Options) -> Arity {
+    fn arity(&self, _options: &FieldSelection) -> Arity {
         Arity::Exact(1)
     }
 
-    fn child_name(&self, _instance: &Self::Options, child_idx: usize) -> ChildName {
+    fn child_name(&self, _instance: &FieldSelection, child_idx: usize) -> ChildName {
         match child_idx {
             0 => ChildName::new_ref("child"),
             _ => unreachable!(),
@@ -136,127 +136,98 @@ impl VTable for Select {
         Ok(DType::Struct(projected, child_dtype.nullability()))
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         selection: &FieldSelection,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let batch = expr.child(0).evaluate(scope)?.to_struct();
-        Ok(match selection {
-            FieldSelection::Include(f) => batch.project(f.as_ref()),
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let child = args
+            .inputs
+            .pop()
+            .vortex_expect("Missing input child")
+            .execute::<StructArray>(args.ctx)?;
+
+        let result = match selection {
+            FieldSelection::Include(f) => child.project(f.as_ref()),
             FieldSelection::Exclude(names) => {
-                let included_names = batch
+                let included_names = child
                     .names()
                     .iter()
                     .filter(|&f| !names.as_ref().contains(f))
                     .cloned()
                     .collect::<Vec<_>>();
-                batch.project(included_names.as_slice())
+                child.project(included_names.as_slice())
             }
-        }?
-        .into_array())
-    }
-
-    fn execute(&self, selection: &FieldSelection, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child_fields = args
-            .dtypes
-            .pop()
-            .vortex_expect("Missing input dtype")
-            .into_struct_fields();
-
-        let field_indices: Vec<usize> = match selection {
-            FieldSelection::Include(f) => f
-                .iter()
-                .map(|name| {
-                    child_fields
-                        .find(name)
-                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
-                })
-                .try_collect(),
-            FieldSelection::Exclude(names) => child_fields
-                .names()
-                .iter()
-                .filter(|&f| !names.as_ref().contains(f))
-                .map(|name| {
-                    child_fields
-                        .find(name)
-                        .ok_or_else(|| vortex_err!("Field {} not found in struct dtype", name))
-                })
-                .try_collect(),
         }?;
 
-        let child = args
-            .datums
-            .pop()
-            .vortex_expect("Missing input child")
-            .into_struct();
-
-        Ok(match child {
-            StructDatum::Scalar(s) => StructDatum::Scalar(
-                select_from_struct_vector(s.value(), &field_indices)?.scalar_at(0),
-            ),
-            StructDatum::Vector(v) => {
-                StructDatum::Vector(select_from_struct_vector(&v, &field_indices)?)
-            }
-        }
-        .into())
+        result.into_array().execute(args.ctx)
     }
 
     fn simplify(
         &self,
-        options: &Self::Options,
+        selection: &FieldSelection,
         expr: &Expression,
         ctx: &dyn SimplifyCtx,
     ) -> VortexResult<Option<Expression>> {
-        let child = expr.child(0);
-        let child_dtype = ctx.return_dtype(child)?;
-        let child_nullability = child_dtype.nullability();
+        let child_struct = expr.child(0);
+        let struct_dtype = ctx.return_dtype(child_struct)?;
+        let struct_nullability = struct_dtype.nullability();
 
-        let child_dtype = child_dtype.as_struct_fields_opt().ok_or_else(|| {
+        let struct_fields = struct_dtype.as_struct_fields_opt().ok_or_else(|| {
             vortex_err!(
                 "Select child must return a struct dtype, however it was a {}",
-                child_dtype
+                struct_dtype
             )
         })?;
 
-        let expr = pack(
-            options
-                .as_include_names(child_dtype.names())
-                .map_err(|e| {
-                    e.with_context(format!(
-                        "Select fields {:?} must be a subset of child fields {:?}",
-                        options,
-                        child_dtype.names()
-                    ))
-                })?
-                .iter()
-                .map(|name| (name.clone(), get_item(name.clone(), child.clone()))),
-            child_nullability,
-        );
+        // "Mask" out the unwanted fields of the child struct `DType`.
+        let included_fields = selection.normalize_to_included_fields(struct_fields.names())?;
+        let all_included_fields_are_nullable = included_fields.iter().all(|name| {
+            struct_fields
+                .field(name)
+                .vortex_expect(
+                    "`normalize_to_included_fields` checks that the included fields already exist \
+                     in `struct_fields`",
+                )
+                .is_nullable()
+        });
 
-        Ok(Some(expr))
+        // We cannot always convert a `select` into a `pack(get_item(f1), get_item(f2), ...)`.
+        // This is because `get_item` does a validity intersection of the struct validity with its
+        // fields, which is not the same as just "masking" out the unwanted fields (a selection).
+        //
+        // We can, however, make this simplification when the child of the `select` is already a
+        // `pack` and we know that `get_item` will do no validity intersections.
+        let child_is_pack = child_struct.is::<Pack>();
+
+        // `get_item` only performs validity intersection when the struct is nullable but the field
+        // is not. This would change the semantics of a `select`, so we can only simplify when this
+        // won't happen.
+        let would_intersect_validity =
+            struct_nullability.is_nullable() && !all_included_fields_are_nullable;
+
+        if child_is_pack && !would_intersect_validity {
+            let pack_expr = expr::pack(
+                included_fields
+                    .into_iter()
+                    .map(|name| (name.clone(), expr::get_item(name, child_struct.clone()))),
+                struct_nullability,
+            );
+
+            return Ok(Some(pack_expr));
+        }
+
+        Ok(None)
     }
 
-    fn is_null_sensitive(&self, _instance: &Self::Options) -> bool {
+    fn is_null_sensitive(&self, _instance: &FieldSelection) -> bool {
         true
     }
 
-    fn is_fallible(&self, _instance: &Self::Options) -> bool {
+    fn is_fallible(&self, _instance: &FieldSelection) -> bool {
         // If this type-checks its infallible.
         false
     }
-}
-
-fn select_from_struct_vector(
-    vec: &StructVector,
-    field_indices: &[usize],
-) -> VortexResult<StructVector> {
-    let new_fields = field_indices
-        .iter()
-        .map(|&idx| vec.fields()[idx].clone())
-        .collect();
-    Ok(unsafe { StructVector::new_unchecked(Arc::new(new_fields), vec.validity().clone()) })
 }
 
 /// Creates an expression that selects (includes) specific fields from an array.
@@ -311,21 +282,26 @@ impl FieldSelection {
         fields
     }
 
-    pub fn as_include_names(&self, field_names: &FieldNames) -> VortexResult<FieldNames> {
+    pub fn normalize_to_included_fields(
+        &self,
+        available_fields: &FieldNames,
+    ) -> VortexResult<FieldNames> {
+        // Check that all of the field names exist in the available fields.
         if self
             .field_names()
             .iter()
-            .any(|f| !field_names.iter().contains(f))
+            .any(|f| !available_fields.iter().contains(f))
         {
             vortex_bail!(
-                "Field {:?} in select not in field names {:?}",
+                "Select fields {:?} must be a subset of child fields {:?}",
                 self,
-                field_names
+                available_fields
             );
         }
+
         match self {
             FieldSelection::Include(fields) => Ok(fields.clone()),
-            FieldSelection::Exclude(exc_fields) => Ok(field_names
+            FieldSelection::Exclude(exc_fields) => Ok(available_fields
                 .iter()
                 .filter(|f| !exc_fields.iter().contains(f))
                 .cloned()
@@ -359,7 +335,6 @@ mod tests {
     use crate::IntoArray;
     use crate::ToCanonical;
     use crate::arrays::StructArray;
-    use crate::expr::exprs::pack::Pack;
     use crate::expr::exprs::root::root;
     use crate::expr::exprs::select::Select;
     use crate::expr::test_harness;
@@ -376,7 +351,7 @@ mod tests {
     pub fn include_columns() {
         let st = test_array();
         let select = select(vec![FieldName::from("a")], root());
-        let selected = select.evaluate(&st.to_array()).unwrap().to_struct();
+        let selected = st.to_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["a"]);
     }
@@ -385,7 +360,7 @@ mod tests {
     pub fn exclude_columns() {
         let st = test_array();
         let select = select_exclude(vec![FieldName::from("a")], root());
-        let selected = select.evaluate(&st.to_array()).unwrap().to_struct();
+        let selected = st.to_array().apply(&select).unwrap().to_struct();
         let selected_names = selected.names().clone();
         assert_eq!(selected_names.as_ref(), &["b"]);
     }
@@ -444,11 +419,11 @@ mod tests {
         assert_eq!(
             &include
                 .as_::<Select>()
-                .as_include_names(&field_names)
+                .normalize_to_included_fields(&field_names)
                 .unwrap(),
             &exclude
                 .as_::<Select>()
-                .as_include_names(&field_names)
+                .normalize_to_included_fields(&field_names)
                 .unwrap()
         );
     }
@@ -463,7 +438,6 @@ mod tests {
 
         let result = e.optimize_recursive(&dtype).unwrap();
 
-        assert!(result.is::<Pack>());
         assert!(result.return_dtype(&dtype).unwrap().is_nullable());
     }
 
@@ -481,8 +455,6 @@ mod tests {
         let e = select_exclude(["c"], root());
 
         let result = e.optimize_recursive(&dtype).unwrap();
-
-        assert!(result.is::<Pack>());
 
         // Should exclude "c" and include "a" and "b"
         let result_dtype = result.return_dtype(&dtype).unwrap();

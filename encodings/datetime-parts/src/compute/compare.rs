@@ -15,7 +15,7 @@ use vortex_array::compute::or;
 use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::datetime::TemporalMetadata;
+use vortex_dtype::datetime::Timestamp;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
@@ -50,8 +50,10 @@ impl CompareKernel for DateTimePartsVTable {
 
         let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
 
-        let temporal_metadata = TemporalMetadata::try_from(ext_dtype.as_ref())?;
-        let ts_parts = timestamp::split(timestamp, temporal_metadata.time_unit())?;
+        let Some(options) = ext_dtype.metadata_opt::<Timestamp>() else {
+            return Ok(None);
+        };
+        let ts_parts = timestamp::split(timestamp, options.unit)?;
 
         match operator {
             Operator::Eq => compare_eq(lhs, &ts_parts, nullability),
@@ -218,7 +220,7 @@ mod test {
         DateTimePartsArray::try_from(TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![value], validity).into_array(),
             TimeUnit::Seconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         ))
         .expect("Failed to construct DateTimePartsArray from TemporalArray")
     }
@@ -293,7 +295,7 @@ mod test {
         let temporal_array = TemporalArray::new_timestamp(
             PrimitiveArray::new(buffer![0i64], lhs_validity.clone()).into_array(),
             TimeUnit::Seconds,
-            Some("UTC".to_string()),
+            Some("UTC".into()),
         );
 
         let lhs = DateTimePartsArray::try_new(

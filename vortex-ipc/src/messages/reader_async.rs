@@ -10,7 +10,6 @@ use bytes::BytesMut;
 use futures::AsyncRead;
 use futures::Stream;
 use pin_project_lite::pin_project;
-use vortex_array::session::ArrayRegistry;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -30,11 +29,11 @@ pin_project! {
 }
 
 impl<R> AsyncMessageReader<R> {
-    pub fn new(read: R, registry: ArrayRegistry) -> Self {
+    pub fn new(read: R) -> Self {
         AsyncMessageReader {
             read,
             buffer: BytesMut::new(),
-            decoder: MessageDecoder::new(registry),
+            decoder: MessageDecoder::default(),
             state: ReadState::default(),
         }
     }

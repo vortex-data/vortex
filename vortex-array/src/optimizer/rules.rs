@@ -8,8 +8,7 @@ use std::marker::PhantomData;
 use vortex_error::VortexResult;
 
 use crate::array::ArrayRef;
-use crate::matchers::MatchKey;
-use crate::matchers::Matcher;
+use crate::matcher::Matcher;
 use crate::vtable::VTable;
 
 /// A rewrite rule that transforms arrays based on their own content
@@ -27,9 +26,6 @@ pub trait ArrayReduceRule<V: VTable>: Debug + Send + Sync + 'static {
 pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     type Parent: Matcher;
 
-    /// Returns the matcher for the parent array
-    fn parent(&self) -> Self::Parent;
-
     /// Attempt to rewrite this child array given information about its parent.
     ///
     /// Returns:
@@ -39,14 +35,14 @@ pub trait ArrayParentReduceRule<V: VTable>: Debug + Send + Sync + 'static {
     fn reduce_parent(
         &self,
         array: &V::Array,
-        parent: <Self::Parent as Matcher>::View<'_>,
+        parent: <Self::Parent as Matcher>::Match<'_>,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>>;
 }
 
 /// Dynamic trait for array parent reduce rules
 pub trait DynArrayParentReduceRule<V: VTable>: Debug + Send + Sync {
-    fn parent_key(&self) -> MatchKey;
+    fn matches(&self, parent: &ArrayRef) -> bool;
 
     fn reduce_parent(
         &self,
@@ -71,11 +67,11 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> Debug for ParentReduceRuleAdapter<V
     }
 }
 
-impl<V: VTable, R: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
-    for ParentReduceRuleAdapter<V, R>
+impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
+    for ParentReduceRuleAdapter<V, K>
 {
-    fn parent_key(&self) -> MatchKey {
-        self.rule.parent().key()
+    fn matches(&self, parent: &ArrayRef) -> bool {
+        K::Parent::matches(parent)
     }
 
     fn reduce_parent(
@@ -84,7 +80,7 @@ impl<V: VTable, R: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = self.rule.parent().try_match(parent) else {
+        let Some(parent_view) = K::Parent::try_match(parent) else {
             return Ok(None);
         };
         self.rule.reduce_parent(child, parent_view, child_idx)
@@ -147,9 +143,7 @@ impl<V: VTable> ParentRuleSet<V> {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         for rule in self.rules.iter() {
-            if let MatchKey::Array(id) = rule.parent_key()
-                && parent.encoding_id() != id
-            {
+            if !rule.matches(parent) {
                 continue;
             }
             if let Some(reduced) = rule.reduce_parent(child, parent, child_idx)? {

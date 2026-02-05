@@ -469,6 +469,7 @@ fn main() {
         .file("cpp/logical_type.cpp")
         .file("cpp/object_cache.cpp")
         .file("cpp/reusable_dict.cpp")
+        .file("cpp/replacement_scan.cpp")
         .file("cpp/scalar_function.cpp")
         .file("cpp/table_filter.cpp")
         .file("cpp/table_function.cpp")

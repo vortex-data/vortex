@@ -383,7 +383,6 @@ mod test {
                 .await
                 .unwrap();
 
-            assert_eq!(result.len(), 9);
             let expected = buffer![1i32, 2, 3, 4, 5, 6, 7, 8, 9].into_array();
             assert_arrays_eq!(result.as_ref(), expected.as_ref());
         })

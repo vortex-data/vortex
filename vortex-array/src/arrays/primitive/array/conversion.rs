@@ -83,7 +83,7 @@ impl PrimitiveArray {
             )
         }
 
-        Buffer::from_byte_buffer(self.buffer_handle().to_host())
+        Buffer::from_byte_buffer(self.buffer_handle().to_host_sync())
     }
 
     /// Consume the array and get a host Buffer containing the data values.
@@ -96,7 +96,7 @@ impl PrimitiveArray {
             )
         }
 
-        Buffer::from_byte_buffer(self.buffer.into_host())
+        Buffer::from_byte_buffer(self.buffer.into_host_sync())
     }
 
     /// Extract a mutable buffer from the PrimitiveArray. Attempts to do this with zero-copy
@@ -115,7 +115,7 @@ impl PrimitiveArray {
                 self.ptype()
             )
         }
-        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host());
+        let buffer = Buffer::<T>::from_byte_buffer(self.buffer.into_host_sync());
         buffer.try_into_mut()
     }
 }
@@ -171,11 +171,11 @@ mod tests {
 
         assert_eq!(result.len(), 5);
         assert_eq!(result.ptype(), PType::I32);
-        assert!(result.is_valid(0));
-        assert!(!result.is_valid(1));
-        assert!(result.is_valid(2));
-        assert!(result.is_valid(3));
-        assert!(!result.is_valid(4));
+        assert!(result.is_valid(0).unwrap());
+        assert!(!result.is_valid(1).unwrap());
+        assert!(result.is_valid(2).unwrap());
+        assert!(result.is_valid(3).unwrap());
+        assert!(!result.is_valid(4).unwrap());
     }
 
     #[test]

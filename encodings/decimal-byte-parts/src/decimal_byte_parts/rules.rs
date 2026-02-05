@@ -6,7 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterArray;
 use vortex_array::arrays::FilterVTable;
-use vortex_array::matchers::Exact;
+use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
@@ -14,18 +14,16 @@ use vortex_error::VortexResult;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
-pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule)]);
+pub(super) const PARENT_RULES: ParentRuleSet<DecimalBytePartsVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&DecimalBytePartsFilterPushDownRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DecimalBytePartsVTable)),
+]);
 
 #[derive(Debug)]
 struct DecimalBytePartsFilterPushDownRule;
 
 impl ArrayParentReduceRule<DecimalBytePartsVTable> for DecimalBytePartsFilterPushDownRule {
-    type Parent = Exact<FilterVTable>;
-
-    fn parent(&self) -> Self::Parent {
-        Exact::from(&FilterVTable)
-    }
+    type Parent = FilterVTable;
 
     fn reduce_parent(
         &self,

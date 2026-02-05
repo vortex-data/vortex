@@ -14,6 +14,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [dependencies]
+enum-iterator = { workspace = true }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
@@ -40,6 +41,7 @@ vortex-zigzag = { workspace = true }
 [dev-dependencies]
 divan = { workspace = true }
 test-with = { workspace = true }
+tracing-subscriber = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]

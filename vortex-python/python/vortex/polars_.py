@@ -117,22 +117,17 @@ def _polars_to_vortex(expr: dict[str, Any]) -> ve.Expr:  # pyright: ignore[repor
         if literal_type == "DateTime":
             (value, unit, tz) = expr[literal_type]  # pyright: ignore[reportAny, reportAny]
             if unit == "Nanoseconds":
-                metadata = b"\x00"
+                unit = "ns"
             elif unit == "Microseconds":
-                metadata = b"\x01"
+                unit = "us"
             elif unit == "Milliseconds":
-                metadata = b"\x02"
+                unit = "ms"
             elif unit == "Seconds":
-                metadata = b"\x03"
+                unit = "s"
             else:
                 raise NotImplementedError(f"Unsupported Polars date time unit: {unit}")
 
-            # FIXME(ngates): datetime metadata should be human-readable
-            if tz is not None:
-                raise ValueError(f"Polars DateTime with timezone not supported: {tz}")
-            metadata += b"\x00\x00"
-
-            dtype = _dtype.ext("vortex.timestamp", _dtype.int_(64, nullable=value is None), metadata=metadata)
+            dtype = _dtype.timestamp(unit, tz=tz, nullable=value)  # pyright: ignore[reportAny]
             return ve.literal(dtype, value)  # pyright: ignore[reportAny]
 
         # Unwrap 'Dyn' scalars, whose type hasn't been established yet.

@@ -7,36 +7,41 @@ use fastlanes::Delta;
 use fastlanes::FastLanes;
 use fastlanes::Transpose;
 use num_traits::WrappingAdd;
-use vortex_array::ToCanonical;
+use vortex_array::ExecutionCtx;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_error::VortexResult;
 
 use crate::DeltaArray;
 
-pub fn delta_decompress(array: &DeltaArray) -> PrimitiveArray {
-    let bases = array.bases().to_primitive();
-    let deltas = array.deltas().to_primitive();
+pub fn delta_decompress(
+    array: &DeltaArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<PrimitiveArray> {
+    let bases = array.bases().clone().execute::<PrimitiveArray>(ctx)?;
+    let deltas = array.deltas().clone().execute::<PrimitiveArray>(ctx)?;
 
     let start = array.offset();
     let end = start + array.len();
 
     // TODO(connor): This is incorrect, we need to untranspose the validity!!!
 
-    let validity = Validity::from_mask(array.deltas().validity_mask(), array.dtype().nullability());
-    let validity = validity.slice(start..end);
+    let validity =
+        Validity::from_mask(array.deltas().validity_mask()?, array.dtype().nullability());
+    let validity = validity.slice(start..end)?;
 
-    match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
+    Ok(match_each_unsigned_integer_ptype!(deltas.ptype(), |T| {
         const LANES: usize = T::LANES;
 
         let buffer = decompress_primitive::<T, LANES>(bases.as_slice(), deltas.as_slice());
         let buffer = buffer.slice(start..end);
 
         PrimitiveArray::new(buffer, validity)
-    })
+    }))
 }
 
 // TODO(ngates): can we re-use the deltas buffer for the result? Might be tricky given the

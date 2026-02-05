@@ -8,10 +8,13 @@ use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::IntoArray;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ListArray;
@@ -46,12 +49,12 @@ fn test_basic_listview_comprehensive() {
 
     // Check individual list elements.
     assert_arrays_eq!(
-        listview.list_elements_at(0),
+        listview.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([1i32, 2, 3])
     );
 
     // Test scalar_at which returns entire lists as Scalar values.
-    let first_scalar = listview.scalar_at(0);
+    let first_scalar = listview.scalar_at(0).unwrap();
     assert_eq!(
         first_scalar,
         Scalar::list(
@@ -62,12 +65,12 @@ fn test_basic_listview_comprehensive() {
     );
 
     assert_arrays_eq!(
-        listview.list_elements_at(1),
+        listview.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter([4i32, 5])
     );
 
     assert_arrays_eq!(
-        listview.list_elements_at(2),
+        listview.list_elements_at(2).unwrap(),
         PrimitiveArray::from_iter([6i32, 7, 8, 9])
     );
 }
@@ -86,13 +89,13 @@ fn test_out_of_order_offsets() {
 
     // First list starts at offset 6: [7, 8, 9].
     assert_arrays_eq!(
-        listview.list_elements_at(0),
+        listview.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([7i32, 8, 9])
     );
 
     // Second list starts at offset 0: [1, 2, 3].
     assert_arrays_eq!(
-        listview.list_elements_at(1),
+        listview.list_elements_at(1).unwrap(),
         PrimitiveArray::from_iter([1i32, 2, 3])
     );
 }
@@ -115,7 +118,7 @@ fn test_empty_listview() {
 }
 
 #[test]
-fn test_from_list_array() {
+fn test_from_list_array() -> VortexResult<()> {
     // Test conversion from ListArray to ListViewArray.
     // Logical lists: [[1,2], null, [5,6,7]]
     let offsets = buffer![0i64, 2, 4, 7].into_array();
@@ -123,26 +126,28 @@ fn test_from_list_array() {
     let validity = Validity::from_iter([true, false, true]);
 
     let list_array = ListArray::try_new(elements, offsets, validity).unwrap();
-    let list_view = list_view_from_list(list_array);
+    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let list_view = list_view_from_list(list_array, &mut ctx)?;
 
     assert_eq!(list_view.len(), 3);
 
     // Check first list.
     assert_arrays_eq!(
-        list_view.list_elements_at(0),
+        list_view.list_elements_at(0).unwrap(),
         PrimitiveArray::from_iter([1i32, 2])
     );
 
     // Check validity is preserved.
-    assert!(list_view.is_valid(0));
-    assert!(list_view.is_invalid(1));
-    assert!(list_view.is_valid(2));
+    assert!(list_view.is_valid(0).unwrap());
+    assert!(list_view.is_invalid(1).unwrap());
+    assert!(list_view.is_valid(2).unwrap());
 
     // Check third list.
     assert_arrays_eq!(
-        list_view.list_elements_at(2),
+        list_view.list_elements_at(2)?,
         PrimitiveArray::from_iter([5i32, 6, 7])
     );
+    Ok(())
 }
 
 // Parameterized tests for ConstantArray scenarios.
@@ -183,18 +188,27 @@ fn test_listview_with_constant_arrays(#[case] const_sizes: bool, #[case] const_o
         // All lists are identical [1, 2, 3] (overlapping).
         let expected = PrimitiveArray::from_iter([1i32, 2, 3]);
         for i in 0..3 {
-            assert_arrays_eq!(listview.list_elements_at(i), expected);
+            assert_arrays_eq!(listview.list_elements_at(i).unwrap(), expected);
         }
     } else if const_sizes {
         // All lists have size 3, different offsets (no overlap).
-        assert_eq!(listview.list_elements_at(0).len(), 3);
-        assert_eq!(listview.list_elements_at(1).len(), 3);
-        assert_eq!(listview.list_elements_at(2).len(), 3);
+        assert_eq!(listview.list_elements_at(0).unwrap().len(), 3);
+        assert_eq!(listview.list_elements_at(1).unwrap().len(), 3);
+        assert_eq!(listview.list_elements_at(2).unwrap().len(), 3);
     } else if const_offsets {
         // All lists start at offset 0, different sizes (overlapping).
-        assert_eq!(listview.list_elements_at(0).scalar_at(0), 1i32.into());
-        assert_eq!(listview.list_elements_at(1).scalar_at(0), 1i32.into());
-        assert_eq!(listview.list_elements_at(2).scalar_at(0), 1i32.into());
+        assert_eq!(
+            listview.list_elements_at(0).unwrap().scalar_at(0).unwrap(),
+            1i32.into()
+        );
+        assert_eq!(
+            listview.list_elements_at(1).unwrap().scalar_at(0).unwrap(),
+            1i32.into()
+        );
+        assert_eq!(
+            listview.list_elements_at(2).unwrap().scalar_at(0).unwrap(),
+            1i32.into()
+        );
     }
 }
 

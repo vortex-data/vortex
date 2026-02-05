@@ -4,15 +4,22 @@
 from ..type_aliases import IntoArrayIterator
 from .arrays import Array
 from .expr import Expr
+from .store import ObjectStore
 
 def read_url(
     url: str,
     *,
+    store: ObjectStore | None = None,
     projection: list[str] | list[int] | None = None,
     row_filter: Expr | None = None,
     indices: Array | None = None,
 ) -> Array: ...
-def write(iter: IntoArrayIterator, path: str) -> None: ...
+def write(
+    iter: IntoArrayIterator,
+    path: str,
+    *,
+    store: ObjectStore | None = None,
+) -> None: ...
 
 class VortexWriteOptions:
     @staticmethod
@@ -20,4 +27,9 @@ class VortexWriteOptions:
     @staticmethod
     def compact() -> VortexWriteOptions: ...
     @staticmethod
-    def write_path(iter: IntoArrayIterator, path: str) -> VortexWriteOptions: ...
+    def write(
+        iter: IntoArrayIterator,
+        path: str,
+        *,
+        store: ObjectStore | None = None,
+    ) -> VortexWriteOptions: ...

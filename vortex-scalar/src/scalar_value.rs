@@ -82,17 +82,13 @@ impl ScalarValue {
         let mut buf = B::default();
         pb_scalar
             .encode(&mut buf)
-            .map_err(|e| vortex_err!("Failed to serialize protobuf {e}"))
             .vortex_expect("protobuf encoding should succeed");
         buf
     }
 
     /// Deserializes a scalar value from Protocol Buffers format.
     pub fn from_protobytes(buf: &[u8]) -> VortexResult<Self> {
-        ScalarValue::try_from(
-            &pb::ScalarValue::decode(buf)
-                .map_err(|e| vortex_err!("Failed to deserialize protobuf {e}"))?,
-        )
+        ScalarValue::try_from(&pb::ScalarValue::decode(buf)?)
     }
 }
 

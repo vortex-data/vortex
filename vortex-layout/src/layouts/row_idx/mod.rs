@@ -63,8 +63,15 @@ impl RowIdxLayoutReader {
     }
 
     fn partition_expr(&self, expr: &Expression) -> Partitioning {
+        let key = ExactExpr(expr.clone());
+
+        // Check cache first with read-only lock.
+        if let Some(partitioning) = self.partition_cache.get(&key) {
+            return partitioning.clone();
+        }
+
         self.partition_cache
-            .entry(ExactExpr(expr.clone()))
+            .entry(key)
             .or_insert_with(|| {
                 // Partition the expression into row idx and child expressions.
                 let mut partitioned = partition(expr.clone(), self.dtype(), |expr| {
@@ -289,17 +296,16 @@ fn row_idx_array_future(
 mod tests {
     use std::sync::Arc;
 
-    use itertools::Itertools;
     use vortex_array::ArrayContext;
     use vortex_array::IntoArray as _;
     use vortex_array::MaskFuture;
-    use vortex_array::ToCanonical;
+    use vortex_array::arrays::BoolArray;
+    use vortex_array::assert_arrays_eq;
     use vortex_array::expr::eq;
     use vortex_array::expr::gt;
     use vortex_array::expr::lit;
     use vortex_array::expr::or;
     use vortex_array::expr::root;
-    use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
     use vortex_io::runtime::single::block_on;
 
@@ -344,12 +350,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, true, false, false]),
-                result.bit_buffer()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, true, false, false])
             );
         })
     }
@@ -385,12 +390,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                &BitBuffer::from_iter([false, false, false, false, true]),
-                result.bit_buffer()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([false, false, false, false, true])
             );
         })
     }
@@ -430,12 +434,11 @@ mod tests {
             )
             .unwrap()
             .await
-            .unwrap()
-            .to_bool();
+            .unwrap();
 
-            assert_eq!(
-                vec![true, false, true, false, true],
-                result.bit_buffer().iter().collect_vec()
+            assert_arrays_eq!(
+                result,
+                BoolArray::from_iter([true, false, true, false, true])
             );
         })
     }

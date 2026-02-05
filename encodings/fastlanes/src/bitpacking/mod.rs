@@ -3,6 +3,7 @@
 
 mod array;
 pub use array::BitPackedArray;
+pub use array::BitPackedArrayParts;
 pub use array::bitpack_compress;
 pub use array::bitpack_decompress;
 pub use array::unpack_iter;

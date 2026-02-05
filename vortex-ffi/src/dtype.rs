@@ -6,10 +6,10 @@ use std::sync::Arc;
 
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
-use vortex::dtype::datetime::DATE_ID;
-use vortex::dtype::datetime::TIME_ID;
-use vortex::dtype::datetime::TIMESTAMP_ID;
-use vortex::dtype::datetime::TemporalMetadata;
+use vortex::dtype::datetime::AnyTemporal;
+use vortex::dtype::datetime::Date;
+use vortex::dtype::datetime::Time;
+use vortex::dtype::datetime::Timestamp;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_panic;
 
@@ -180,6 +180,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_primitive_ptype(dtype: *const vx_dtype)
 /// Returns the precision of a decimal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtype) -> u8 {
+    // TODO(joe): propagate this error up instead of expecting
     vx_dtype::as_ref(dtype)
         .as_decimal_opt()
         .vortex_expect("not a decimal dtype")
@@ -189,6 +190,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_precision(dtype: *const vx_dtyp
 /// Returns the scale of a decimal.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -> i8 {
+    // TODO(joe): propagate this error up instead of expecting
     vx_dtype::as_ref(dtype)
         .as_decimal_opt()
         .vortex_expect("not a decimal dtype")
@@ -203,6 +205,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_decimal_scale(dtype: *const vx_dtype) -
 pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
     dtype: *const vx_dtype,
 ) -> *const vx_struct_fields {
+    // TODO(joe): propagate this error up instead of expecting
     let struct_dtype = vx_dtype::as_ref(dtype)
         .as_struct_fields_opt()
         .vortex_expect("not a struct dtype");
@@ -215,6 +218,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_struct_dtype(
 /// Do NOT free the returned dtype pointer - it shares the lifetime of the list dtype.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) -> *const vx_dtype {
+    // TODO(joe): propagate this error up instead of expecting
     let element_dtype = vx_dtype::as_ref(dtype)
         .as_list_element_opt()
         .vortex_expect("not a list dtype");
@@ -229,6 +233,7 @@ pub unsafe extern "C-unwind" fn vx_dtype_list_element(dtype: *const vx_dtype) ->
 pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_element(
     dtype: *const vx_dtype,
 ) -> *const vx_dtype {
+    // TODO(joe): propagate this error up instead of expecting
     let element_dtype = vx_dtype::as_ref(dtype)
         .as_fixed_size_list_element_opt()
         .vortex_expect("not a fixed-size list dtype");
@@ -248,10 +253,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_fixed_size_list_size(dtype: *const vx_d
 /// Checks if the type is time.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
+    // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIME_ID,
+        DType::Extension(ext_dtype) => ext_dtype.is::<Time>(),
         _ => false,
     }
 }
@@ -259,10 +265,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_time(dtype: *const DType) -> bool {
 /// Checks if the type is a date.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
+    // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*DATE_ID,
+        DType::Extension(ext_dtype) => ext_dtype.is::<Date>(),
         _ => false,
     }
 }
@@ -270,10 +277,11 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_date(dtype: *const DType) -> bool {
 /// Checks if the type is a timestamp.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bool {
+    // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     match dtype {
-        DType::Extension(ext_dtype) => ext_dtype.id() == &*TIMESTAMP_ID,
+        DType::Extension(ext_dtype) => ext_dtype.is::<Timestamp>(),
         _ => false,
     }
 }
@@ -281,35 +289,38 @@ pub unsafe extern "C-unwind" fn vx_dtype_is_timestamp(dtype: *const DType) -> bo
 /// Returns the time unit, assuming the type is time.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_time_unit(dtype: *const DType) -> u8 {
+    // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
         vortex_panic!("DType_time_unit: not a time dtype")
     };
 
-    let metadata = ext_dtype.metadata().vortex_expect("time unit metadata");
-
-    metadata.as_ref()[0]
+    let Some(opts) = ext_dtype.metadata_opt::<AnyTemporal>() else {
+        // TODO(ngates): propagate this error up instead of expecting
+        vortex_panic!("DType_time_unit: not a temporal metadata: {ext_dtype:?}")
+    };
+    opts.time_unit().into()
 }
 
 /// Returns the time zone, assuming the type is time. Caller is responsible for freeing the returned pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C-unwind" fn vx_dtype_time_zone(dtype: *const DType) -> *const vx_string {
+    // TODO(joe): propagate this error up instead of expecting
     let dtype = unsafe { dtype.as_ref() }.vortex_expect("dtype null");
 
     let DType::Extension(ext_dtype) = dtype else {
         vortex_panic!("vx_dtype_time_unit: not a time dtype")
     };
 
-    match TemporalMetadata::try_from(ext_dtype).vortex_expect("timestamp") {
-        TemporalMetadata::Timestamp(_, zone) => {
-            if let Some(zone) = zone {
-                vx_string::new(zone.into())
-            } else {
-                ptr::null()
-            }
-        }
-        _ => vortex_panic!("DType_time_zone: not a timestamp metadata: {ext_dtype:?}"),
+    let Some(opts) = ext_dtype.metadata_opt::<Timestamp>() else {
+        // TODO(joe): propagate this error up instead of expecting
+        vortex_panic!("DType_time_zone: not a timestamp: {ext_dtype:?}")
+    };
+
+    match opts.tz.as_ref() {
+        Some(zone) => vx_string::new(zone.clone()),
+        None => ptr::null(),
     }
 }
 
@@ -660,7 +671,7 @@ mod tests {
 
         let name_len = unsafe { vx_string_len(field_name_ptr) };
         let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-        let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+        let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
         let name_str = str::from_utf8(name_slice).unwrap();
         assert_eq!(name_str, "nums");
 
@@ -689,7 +700,7 @@ mod tests {
 
             let name_len = unsafe { vx_string_len(field_name_ptr) };
             let name_ptr = unsafe { vx_string_ptr(field_name_ptr) };
-            let name_slice = unsafe { slice::from_raw_parts(name_ptr as *const u8, name_len) };
+            let name_slice = unsafe { slice::from_raw_parts(name_ptr.cast::<u8>(), name_len) };
             let name_str = str::from_utf8(name_slice).unwrap();
 
             let expected_name = if i == 0 { "nums" } else { "floats" };

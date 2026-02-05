@@ -30,7 +30,7 @@ impl TakeKernel for ChunkedVTable {
 
         // TODO(joe): Should we split this implementation based on indices nullability?
         let nullability = indices.dtype().nullability();
-        let indices_mask = indices.validity_mask();
+        let indices_mask = indices.validity_mask()?;
         let indices = indices.as_slice::<u64>();
 
         let mut chunks = Vec::new();
@@ -38,10 +38,10 @@ impl TakeKernel for ChunkedVTable {
         let mut start = 0;
         let mut stop = 0;
         // We assume indices are non-empty as it's handled in the top-level `take` function
-        let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?).0;
+        let mut prev_chunk_idx = array.find_chunk_idx(indices[0].try_into()?)?.0;
         for idx in indices {
             let idx = usize::try_from(*idx)?;
-            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx);
+            let (chunk_idx, idx_in_chunk) = array.find_chunk_idx(idx)?;
 
             if chunk_idx != prev_chunk_idx {
                 // Start a new chunk

@@ -21,6 +21,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          enable-sccache: "false"
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:

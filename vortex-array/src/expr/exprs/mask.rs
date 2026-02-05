@@ -11,24 +11,23 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
-use vortex_vector::BoolDatum;
-use vortex_vector::Datum;
-use vortex_vector::ScalarOps;
-use vortex_vector::VectorMutOps;
-use vortex_vector::VectorOps;
+use vortex_session::VortexSession;
 
-use crate::Array;
 use crate::ArrayRef;
+use crate::arrays::BoolArray;
+use crate::compute;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::Literal;
 use crate::expr::SimplifyCtx;
 use crate::expr::VTable;
 use crate::expr::VTableExt;
+use crate::expr::and;
 use crate::expr::lit;
 
 /// An expression that masks an input based on a boolean mask.
@@ -48,7 +47,11 @@ impl VTable for Mask {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         Ok(EmptyOptions)
     }
 
@@ -86,52 +89,19 @@ impl VTable for Mask {
         Ok(arg_dtypes[0].as_nullable())
     }
 
-    fn evaluate(
+    fn execute(
         &self,
         _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child = expr.child(0).evaluate(scope)?;
-
-        // Invert the validity mask - we want to set values to null where validity is false.
-        let inverted_mask = child.validity_mask().not();
-
-        crate::compute::mask(&child, &inverted_mask)
-    }
-
-    fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<Datum> {
-        let [input, mask]: [Datum; _] = args
-            .datums
+        args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let [input, mask_array]: [ArrayRef; _] = args
+            .inputs
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
-        let mask = mask.into_bool();
 
-        match (input, mask) {
-            (Datum::Scalar(input), BoolDatum::Scalar(mask)) => {
-                let mut result = input;
-                result.mask_validity(mask.value().vortex_expect("mask is non-nullable"));
-                Ok(Datum::Scalar(result))
-            }
-            (Datum::Scalar(input), BoolDatum::Vector(mask)) => {
-                let mut result = input.repeat(args.row_count).freeze();
-                result.mask_validity(&vortex_mask::Mask::from(mask.into_bits()));
-                Ok(Datum::Vector(result))
-            }
-            (Datum::Vector(input_array), BoolDatum::Scalar(mask)) => {
-                let mut result = input_array;
-                result.mask_validity(&vortex_mask::Mask::new(
-                    args.row_count,
-                    mask.value().vortex_expect("mask is non-nullable"),
-                ));
-                Ok(Datum::Vector(result))
-            }
-            (Datum::Vector(input_array), BoolDatum::Vector(mask)) => {
-                let mut result = input_array;
-                result.mask_validity(&vortex_mask::Mask::from(mask.into_bits()));
-                Ok(Datum::Vector(result))
-            }
-        }
+        let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
+        let inverted = mask_bool.to_bit_buffer().not();
+        compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
     }
 
     fn simplify(
@@ -157,6 +127,17 @@ impl VTable for Mask {
             let input_dtype = ctx.return_dtype(expr.child(0))?;
             Ok(Some(lit(Scalar::null(input_dtype.as_nullable()))))
         }
+    }
+
+    fn validity(
+        &self,
+        _options: &Self::Options,
+        expression: &Expression,
+    ) -> VortexResult<Option<Expression>> {
+        Ok(Some(and(
+            expression.child(0).validity()?,
+            expression.child(1).clone(),
+        )))
     }
 }
 

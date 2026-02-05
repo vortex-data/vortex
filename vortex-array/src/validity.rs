@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
@@ -26,7 +27,6 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::compute::fill_null;
-use crate::compute::filter;
 use crate::compute::sum;
 use crate::compute::take;
 use crate::patches::Patches;
@@ -98,8 +98,8 @@ impl Validity {
     }
 
     #[inline]
-    pub fn all_valid(&self, len: usize) -> bool {
-        match self {
+    pub fn all_valid(&self, len: usize) -> VortexResult<bool> {
+        Ok(match self {
             _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => true,
             Validity::AllInvalid => false,
@@ -108,12 +108,12 @@ impl Validity {
                     .vortex_expect("sum must be a usize")
                     == array.len()
             }
-        }
+        })
     }
 
     #[inline]
-    pub fn all_invalid(&self, len: usize) -> bool {
-        match self {
+    pub fn all_invalid(&self, len: usize) -> VortexResult<bool> {
+        Ok(match self {
             _ if len == 0 => true,
             Validity::NonNullable | Validity::AllValid => false,
             Validity::AllInvalid => true,
@@ -122,41 +122,40 @@ impl Validity {
                     .vortex_expect("sum must be a usize")
                     == 0
             }
-        }
+        })
     }
 
     /// Returns whether the `index` item is valid.
     #[inline]
-    pub fn is_valid(&self, index: usize) -> bool {
-        match self {
+    pub fn is_valid(&self, index: usize) -> VortexResult<bool> {
+        Ok(match self {
             Self::NonNullable | Self::AllValid => true,
             Self::AllInvalid => false,
-            Self::Array(a) => {
-                let scalar = a.scalar_at(index);
-                scalar
-                    .as_bool()
-                    .value()
-                    .vortex_expect("Validity must be non-nullable")
-            }
-        }
+            Self::Array(a) => a
+                .scalar_at(index)
+                .vortex_expect("Validity array must support scalar_at")
+                .as_bool()
+                .value()
+                .vortex_expect("Validity must be non-nullable"),
+        })
     }
 
     #[inline]
-    pub fn is_null(&self, index: usize) -> bool {
-        !self.is_valid(index)
+    pub fn is_null(&self, index: usize) -> VortexResult<bool> {
+        Ok(!self.is_valid(index)?)
     }
 
     #[inline]
-    pub fn slice(&self, range: Range<usize>) -> Self {
+    pub fn slice(&self, range: Range<usize>) -> VortexResult<Self> {
         match self {
-            Self::Array(a) => Self::Array(a.slice(range)),
-            Self::NonNullable | Self::AllValid | Self::AllInvalid => self.clone(),
+            Self::Array(a) => Ok(Self::Array(a.slice(range)?)),
+            Self::NonNullable | Self::AllValid | Self::AllInvalid => Ok(self.clone()),
         }
     }
 
     pub fn take(&self, indices: &dyn Array) -> VortexResult<Self> {
         match self {
-            Self::NonNullable => match indices.validity_mask().bit_buffer() {
+            Self::NonNullable => match indices.validity_mask()?.bit_buffer() {
                 AllOr::All => {
                     if indices.dtype().is_nullable() {
                         Ok(Self::AllValid)
@@ -167,7 +166,7 @@ impl Validity {
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
             },
-            Self::AllValid => match indices.validity_mask().bit_buffer() {
+            Self::AllValid => match indices.validity_mask()?.bit_buffer() {
                 AllOr::All => Ok(Self::AllValid),
                 AllOr::None => Ok(Self::AllInvalid),
                 AllOr::Some(buf) => Ok(Validity::from(buf.clone())),
@@ -182,9 +181,13 @@ impl Validity {
         }
     }
 
-    /// Keep only the entries for which the mask is true.
+    /// Lazily filters a [`Validity`] with a selection mask, which keeps only the entries for which
+    /// the mask is true.
     ///
     /// The result has length equal to the number of true values in mask.
+    ///
+    /// If the validity is a [`Validity::Array`], then this lazily wraps it in a `FilterArray`
+    /// instead of eagerly filtering the values immediately.
     pub fn filter(&self, mask: &Mask) -> VortexResult<Self> {
         // NOTE(ngates): we take the mask as a reference to avoid the caller cloning unnecessarily
         //  if we happen to be NonNullable, AllValid, or AllInvalid.
@@ -192,7 +195,13 @@ impl Validity {
             v @ (Validity::NonNullable | Validity::AllValid | Validity::AllInvalid) => {
                 Ok(v.clone())
             }
-            Validity::Array(arr) => Ok(Validity::Array(filter(arr, mask)?)),
+            Validity::Array(arr) => Ok(Validity::Array(
+                arr.filter(mask.clone())?
+                    // TODO(connor): This is wrong!!! We should not be eagerly decompressing the
+                    // validity array.
+                    .to_canonical()?
+                    .into_array(),
+            )),
         }
     }
 
@@ -211,7 +220,7 @@ impl Validity {
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
-                    Validity::from(is_valid.bit_buffer() & !make_invalid)
+                    Validity::from(is_valid.to_bit_buffer() & !make_invalid)
                 }
             },
         }
@@ -257,8 +266,8 @@ impl Validity {
                 let lhs = lhs.to_bool();
                 let rhs = rhs.to_bool();
 
-                let lhs = lhs.bit_buffer();
-                let rhs = rhs.bit_buffer();
+                let lhs = lhs.to_bit_buffer();
+                let rhs = rhs.to_bit_buffer();
 
                 Validity::from(lhs.bitand(rhs))
             }
@@ -271,17 +280,17 @@ impl Validity {
         indices_offset: usize,
         indices: &dyn Array,
         patches: &Validity,
-    ) -> Self {
+    ) -> VortexResult<Self> {
         match (&self, patches) {
-            (Validity::NonNullable, Validity::NonNullable) => return Validity::NonNullable,
+            (Validity::NonNullable, Validity::NonNullable) => return Ok(Validity::NonNullable),
             (Validity::NonNullable, _) => {
-                vortex_panic!("Can't patch a non-nullable validity with nullable validity")
+                vortex_bail!("Can't patch a non-nullable validity with nullable validity")
             }
             (_, Validity::NonNullable) => {
-                vortex_panic!("Can't patch a nullable validity with non-nullable validity")
+                vortex_bail!("Can't patch a nullable validity with non-nullable validity")
             }
-            (Validity::AllValid, Validity::AllValid) => return Validity::AllValid,
-            (Validity::AllInvalid, Validity::AllInvalid) => return Validity::AllInvalid,
+            (Validity::AllValid, Validity::AllValid) => return Ok(Validity::AllValid),
+            (Validity::AllInvalid, Validity::AllInvalid) => return Ok(Validity::AllInvalid),
             _ => {}
         };
 
@@ -312,9 +321,12 @@ impl Validity {
             patch_values.into_array(),
             // TODO(0ax1): chunk offsets
             None,
-        );
+        )?;
 
-        Self::from_array(source.patch(&patches).into_array(), own_nullability)
+        Ok(Self::from_array(
+            source.patch(&patches)?.into_array(),
+            own_nullability,
+        ))
     }
 
     /// Convert into a nullable variant
@@ -360,8 +372,11 @@ impl Validity {
 
     /// Create Validity by copying the given array's validity.
     #[inline]
-    pub fn copy_from_array(array: &dyn Array) -> Self {
-        Validity::from_mask(array.validity_mask(), array.dtype().nullability())
+    pub fn copy_from_array(array: &dyn Array) -> VortexResult<Self> {
+        Ok(Validity::from_mask(
+            array.validity_mask()?,
+            array.dtype().nullability(),
+        ))
     }
 
     /// Create Validity from boolean array with given nullability of the array.
@@ -408,7 +423,7 @@ impl PartialEq for Validity {
             (Self::Array(a), Self::Array(b)) => {
                 let a = a.to_bool();
                 let b = b.to_bool();
-                a.bit_buffer() == b.bit_buffer()
+                a.to_bit_buffer() == b.to_bit_buffer()
             }
             _ => false,
         }
@@ -446,7 +461,14 @@ impl FromIterator<bool> for Validity {
 impl From<Nullability> for Validity {
     #[inline]
     fn from(value: Nullability) -> Self {
-        match value {
+        Validity::from(&value)
+    }
+}
+
+impl From<&Nullability> for Validity {
+    #[inline]
+    fn from(value: &Nullability) -> Self {
+        match *value {
             Nullability::NonNullable => Validity::NonNullable,
             Nullability::Nullable => Validity::AllValid,
         }
@@ -460,7 +482,7 @@ impl Validity {
         } else if buffer.true_count() == 0 {
             Validity::AllInvalid
         } else {
-            Validity::Array(BoolArray::from_bit_buffer(buffer, Validity::NonNullable).into_array())
+            Validity::Array(BoolArray::new(buffer, Validity::NonNullable).into_array())
         }
     }
 
@@ -494,7 +516,7 @@ impl IntoArray for Mask {
 impl IntoArray for &MaskValues {
     #[inline]
     fn into_array(self) -> ArrayRef {
-        BoolArray::from_bit_buffer(self.bit_buffer().clone(), Validity::NonNullable).into_array()
+        BoolArray::new(self.bit_buffer().clone(), Validity::NonNullable).into_array()
     }
 }
 
@@ -514,21 +536,57 @@ mod tests {
 
     #[rstest]
     #[case(Validity::AllValid, 5, &[2, 4], Validity::AllValid, Validity::AllValid)]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([true, true, false, true, false]).into_array())
     )]
-    #[case(Validity::AllValid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
+    #[case(
+        Validity::AllValid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([true, true, true, true, false]).into_array())
     )]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, false, true, false, true]).into_array())
     )]
     #[case(Validity::AllInvalid, 5, &[2, 4], Validity::AllInvalid, Validity::AllInvalid)]
-    #[case(Validity::AllInvalid, 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
+    #[case(
+        Validity::AllInvalid,
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, false, true, false, false]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllValid, Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllValid,
+        Validity::Array(BoolArray::from_iter([false, true, true, true, true]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::AllInvalid, Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::AllInvalid,
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array())
     )]
-    #[case(Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()), 5, &[2, 4], Validity::Array(BoolArray::from_iter([true, false]).into_array()), Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
+    #[case(
+        Validity::Array(BoolArray::from_iter([false, true, false, true, false]).into_array()),
+        5,
+        &[2, 4],
+        Validity::Array(BoolArray::from_iter([true, false]).into_array()),
+        Validity::Array(BoolArray::from_iter([false, true, true, true, false]).into_array())
     )]
+
     fn patch_validity(
         #[case] validity: Validity,
         #[case] len: usize,
@@ -538,13 +596,18 @@ mod tests {
     ) {
         let indices =
             PrimitiveArray::new(Buffer::copy_from(positions), Validity::NonNullable).into_array();
-        assert_eq!(validity.patch(len, 0, &indices, &patches), expected);
+        assert_eq!(
+            validity.patch(len, 0, &indices, &patches).unwrap(),
+            expected
+        );
     }
 
     #[test]
     #[should_panic]
     fn out_of_bounds_patch() {
-        Validity::NonNullable.patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid);
+        Validity::NonNullable
+            .patch(2, 0, &buffer![4].into_array(), &Validity::AllInvalid)
+            .unwrap();
     }
 
     #[test]
@@ -560,15 +623,27 @@ mod tests {
     }
 
     #[rstest]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    #[case(
+        Validity::AllValid,
+        PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(),
+        Validity::from_iter(vec![true, false])
     )]
     #[case(Validity::AllValid, buffer![0, 1].into_array(), Validity::AllValid)]
-    #[case(Validity::AllValid, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    #[case(
+        Validity::AllValid,
+        PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(),
+        Validity::AllInvalid
     )]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(), Validity::from_iter(vec![true, false])
+    #[case(
+        Validity::NonNullable,
+        PrimitiveArray::new(buffer![0, 1], Validity::from_iter(vec![true, false])).into_array(),
+        Validity::from_iter(vec![true, false])
     )]
     #[case(Validity::NonNullable, buffer![0, 1].into_array(), Validity::NonNullable)]
-    #[case(Validity::NonNullable, PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(), Validity::AllInvalid
+    #[case(
+        Validity::NonNullable,
+        PrimitiveArray::new(buffer![0, 1], Validity::AllInvalid).into_array(),
+        Validity::AllInvalid
     )]
     fn validity_take(
         #[case] validity: Validity,

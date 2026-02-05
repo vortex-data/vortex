@@ -17,6 +17,7 @@ use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
 use datafusion_physical_plan::ExecutionPlan;
+use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
@@ -27,7 +28,7 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
-use vortex_bench::conversions::convert_parquet_to_vortex;
+use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
 use vortex_bench::display::DisplayFormat;
@@ -124,10 +125,12 @@ async fn main() -> anyhow::Result<()> {
         for format in args.formats.iter() {
             match format {
                 Format::OnDiskVortex => {
-                    convert_parquet_to_vortex(&base_path, CompactionStrategy::Default).await?;
+                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Default)
+                        .await?;
                 }
                 Format::VortexCompact => {
-                    convert_parquet_to_vortex(&base_path, CompactionStrategy::Compact).await?;
+                    convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact)
+                        .await?;
                 }
                 _ => {}
             }
@@ -300,10 +303,11 @@ pub async fn execute_query(
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
     let df = ctx.sql(query).await?;
 
-    let physical_plan = df.clone().create_physical_plan().await?;
-    let result = df.collect().await?;
+    let task_ctx = Arc::new(df.task_ctx());
+    let plan = df.create_physical_plan().await?;
+    let result = collect(plan.clone(), task_ctx).await?;
 
-    Ok((result, physical_plan))
+    Ok((result, plan))
 }
 
 /// Print Vortex metrics from execution plans.

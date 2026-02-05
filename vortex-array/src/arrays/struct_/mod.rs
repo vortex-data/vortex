@@ -3,7 +3,8 @@
 
 mod array;
 pub use array::StructArray;
-mod compute;
+pub use array::StructArrayParts;
+pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::StructVTable;

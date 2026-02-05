@@ -21,6 +21,7 @@ use vortex::dtype::StructFields;
 use vortex::scalar::Scalar;
 
 use crate::dtype::PyDType;
+use crate::error::PyVortexResult;
 use crate::scalar::PyScalar;
 use crate::scalar::bool;
 
@@ -38,7 +39,7 @@ pub fn scalar<'py>(
     )
 }
 
-pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyResult<Scalar> {
+pub fn scalar_helper(value: &Bound<'_, PyAny>, dtype: Option<&DType>) -> PyVortexResult<Scalar> {
     let scalar = scalar_helper_inner(value, dtype)?;
 
     // If a dtype was provided, attempt to  cast the scalar to that dtype.

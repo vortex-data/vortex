@@ -317,7 +317,7 @@ pub(crate) fn arrow_boolean(
         BooleanOperator::OrKleene => arrow_arith::boolean::or_kleene(&lhs, &rhs)?,
     };
 
-    Ok(ArrayRef::from_arrow(&array, nullable))
+    ArrayRef::from_arrow(&array, nullable)
 }
 
 #[cfg(test)]
@@ -339,10 +339,10 @@ mod tests {
 
         let r = r.to_bool().into_array();
 
-        let v0 = r.scalar_at(0).as_bool().value();
-        let v1 = r.scalar_at(1).as_bool().value();
-        let v2 = r.scalar_at(2).as_bool().value();
-        let v3 = r.scalar_at(3).as_bool().value();
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(v1.unwrap());
@@ -359,10 +359,10 @@ mod tests {
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
         let r = and(&lhs, &rhs).unwrap().to_bool().into_array();
 
-        let v0 = r.scalar_at(0).as_bool().value();
-        let v1 = r.scalar_at(1).as_bool().value();
-        let v2 = r.scalar_at(2).as_bool().value();
-        let v3 = r.scalar_at(3).as_bool().value();
+        let v0 = r.scalar_at(0).unwrap().as_bool().value();
+        let v1 = r.scalar_at(1).unwrap().as_bool().value();
+        let v2 = r.scalar_at(2).unwrap().as_bool().value();
+        let v3 = r.scalar_at(3).unwrap().as_bool().value();
 
         assert!(v0.unwrap());
         assert!(!v1.unwrap());

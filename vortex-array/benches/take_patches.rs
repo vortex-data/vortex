@@ -98,6 +98,7 @@ fn fixture(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
         // TODO(0ax1): handle chunk offsets
         None,
     )
+    .unwrap()
 }
 
 fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Patches {
@@ -124,6 +125,7 @@ fn fixture_with_chunk_offsets(len: usize, sparsity: f64, rng: &mut StdRng) -> Pa
         values,
         Some(Buffer::from(chunk_offsets).into_array()),
     )
+    .unwrap()
 }
 
 fn indices(array_len: usize, n_indices: usize, rng: &mut StdRng) -> ArrayRef {

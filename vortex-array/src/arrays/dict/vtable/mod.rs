@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -23,23 +21,17 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::ConstantVTable;
-use crate::arrays::vtable::rules::PARENT_RULES;
+use crate::arrays::dict::compute::rules::PARENT_RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod canonical;
-mod encode;
 mod operations;
-mod rules;
 mod validity;
 mod visitor;
 
@@ -48,47 +40,23 @@ vtable!(Dict);
 #[derive(Debug)]
 pub struct DictVTable;
 
+impl DictVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.dict");
+}
+
 impl VTable for DictVTable {
     type Array = DictArray;
 
     type Metadata = ProstMetadata<DictMetadata>;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = Self;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.dict")
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        DictVTable.as_vtable()
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced_code = array.codes().slice(range);
-        if sliced_code.is::<ConstantVTable>() {
-            let code = &sliced_code.scalar_at(0).as_primitive().as_::<usize>();
-            return if let Some(code) = code {
-                Ok(Some(
-                    ConstantArray::new(array.values().scalar_at(*code), sliced_code.len())
-                        .into_array(),
-                ))
-            } else {
-                Ok(Some(
-                    ConstantArray::new(Scalar::null(array.dtype().clone()), sliced_code.len())
-                        .to_array(),
-                ))
-            };
-        }
-        // SAFETY: slicing the codes preserves invariants.
-        Ok(Some(
-            unsafe { DictArray::new_unchecked(sliced_code, array.values().clone()) }.into_array(),
-        ))
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(array: &DictArray) -> VortexResult<Self::Metadata> {
@@ -115,7 +83,6 @@ impl VTable for DictVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         metadata: &Self::Metadata,
@@ -159,11 +126,12 @@ impl VTable for DictVTable {
         Ok(())
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         if let Some(canonical) = execute_fast_path(array, ctx)? {
             return Ok(canonical);
         }
 
+        // TODO(joe): if the values are constant return a constant
         let values = array.values().clone().execute::<Canonical>(ctx)?;
         let codes = array
             .codes()
@@ -176,7 +144,7 @@ impl VTable for DictVTable {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        let canonical = take_canonical(values, &codes);
+        let canonical = take_canonical(values, &codes)?;
 
         let result_dtype = array
             .dtype()
@@ -220,7 +188,7 @@ pub(super) fn execute_fast_path(
     }
 
     // All codes are null - result is all nulls
-    if array.codes.all_invalid() {
+    if array.codes.all_invalid()? {
         return Ok(Some(
             ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.codes.len())
                 .into_array()

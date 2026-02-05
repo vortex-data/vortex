@@ -3,19 +3,18 @@
 
 use std::fmt::Formatter;
 
-use vortex_compute::logical::LogicalNot;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_vector::Datum;
+use vortex_session::VortexSession;
 
-use crate::ArrayRef;
 use crate::compute::invert;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
 use crate::expr::ExecutionArgs;
+use crate::expr::ExecutionResult;
 use crate::expr::ExprId;
 use crate::expr::Expression;
 use crate::expr::VTable;
@@ -35,7 +34,11 @@ impl VTable for Not {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(&self, _metadata: &[u8]) -> VortexResult<Self::Options> {
+    fn deserialize(
+        &self,
+        _metadata: &[u8],
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Options> {
         Ok(EmptyOptions)
     }
 
@@ -72,19 +75,13 @@ impl VTable for Not {
         Ok(child_dtype.clone())
     }
 
-    fn evaluate(
+    fn execute(
         &self,
-        _options: &Self::Options,
-        expr: &Expression,
-        scope: &ArrayRef,
-    ) -> VortexResult<ArrayRef> {
-        let child_result = expr.child(0).evaluate(scope)?;
-        invert(&child_result)
-    }
-
-    fn execute(&self, _data: &Self::Options, mut args: ExecutionArgs) -> VortexResult<Datum> {
-        let child = args.datums.pop().vortex_expect("Missing input child");
-        Ok(child.into_bool().not().into())
+        _data: &Self::Options,
+        mut args: ExecutionArgs,
+    ) -> VortexResult<ExecutionResult> {
+        let child = args.inputs.pop().vortex_expect("Missing input child");
+        invert(&child)?.execute(args.ctx)
     }
 
     fn is_null_sensitive(&self, _options: &Self::Options) -> bool {
@@ -126,11 +123,12 @@ mod tests {
         let not_expr = not(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
-            not_expr
-                .evaluate(&bools.to_array())
+            bools
+                .to_array()
+                .apply(&not_expr)
                 .unwrap()
                 .to_bool()
-                .bit_buffer()
+                .to_bit_buffer()
                 .iter()
                 .collect::<Vec<_>>(),
             vec![true, false, true, true, false, false]

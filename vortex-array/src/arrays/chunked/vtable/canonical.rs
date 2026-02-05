@@ -12,57 +12,50 @@ use vortex_error::VortexResult;
 use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ToCanonical;
 use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::StructArray;
-use crate::builders::ArrayBuilder;
 use crate::builders::builder_with_capacity;
 use crate::compute::cast;
 use crate::validity::Validity;
-use crate::vtable::CanonicalVTable;
 
-impl CanonicalVTable<ChunkedVTable> for ChunkedVTable {
-    fn canonicalize(array: &ChunkedArray) -> VortexResult<Canonical> {
-        if array.nchunks() == 0 {
-            return Ok(Canonical::empty(array.dtype()));
-        }
-        if array.nchunks() == 1 {
-            return array.chunks()[0].to_canonical();
-        }
+pub(super) fn _canonicalize(
+    array: &ChunkedArray,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Canonical> {
+    if array.nchunks() == 0 {
+        return Ok(Canonical::empty(array.dtype()));
+    }
+    if array.nchunks() == 1 {
+        return array.chunks()[0].clone().execute::<Canonical>(ctx);
+    }
 
-        Ok(match array.dtype() {
-            DType::Struct(struct_dtype, _) => {
-                let struct_array = pack_struct_chunks(
-                    array.chunks(),
-                    Validity::copy_from_array(array.as_ref()),
-                    struct_dtype,
-                );
-                Canonical::Struct(struct_array)
-            }
-            DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+    Ok(match array.dtype() {
+        DType::Struct(struct_dtype, _) => {
+            let struct_array = pack_struct_chunks(
                 array.chunks(),
-                Validity::copy_from_array(array.as_ref()),
-                elem_dtype,
-            )?),
-            _ => {
-                let mut builder = builder_with_capacity(array.dtype(), array.len());
-                array.append_to_builder(builder.as_mut())?;
-                builder.finish_into_canonical()
-            }
-        })
-    }
-
-    fn append_to_builder(array: &ChunkedArray, builder: &mut dyn ArrayBuilder) -> VortexResult<()> {
-        for chunk in array.chunks() {
-            chunk.append_to_builder(builder)?;
+                Validity::copy_from_array(array.as_ref())?,
+                struct_dtype,
+                ctx,
+            )?;
+            Canonical::Struct(struct_array)
         }
-        Ok(())
-    }
+        DType::List(elem_dtype, _) => Canonical::List(swizzle_list_chunks(
+            array.chunks(),
+            Validity::copy_from_array(array.as_ref())?,
+            elem_dtype,
+            ctx,
+        )?),
+        _ => {
+            let mut builder = builder_with_capacity(array.dtype(), array.len());
+            array.append_to_builder(builder.as_mut(), ctx)?;
+            builder.finish_into_canonical()
+        }
+    })
 }
 
 /// Packs many [`StructArray`]s to instead be a single [`StructArray`], where the [`Array`] for each
@@ -73,21 +66,22 @@ fn pack_struct_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     struct_dtype: &StructFields,
-) -> StructArray {
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<StructArray> {
     let len = chunks.iter().map(|chunk| chunk.len()).sum();
     let mut field_arrays = Vec::new();
 
     for (field_idx, field_dtype) in struct_dtype.fields().enumerate() {
-        let field_chunks = chunks
-            .iter()
-            .map(|c| {
-                c.to_struct()
-                    .fields()
-                    .get(field_idx)
-                    .vortex_expect("Invalid field index")
-                    .to_array()
-            })
-            .collect::<Vec<_>>();
+        let mut field_chunks = Vec::with_capacity(chunks.len());
+        for c in chunks {
+            let struct_array = c.clone().execute::<StructArray>(ctx)?;
+            let field = struct_array
+                .unmasked_fields()
+                .get(field_idx)
+                .vortex_expect("Invalid field index")
+                .to_array();
+            field_chunks.push(field);
+        }
 
         // SAFETY: field_chunks are extracted from valid StructArrays with matching dtypes.
         // Each chunk's field array is guaranteed to be valid for field_dtype.
@@ -97,7 +91,7 @@ fn pack_struct_chunks(
 
     // SAFETY: field_arrays are built from corresponding chunks of same length, dtypes match by
     // construction.
-    unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) }
+    Ok(unsafe { StructArray::new_unchecked(field_arrays, struct_dtype.clone(), len, validity) })
 }
 
 /// Packs [`ListViewArray`]s together into a chunked `ListViewArray`.
@@ -109,6 +103,7 @@ fn swizzle_list_chunks(
     chunks: &[ArrayRef],
     validity: Validity,
     elem_dtype: &DType,
+    ctx: &mut ExecutionCtx,
 ) -> VortexResult<ListViewArray> {
     let len: usize = chunks.iter().map(|c| c.len()).sum();
 
@@ -135,7 +130,7 @@ fn swizzle_list_chunks(
     let mut sizes = BufferMut::<u64>::with_capacity(len);
 
     for chunk in chunks {
-        let chunk_array = chunk.to_listview();
+        let chunk_array = chunk.clone().execute::<ListViewArray>(ctx)?;
         // By rebuilding as zero-copy to `List` and trimming all elements (to prevent gaps), we make
         // the final output `ListView` also zero-copyable to `List`.
         let chunk_array = chunk_array.rebuild(ListViewRebuildMode::MakeExact)?;
@@ -149,14 +144,14 @@ fn swizzle_list_chunks(
             &DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .vortex_expect("Must be able to fit array offsets in u64")
-        .to_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
 
         let sizes_arr = cast(
             chunk_array.sizes(),
             &DType::Primitive(PType::U64, Nullability::NonNullable),
         )
         .vortex_expect("Must be able to fit array offsets in u64")
-        .to_primitive();
+        .execute::<PrimitiveArray>(ctx)?;
 
         let offsets_slice = offsets_arr.as_slice::<u64>();
         let sizes_slice = sizes_arr.as_slice::<u64>();
@@ -229,8 +224,8 @@ mod tests {
         .unwrap()
         .into_array();
         let canonical_struct = chunked.to_struct();
-        let canonical_varbin = canonical_struct.fields()[0].to_varbinview();
-        let original_varbin = struct_array.fields()[0].to_varbinview();
+        let canonical_varbin = canonical_struct.unmasked_fields()[0].to_varbinview();
+        let original_varbin = struct_array.unmasked_fields()[0].to_varbinview();
         let orig_values = original_varbin
             .with_iterator(|it| it.map(|a| a.map(|v| v.to_vec())).collect::<Vec<_>>());
         let canon_values = canonical_varbin
@@ -261,7 +256,7 @@ mod tests {
 
         let canon_values = chunked_list.unwrap().to_listview();
 
-        assert_eq!(l1.scalar_at(0), canon_values.scalar_at(0));
-        assert_eq!(l2.scalar_at(0), canon_values.scalar_at(1));
+        assert_eq!(l1.scalar_at(0).unwrap(), canon_values.scalar_at(0).unwrap());
+        assert_eq!(l2.scalar_at(0).unwrap(), canon_values.scalar_at(1).unwrap());
     }
 }

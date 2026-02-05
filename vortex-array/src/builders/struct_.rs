@@ -157,7 +157,7 @@ impl ArrayBuilder for StructBuilder {
     fn append_scalar(&mut self, scalar: &Scalar) -> VortexResult<()> {
         vortex_ensure!(
             scalar.dtype() == self.dtype(),
-            "StructBuilder expected scalar with dtype {:?}, got {:?}",
+            "StructBuilder expected scalar with dtype {}, got {}",
             self.dtype(),
             scalar.dtype()
         );
@@ -169,11 +169,19 @@ impl ArrayBuilder for StructBuilder {
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
         let array = array.to_struct();
 
-        for (a, builder) in array.fields().iter().zip_eq(self.builders.iter_mut()) {
+        for (a, builder) in array
+            .unmasked_fields()
+            .iter()
+            .zip_eq(self.builders.iter_mut())
+        {
             builder.extend_from_array(a.as_ref());
         }
 
-        self.nulls.append_validity_mask(array.validity_mask());
+        self.nulls.append_validity_mask(
+            array
+                .validity_mask()
+                .vortex_expect("validity_mask in extend_from_array_unchecked"),
+        );
     }
 
     fn reserve_exact(&mut self, capacity: usize) {
@@ -244,7 +252,7 @@ mod tests {
         let struct_ = builder.finish();
         assert_eq!(struct_.len(), 3);
         assert_eq!(struct_.dtype(), &dtype);
-        assert_eq!(struct_.valid_count(), 1);
+        assert_eq!(struct_.valid_count().unwrap(), 1);
     }
 
     #[test]

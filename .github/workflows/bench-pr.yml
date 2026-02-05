@@ -1,4 +1,4 @@
-# Runs once when we add the `benchmark` tag to a pull request.
+# Runs all benchmarks once when we add the `action/benchmark` tag to a pull request.
 
 name: PR Benchmarks
 
@@ -24,13 +24,13 @@ jobs:
   label_trigger:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       # We remove the benchmark label first so that the workflow can be re-triggered.
       - uses: actions-ecosystem/action-remove-labels@v1
         if: ${{ github.event.pull_request.head.repo.full_name == 'vortex-data/vortex' }}
         with:
-          labels: benchmark
+          labels: action/benchmark
           fail_on_error: true
 
   bench:
@@ -44,7 +44,7 @@ jobs:
             name: Random Access
           - id: compress-bench
             name: Compression
-    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'benchmark' && github.event_name == 'pull_request' }}
+    if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
     steps:
       - uses: runs-on/action@v2
         if: github.event.pull_request.head.repo.fork == false
@@ -62,6 +62,8 @@ jobs:
           wget -qO- https://github.com/duckdb/duckdb/releases/download/v1.4.2/duckdb_cli-linux-amd64.zip | funzip > duckdb
           chmod +x duckdb
           echo "$PWD" >> $GITHUB_PATH
+
+      - uses: ./.github/actions/system-info
 
       - name: Build binary
         shell: bash
@@ -128,6 +130,16 @@ jobs:
         uses: thollander/actions-comment-pull-request@v3
         with:
           file-path: comment.md
+          comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
+
+      - name: Comment PR on failure
+        if: failure() && inputs.mode == 'pr' && github.event.pull_request.head.repo.fork == false
+        uses: thollander/actions-comment-pull-request@v3
+        with:
+          message: |
+            # 🚨🚨🚨❌❌❌ BENCHMARK FAILED ❌❌❌🚨🚨🚨
+
+            Benchmark `${{ matrix.benchmark.name }}` failed! Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details.
           comment-tag: bench-pr-comment-${{ matrix.benchmark.id }}
 
   sql:

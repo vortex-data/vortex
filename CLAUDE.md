@@ -44,10 +44,14 @@
 * If you encounter clippy errors in tests that should only pertain to production code (e.g., prohibiting panic/unwrap,
   possible numerical truncation, etc.), then consider allowing those lints at the test module level.
 * Prefer naming test modules `tests`, not `test`.
-* Prefer having test return VortexResult<_> and use ? over unwrap.
-* Prefer module-scoped imports over function-scoped imports. Only use function-scoped imports in situations where it is
-  either (a) required, or (b) would be exceptionally verbose otherwise. An example where function-scoped imports is good
-  is when writing an exhaustive match statement with a branch that matches many cases.
+* Prefer having test return VortexResult<()> and use ? over unwrap.
+* All imports must be at the top of the module, never inside functions. The only exception is `#[cfg(test)]` blocks,
+  where imports should be at the top of the test module. Function-scoped imports are only acceptable when (a) required,
+  or (b) it would be exceptionally verbose otherwise, such as a match statement where left and right sides have similar names.
+* Only write comments that explain non-obvious logic or important context. Avoid commenting simple or self-explanatory code.
+* Use `assert_arrays_eq!` macro for comparing arrays in tests instead of element-by-element comparison.
+* Keep tests concise and to the point - avoid unnecessary setup or verbose assertions.
+* Run tests for a specific crate with `cargo test -p <crate-name>` (e.g., `cargo test -p vortex-array`).
 
 ## Other
 

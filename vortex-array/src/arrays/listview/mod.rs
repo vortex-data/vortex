@@ -3,8 +3,9 @@
 
 mod array;
 pub use array::ListViewArray;
+pub use array::ListViewArrayParts;
 
-mod compute;
+pub(crate) mod compute;
 
 mod vtable;
 pub use vtable::ListViewVTable;

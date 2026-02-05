@@ -41,9 +41,28 @@ pub fn test_scalar_at(binary_array: ArrayRef) {
 
 #[rstest]
 pub fn slice_array(binary_array: ArrayRef) {
-    let binary_arr = binary_array.slice(1..2);
+    let binary_arr = binary_array.slice(1..2).unwrap();
     assert_arrays_eq!(
         binary_arr,
         VarBinViewArray::from_iter_str(["hello world this is a long string"])
     );
+}
+
+#[test]
+fn test_zero_offsets() -> vortex_error::VortexResult<()> {
+    use vortex_dtype::Nullability::NonNullable;
+
+    use crate::arrays::VarBinVTable;
+
+    let items = VarBinArray::from_iter_nonnull(["abc", "def", "ghi"], DType::Utf8(NonNullable));
+    let sliced = items.slice(1..3)?.as_::<VarBinVTable>().clone();
+
+    // After slicing, there is some unused data at the front of the bytes.
+    assert_eq!(sliced.offset_at(0), 3);
+
+    // But after zeroing the offsets, the extraneous data is gone.
+    let truncated = sliced.zero_offsets();
+    assert_eq!(truncated.offset_at(0), 0);
+    assert_eq!(truncated.len(), 2);
+    Ok(())
 }

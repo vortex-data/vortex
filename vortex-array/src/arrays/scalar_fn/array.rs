@@ -7,16 +7,11 @@ use vortex_error::vortex_ensure;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::arrays::ScalarFnVTable;
 use crate::expr::ScalarFn;
 use crate::stats::ArrayStats;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 
 #[derive(Clone, Debug)]
 pub struct ScalarFnArray {
-    // NOTE(ngates): we should fix vtables so we don't have to hold this
-    pub(super) vtable: ArrayVTable,
     pub(super) scalar_fn: ScalarFn,
     pub(super) dtype: DType,
     pub(super) len: usize,
@@ -36,7 +31,6 @@ impl ScalarFnArray {
         );
 
         Ok(Self {
-            vtable: ScalarFnVTable::new(bound.vtable().clone()).into_vtable(),
             scalar_fn: bound,
             dtype,
             len,

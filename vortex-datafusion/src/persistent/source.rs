@@ -12,6 +12,7 @@ use datafusion_datasource::TableSchema;
 use datafusion_datasource::file::FileSource;
 use datafusion_datasource::file_scan_config::FileScanConfig;
 use datafusion_datasource::file_stream::FileOpener;
+use datafusion_execution::cache::cache_manager::FileMetadataCache;
 use datafusion_physical_expr::PhysicalExprRef;
 use datafusion_physical_expr::conjunction;
 use datafusion_physical_expr::projection::ProjectionExprs;
@@ -28,13 +29,14 @@ use object_store::path::Path;
 use vortex::error::VortexExpect as _;
 use vortex::file::VORTEX_FILE_EXTENSION;
 use vortex::layout::LayoutReader;
-use vortex::metrics::MetricsSessionExt;
+use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 
-use super::cache::VortexFileCache;
 use super::metrics::PARTITION_LABEL;
 use super::opener::VortexOpener;
+use crate::DefaultVortexReaderFactory;
+use crate::VortexReaderFactory;
 use crate::convert::exprs::DefaultExpressionConvertor;
 use crate::convert::exprs::ExpressionConvertor;
 
@@ -44,7 +46,6 @@ use crate::convert::exprs::ExpressionConvertor;
 #[derive(Clone)]
 pub struct VortexSource {
     pub(crate) session: VortexSession,
-    pub(crate) file_cache: VortexFileCache,
     pub(crate) table_schema: TableSchema,
     pub(crate) projection: ProjectionExprs,
     /// Combined predicate expression containing all filters from DataFusion query planning.
@@ -60,21 +61,19 @@ pub struct VortexSource {
     /// Sharing the readers allows us to only read every layout once from the file, even across partitions.
     layout_readers: Arc<DashMap<Path, Weak<dyn LayoutReader>>>,
     expression_convertor: Arc<dyn ExpressionConvertor>,
+    pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
+    vx_metrics: VortexMetrics,
+    file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
 }
 
 impl VortexSource {
-    pub(crate) fn new(
-        table_schema: TableSchema,
-        session: VortexSession,
-        file_cache: VortexFileCache,
-    ) -> Self {
+    pub(crate) fn new(table_schema: TableSchema, session: VortexSession) -> Self {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
 
         Self {
             session,
-            file_cache,
             table_schema,
             projection,
             full_predicate: None,
@@ -83,6 +82,9 @@ impl VortexSource {
             _unused_df_metrics: Default::default(),
             layout_readers: Arc::new(DashMap::default()),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            vortex_reader_factory: None,
+            vx_metrics: VortexMetrics::default(),
+            file_metadata_cache: None,
         }
     }
 
@@ -92,6 +94,31 @@ impl VortexSource {
         expr_convertor: Arc<dyn ExpressionConvertor>,
     ) -> Self {
         self.expression_convertor = expr_convertor;
+        self
+    }
+
+    /// Set a user-defined factory to create the underlying [`VortexReadAt`]
+    ///
+    /// [`VortexReadAt`]: vortex::io::VortexReadAt
+    pub fn with_vortex_reader_factory(
+        mut self,
+        vortex_reader_factory: Arc<dyn VortexReaderFactory>,
+    ) -> Self {
+        self.vortex_reader_factory = Some(vortex_reader_factory);
+        self
+    }
+
+    /// The metrics instance attached to this source.
+    pub fn vx_metrics(&self) -> &VortexMetrics {
+        &self.vx_metrics
+    }
+
+    /// Override the file metadata cache
+    pub fn with_file_metadata_cache(
+        mut self,
+        file_metadata_cache: Arc<dyn FileMetadataCache>,
+    ) -> Self {
+        self.file_metadata_cache = Some(file_metadata_cache);
         self
     }
 }
@@ -104,8 +131,7 @@ impl FileSource for VortexSource {
         partition: usize,
     ) -> DFResult<Arc<dyn FileOpener>> {
         let partition_metrics = self
-            .session
-            .metrics()
+            .vx_metrics()
             .child_with_tags([(PARTITION_LABEL, partition.to_string())].into_iter());
 
         let batch_size = self
@@ -117,21 +143,26 @@ impl FileSource for VortexSource {
             .clone()
             .unwrap_or_else(|| Arc::new(DefaultPhysicalExprAdapterFactory));
 
+        let vortex_reader_factory = self
+            .vortex_reader_factory
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultVortexReaderFactory::new(object_store)));
+
         let opener = VortexOpener {
             session: self.session.clone(),
-            object_store,
+            vortex_reader_factory,
             projection: self.projection.clone(),
             filter: self.vortex_predicate.clone(),
             file_pruning_predicate: self.full_predicate.clone(),
             expr_adapter_factory,
             table_schema: self.table_schema.clone(),
-            file_cache: self.file_cache.clone(),
             batch_size,
-            limit: base_config.limit,
+            limit: base_config.limit.map(|l| l as u64),
             metrics: partition_metrics,
             layout_readers: self.layout_readers.clone(),
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
+            file_metadata_cache: self.file_metadata_cache.clone(),
         };
 
         Ok(Arc::new(opener))

@@ -6,8 +6,6 @@ mod canonical;
 mod operations;
 mod validity;
 
-use std::ops::Range;
-
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -23,16 +21,14 @@ use crate::EmptyMetadata;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::masked::MaskedArray;
+use crate::arrays::masked::compute::rules::PARENT_RULES;
 use crate::arrays::masked::mask_validity_canonical;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
-use crate::stats::ArrayStats;
 use crate::validity::Validity;
 use crate::vtable;
 use crate::vtable::ArrayId;
-use crate::vtable::ArrayVTable;
-use crate::vtable::ArrayVTableExt;
 use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
@@ -42,6 +38,10 @@ vtable!(Masked);
 
 #[derive(Debug)]
 pub struct MaskedVTable;
+
+impl MaskedVTable {
+    pub const ID: ArrayId = ArrayId::new_ref("vortex.masked");
+}
 
 impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_buffers(_array: &MaskedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
@@ -58,34 +58,13 @@ impl VTable for MaskedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type CanonicalVTable = Self;
     type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
-    type EncodeVTable = NotSupported;
 
-    fn id(&self) -> ArrayId {
-        ArrayId::new_ref("vortex.masked")
-    }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let child = array.child.slice(range.clone());
-        let validity = array.validity.slice(range);
-
-        Ok(Some(
-            MaskedArray {
-                child,
-                validity,
-                dtype: array.dtype.clone(),
-                stats: ArrayStats::default(),
-            }
-            .into_array(),
-        ))
-    }
-
-    fn encoding(_array: &Self::Array) -> ArrayVTable {
-        MaskedVTable.as_vtable()
+    fn id(_array: &Self::Array) -> ArrayId {
+        Self::ID
     }
 
     fn metadata(_array: &MaskedArray) -> VortexResult<Self::Metadata> {
@@ -101,7 +80,6 @@ impl VTable for MaskedVTable {
     }
 
     fn build(
-        &self,
         dtype: &DType,
         len: usize,
         _metadata: &Self::Metadata,
@@ -129,8 +107,8 @@ impl VTable for MaskedVTable {
         MaskedArray::try_new(child, validity)
     }
 
-    fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        let validity_mask = array.validity_mask();
+    fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
+        let validity_mask = array.validity_mask()?;
 
         // Fast path: all masked means result is all nulls.
         if validity_mask.all_false() {
@@ -146,7 +124,7 @@ impl VTable for MaskedVTable {
         // `AllTrue` masks (no data copying), so there's no benefit.
 
         let child = array.child().clone().execute::<Canonical>(ctx)?;
-        let canonical = mask_validity_canonical(child, &validity_mask)?;
+        let canonical = mask_validity_canonical(child, &validity_mask, ctx)?;
 
         vortex_ensure!(
             canonical.as_ref().dtype() == array.dtype(),
@@ -162,6 +140,14 @@ impl VTable for MaskedVTable {
         );
 
         Ok(canonical)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_RULES.evaluate(array, parent, child_idx)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {
@@ -195,6 +181,7 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::ArrayContext;
+    use crate::ArraySession;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -205,7 +192,6 @@ mod tests {
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
     use crate::validity::Validity;
-    use crate::vtable::ArrayVTableExt;
 
     #[rstest]
     #[case(
@@ -229,8 +215,8 @@ mod tests {
     fn test_serde_roundtrip(#[case] array: MaskedArray) {
         let dtype = array.dtype().clone();
         let len = array.len();
-        let ctx = ArrayContext::empty().with(MaskedVTable.as_vtable());
 
+        let ctx = ArrayContext::empty();
         let serialized = array
             .to_array()
             .serialize(&ctx, &SerializeOptions::default())
@@ -243,8 +229,10 @@ mod tests {
         }
         let concat = concat.freeze();
 
+        let session = ArraySession::default();
+
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&ctx, &dtype, len).unwrap();
+        let decoded = parts.decode(&dtype, len, &ctx, session.registry()).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(
