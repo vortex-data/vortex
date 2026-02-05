@@ -131,6 +131,7 @@ impl VTable for DictVTable {
             return Ok(canonical);
         }
 
+        /// TODO(joe): if the values are constant return a constant
         let values = array.values().clone().execute::<Canonical>(ctx)?;
         let codes = array
             .codes()
