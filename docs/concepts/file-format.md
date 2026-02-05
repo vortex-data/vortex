@@ -15,10 +15,15 @@ The default layout strategy for Vortex files is roughly:
 
 * Struct Layout at the top-level to partition by columns
   * Zoned Layout to store pruning statistics for every 8k rows
-      * Chunked Layout to partitioned the column into 2MB of uncompressed data
+      * Chunked Layout to partition the column into 2MB of uncompressed data
         * Compressor Layout to apply a compression strategy
           * Buffered Layout to localize up to 1MB of compressed chunks per column.
               * Flat Layout to serialize each individual array chunk
+
+This strategy optimizes for analytical query patterns: column pruning avoids reading unused columns,
+zone statistics enable skipping irrelevant row ranges, and buffered chunks allow efficient I/O
+with parallel decompression. The 8k row zones and 2MB chunks balance pruning granularity against
+metadata overhead.
 
 ## Compression Strategies
 
@@ -29,7 +34,7 @@ The Vortex file format supports two compression strategies out-of-the-box.
 BtrBlocks is a paper that describes a compression technique that uses cascading lightweight compression
 techniques to achieve high compression ratios with fast decompression speeds.
 
-The Vortex implementation is tuned to achieve a good balance of compression ratio and read perform for analytical
+The Vortex implementation is tuned to achieve a good balance of compression ratio and read performance for analytical
 data. For other workloads, different compression strategies may be more appropriate.
 
 ### Compact

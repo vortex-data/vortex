@@ -13,7 +13,7 @@ Install
 Convert
 -------
 
-You can either use your own Parquet file or download the `example used here
+You can either use your own Parquet file or download the `example file used here
 <https://docs.vortex.dev/_static/example.parquet>`__.
 
 Use Arrow to read a Parquet file and then use :func:`~vortex.array` to construct an uncompressed

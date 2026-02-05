@@ -2,7 +2,7 @@
 
 :::{warning}
 This section is under construction. For guidance on extending Vortex, please join the
-[Vortex Slack channel](https://join.slack.com/t/vortex-array/shared_invite/zt-2ycp2w24h-sRdrGbMGPmQwCuPQT40Jig)
+[Vortex Slack channel](https://vortex.dev/slack)
 or start a [GitHub Discussion](https://github.com/spiraldb/vortex/discussions).
 :::
 

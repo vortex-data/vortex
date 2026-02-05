@@ -6,7 +6,7 @@ data type, children, data buffers, statistics, and a vtable encapsulating its be
 Arrays are one of the main plugin points in Vortex, allowing plugin developers to define new encodings for data
 that provides better compression, faster compute, or both for specific data types or workloads.
 
-For readers coming from a query engine background, arrays are a _little bit_ like a logical plan for decompression.
+For readers coming from a query engine background, arrays are similar to a logical plan for decompression.
 By deferring all operations over arrays, Vortex is able to choose optimized decompression kernels and prune away 
 all unnecessary data. 
 
@@ -78,7 +78,6 @@ These can be found in the `encodings/` directory of the Vortex repository.
 
 | Encoding Name          | Description                                                  |
 |------------------------|--------------------------------------------------------------|
-| ---------------------- | ------------------------------------------------------------ |
 | `ALP`                  | Adaptive Lossless Floating Point                             |
 | `ALPrd`                | Adaptive Lossless Floating Point for real doubles            |
 | `ByteBool`             | Byte-sized boolean arrays                                    |

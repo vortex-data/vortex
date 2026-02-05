@@ -80,7 +80,7 @@ For example, a `vortex.date` type is logically stored as a `U32` representing th
 
 This section helps those familiar with Apache Arrow to quickly understand the differences vs. Vortex's dtypes.
 
-* In Arrow, nullability is tied to a {obj}`pyarrow.Field` rather than the data type.
+* In Arrow, nullability is tied to a {class}`pyarrow.Field` rather than the data type.
   Data types in Vortex instead always define explicit `nullability`.
 * In Arrow, there are multiple ways to describe the same logical data type, for example {func}`pyarrow.string` and
   {func}`pyarrow.large_string` both represent UTF-8 values. In Vortex, there is a single `Utf8` dtype.
