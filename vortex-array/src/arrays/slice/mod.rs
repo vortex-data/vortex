@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod array;
-mod reduce;
 mod rules;
+mod slice;
 mod vtable;
 
 use std::ops::Range;

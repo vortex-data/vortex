@@ -204,20 +204,6 @@ impl<'a> TryFrom<&InvocationArgs<'a>> for FilterArgs<'a> {
 pub struct FilterKernelRef(pub ArcRef<dyn Kernel>);
 inventory::collect!(FilterKernelRef);
 
-pub trait FilterReduce: VTable {
-    /// Filter an array by the provided predicate.
-    ///
-    /// # Preconditions
-    ///
-    /// The entrypoint filter functions will handle `Mask::AllTrue` and `Mask::AllFalse` on the
-    /// selection mask, leaving only `Mask::Values` to be handled by this function.
-    ///
-    /// Additionally, the array length is guaranteed to have the same length as the selection mask.
-    ///
-    /// Finally, the array validity mask is guaranteed not to have a true count of 0 (all nulls).
-    fn filter(&self, array: &Self::Array, selection_mask: &Mask) -> VortexResult<ArrayRef>;
-}
-
 pub trait FilterKernel: VTable {
     /// Filter an array by the provided predicate.
     ///

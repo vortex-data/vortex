@@ -24,7 +24,6 @@ use crate::Canonical;
 use crate::Precision;
 use crate::arrays::slice::array::SliceArray;
 use crate::arrays::slice::rules::PARENT_RULES;
-use crate::arrays::slice::rules::RULES;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
 use crate::serde::ArrayChildren;
@@ -114,10 +113,6 @@ impl VTable for SliceVTable {
         );
         // TODO(joe): this is a downcast not a execute.
         result.execute::<Canonical>(ctx)
-    }
-
-    fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
-        RULES.evaluate(array)
     }
 
     fn reduce_parent(
