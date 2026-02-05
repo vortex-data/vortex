@@ -269,6 +269,19 @@ pub trait ArrayChildren {
     }
 }
 
+impl ArrayChildren for Vec<ArrayRef> {
+    fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
+        let array = self[index].clone();
+        assert_eq!(array.len(), len);
+        assert_eq!(array.dtype(), dtype);
+        Ok(array)
+    }
+
+    fn len(&self) -> usize {
+        self.len()
+    }
+}
+
 /// [`ArrayParts`] represents a parsed but not-yet-decoded deserialized [`Array`].
 /// It contains all the information from the serialized form, without anything extra. i.e.
 /// it is missing a [`DType`] and `len`, and the `encoding_id` is not yet resolved to a concrete
