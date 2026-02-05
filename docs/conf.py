@@ -331,7 +331,9 @@ def _resolve_breathe_cpp_references(app, env, node, contnode):
     # Try resolving with the vortex:: prefix.
     node = node.deepcopy()
     node["reftarget"] = f"vortex::{target}"
-    return cpp_domain.resolve_xref(env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode)
+    return cpp_domain.resolve_xref(
+        env, node.get("refdoc", ""), app.builder, "identifier", node["reftarget"], node, contnode
+    )
 
 
 def setup(app):

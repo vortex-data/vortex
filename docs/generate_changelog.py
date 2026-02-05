@@ -17,10 +17,15 @@ def fetch_releases():
     # List releases (body is not available in list output).
     result = subprocess.run(
         [
-            "gh", "release", "list",
-            "--repo", REPO,
-            "--limit", "20",
-            "--json", "tagName,isDraft,isPrerelease,publishedAt",
+            "gh",
+            "release",
+            "list",
+            "--repo",
+            REPO,
+            "--limit",
+            "20",
+            "--json",
+            "tagName,isDraft,isPrerelease,publishedAt",
         ],
         capture_output=True,
         text=True,
