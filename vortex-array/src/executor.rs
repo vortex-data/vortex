@@ -146,7 +146,14 @@ impl Executable for ArrayRef {
             return Ok(Canonical::from(canonical).into_array());
         }
 
-        // 1. reduce_parent (child-driven metadata-only rewrites)
+        // 1. reduce (metadata-only rewrites)
+        if let Some(reduced) = array.vtable().reduce(&array)? {
+            ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
+            reduced.statistics().inherit_from(array.statistics());
+            return Ok(reduced);
+        }
+
+        // 2. reduce_parent (child-driven metadata-only rewrites)
         for (child_idx, child) in array.children().iter().enumerate() {
             if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, child_idx)? {
                 ctx.log(format_args!(
@@ -159,13 +166,6 @@ impl Executable for ArrayRef {
                 reduced_parent.statistics().inherit_from(array.statistics());
                 return Ok(reduced_parent);
             }
-        }
-
-        // 2. reduce (metadata-only rewrites)
-        if let Some(reduced) = array.vtable().reduce(&array)? {
-            ctx.log(format_args!("reduce: rewrote {} -> {}", array, reduced));
-            reduced.statistics().inherit_from(array.statistics());
-            return Ok(reduced);
         }
 
         // 3. execute_parent (child-driven optimized execution)
