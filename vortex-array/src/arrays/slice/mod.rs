@@ -14,7 +14,6 @@ pub use vtable::*;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::kernel::ExecuteParentKernel;
 use crate::matcher::Matcher;
 use crate::optimizer::rules::ArrayParentReduceRule;
