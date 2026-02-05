@@ -43,6 +43,7 @@ use vortex_error::vortex_err;
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
+use crate::alp::rules::PARENT_KERNELS;
 
 vtable!(ALP);
 
@@ -174,20 +175,13 @@ impl VTable for ALPVTable {
         )?))
     }
 
-    fn duce_parent(
-        array: &Self::Array,
-        parent: &ArrayRef,
-        child_idx: usize,
-    ) -> VortexResult<Option<ArrayRef>> {
-        crate::alp::rules::PARENT_RULES.evaluate(array, parent, child_idx)
-    }
-
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
-        _child_idx: usize,
-        _ctx: &mut ExecutionCtx,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

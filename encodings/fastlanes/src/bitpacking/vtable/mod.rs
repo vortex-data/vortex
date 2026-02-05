@@ -30,8 +30,7 @@ use vortex_error::vortex_err;
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
-use crate::bitpacking::rules::RULES;
-use crate::bitpacking::vtable::kernels::filter::PARENT_KERNELS;
+use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 
 mod array;
 mod kernels;
