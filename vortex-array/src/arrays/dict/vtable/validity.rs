@@ -9,6 +9,7 @@ use super::DictVTable;
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::dict::DictArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::fill_null;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
@@ -29,9 +30,10 @@ impl ValidityVTable<DictVTable> for DictVTable {
                     Validity::Array(codes_validity)
                 }
                 (Validity::AllValid | Validity::NonNullable, Validity::Array(values_validity)) => {
+                    // We know codes are all valid, so the cast is free.
+                    let codes = array.codes().cast(array.codes().dtype().as_nonnullable())?;
                     Validity::Array(
-                        unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
-                            .into_array(),
+                        unsafe { DictArray::new_unchecked(codes, values_validity) }.into_array(),
                     )
                 }
                 (Validity::Array(_codes_validity), Validity::Array(values_validity)) => {

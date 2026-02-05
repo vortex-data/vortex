@@ -601,8 +601,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                 vortex_ensure!(array.len() == self.len(), "Validity array length mismatch");
                 vortex_ensure!(
                     matches!(array.dtype(), DType::Bool(Nullability::NonNullable)),
-                    "Validity array for must be non-nullable boolean: {}",
-                    self.to_array().display_tree(),
+                    "Validity array is not non-nullable boolean: {}",
+                    self.encoding_id(),
                 );
             }
             Ok(validity)
