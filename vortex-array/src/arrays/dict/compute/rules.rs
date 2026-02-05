@@ -16,6 +16,7 @@ use crate::arrays::DictVTable;
 use crate::arrays::FilterArray;
 use crate::arrays::FilterVTable;
 use crate::arrays::ScalarFnArray;
+use crate::arrays::SliceReduceAdaptor;
 use crate::builtins::ArrayBuiltins;
 use crate::expr::Pack;
 use crate::optimizer::ArrayOptimizer;
@@ -26,6 +27,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<DictVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DictionaryFilterPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnValuesPushDownRule),
     ParentRuleSet::lift(&DictionaryScalarFnCodesPullUpRule),
+    ParentRuleSet::lift(&SliceReduceAdaptor(DictVTable)),
 ]);
 
 #[derive(Debug)]
