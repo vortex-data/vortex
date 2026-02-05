@@ -3,36 +3,34 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::FilterReduce;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-impl FilterKernel for ALPRDVTable {
-    fn filter(&self, array: &ALPRDArray, mask: &Mask) -> VortexResult<ArrayRef> {
+impl FilterReduce for ALPRDVTable {
+    fn filter(array: &ALPRDArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.filter(mask))
             .transpose()?
             .flatten();
 
-        Ok(ALPRDArray::try_new(
-            array.dtype().clone(),
-            array.left_parts().filter(mask.clone())?,
-            array.left_parts_dictionary().clone(),
-            array.right_parts().filter(mask.clone())?,
-            array.right_bit_width(),
-            left_parts_exceptions,
-        )?
-        .into_array())
+        Ok(Some(
+            ALPRDArray::try_new(
+                array.dtype().clone(),
+                array.left_parts().filter(mask.clone())?,
+                array.left_parts_dictionary().clone(),
+                array.right_parts().filter(mask.clone())?,
+                array.right_bit_width(),
+                left_parts_exceptions,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {

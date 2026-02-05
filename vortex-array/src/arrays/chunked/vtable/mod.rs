@@ -32,6 +32,7 @@ use crate::vtable::VTable;
 mod array;
 mod canonical;
 mod compute;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;

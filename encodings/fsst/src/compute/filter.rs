@@ -2,11 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
+use vortex_array::arrays::FilterKernel;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -14,24 +14,29 @@ use crate::FSSTArray;
 use crate::FSSTVTable;
 
 impl FilterKernel for FSSTVTable {
-    // Filtering an FSSTArray filters the codes array, leaving the symbols array untouched
-    fn filter(&self, array: &FSSTArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        Ok(FSSTArray::try_new(
-            array.dtype().clone(),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            array
-                .codes()
-                .filter(mask.clone())?
-                .as_::<VarBinVTable>()
-                .clone(),
-            array.uncompressed_lengths().filter(mask.clone())?,
-        )?
-        .into_array())
+    fn filter(
+        array: &FSSTArray,
+        mask: &Mask,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Directly invoke VarBin's FilterKernel to get a concrete VarBinArray back.
+        let filtered_codes = <VarBinVTable as FilterKernel>::filter(array.codes(), mask, ctx)?
+            .vortex_expect("VarBin filter kernel always returns Some")
+            .as_::<VarBinVTable>()
+            .clone();
+
+        Ok(Some(
+            FSSTArray::try_new(
+                array.dtype().clone(),
+                array.symbols().clone(),
+                array.symbol_lengths().clone(),
+                filtered_codes,
+                array.uncompressed_lengths().filter(mask.clone())?,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(FSSTVTable).lift());
 
 #[cfg(test)]
 mod test {

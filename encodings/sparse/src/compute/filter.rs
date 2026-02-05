@@ -2,11 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::FilterKernel;
-use vortex_array::compute::FilterKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::FilterKernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -14,21 +13,25 @@ use crate::SparseArray;
 use crate::SparseVTable;
 
 impl FilterKernel for SparseVTable {
-    fn filter(&self, array: &SparseArray, mask: &Mask) -> VortexResult<ArrayRef> {
+    fn filter(
+        array: &SparseArray,
+        mask: &Mask,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let new_length = mask.true_count();
 
         let Some(new_patches) = array.patches().filter(mask)? else {
-            return Ok(ConstantArray::new(array.fill_scalar().clone(), new_length).into_array());
+            return Ok(Some(
+                ConstantArray::new(array.fill_scalar().clone(), new_length).into_array(),
+            ));
         };
 
-        Ok(
+        Ok(Some(
             SparseArray::try_new_from_patches(new_patches, array.fill_scalar().clone())?
                 .into_array(),
-        )
+        ))
     }
 }
-
-register_kernel!(FilterKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod tests {
