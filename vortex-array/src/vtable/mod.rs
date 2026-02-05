@@ -12,7 +12,6 @@ mod visitor;
 
 use std::fmt::Debug;
 use std::ops::Deref;
-use std::ops::Range;
 
 pub use array::*;
 pub use compute::*;

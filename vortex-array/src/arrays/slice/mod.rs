@@ -77,7 +77,7 @@ pub fn precondition<V: VTable>(
 }
 
 pub fn postcondition<V: VTable>(
-    slice: &V::Array,
+    slice: &ArrayRef,
     array: &V::Array,
     range: &Range<usize>,
 ) -> VortexResult<()> {
@@ -112,14 +112,14 @@ where
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, &parent.range) {
+        if let Some(result) = precondition::<V>(array, &parent.range)? {
             return Ok(Some(result));
         }
         let Some(sliced) = <V as SliceReduce>::slice(array, parent.range.clone())? else {
             return Ok(None);
         };
 
-        postcondition(&sliced, array, &parent.range)?;
+        postcondition::<V>(&sliced, array, &parent.range)?;
 
         Ok(Some(sliced))
     }
@@ -144,14 +144,14 @@ where
         assert_eq!(child_idx, 0);
 
         assert_eq!(child_idx, 0);
-        if let Some(result) = precondition::<V>(array, &parent.range) {
+        if let Some(result) = precondition::<V>(array, &parent.range)? {
             return Ok(Some(result));
         }
         let Some(sliced) = <V as SliceKernel>::slice(array, parent.range.clone(), ctx)? else {
             return Ok(None);
         };
 
-        postcondition(&sliced, array, &parent.range)?;
+        postcondition::<V>(&sliced, array, &parent.range)?;
 
         Ok(Some(sliced))
     }
