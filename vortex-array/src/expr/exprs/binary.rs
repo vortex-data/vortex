@@ -499,24 +499,21 @@ where
         return exprs.pop();
     }
 
-    // Iteratively combine pairs until we have a single expression
     while exprs.len() > 1 {
-        let mut next_level = Vec::with_capacity(exprs.len().div_ceil(2));
-        let mut chunks = exprs.chunks_exact(2);
+        let exprs_len = exprs.len();
 
-        for chunk in chunks.by_ref() {
-            // chunk is guaranteed to have exactly 2 elements
-            let left = chunk[0].clone();
-            let right = chunk[1].clone();
-            next_level.push(combine(left, right));
+        for target_idx in 0..(exprs.len() / 2) {
+            let item_idx = target_idx * 2;
+            let new = combine(exprs[item_idx].clone(), exprs[item_idx + 1].clone());
+            exprs[target_idx] = new;
         }
 
-        // Handle the remainder (odd element)
-        if let Some(last) = chunks.remainder().first() {
-            next_level.push(last.clone());
+        if !exprs.len().is_multiple_of(2) {
+            exprs[exprs_len / 2] = exprs[exprs.len() - 1].clone();
+            exprs.truncate(exprs_len.div_ceil(2));
+        } else {
+            exprs.truncate(exprs_len.div_ceil(2));
         }
-
-        exprs = next_level;
     }
 
     exprs.pop()

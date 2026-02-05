@@ -57,7 +57,7 @@ pub(crate) fn make_vortex_predicate(
         .map(|e| expr_convertor.convert(e.as_ref()))
         .collect::<DFResult<Vec<_>>>()?;
 
-    Ok(and_collect(exprs.into_iter()))
+    Ok(and_collect(exprs))
 }
 
 /// Trait for converting DataFusion expressions to Vortex ones.
