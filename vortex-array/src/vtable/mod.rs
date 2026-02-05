@@ -161,7 +161,7 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     //  one representation over another, such as when exporting to a specific Arrow array.
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef>;
 
-    /// Attempt to execute the parent of this array to produce a [`Canonical`].
+    /// Attempt to execute the parent of this array.
     ///
     /// This function allows arrays to plug in specialized execution logic for their parent. For
     /// example, strings compressed as FSST arrays can implement a custom equality comparison when

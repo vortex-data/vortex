@@ -141,7 +141,7 @@ impl Drop for ExecutionCtx {
 /// 4. Call `execute` on the array itself.
 ///
 /// Most users will not call this method directly, instead preferring to specify an executable
-/// target such as [`Columnar`], [`Canonical`], or any of the canonical array types (such as
+/// target such as [`crate::Columnar`], [`Canonical`], or any of the canonical array types (such as
 /// [`crate::arrays::PrimitiveArray`]).
 impl Executable for ArrayRef {
     fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
