@@ -98,9 +98,7 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
     let values = filter_with_indices(array, selection.indices());
-    let validity = array
-        .validity()?
-        .filter(&Mask::Values(selection.clone()))?;
+    let validity = array.validity()?.filter(&Mask::Values(selection.clone()))?;
 
     Ok((values.freeze(), validity))
 }
@@ -120,39 +118,43 @@ fn filter_with_indices<T: NativePType + BitPacking>(
     // Group the indices by the FastLanes chunk they belong to.
     let chunk_size = 128 * bit_width / size_of::<T>();
 
-    chunked_indices(indices.iter().copied(), offset, |chunk_idx, indices_within_chunk| {
-        let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
+    chunked_indices(
+        indices.iter().copied(),
+        offset,
+        |chunk_idx, indices_within_chunk| {
+            let packed = &packed_bytes[chunk_idx * chunk_size..][..chunk_size];
 
-        if indices_within_chunk.len() == 1024 {
-            // Unpack the entire chunk.
-            unsafe {
-                let values_len = values.len();
-                values.set_len(values_len + 1024);
-                BitPacking::unchecked_unpack(
-                    bit_width,
-                    packed,
-                    &mut values.as_mut_slice()[values_len..],
+            if indices_within_chunk.len() == 1024 {
+                // Unpack the entire chunk.
+                unsafe {
+                    let values_len = values.len();
+                    values.set_len(values_len + 1024);
+                    BitPacking::unchecked_unpack(
+                        bit_width,
+                        packed,
+                        &mut values.as_mut_slice()[values_len..],
+                    );
+                }
+            } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
+                // Unpack into a temporary chunk and then copy the values.
+                unsafe {
+                    let dst: &mut [MaybeUninit<T>] = &mut unpacked;
+                    let dst: &mut [T] = std::mem::transmute(dst);
+                    BitPacking::unchecked_unpack(bit_width, packed, dst);
+                }
+                values.extend_trusted(
+                    indices_within_chunk
+                        .iter()
+                        .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
                 );
+            } else {
+                // Otherwise, unpack each element individually.
+                values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
+                    BitPacking::unchecked_unpack_single(bit_width, packed, idx)
+                }));
             }
-        } else if indices_within_chunk.len() > UNPACK_CHUNK_THRESHOLD {
-            // Unpack into a temporary chunk and then copy the values.
-            unsafe {
-                let dst: &mut [MaybeUninit<T>] = &mut unpacked;
-                let dst: &mut [T] = std::mem::transmute(dst);
-                BitPacking::unchecked_unpack(bit_width, packed, dst);
-            }
-            values.extend_trusted(
-                indices_within_chunk
-                    .iter()
-                    .map(|&idx| unsafe { unpacked.get_unchecked(idx).assume_init() }),
-            );
-        } else {
-            // Otherwise, unpack each element individually.
-            values.extend_trusted(indices_within_chunk.iter().map(|&idx| unsafe {
-                BitPacking::unchecked_unpack_single(bit_width, packed, idx)
-            }));
-        }
-    });
+        },
+    );
 
     values
 }

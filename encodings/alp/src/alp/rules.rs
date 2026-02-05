@@ -2,10 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::FilterExecuteAdaptor;
-use vortex_array::arrays::FilterReduceAdaptor;
 use vortex_array::arrays::SliceExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
-use vortex_array::optimizer::rules::ParentRuleSet;
 
 use crate::ALPVTable;
 
