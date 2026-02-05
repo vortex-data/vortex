@@ -3,7 +3,7 @@
 
 mod array;
 mod rules;
-mod slice;
+mod slice_;
 mod vtable;
 
 use std::ops::Range;
