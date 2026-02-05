@@ -4,13 +4,14 @@
 use num_traits::cast::NumCast;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -29,31 +30,29 @@ use vortex_scalar::Scalar;
 use crate::SequenceArray;
 use crate::SequenceVTable;
 
-impl TakeKernel for SequenceVTable {
-    fn take(&self, array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let mask = indices.validity_mask()?;
-        let indices = indices.to_primitive();
-        let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
+fn take_sequence(array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let mask = indices.validity_mask()?;
+    let indices = indices.to_primitive();
+    let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
 
-        match_each_integer_ptype!(indices.ptype(), |T| {
-            let indices = indices.as_slice::<T>();
-            match_each_native_ptype!(array.ptype(), |S| {
-                let mul = array.multiplier().cast::<S>();
-                let base = array.base().cast::<S>();
-                Ok(take(
-                    mul,
-                    base,
-                    indices,
-                    mask,
-                    result_nullability,
-                    array.len(),
-                ))
-            })
+    match_each_integer_ptype!(indices.ptype(), |T| {
+        let indices = indices.as_slice::<T>();
+        match_each_native_ptype!(array.ptype(), |S| {
+            let mul = array.multiplier().cast::<S>();
+            let base = array.base().cast::<S>();
+            Ok(take_inner(
+                mul,
+                base,
+                indices,
+                mask,
+                result_nullability,
+                array.len(),
+            ))
         })
-    }
+    })
 }
 
-fn take<T: IntegerPType, S: NativePType>(
+fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
     base: S,
     indices: &[T],
@@ -98,7 +97,20 @@ fn take<T: IntegerPType, S: NativePType>(
     }
 }
 
-register_kernel!(TakeKernelAdapter(SequenceVTable).lift());
+impl TakeExecute for SequenceVTable {
+    fn take(
+        array: &SequenceArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_sequence(array, indices).map(Some)
+    }
+}
+
+impl SequenceVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod test {

@@ -13,10 +13,11 @@ use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::{self};
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
+use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -43,53 +44,64 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
-impl TakeKernel for ListViewVTable {
-    fn take(&self, array: &ListViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let elements = array.elements();
-        let offsets = array.offsets();
-        let sizes = array.sizes();
+fn take_listview(array: &ListViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let elements = array.elements();
+    let offsets = array.offsets();
+    let sizes = array.sizes();
 
-        // Compute the new validity by combining the array's validity with the indices' validity.
-        let new_validity = array.validity().take(indices)?;
+    // Compute the new validity by combining the array's validity with the indices' validity.
+    let new_validity = array.validity().take(indices)?;
 
-        // Take the offsets and sizes arrays at the requested indices.
-        // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
-        // contain duplicates.
-        let nullable_new_offsets = compute::take(offsets.as_ref(), indices)?;
-        let nullable_new_sizes = compute::take(sizes.as_ref(), indices)?;
+    // Take the offsets and sizes arrays at the requested indices.
+    // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
+    // contain duplicates.
+    let nullable_new_offsets = compute::take(offsets.as_ref(), indices)?;
+    let nullable_new_sizes = compute::take(sizes.as_ref(), indices)?;
 
-        // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
-        // zeros to represent null lists).
-        let new_offsets = match_each_integer_ptype!(nullable_new_offsets.dtype().as_ptype(), |O| {
-            compute::fill_null(
-                &nullable_new_offsets,
-                &Scalar::primitive(O::zero(), Nullability::NonNullable),
-            )?
-        });
-        let new_sizes = match_each_integer_ptype!(nullable_new_sizes.dtype().as_ptype(), |S| {
-            compute::fill_null(
-                &nullable_new_sizes,
-                &Scalar::primitive(S::zero(), Nullability::NonNullable),
-            )?
-        });
-        // SAFETY: Take operation maintains all `ListViewArray` invariants:
-        // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.
-        // - `new_offsets` and `new_sizes` are non-nullable.
-        // - `new_offsets` and `new_sizes` have the same length (both taken with the same
-        //   `indices`).
-        // - Validity correctly reflects the combination of array and indices validity.
-        let new_array = unsafe {
-            ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
-        };
+    // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
+    // zeros to represent null lists).
+    let new_offsets = match_each_integer_ptype!(nullable_new_offsets.dtype().as_ptype(), |O| {
+        compute::fill_null(
+            &nullable_new_offsets,
+            &Scalar::primitive(O::zero(), Nullability::NonNullable),
+        )?
+    });
+    let new_sizes = match_each_integer_ptype!(nullable_new_sizes.dtype().as_ptype(), |S| {
+        compute::fill_null(
+            &nullable_new_sizes,
+            &Scalar::primitive(S::zero(), Nullability::NonNullable),
+        )?
+    });
+    // SAFETY: Take operation maintains all `ListViewArray` invariants:
+    // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.
+    // - `new_offsets` and `new_sizes` are non-nullable.
+    // - `new_offsets` and `new_sizes` have the same length (both taken with the same
+    //   `indices`).
+    // - Validity correctly reflects the combination of array and indices validity.
+    let new_array = unsafe {
+        ListViewArray::new_unchecked(elements.clone(), new_offsets, new_sizes, new_validity)
+    };
 
-        // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
-        // compute functions have run, at the "top" of the operator tree. However, we cannot do this
-        // right now, so we will just rebuild every time (similar to `ListArray`).
+    // TODO(connor)[ListView]: Ideally, we would only rebuild after all `take`s and `filter`
+    // compute functions have run, at the "top" of the operator tree. However, we cannot do this
+    // right now, so we will just rebuild every time (similar to `ListArray`).
 
-        Ok(new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
-            .into_array())
+    Ok(new_array
+        .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+        .into_array())
+}
+
+impl TakeExecute for ListViewVTable {
+    fn take(
+        array: &ListViewArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_listview(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ListViewVTable).lift());
+impl ListViewVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}

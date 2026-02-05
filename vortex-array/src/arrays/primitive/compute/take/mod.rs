@@ -23,11 +23,12 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
 use crate::compute::cast;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
+use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -81,26 +82,37 @@ impl TakeImpl for TakeKernelScalar {
     }
 }
 
-impl TakeKernel for PrimitiveVTable {
-    fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let DType::Primitive(ptype, null) = indices.dtype() else {
-            vortex_bail!("Invalid indices dtype: {}", indices.dtype())
-        };
+fn take_primitive(array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let DType::Primitive(ptype, null) = indices.dtype() else {
+        vortex_bail!("Invalid indices dtype: {}", indices.dtype())
+    };
 
-        let unsigned_indices = if ptype.is_unsigned_int() {
-            indices.to_primitive()
-        } else {
-            // This will fail if all values cannot be converted to unsigned
-            cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()
-        };
+    let unsigned_indices = if ptype.is_unsigned_int() {
+        indices.to_primitive()
+    } else {
+        // This will fail if all values cannot be converted to unsigned
+        cast(indices, &DType::Primitive(ptype.to_unsigned(), *null))?.to_primitive()
+    };
 
-        let validity = array.validity().take(unsigned_indices.as_ref())?;
-        // Delegate to the best kernel based on the target CPU
-        PRIMITIVE_TAKE_KERNEL.take(array, &unsigned_indices, validity)
+    let validity = array.validity().take(unsigned_indices.as_ref())?;
+    // Delegate to the best kernel based on the target CPU
+    PRIMITIVE_TAKE_KERNEL.take(array, &unsigned_indices, validity)
+}
+
+impl TakeExecute for PrimitiveVTable {
+    fn take(
+        array: &PrimitiveArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_primitive(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
+impl PrimitiveVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]

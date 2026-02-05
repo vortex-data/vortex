@@ -9,35 +9,42 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
 use crate::compute::fill_null;
 use crate::compute::take;
-use crate::register_kernel;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for MaskedVTable {
-    fn take(&self, array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_child = if !indices.all_valid()? {
-            // This is safe because we'll mask out these positions in the validity
-            let filled_take = fill_null(
-                indices,
-                &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
-            )?;
-            take(&array.child, &filled_take)?
-        } else {
-            take(&array.child, indices)?
-        };
+fn take_masked(array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let taken_child = if !indices.all_valid()? {
+        // This is safe because we'll mask out these positions in the validity
+        let filled_take = fill_null(
+            indices,
+            &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
+        )?;
+        take(&array.child, &filled_take)?
+    } else {
+        take(&array.child, indices)?
+    };
 
-        // Compute the new validity by taking from array's validity and merging with indices validity
-        let taken_validity = array.validity().take(indices)?;
+    // Compute the new validity by taking from array's validity and merging with indices validity
+    let taken_validity = array.validity().take(indices)?;
 
-        // Construct new MaskedArray
-        Ok(MaskedArray::try_new(taken_child, taken_validity)?.into_array())
+    // Construct new MaskedArray
+    Ok(MaskedArray::try_new(taken_child, taken_validity)?.into_array())
+}
+
+impl TakeReduce for MaskedVTable {
+    fn take(array: &MaskedArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_masked(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(MaskedVTable).lift());
+impl MaskedVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {

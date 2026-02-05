@@ -14,12 +14,13 @@ use crate::ToCanonical;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
 use crate::compute::take;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
+use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -30,24 +31,35 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
 /// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
 /// non-contiguous indices would violate this requirement.
-impl TakeKernel for ListVTable {
-    #[expect(clippy::cognitive_complexity)]
-    fn take(&self, array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        // This is an over-approximation of the total number of elements in the resulting array.
-        let total_approx = array.elements().len().saturating_mul(indices.len());
+#[expect(clippy::cognitive_complexity)]
+fn take_list(array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let indices = indices.to_primitive();
+    // This is an over-approximation of the total number of elements in the resulting array.
+    let total_approx = array.elements().len().saturating_mul(indices.len());
 
-        match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                    _take::<I, O, OutputOffsetType>(array, &indices)
-                })
+    match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            match_smallest_offset_type!(total_approx, |OutputOffsetType| {
+                _take::<I, O, OutputOffsetType>(array, &indices)
             })
         })
+    })
+}
+
+impl TakeExecute for ListVTable {
+    fn take(
+        array: &ListArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_list(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ListVTable).lift());
+impl ListVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     array: &ListArray,

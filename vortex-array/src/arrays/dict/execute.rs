@@ -24,7 +24,7 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
-use crate::compute::TakeKernel;
+use crate::compute::take;
 
 /// TODO: replace usage of compute fn.
 /// Take from a canonical array using indices (codes), returning a new canonical array.
@@ -45,9 +45,8 @@ pub fn take_canonical(values: Canonical, codes: &PrimitiveArray) -> VortexResult
     })
 }
 
-fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
-    NullVTable
-        .take(_array, codes.as_ref())
+fn take_null(array: &NullArray, codes: &PrimitiveArray) -> NullArray {
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take null array")
         .as_::<NullVTable>()
         .clone()
@@ -138,63 +137,54 @@ fn take_null(_array: &NullArray, codes: &PrimitiveArray) -> NullArray {
 
 // TODO(joe): use dict_bool_take
 fn take_bool(array: &BoolArray, codes: &PrimitiveArray) -> VortexResult<BoolArray> {
-    Ok(BoolVTable
-        .take(array, codes.as_ref())?
+    Ok(take(array.as_ref(), codes.as_ref())?
         .as_::<BoolVTable>()
         .clone())
 }
 
 fn take_primitive(array: &PrimitiveArray, codes: &PrimitiveArray) -> PrimitiveArray {
-    PrimitiveVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take primitive array")
         .as_::<PrimitiveVTable>()
         .clone()
 }
 
 fn take_decimal(array: &DecimalArray, codes: &PrimitiveArray) -> DecimalArray {
-    DecimalVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take decimal array")
         .as_::<DecimalVTable>()
         .clone()
 }
 
 fn take_varbinview(array: &VarBinViewArray, codes: &PrimitiveArray) -> VarBinViewArray {
-    VarBinViewVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take varbinview array")
         .as_::<VarBinViewVTable>()
         .clone()
 }
 
 fn take_listview(array: &ListViewArray, codes: &PrimitiveArray) -> ListViewArray {
-    ListViewVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take listview array")
         .as_::<ListViewVTable>()
         .clone()
 }
 
 fn take_fixed_size_list(array: &FixedSizeListArray, codes: &PrimitiveArray) -> FixedSizeListArray {
-    FixedSizeListVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take fixed size list array")
         .as_::<FixedSizeListVTable>()
         .clone()
 }
 
 fn take_struct(array: &StructArray, codes: &PrimitiveArray) -> StructArray {
-    StructVTable
-        .take(array, codes.as_ref())
+    take(array.as_ref(), codes.as_ref())
         .vortex_expect("take struct array")
         .as_::<StructVTable>()
         .clone()
 }
 
 fn take_extension(array: &ExtensionArray, codes: &PrimitiveArray) -> ExtensionArray {
-    use crate::compute::take;
-
     let taken_storage =
         take(array.storage(), codes.as_ref()).vortex_expect("take extension storage");
     ExtensionArray::new(array.ext_dtype().clone(), taken_storage)

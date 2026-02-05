@@ -13,33 +13,45 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
+use crate::executor::ExecutionCtx;
+use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for DecimalVTable {
-    fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        let validity = array.validity().take(indices.as_ref())?;
+fn take_decimal(array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let indices = indices.to_primitive();
+    let validity = array.validity().take(indices.as_ref())?;
 
-        // TODO(joe): if the true count of take indices validity is low, only take array values with
-        // valid indices.
-        let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
-            match_each_integer_ptype!(indices.ptype(), |I| {
-                let buffer =
-                    take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
-                // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
-                // Validity is computed correctly from the parent array and indices.
-                unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }
-            })
-        });
+    // TODO(joe): if the true count of take indices validity is low, only take array values with
+    // valid indices.
+    let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
+        match_each_integer_ptype!(indices.ptype(), |I| {
+            let buffer =
+                take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
+            // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
+            // Validity is computed correctly from the parent array and indices.
+            unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }
+        })
+    });
 
-        Ok(decimal.to_array())
+    Ok(decimal.to_array())
+}
+
+impl TakeExecute for DecimalVTable {
+    fn take(
+        array: &DecimalArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_decimal(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(DecimalVTable).lift());
+impl DecimalVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 #[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {

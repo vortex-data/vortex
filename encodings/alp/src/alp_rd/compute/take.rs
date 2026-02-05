@@ -4,11 +4,11 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::arrays::TakeReduce;
+use vortex_array::arrays::TakeReduceAdaptor;
 use vortex_array::compute::fill_null;
 use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -16,42 +16,49 @@ use vortex_scalar::ScalarValue;
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-impl TakeKernel for ALPRDVTable {
-    fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_left_parts = take(array.left_parts(), indices)?;
-        let left_parts_exceptions = array
-            .left_parts_patches()
-            .map(|patches| patches.take(indices))
-            .transpose()?
-            .flatten()
-            .map(|p| {
-                let values_dtype = p
-                    .values()
-                    .dtype()
-                    .with_nullability(taken_left_parts.dtype().nullability());
-                p.cast_values(&values_dtype)
-            })
-            .transpose()?;
-        let right_parts = fill_null(
-            &take(array.right_parts(), indices)?,
-            &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
-        )?;
-
-        Ok(ALPRDArray::try_new(
-            array
+fn take_alprd(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let taken_left_parts = take(array.left_parts(), indices)?;
+    let left_parts_exceptions = array
+        .left_parts_patches()
+        .map(|patches| patches.take(indices))
+        .transpose()?
+        .flatten()
+        .map(|p| {
+            let values_dtype = p
+                .values()
                 .dtype()
-                .with_nullability(taken_left_parts.dtype().nullability()),
-            taken_left_parts,
-            array.left_parts_dictionary().clone(),
-            right_parts,
-            array.right_bit_width(),
-            left_parts_exceptions,
-        )?
-        .into_array())
+                .with_nullability(taken_left_parts.dtype().nullability());
+            p.cast_values(&values_dtype)
+        })
+        .transpose()?;
+    let right_parts = fill_null(
+        &take(array.right_parts(), indices)?,
+        &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
+    )?;
+
+    Ok(ALPRDArray::try_new(
+        array
+            .dtype()
+            .with_nullability(taken_left_parts.dtype().nullability()),
+        taken_left_parts,
+        array.left_parts_dictionary().clone(),
+        right_parts,
+        array.right_bit_width(),
+        left_parts_exceptions,
+    )?
+    .into_array())
+}
+
+impl TakeReduce for ALPRDVTable {
+    fn take(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_alprd(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
+impl ALPRDVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod test {

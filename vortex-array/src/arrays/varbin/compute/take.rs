@@ -17,101 +17,117 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::TakeExecute;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::VarBinVTable;
 use crate::arrays::varbin::VarBinArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
+use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 
-impl TakeKernel for VarBinVTable {
-    fn take(&self, array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let offsets = array.offsets().to_primitive();
-        let data = array.bytes();
-        let indices = indices.to_primitive();
-        let dtype = array
-            .dtype()
-            .clone()
-            .union_nullability(indices.dtype().nullability());
-        let array = match_each_integer_ptype!(indices.ptype(), |I| {
-            // On take, offsets get widened to either 32- or 64-bit based on the original type,
-            // to avoid overflow issues.
-            match offsets.ptype() {
-                PType::U8 => take::<I, u8, u32>(
-                    dtype,
-                    offsets.as_slice::<u8>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::U16 => take::<I, u16, u32>(
-                    dtype,
-                    offsets.as_slice::<u16>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::U32 => take::<I, u32, u32>(
-                    dtype,
-                    offsets.as_slice::<u32>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::U64 => take::<I, u64, u64>(
-                    dtype,
-                    offsets.as_slice::<u64>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::I8 => take::<I, i8, i32>(
-                    dtype,
-                    offsets.as_slice::<i8>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::I16 => take::<I, i16, i32>(
-                    dtype,
-                    offsets.as_slice::<i16>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::I32 => take::<I, i32, i32>(
-                    dtype,
-                    offsets.as_slice::<i32>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                PType::I64 => take::<I, i64, i64>(
-                    dtype,
-                    offsets.as_slice::<i64>(),
-                    data.as_slice(),
-                    indices.as_slice::<I>(),
-                    array.validity_mask()?,
-                    indices.validity_mask()?,
-                ),
-                _ => unreachable!("invalid PType for offsets"),
-            }
-        });
+#[expect(
+    clippy::redundant_clone,
+    reason = "macro expansion causes false positive - only one match arm executes"
+)]
+fn take_varbin(array: &VarBinArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let offsets = array.offsets().to_primitive();
+    let data = array.bytes();
+    let indices = indices.to_primitive();
+    let dtype = array
+        .dtype()
+        .clone()
+        .union_nullability(indices.dtype().nullability());
+    let result = match_each_integer_ptype!(indices.ptype(), |I| {
+        // On take, offsets get widened to either 32- or 64-bit based on the original type,
+        // to avoid overflow issues.
+        match offsets.ptype() {
+            PType::U8 => take_impl::<I, u8, u32>(
+                dtype.clone(),
+                offsets.as_slice::<u8>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::U16 => take_impl::<I, u16, u32>(
+                dtype.clone(),
+                offsets.as_slice::<u16>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::U32 => take_impl::<I, u32, u32>(
+                dtype.clone(),
+                offsets.as_slice::<u32>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::U64 => take_impl::<I, u64, u64>(
+                dtype.clone(),
+                offsets.as_slice::<u64>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::I8 => take_impl::<I, i8, i32>(
+                dtype.clone(),
+                offsets.as_slice::<i8>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::I16 => take_impl::<I, i16, i32>(
+                dtype.clone(),
+                offsets.as_slice::<i16>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::I32 => take_impl::<I, i32, i32>(
+                dtype.clone(),
+                offsets.as_slice::<i32>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            PType::I64 => take_impl::<I, i64, i64>(
+                dtype.clone(),
+                offsets.as_slice::<i64>(),
+                data.as_slice(),
+                indices.as_slice::<I>(),
+                array.validity_mask()?,
+                indices.validity_mask()?,
+            ),
+            _ => unreachable!("invalid PType for offsets"),
+        }
+    });
 
-        Ok(array?.into_array())
+    Ok(result?.into_array())
+}
+
+impl TakeExecute for VarBinVTable {
+    fn take(
+        array: &VarBinArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_varbin(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(VarBinVTable).lift());
+impl VarBinVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
-fn take<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
+fn take_impl<Index: IntegerPType, Offset: IntegerPType, NewOffset: IntegerPType>(
     dtype: DType,
     offsets: &[Offset],
     data: &[u8],

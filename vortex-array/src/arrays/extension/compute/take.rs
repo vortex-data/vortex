@@ -8,22 +8,29 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
 use crate::compute::{self};
-use crate::register_kernel;
+use crate::optimizer::rules::ParentRuleSet;
 
-impl TakeKernel for ExtensionVTable {
-    fn take(&self, array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_storage = compute::take(array.storage(), indices)?;
-        Ok(ExtensionArray::new(
-            array
-                .ext_dtype()
-                .with_nullability(taken_storage.dtype().nullability()),
-            taken_storage,
-        )
-        .into_array())
+fn take_extension(array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let taken_storage = compute::take(array.storage(), indices)?;
+    Ok(ExtensionArray::new(
+        array
+            .ext_dtype()
+            .with_nullability(taken_storage.dtype().nullability()),
+        taken_storage,
+    )
+    .into_array())
+}
+
+impl TakeReduce for ExtensionVTable {
+    fn take(array: &ExtensionArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_extension(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ExtensionVTable).lift());
+impl ExtensionVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}

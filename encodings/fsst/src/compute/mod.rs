@@ -8,12 +8,12 @@ mod filter;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
+use vortex_array::arrays::TakeReduce;
+use vortex_array::arrays::TakeReduceAdaptor;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
 use vortex_array::compute::fill_null;
 use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -21,32 +21,38 @@ use vortex_scalar::ScalarValue;
 use crate::FSSTArray;
 use crate::FSSTVTable;
 
-impl TakeKernel for FSSTVTable {
-    // Take on an FSSTArray is a simple take on the codes array.
-    fn take(&self, array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        Ok(FSSTArray::try_new(
-            array
-                .dtype()
-                .clone()
-                .union_nullability(indices.dtype().nullability()),
-            array.symbols().clone(),
-            array.symbol_lengths().clone(),
-            take(array.codes().as_ref(), indices)?
-                .as_::<VarBinVTable>()
-                .clone(),
-            fill_null(
-                &take(array.uncompressed_lengths(), indices)?,
-                &Scalar::new(
-                    array.uncompressed_lengths_dtype().clone(),
-                    ScalarValue::from(0),
-                ),
-            )?,
-        )?
-        .into_array())
+fn take_fsst(array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    Ok(FSSTArray::try_new(
+        array
+            .dtype()
+            .clone()
+            .union_nullability(indices.dtype().nullability()),
+        array.symbols().clone(),
+        array.symbol_lengths().clone(),
+        take(array.codes().as_ref(), indices)?
+            .as_::<VarBinVTable>()
+            .clone(),
+        fill_null(
+            &take(array.uncompressed_lengths(), indices)?,
+            &Scalar::new(
+                array.uncompressed_lengths_dtype().clone(),
+                ScalarValue::from(0),
+            ),
+        )?,
+    )?
+    .into_array())
+}
+
+impl TakeReduce for FSSTVTable {
+    fn take(array: &FSSTArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_fsst(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(FSSTVTable).lift());
+impl FSSTVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {

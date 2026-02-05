@@ -5,49 +5,56 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeReduce;
+use vortex_array::arrays::TakeReduceAdaptor;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
 use crate::SparseVTable;
 
-impl TakeKernel for SparseVTable {
-    fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let patches_take = if array.fill_scalar().is_null() {
-            array.patches().take(take_indices)?
-        } else {
-            array.patches().take_with_nulls(take_indices)?
-        };
+fn take_sparse(array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let patches_take = if array.fill_scalar().is_null() {
+        array.patches().take(take_indices)?
+    } else {
+        array.patches().take_with_nulls(take_indices)?
+    };
 
-        let Some(new_patches) = patches_take else {
-            let result_fill_scalar = array.fill_scalar().cast(
-                &array
-                    .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
-            )?;
-            return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
-        };
+    let Some(new_patches) = patches_take else {
+        let result_fill_scalar = array.fill_scalar().cast(
+            &array
+                .dtype()
+                .union_nullability(take_indices.dtype().nullability()),
+        )?;
+        return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
+    };
 
-        // See `SparseEncoding::slice`.
-        if new_patches.array_len() == new_patches.values().len() {
-            return Ok(new_patches.into_values());
-        }
+    // See `SparseEncoding::slice`.
+    if new_patches.array_len() == new_patches.values().len() {
+        return Ok(new_patches.into_values());
+    }
 
-        Ok(SparseArray::try_new_from_patches(
-            new_patches,
-            array.fill_scalar().cast(
-                &array
-                    .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
-            )?,
-        )?
-        .into_array())
+    Ok(SparseArray::try_new_from_patches(
+        new_patches,
+        array.fill_scalar().cast(
+            &array
+                .dtype()
+                .union_nullability(take_indices.dtype().nullability()),
+        )?,
+    )?
+    .into_array())
+}
+
+impl TakeReduce for SparseVTable {
+    fn take(array: &SparseArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_sparse(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(SparseVTable).lift());
+impl SparseVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod test {

@@ -4,14 +4,16 @@
 use num_traits::AsPrimitive;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::CastKernel;
 use vortex_array::compute::CastKernelAdapter;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
@@ -55,30 +57,41 @@ impl MaskKernel for ByteBoolVTable {
 
 register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
-impl TakeKernel for ByteBoolVTable {
-    fn take(&self, array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
-        let bools = array.as_slice();
+fn take_bytebool(array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let indices = indices.to_primitive();
+    let bools = array.as_slice();
 
-        // This handles combining validity from both source array and nullable indices
-        let validity = array.validity().take(indices.as_ref())?;
+    // This handles combining validity from both source array and nullable indices
+    let validity = array.validity().take(indices.as_ref())?;
 
-        let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
-            indices
-                .as_slice::<I>()
-                .iter()
-                .map(|&idx| {
-                    let idx: usize = idx.as_();
-                    bools[idx]
-                })
-                .collect::<Vec<bool>>()
-        });
+    let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
+        indices
+            .as_slice::<I>()
+            .iter()
+            .map(|&idx| {
+                let idx: usize = idx.as_();
+                bools[idx]
+            })
+            .collect::<Vec<bool>>()
+    });
 
-        Ok(ByteBoolArray::from_vec(taken_bools, validity).into_array())
+    Ok(ByteBoolArray::from_vec(taken_bools, validity).into_array())
+}
+
+impl TakeExecute for ByteBoolVTable {
+    fn take(
+        array: &ByteBoolArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_bytebool(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ByteBoolVTable).lift());
+impl ByteBoolVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {

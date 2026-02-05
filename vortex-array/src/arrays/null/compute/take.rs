@@ -11,26 +11,33 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleSet;
 
-impl TakeKernel for NullVTable {
-    #[allow(clippy::cast_possible_truncation)]
-    fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let indices = indices.to_primitive();
+#[allow(clippy::cast_possible_truncation)]
+fn take_null(array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let indices = indices.to_primitive();
 
-        // Enforce all indices are valid
-        match_each_integer_ptype!(indices.ptype(), |T| {
-            for index in indices.as_slice::<T>() {
-                if (*index as usize) >= array.len() {
-                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
-                }
+    // Enforce all indices are valid
+    match_each_integer_ptype!(indices.ptype(), |T| {
+        for index in indices.as_slice::<T>() {
+            if (*index as usize) >= array.len() {
+                vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
             }
-        });
+        }
+    });
 
-        Ok(NullArray::new(indices.len()).into_array())
+    Ok(NullArray::new(indices.len()).into_array())
+}
+
+impl TakeReduce for NullVTable {
+    fn take(array: &NullArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_null(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(NullVTable).lift());
+impl NullVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}

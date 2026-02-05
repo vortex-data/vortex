@@ -11,47 +11,55 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::MaskedArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
 
-impl TakeKernel for ConstantVTable {
-    fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask()?.bit_buffer() {
-            AllOr::All => {
-                let scalar = Scalar::new(
-                    array
-                        .scalar()
-                        .dtype()
-                        .union_nullability(indices.dtype().nullability()),
-                    array.scalar().value().clone(),
-                );
-                Ok(ConstantArray::new(scalar, indices.len()).into_array())
-            }
-            AllOr::None => Ok(ConstantArray::new(
-                Scalar::null(
-                    array
-                        .dtype()
-                        .union_nullability(indices.dtype().nullability()),
-                ),
-                indices.len(),
-            )
-            .into_array()),
-            AllOr::Some(v) => {
-                let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
-
-                if array.scalar().is_null() {
-                    return Ok(arr);
-                }
-
-                Ok(MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array())
-            }
+fn take_constant(array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let result = match indices.validity_mask()?.bit_buffer() {
+        AllOr::All => {
+            let scalar = Scalar::new(
+                array
+                    .scalar()
+                    .dtype()
+                    .union_nullability(indices.dtype().nullability()),
+                array.scalar().value().clone(),
+            );
+            ConstantArray::new(scalar, indices.len()).into_array()
         }
+        AllOr::None => ConstantArray::new(
+            Scalar::null(
+                array
+                    .dtype()
+                    .union_nullability(indices.dtype().nullability()),
+            ),
+            indices.len(),
+        )
+        .into_array(),
+        AllOr::Some(v) => {
+            let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
+
+            if array.scalar().is_null() {
+                return Ok(arr);
+            }
+
+            MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
+        }
+    };
+    Ok(result)
+}
+
+impl TakeReduce for ConstantVTable {
+    fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_constant(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
+impl ConstantVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {

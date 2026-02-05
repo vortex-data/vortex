@@ -10,27 +10,34 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::arrays::TakeReduce;
+use vortex_array::arrays::TakeReduceAdaptor;
 use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::FoRArray;
 use crate::FoRVTable;
 
-impl TakeKernel for FoRVTable {
-    fn take(&self, array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        FoRArray::try_new(
-            take(array.encoded(), indices)?,
-            array.reference_scalar().clone(),
-        )
-        .map(|a| a.into_array())
+fn take_for(array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    FoRArray::try_new(
+        take(array.encoded(), indices)?,
+        array.reference_scalar().clone(),
+    )
+    .map(|a| a.into_array())
+}
+
+impl TakeReduce for FoRVTable {
+    fn take(array: &FoRArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_for(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(FoRVTable).lift());
+impl FoRVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 impl FilterReduce for FoRVTable {
     fn filter(array: &FoRArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

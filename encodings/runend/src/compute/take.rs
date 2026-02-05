@@ -5,12 +5,13 @@ use num_traits::AsPrimitive;
 use num_traits::NumCast;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::arrays::TakeExecute;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::kernel::ParentKernelSet;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -24,34 +25,45 @@ use vortex_error::vortex_bail;
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-impl TakeKernel for RunEndVTable {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "index cast to usize inside macro"
-    )]
-    fn take(&self, array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let primitive_indices = indices.to_primitive();
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "index cast to usize inside macro"
+)]
+fn take_runend(array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let primitive_indices = indices.to_primitive();
 
-        let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
-            primitive_indices
-                .as_slice::<P>()
-                .iter()
-                .copied()
-                .map(|idx| {
-                    let usize_idx = idx as usize;
-                    if usize_idx >= array.len() {
-                        vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
-                    }
-                    Ok(usize_idx)
-                })
-                .collect::<VortexResult<Vec<_>>>()?
-        });
+    let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
+        primitive_indices
+            .as_slice::<P>()
+            .iter()
+            .copied()
+            .map(|idx| {
+                let usize_idx = idx as usize;
+                if usize_idx >= array.len() {
+                    vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
+                }
+                Ok(usize_idx)
+            })
+            .collect::<VortexResult<Vec<_>>>()?
+    });
 
-        take_indices_unchecked(array, &checked_indices, primitive_indices.validity())
+    take_indices_unchecked(array, &checked_indices, primitive_indices.validity())
+}
+
+impl TakeExecute for RunEndVTable {
+    fn take(
+        array: &RunEndArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        take_runend(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(RunEndVTable).lift());
+impl RunEndVTable {
+    pub const TAKE_KERNELS: ParentKernelSet<Self> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
+}
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
 pub fn take_indices_unchecked<T: AsPrimitive<usize>>(

@@ -4,36 +4,43 @@
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::arrays::TakeReduce;
+use vortex_array::arrays::TakeReduceAdaptor;
 use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
 use crate::ALPVTable;
 
-impl TakeKernel for ALPVTable {
-    fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_encoded = take(array.encoded(), indices)?;
-        let taken_patches = array
-            .patches()
-            .map(|p| p.take(indices))
-            .transpose()?
-            .flatten()
-            .map(|patches| {
-                patches.cast_values(
-                    &array
-                        .dtype()
-                        .with_nullability(taken_encoded.dtype().nullability()),
-                )
-            })
-            .transpose()?;
-        Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
+fn take_alp(array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    let taken_encoded = take(array.encoded(), indices)?;
+    let taken_patches = array
+        .patches()
+        .map(|p| p.take(indices))
+        .transpose()?
+        .flatten()
+        .map(|patches| {
+            patches.cast_values(
+                &array
+                    .dtype()
+                    .with_nullability(taken_encoded.dtype().nullability()),
+            )
+        })
+        .transpose()?;
+    Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
+}
+
+impl TakeReduce for ALPVTable {
+    fn take(array: &ALPArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        take_alp(array, indices).map(Some)
     }
 }
 
-register_kernel!(TakeKernelAdapter(ALPVTable).lift());
+impl ALPVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod test {
