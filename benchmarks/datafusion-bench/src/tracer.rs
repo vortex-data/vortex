@@ -9,7 +9,8 @@ use datafusion::common::runtime::JoinSetTracer;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use vortex_bench::Format;
-use vortex_metrics::tracing::{get_global_labels, set_global_labels};
+use vortex_metrics::tracing::get_global_labels;
+use vortex_metrics::tracing::set_global_labels;
 
 pub fn get_static_tracer() -> &'static dyn JoinSetTracer {
     static TRACER: LabelsJoinSetTracer = LabelsJoinSetTracer;

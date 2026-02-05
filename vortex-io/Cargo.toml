@@ -22,18 +22,20 @@ async-fs = { workspace = true }
 async-stream = { workspace = true }
 async-trait = { workspace = true }
 bytes = { workspace = true }
+custom-labels = { workspace = true }
 futures = { workspace = true, features = ["std", "executor"] }
-# Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
-getrandom_v03 = { workspace = true }
+getrandom_v03 = { workspace = true } # Needed to pickup the "wasm_js" feature for wasm targets from the workspace configuration
+handle = "1.0.2"
 kanal = { workspace = true }
 object_store = { workspace = true, optional = true, features = ["fs"] }
 oneshot = { workspace = true }
 parking_lot = { workspace = true }
 pin-project-lite = { workspace = true }
-# this is the maximum subset of fetaures that is safe for wasm32 targets
-custom-labels.workspace = true
-handle = "1.0.2"
-tokio = { workspace = true, features = ["io-util", "rt", "sync"] }
+tokio = { workspace = true, features = [
+    "io-util",
+    "rt",
+    "sync",
+] } # this is the maximum subset of fetaures that is safe for wasm32 targets
 tracing = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

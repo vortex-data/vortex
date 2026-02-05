@@ -119,7 +119,7 @@ cudarc = { version = "0.18.2", features = [
     # be specified if a later toolkit version is installed on the system.
     "cuda-12080",
 ] }
-custom-labels = "0.4"
+custom-labels = "0.4.4"
 dashmap = "6.1.0"
 datafusion = { version = "52", default-features = false, features = ["sql"] }
 datafusion-catalog = { version = "52" }
