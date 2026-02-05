@@ -93,6 +93,7 @@ pub fn postcondition<V: VTable>(
         array.dtype(),
         slice.dtype()
     );
+    Ok(())
 }
 
 #[derive(Default, Debug)]
@@ -115,7 +116,7 @@ where
             return Ok(Some(result));
         }
         let Some(sliced) = <V as SliceReduce>::slice(array, parent.range.clone())? else {
-            Ok(None)
+            return Ok(None);
         };
 
         postcondition(&sliced, array, &parent.range)?;
@@ -147,7 +148,7 @@ where
             return Ok(Some(result));
         }
         let Some(sliced) = <V as SliceKernel>::slice(array, parent.range.clone(), ctx)? else {
-            Ok(None)
+            return Ok(None);
         };
 
         postcondition(&sliced, array, &parent.range)?;

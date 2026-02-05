@@ -94,11 +94,6 @@ impl VTable for SharedVTable {
     fn canonicalize(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
         array.canonicalize(ctx)
     }
-
-    fn slice(array: &Self::Array, range: Range<usize>) -> VortexResult<Option<ArrayRef>> {
-        let sliced = array.current_array_ref().slice(range)?;
-        Ok(Some(SharedArray::new(sliced).into_array()))
-    }
 }
 
 impl BaseArrayVTable<SharedVTable> for SharedVTable {

@@ -6,7 +6,6 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::marker::PhantomData;
-use std::ops::Range;
 
 use arcref::ArcRef;
 use vortex_dtype::DType;
