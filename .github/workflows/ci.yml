@@ -106,7 +106,7 @@ jobs:
           sync: false
           prune-cache: false
       - name: Install Doxygen
-        run: sudo apt-get install -y doxygen
+        uses: ssciwr/doxygen-install@v1
 
       - name: Pytest - Vortex
         run: |

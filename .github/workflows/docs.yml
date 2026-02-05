@@ -37,7 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Doxygen
-        run: sudo apt-get install -y doxygen
+        uses: ssciwr/doxygen-install@v1
       - name: Generate Javadoc for Java projects
         run: |
           cd java
