@@ -484,9 +484,16 @@ impl Executable for Canonical {
         }
 
         // Invoke execute directly to avoid logging the call in the execution context.
-        Ok(match Columnar::execute(array, ctx)? {
+        Ok(match Columnar::execute(array.clone(), ctx)? {
             Columnar::Array(c) => c,
-            Columnar::Scalar(s) => constant_canonicalize(&s)?,
+            Columnar::Scalar(s) => {
+                let canonical = constant_canonicalize(&s)?;
+                canonical
+                    .as_ref()
+                    .statistics()
+                    .inherit_from(array.statistics());
+                canonical
+            }
         })
     }
 }
