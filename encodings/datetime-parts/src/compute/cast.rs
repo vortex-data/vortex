@@ -99,7 +99,7 @@ mod tests {
         let result = cast(&array, &DType::Bool(Nullability::NonNullable));
         assert!(
             result.as_ref().is_err_and(|err| err.to_string().contains(
-                "No compute kernel to cast array vortex.ext with dtype vortex.timestamp[unit=ms, tz=UTC](i64?) to bool"
+                "No compute kernel to cast array vortex.ext with dtype vortex.timestamp[ms, tz=UTC](i64?) to bool"
             )),
             "Got error: {result:?}"
         );
