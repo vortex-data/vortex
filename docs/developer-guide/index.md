@@ -20,13 +20,11 @@ caption: Internals
 internals/architecture
 internals/session
 internals/async-runtime
-internals/flatbuffers
+internals/vtables
+internals/lazy-execution
+internals/io
+internals/serialization
 internals/benchmarking
-internals/lazy-evaluation
-internals/datafusion
-internals/duckdb
-internals/spark
-internals/trino
 ```
 
 ```{toctree}
