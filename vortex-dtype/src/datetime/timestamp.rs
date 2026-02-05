@@ -60,8 +60,8 @@ pub struct TimestampOptions {
 impl Display for TimestampOptions {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match &self.tz {
-            Some(tz) => write!(f, "unit={}, tz={}", self.unit, tz),
-            None => write!(f, "unit={}", self.unit),
+            Some(tz) => write!(f, "{}, tz={}", self.unit, tz),
+            None => write!(f, "{}", self.unit),
         }
     }
 }

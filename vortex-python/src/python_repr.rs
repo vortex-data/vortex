@@ -92,7 +92,7 @@ impl Display for DTypePythonRepr<'_> {
             DType::Extension(ext) => {
                 write!(
                     f,
-                    "ext(\"{}\", {}",
+                    "ext({}, {}",
                     ext.id().python_repr(),
                     ext.storage_dtype().python_repr()
                 )?;

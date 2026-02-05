@@ -494,7 +494,7 @@ fn parse_time_unit(unit: &str) -> PyResult<TimeUnit> {
 /// ```python
 /// >>> import vortex as vx
 /// >>> vx.date("days")
-/// ext("vortex.date", int(32, nullable=False), unit=days)
+/// ext("vortex.date", int(32, nullable=False), days)
 /// ```
 #[pyfunction(name = "date")]
 #[pyo3(signature = (unit, *, nullable = false))]
@@ -530,7 +530,7 @@ pub(super) fn dtype_date<'py>(
 /// ```python
 /// >>> import vortex as vx
 /// >>> vx.time("us")
-/// ext("vortex.time", int(64, nullable=False), unit=µs)
+/// ext("vortex.time", int(64, nullable=False), µs)
 /// ```
 #[pyfunction(name = "time")]
 #[pyo3(signature = (unit, *, nullable = false))]
@@ -569,14 +569,14 @@ pub(super) fn dtype_time<'py>(
 /// ```python
 /// >>> import vortex as vx
 /// >>> vx.timestamp("us")
-/// ext("vortex.timestamp", int(64, nullable=False), unit=µs)
+/// ext("vortex.timestamp", int(64, nullable=False), µs)
 /// ```
 ///
 /// A nullable timestamp in seconds with a UTC timezone.
 ///
 /// ```python
 /// >>> vx.timestamp("s", tz="UTC", nullable=True)
-/// ext("vortex.timestamp", int(64, nullable=True), unit=s, tz=UTC)
+/// ext("vortex.timestamp", int(64, nullable=True), s, tz=UTC)
 /// ```
 #[pyfunction(name = "timestamp")]
 #[pyo3(signature = (unit, *, tz = None, nullable = false))]
