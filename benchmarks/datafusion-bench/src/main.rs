@@ -18,6 +18,7 @@ use datafusion::parquet::arrow::ParquetRecordBatchStreamBuilder;
 use datafusion::prelude::SessionContext;
 use datafusion_bench::format_to_df_format;
 use datafusion_bench::metrics::MetricsSetExt;
+use datafusion_bench::tracer::get_labelset_from_global;
 use datafusion_bench::tracer::get_static_tracer;
 use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
@@ -180,8 +181,9 @@ async fn main() -> anyhow::Result<()> {
                 Box::pin(
                     async move {
                         let timer = Instant::now();
-                        let (batches, plan) =
-                            execute_query(session, query).with_current_labels().await?;
+                        let (batches, plan) = execute_query(session, query)
+                            .with_labelset(get_labelset_from_global())
+                            .await?;
                         let time = timer.elapsed();
                         let row_count = batches.iter().map(|batch| batch.num_rows()).sum::<usize>();
 
@@ -324,12 +326,18 @@ pub async fn execute_query(
     ctx: &SessionContext,
     query: &str,
 ) -> anyhow::Result<(Vec<RecordBatch>, Arc<dyn ExecutionPlan>)> {
-    let df = ctx.sql(query).with_current_labels().await?;
+    let df = ctx
+        .sql(query)
+        .with_labelset(get_labelset_from_global())
+        .await?;
 
     let task_ctx = Arc::new(df.task_ctx());
-    let plan = df.create_physical_plan().with_current_labels().await?;
+    let plan = df
+        .create_physical_plan()
+        .with_labelset(get_labelset_from_global())
+        .await?;
     let result = collect(plan.clone(), task_ctx)
-        .with_current_labels()
+        .with_labelset(get_labelset_from_global())
         .await?;
 
     Ok((result, plan))
