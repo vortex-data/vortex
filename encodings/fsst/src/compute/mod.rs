@@ -10,9 +10,11 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::take_into_varbin;
+use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::fill_null;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 
@@ -33,7 +35,10 @@ impl TakeExecute for FSSTVTable {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                take_into_varbin(array.codes(), indices)?,
+                VarBinVTable::take(array.codes(), indices, _ctx)?
+                    .vortex_expect("cannot fail")
+                    .try_into::<VarBinVTable>()
+                    .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 fill_null(
                     &array.uncompressed_lengths().take(indices.to_array())?,
                     &Scalar::new(
