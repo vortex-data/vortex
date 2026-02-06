@@ -47,11 +47,11 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        let (arrow_array, sync_event) = export_canonical(cuda_array, ctx).await?;
+        let (arrow_array, _) = export_canonical(cuda_array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            sync_event,
+            sync_event: None,
             device_id: ctx.stream().context().ordinal() as i64,
             device_type: DeviceType::Cuda,
             _reserved: Default::default(),

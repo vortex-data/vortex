@@ -30,7 +30,6 @@ use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
 use arrow_schema::{DataType, Field};
 use futures::executor::block_on;
-use futures::future::err;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
