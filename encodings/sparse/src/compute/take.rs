@@ -3,51 +3,56 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
 use crate::SparseVTable;
 
-impl TakeKernel for SparseVTable {
-    fn take(&self, array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for SparseVTable {
+    fn take(
+        array: &SparseArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let patches_take = if array.fill_scalar().is_null() {
-            array.patches().take(take_indices)?
+            array.patches().take(indices)?
         } else {
-            array.patches().take_with_nulls(take_indices)?
+            array.patches().take_with_nulls(indices)?
         };
 
         let Some(new_patches) = patches_take else {
             let result_fill_scalar = array.fill_scalar().cast(
                 &array
                     .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
+                    .union_nullability(indices.dtype().nullability()),
             )?;
-            return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
+            return Ok(Some(
+                ConstantArray::new(result_fill_scalar, indices.len()).into_array(),
+            ));
         };
 
         // See `SparseEncoding::slice`.
         if new_patches.array_len() == new_patches.values().len() {
-            return Ok(new_patches.into_values());
+            return Ok(Some(new_patches.into_values()));
         }
 
-        Ok(SparseArray::try_new_from_patches(
-            new_patches,
-            array.fill_scalar().cast(
-                &array
-                    .dtype()
-                    .union_nullability(take_indices.dtype().nullability()),
-            )?,
-        )?
-        .into_array())
+        Ok(Some(
+            SparseArray::try_new_from_patches(
+                new_patches,
+                array.fill_scalar().cast(
+                    &array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                )?,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(SparseVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -55,7 +60,6 @@ mod test {
     use vortex_array::Array;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
-    use vortex_array::ToCanonical;
     use vortex_array::arrays::ConstantArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
@@ -66,7 +70,6 @@ mod test {
     use vortex_scalar::Scalar;
 
     use crate::SparseArray;
-    use crate::SparseVTable;
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying
@@ -118,18 +121,11 @@ mod test {
     #[test]
     fn ordered_take() {
         let sparse = sparse_array();
-        let taken_arr = take(&sparse, &buffer![69, 37].into_array()).unwrap();
-        let taken = taken_arr.as_::<SparseVTable>();
-
-        assert_arrays_eq!(
-            taken.patches().indices().to_primitive(),
-            PrimitiveArray::from_iter([1u64])
-        );
-        assert_arrays_eq!(
-            taken.patches().values().to_primitive(),
-            PrimitiveArray::from_option_iter([Some(0.47f64)])
-        );
-        assert_eq!(taken.len(), 2);
+        // Note: take returns a canonical array, not SparseArray
+        let taken = take(&sparse, &buffer![69, 37].into_array()).unwrap();
+        // Index 69 is not in sparse array (fill value is null), index 37 has value 0.47
+        let expected = PrimitiveArray::from_option_iter([Option::<f64>::None, Some(0.47f64)]);
+        assert_arrays_eq!(taken, expected.to_array());
     }
 
     #[test]

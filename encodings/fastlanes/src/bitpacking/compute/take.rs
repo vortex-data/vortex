@@ -7,13 +7,11 @@ use std::mem::MaybeUninit;
 use fastlanes::BitPacking;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -37,11 +35,15 @@ use crate::bitpack_decompress;
 /// see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-impl TakeKernel for BitPackedVTable {
-    fn take(&self, array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for BitPackedVTable {
+    fn take(
+        array: &BitPackedArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // If the indices are large enough, it's faster to flatten and take the primitive array.
         if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-            return take(array.to_primitive().as_ref(), indices);
+            return array.to_primitive().take(indices.to_array()).map(Some);
         }
 
         // NOTE: we use the unsigned PType because all values in the BitPackedArray must
@@ -56,11 +58,9 @@ impl TakeKernel for BitPackedVTable {
                 take_primitive::<T, I>(array, &indices, taken_validity)?
             })
         });
-        Ok(taken.reinterpret_cast(ptype).into_array())
+        Ok(Some(taken.reinterpret_cast(ptype).into_array()))
     }
 }
-
-register_kernel!(TakeKernelAdapter(BitPackedVTable).lift());
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(
     array: &BitPackedArray,

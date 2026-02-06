@@ -16,10 +16,8 @@ use crate::ToCanonical;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -28,15 +26,18 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
-impl TakeKernel for FixedSizeListVTable {
-    fn take(&self, array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for FixedSizeListVTable {
+    fn take(
+        array: &FixedSizeListArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
             take_with_indices::<I>(array, indices)
         })
+        .map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(FixedSizeListVTable).lift());
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.
 fn take_with_indices<I: IntegerPType>(
@@ -114,7 +115,7 @@ fn take_non_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = compute::take(array.elements(), elements_indices_array.as_ref())?;
+    let new_elements = array.elements().take(elements_indices_array.to_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // Both inputs are non-nullable, so the result is non-nullable.
@@ -181,7 +182,7 @@ fn take_nullable_fsl<I: IntegerPType>(
     debug_assert_eq!(elements_indices.len(), new_len * list_size);
 
     let elements_indices_array = PrimitiveArray::new(elements_indices, Validity::NonNullable);
-    let new_elements = compute::take(array.elements(), elements_indices_array.as_ref())?;
+    let new_elements = array.elements().take(elements_indices_array.to_array())?;
     debug_assert_eq!(new_elements.len(), new_len * list_size);
 
     // At least one input was nullable, so the result is nullable.

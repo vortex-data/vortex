@@ -13,13 +13,16 @@ use crate::ArrayRef;
 use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for DecimalVTable {
-    fn take(&self, array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for DecimalVTable {
+    fn take(
+        array: &DecimalArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
         let validity = array.validity().take(indices.as_ref())?;
 
@@ -35,11 +38,9 @@ impl TakeKernel for DecimalVTable {
             })
         });
 
-        Ok(decimal.to_array())
+        Ok(Some(decimal.to_array()))
     }
 }
-
-register_kernel!(TakeKernelAdapter(DecimalVTable).lift());
 
 #[inline]
 fn take_to_buffer<I: IntegerPType, T: NativeDecimalType>(indices: &[I], values: &[T]) -> Buffer<T> {

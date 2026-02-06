@@ -23,11 +23,10 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
+use crate::arrays::TakeExecute;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
 use crate::compute::cast;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -81,8 +80,12 @@ impl TakeImpl for TakeKernelScalar {
     }
 }
 
-impl TakeKernel for PrimitiveVTable {
-    fn take(&self, array: &PrimitiveArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for PrimitiveVTable {
+    fn take(
+        array: &PrimitiveArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let DType::Primitive(ptype, null) = indices.dtype() else {
             vortex_bail!("Invalid indices dtype: {}", indices.dtype())
         };
@@ -96,11 +99,11 @@ impl TakeKernel for PrimitiveVTable {
 
         let validity = array.validity().take(unsigned_indices.as_ref())?;
         // Delegate to the best kernel based on the target CPU
-        PRIMITIVE_TAKE_KERNEL.take(array, &unsigned_indices, validity)
+        PRIMITIVE_TAKE_KERNEL
+            .take(array, &unsigned_indices, validity)
+            .map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(PrimitiveVTable).lift());
 
 // Compiler may see this as unused based on enabled features
 #[allow(unused)]

@@ -7,5 +7,6 @@ pub use compress::*;
 mod array;
 mod compress;
 mod compute;
+mod kernel;
 mod rules;
 mod slice;

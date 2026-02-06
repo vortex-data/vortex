@@ -38,6 +38,8 @@ use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
+use crate::kernel::PARENT_KERNELS;
+
 vtable!(ByteBool);
 
 impl VTable for ByteBoolVTable {
@@ -123,6 +125,15 @@ impl VTable for ByteBoolVTable {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(BoolArray::new(boolean_buffer, validity).into_array())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

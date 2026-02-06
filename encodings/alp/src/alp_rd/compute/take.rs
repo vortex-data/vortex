@@ -3,12 +3,10 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
+use vortex_array::arrays::TakeExecute;
 use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -16,9 +14,13 @@ use vortex_scalar::ScalarValue;
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-impl TakeKernel for ALPRDVTable {
-    fn take(&self, array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_left_parts = take(array.left_parts(), indices)?;
+impl TakeExecute for ALPRDVTable {
+    fn take(
+        array: &ALPRDArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let taken_left_parts = array.left_parts().take(indices.to_array())?;
         let left_parts_exceptions = array
             .left_parts_patches()
             .map(|patches| patches.take(indices))
@@ -33,25 +35,25 @@ impl TakeKernel for ALPRDVTable {
             })
             .transpose()?;
         let right_parts = fill_null(
-            &take(array.right_parts(), indices)?,
+            &array.right_parts().take(indices.to_array())?,
             &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
         )?;
 
-        Ok(ALPRDArray::try_new(
-            array
-                .dtype()
-                .with_nullability(taken_left_parts.dtype().nullability()),
-            taken_left_parts,
-            array.left_parts_dictionary().clone(),
-            right_parts,
-            array.right_bit_width(),
-            left_parts_exceptions,
-        )?
-        .into_array())
+        Ok(Some(
+            ALPRDArray::try_new(
+                array
+                    .dtype()
+                    .with_nullability(taken_left_parts.dtype().nullability()),
+                taken_left_parts,
+                array.left_parts_dictionary().clone(),
+                right_parts,
+                array.right_bit_width(),
+                left_parts_exceptions,
+            )?
+            .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(ALPRDVTable).lift());
 
 #[cfg(test)]
 mod test {
