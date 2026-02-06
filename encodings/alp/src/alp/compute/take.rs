@@ -13,31 +13,29 @@ use vortex_error::VortexResult;
 use crate::ALPArray;
 use crate::ALPVTable;
 
-fn take_alp(array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_encoded = array.encoded().take(indices.to_array())?;
-    let taken_patches = array
-        .patches()
-        .map(|p| p.take(indices))
-        .transpose()?
-        .flatten()
-        .map(|patches| {
-            patches.cast_values(
-                &array
-                    .dtype()
-                    .with_nullability(taken_encoded.dtype().nullability()),
-            )
-        })
-        .transpose()?;
-    Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
-}
-
 impl TakeExecute for ALPVTable {
     fn take(
         array: &ALPArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_alp(array, indices).map(Some)
+        let taken_encoded = array.encoded().take(indices.to_array())?;
+        let taken_patches = array
+            .patches()
+            .map(|p| p.take(indices))
+            .transpose()?
+            .flatten()
+            .map(|patches| {
+                patches.cast_values(
+                    &array
+                        .dtype()
+                        .with_nullability(taken_encoded.dtype().nullability()),
+                )
+            })
+            .transpose()?;
+        Ok(Some(
+            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+        ))
     }
 }
 
