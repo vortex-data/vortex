@@ -14,6 +14,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use async_compat::Compat;
+use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
 use futures::Stream;
 use futures::StreamExt;
@@ -47,6 +48,7 @@ use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
+use vortex::metrics::tracing::get_global_labels;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -460,6 +462,21 @@ impl TableFunction for VortexTableFunction {
         _init: &TableInitInput<Self>,
         global: &mut Self::GlobalState,
     ) -> VortexResult<Self::LocalState> {
+        unsafe {
+            use custom_labels::sys;
+
+            if sys::labelset_current().is_null() {
+                let ls = sys::labelset_new(0);
+                sys::labelset_replace(ls);
+            };
+        }
+
+        let global_labels = get_global_labels();
+
+        for (key, value) in global_labels {
+            CURRENT_LABELSET.set(key, value);
+        }
+
         Ok(VortexLocalData {
             iterator: global.iterator.clone(),
             exporter: None,

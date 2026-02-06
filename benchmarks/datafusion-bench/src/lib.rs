@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub mod metrics;
+pub mod tracer;
 
 use std::sync::Arc;
 
