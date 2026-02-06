@@ -142,7 +142,7 @@ impl VTable for DictVTable {
         // TODO(ngates): if indices min is quite high, we could slice self and offset the indices
         //  such that canonicalize does less work.
 
-        Ok(take_canonical(values, &codes)?.into_array())
+        Ok(take_canonical(values, &codes, ctx)?.into_array())
     }
 
     fn reduce_parent(

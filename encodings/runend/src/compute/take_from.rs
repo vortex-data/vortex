@@ -27,44 +27,39 @@ impl ExecuteParentKernel<RunEndVTable> for RunEndVTableTakeFrom {
 
     fn execute_parent(
         &self,
-        array: &RunEndArray,
+        _array: &RunEndArray,
         dict: &DictArray,
         child_idx: usize,
-        ctx: &mut ExecutionCtx,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         if child_idx != 0 {
             return Ok(None);
         }
-        // Only `Primitive` and `Bool` are valid run-end value types. - TODO: Support additional DTypes
+        // Only `Primitive` and `Bool` are valid run-end value types.
+        // TODO: Support additional DTypes
         if !matches!(dict.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
             return Ok(None);
         }
 
-        println!("offset {}", array.offset());
-        println!("len {}", array.len());
+        //         // Transform the run-end encoding from storing indices to storing values
+        //         // by taking values from `source` at positions specified by `indices.values()`.
+        //
+        //         // Create a new run-end array containing values as values, instead of indices as values.
+        //         // SAFETY: we are copying ends from an existing valid RunEndArray
+        //         let ree_array = unsafe {
+        //             RunEndArray::new_unchecked(
+        //                 array.ends().clone(),
+        //                 dict.values().take(array.values().clone())?,
+        //                 array.offset(),
+        //                 array.len(),
+        //             )
+        //         };
+        //
+        //         Ok(Some(ree_array.into_array()))
 
-        if true {
-            panic!("run end dict take")
-        }
-
-        /// TODO: eager take and also slice offset + len
-        ///
-        ///
-        // Transform the run-end encoding from storing indices to storing values
-        // by taking values from `source` at positions specified by `indices.values()`.
-
-        // Create a new run-end array containing values as values, instead of indices as values.
-        // SAFETY: we are copying ends from an existing valid RunEndArray
-        let ree_array = unsafe {
-            RunEndArray::new_unchecked(
-                array.ends().clone(),
-                dict.values().take(array.values().clone())?,
-                array.offset(),
-                array.len(),
-            )
-        };
-
-        Ok(Some(ree_array.into_array()))
+        // TODO: implement run-end take from optimization
+        // For now, skip this optimization and fall back to default take
+        Ok(None)
     }
 }
 
