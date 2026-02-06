@@ -47,7 +47,7 @@ pub trait VisitorVTable<V: VTable> {
 
     /// Visit the children of the array without names.
     ///
-    /// This is more efficient than [`visit_children`] when you don't need the
+    /// This is more efficient than [`Self::visit_children`] when you don't need the
     /// child names (e.g., for counting or accessing by index). The default
     /// implementation wraps the named visitor, but array types can override
     /// this to avoid allocating names.
