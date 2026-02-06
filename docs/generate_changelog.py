@@ -32,7 +32,10 @@ def fetch_releases():
         check=True,
     )
     releases = json.loads(result.stdout)
-    releases = [r for r in releases if not r["isDraft"] and not r["isPrerelease"]][:NUM_RELEASES]
+    # Include the latest draft release (if any) plus the last N published releases.
+    latest_draft = next((r for r in releases if r["isDraft"] and not r["isPrerelease"]), None)
+    published = [r for r in releases if not r["isDraft"] and not r["isPrerelease"]][:NUM_RELEASES]
+    releases = ([latest_draft] if latest_draft else []) + published
 
     # Fetch body for each release individually.
     for r in releases:
@@ -67,12 +70,19 @@ def linkify(body):
 
 def write_release_page(release):
     tag = release["tagName"]
-    date = datetime.fromisoformat(release["publishedAt"].replace("Z", "+00:00")).strftime("%Y-%m-%d")
     body = linkify(release["body"].replace("\r\n", "\n").strip())
 
-    content = f"""# {tag}
+    if release["isDraft"]:
+        subtitle = f"Draft — [GitHub Release](https://github.com/{REPO}/releases)"
+    else:
+        date = datetime.fromisoformat(release["publishedAt"].replace("Z", "+00:00")).strftime("%Y-%m-%d")
+        subtitle = f"Released {date} — [GitHub Release](https://github.com/{REPO}/releases/tag/{tag})"
 
-Released {date} — [GitHub Release](https://github.com/{REPO}/releases/tag/{tag})
+    title = f"{tag} (Draft)" if release["isDraft"] else tag
+
+    content = f"""# {title}
+
+{subtitle}
 
 {body}
 """
