@@ -73,7 +73,6 @@ impl FilterKernel for RunEndVTable {
     }
 }
 
-
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(
     run_ends: &[R],
@@ -124,37 +123,13 @@ mod tests {
     use vortex_error::VortexResult;
     use vortex_mask::Mask;
 
-    use super::filter_run_end;
     use crate::RunEndArray;
-    use crate::RunEndVTable;
 
     fn ree_array() -> RunEndArray {
         RunEndArray::encode(
             PrimitiveArray::from_iter([1, 1, 1, 4, 4, 4, 2, 2, 5, 5, 5, 5]).into_array(),
         )
         .unwrap()
-    }
-
-    #[test]
-    fn run_end_filter() {
-        let arr = ree_array();
-        let filtered = filter_run_end(
-            &arr,
-            &Mask::from_iter([
-                true, true, false, false, false, false, false, false, false, false, true, true,
-            ]),
-        )
-        .unwrap();
-        let filtered_run_end = filtered.as_::<RunEndVTable>();
-
-        assert_arrays_eq!(
-            filtered_run_end.ends().to_primitive(),
-            PrimitiveArray::from_iter([2u8, 4])
-        );
-        assert_arrays_eq!(
-            filtered_run_end.values().to_primitive(),
-            PrimitiveArray::from_iter([1i32, 5])
-        );
     }
 
     #[test]

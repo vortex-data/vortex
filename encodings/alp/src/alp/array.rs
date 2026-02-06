@@ -452,6 +452,7 @@ mod tests {
     use std::sync::LazyLock;
 
     use rstest::rstest;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
     use vortex_array::ToCanonical;
     use vortex_array::VortexSessionExecute;
