@@ -64,7 +64,7 @@ pub(crate) async fn copy_varbinview_to_varbin(
         .map_err(|e| vortex_err!("failed copying buffer_ptrs to device: {e}"))?;
 
     // single-threaded, launch the kernel for building the assets
-    let compute_offsets = ctx.load_function("varbinview/compute_offsets", &[])?;
+    let compute_offsets = ctx.load_function("varbinview_compute_offsets", &[])?;
 
     // allocate the final offsets buffer.
     let offsets = ctx.device_alloc::<i32>(len + 1)?;
@@ -110,7 +110,7 @@ pub(crate) async fn copy_varbinview_to_varbin(
     let data_buf = ctx.device_alloc::<u8>(last_offset_host[0] as usize)?;
 
     // now setup and launch the parallel string copy kernel
-    let copy_strings = ctx.load_function("varbinview/copy_strings", &[])?;
+    let copy_strings = ctx.load_function("varbinview_copy_strings", &[])?;
 
     let buffer_ptrs_view = buffer_ptrs_device.as_view();
     let data_buf_view = data_buf.as_view();

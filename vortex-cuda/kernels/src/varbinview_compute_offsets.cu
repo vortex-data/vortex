@@ -5,10 +5,10 @@
 #include "varbinview.cuh"
 
 // single-threaded, compute offsets
-extern "C" __global__ void compute_offsets(
+extern "C" __global__ void varbinview_compute_offsets(
     const BinaryView *views,
     int64_t num_strings,
-    Offsets out_offsets
+    Offsets out_offsets,
     int32_t *last_offset
 ) {
     const int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;

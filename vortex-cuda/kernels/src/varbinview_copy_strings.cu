@@ -23,7 +23,7 @@ __device__ void copy_string_to_dst(
     memcpy(dst, src, size);
 }
 
-extern "C" __global__ void copy_strings(
+extern "C" __global__ void varbinview_copy_strings(
     int64_t len,
     BinaryView* views,
     Buffer* buffers,
