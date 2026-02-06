@@ -8,7 +8,7 @@
 // a destination buffer.
 __device__ void copy_string_to_dst(
     BinaryView& view,
-    Buffer[] buffers,
+    Buffer *buffers,
     uint8_t *dst
 ) {
     int32_t size = view.inlined.size;
@@ -24,7 +24,7 @@ __device__ void copy_string_to_dst(
 
 // single-threaded, compute offsets
 extern "C" __global__ void compute_offsets(
-    const BinaryView[] views,
+    const BinaryView *views,
     int32_t num_strings,
     Offsets out_offsets
 ) {
@@ -38,8 +38,8 @@ extern "C" __global__ void compute_offsets(
 
 extern "C" __global__ void copy_strings(
     int64_t len,
-    BinaryView[] views,
-    Buffer[] buffers,
+    BinaryView* views,
+    Buffer* buffers,
     Buffer *dst_buffer,
     Offsets *dst_offsets
 ) {
