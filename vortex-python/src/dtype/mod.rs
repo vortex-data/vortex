@@ -148,7 +148,6 @@ impl PyDType {
     }
 
     /// Return the inner [`DType`] value.
-    #[expect(dead_code)]
     pub fn into_inner(self) -> DType {
         self.0
     }

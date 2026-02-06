@@ -42,7 +42,6 @@ use crate::arrays::py::PythonArray;
 vtable!(Python);
 
 /// Wrapper struct encapsulating a Python encoding.
-#[expect(dead_code)]
 #[derive(Debug)]
 pub struct PythonVTable;
 
