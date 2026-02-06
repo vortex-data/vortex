@@ -3,6 +3,7 @@
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
+use crate::ArrayChildVisitorUnnamed;
 use crate::ArrayRef;
 use crate::buffer::BufferHandle;
 use crate::vtable::VTable;
@@ -44,18 +45,36 @@ pub trait VisitorVTable<V: VTable> {
     /// Visit the children of the array.
     fn visit_children(array: &V::Array, visitor: &mut dyn ArrayChildVisitor);
 
+    /// Visit the children of the array without names.
+    ///
+    /// This is more efficient than [`visit_children`] when you don't need the
+    /// child names (e.g., for counting or accessing by index). The default
+    /// implementation wraps the named visitor, but array types can override
+    /// this to avoid allocating names.
+    fn visit_children_unnamed(array: &V::Array, visitor: &mut dyn ArrayChildVisitorUnnamed) {
+        struct UnnamedWrapper<'a>(&'a mut dyn ArrayChildVisitorUnnamed);
+
+        impl ArrayChildVisitor for UnnamedWrapper<'_> {
+            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+                self.0.visit_child(array);
+            }
+        }
+
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut UnnamedWrapper(visitor));
+    }
+
     /// Count the number of children in the array.
     fn nchildren(array: &V::Array) -> usize {
         struct NChildren(usize);
 
-        impl ArrayChildVisitor for NChildren {
-            fn visit_child(&mut self, _name: &str, _array: &ArrayRef) {
+        impl ArrayChildVisitorUnnamed for NChildren {
+            fn visit_child(&mut self, _array: &ArrayRef) {
                 self.0 += 1;
             }
         }
 
         let mut visitor = NChildren(0);
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children_unnamed(array, &mut visitor);
         visitor.0
     }
 
@@ -69,8 +88,8 @@ pub trait VisitorVTable<V: VTable> {
             result: Option<ArrayRef>,
         }
 
-        impl ArrayChildVisitor for NthChildVisitor {
-            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+        impl ArrayChildVisitorUnnamed for NthChildVisitor {
+            fn visit_child(&mut self, array: &ArrayRef) {
                 if self.current_idx == self.target_idx && self.result.is_none() {
                     self.result = Some(array.clone());
                 }
@@ -83,7 +102,7 @@ pub trait VisitorVTable<V: VTable> {
             current_idx: 0,
             result: None,
         };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children_unnamed(array, &mut visitor);
         visitor.result
     }
 }

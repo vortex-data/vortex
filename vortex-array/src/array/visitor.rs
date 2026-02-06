@@ -156,6 +156,40 @@ pub trait ArrayBufferVisitor {
     fn visit_buffer_handle(&mut self, _name: &str, handle: &BufferHandle);
 }
 
+/// A visitor for array children that does not require names.
+///
+/// This is more efficient than [`ArrayChildVisitor`] when you only need to
+/// iterate over children without accessing their names (e.g., for counting
+/// or accessing by index).
+pub trait ArrayChildVisitorUnnamed {
+    /// Visit a child of this array.
+    fn visit_child(&mut self, array: &ArrayRef);
+
+    /// Utility for visiting Array validity.
+    fn visit_validity(&mut self, validity: &Validity, len: usize) {
+        if let Some(vlen) = validity.maybe_len() {
+            assert_eq!(vlen, len, "Validity length mismatch");
+        }
+
+        match validity {
+            Validity::NonNullable | Validity::AllValid => {}
+            Validity::AllInvalid => self.visit_child(&ConstantArray::new(false, len).into_array()),
+            Validity::Array(array) => {
+                self.visit_child(array);
+            }
+        }
+    }
+
+    /// Utility for visiting Array patches.
+    fn visit_patches(&mut self, patches: &Patches) {
+        self.visit_child(patches.indices());
+        self.visit_child(patches.values());
+        if let Some(chunk_offsets) = patches.chunk_offsets() {
+            self.visit_child(chunk_offsets);
+        }
+    }
+}
+
 pub trait ArrayChildVisitor {
     /// Visit a child of this array.
     fn visit_child(&mut self, _name: &str, _array: &ArrayRef);

@@ -5,6 +5,7 @@ use itertools::Itertools;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
+use crate::ArrayChildVisitorUnnamed;
 use crate::arrays::struct_::StructArray;
 use crate::arrays::struct_::StructVTable;
 use crate::vtable::ValidityHelper;
@@ -17,6 +18,13 @@ impl VisitorVTable<StructVTable> for StructVTable {
         visitor.visit_validity(array.validity(), array.len());
         for (name, field) in array.names().iter().zip_eq(array.unmasked_fields().iter()) {
             visitor.visit_child(name.as_ref(), field);
+        }
+    }
+
+    fn visit_children_unnamed(array: &StructArray, visitor: &mut dyn ArrayChildVisitorUnnamed) {
+        visitor.visit_validity(array.validity(), array.len());
+        for field in array.unmasked_fields().iter() {
+            visitor.visit_child(field);
         }
     }
 }
