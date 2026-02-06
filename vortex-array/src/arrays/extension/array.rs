@@ -78,7 +78,6 @@ impl ExtensionArray {
         &self.storage
     }
 
-    #[allow(dead_code)]
     #[inline]
     pub fn id(&self) -> ExtID {
         self.ext_dtype().id()
