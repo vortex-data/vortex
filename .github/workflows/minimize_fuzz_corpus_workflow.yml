@@ -1,0 +1,108 @@
+name: Minimize Fuzz Corpus
+
+on:
+  workflow_call:
+    inputs:
+      fuzz_target:
+        description: "The cargo fuzz target name (e.g., file_io, array_ops, compress_roundtrip)"
+        required: true
+        type: string
+      family:
+        description: "Runner family"
+        required: false
+        type: string
+        default: "m8g.2xlarge"
+      image:
+        description: "Runner image"
+        required: false
+        type: string
+        default: "ubuntu24-full-arm64"
+      extra_features:
+        description: "Extra cargo features to enable (e.g., cuda)"
+        required: false
+        type: string
+        default: ""
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID:
+        required: true
+      R2_FUZZ_SECRET_ACCESS_KEY:
+        required: true
+
+jobs:
+  minimize:
+    name: "Minimize ${{ inputs.fuzz_target }}"
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=${{ inputs.family }}
+      - image=${{ inputs.image }}
+      - disk=large
+      - extras=s3-cache
+      - tag=${{ inputs.fuzz_target }}-minimize
+    steps:
+      - name: Bail if not on develop
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "::error::Corpus minimization should only run on the develop branch (current: ${{ github.ref }})"
+          exit 1
+
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Restore corpus
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: |
+          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+
+          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+            echo "Downloaded corpus successfully"
+            tar -xf "$CORPUS_KEY"
+          else
+            echo "No existing corpus found, nothing to minimize"
+            mkdir -p "$CORPUS_DIR"
+            exit 0
+          fi
+
+      - name: Minimize corpus
+        run: |
+          FEATURES_FLAG=""
+          if [ -n "${{ inputs.extra_features }}" ]; then
+            FEATURES_FLAG="--features ${{ inputs.extra_features }}"
+          fi
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          MINIMIZED_DIR="${CORPUS_DIR}_minimized"
+          mkdir -p "$MINIMIZED_DIR"
+          RUSTFLAGS="--cfg vortex_nightly" \
+            cargo +nightly fuzz cmin $FEATURES_FLAG \
+            ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- "$MINIMIZED_DIR"
+          rm -rf "$CORPUS_DIR"
+          mv "$MINIMIZED_DIR" "$CORPUS_DIR"
+
+      - name: Persist corpus
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: |
+          CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
+          tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
+          aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32

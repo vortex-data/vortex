@@ -1,105 +1,62 @@
-name: Minimize Fuzz Corpus
+name: Minimize All Fuzz Corpora
 
 concurrency:
-  # The group causes runs to queue instead of running in parallel.
-  group: minimize-corpus
-  # This prevents one run from overwriting another's minimization work (no compare-and-swap used).
+  group: fuzz
   cancel-in-progress: false
 
 on:
+  schedule:
+    - cron: "0 0 * * 0"  # every Sunday at midnight UTC
   workflow_dispatch: { }
 
 jobs:
+  # ============================================================================
+  # IO Fuzzer
+  # ============================================================================
   io_fuzz_minimize:
     name: "Minimize IO Fuzz Corpus"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.2xlarge
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=io-fuzz-minimize
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
-      - name: Restore corpus
-        shell: bash
-        run: |
-          aws s3 cp s3://vortex-fuzz-corpus/io_corpus.tar.zst .
-          tar -xf io_corpus.tar.zst
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Minimize corpus
-        run: |
-          mkdir -p fuzz/corpus/file_io_2
-          cargo +nightly fuzz cmin file_io fuzz/corpus/file_io -- fuzz/corpus/file_io_2
-          rm -rf fuzz/corpus/file_io
-          mv fuzz/corpus/file_io_2 fuzz/corpus/file_io
-      - name: Persist corpus
-        shell: bash
-        run: |
-          tar -acf io_corpus.tar.zst fuzz/corpus/file_io
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "io_corpus.tar.zst" --body io_corpus.tar.zst --checksum-algorithm CRC32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: file_io
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
 
+  # ============================================================================
+  # Array Operations Fuzzer
+  # ============================================================================
   ops_fuzz_minimize:
     name: "Minimize Array Ops Fuzz Corpus"
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - family=m8g.2xlarge
-      - image=ubuntu24-full-arm64
-      - disk=large
-      - extras=s3-cache
-      - tag=ops-fuzz-minimize
-    steps:
-      - uses: runs-on/action@v2
-        with:
-          sccache: s3
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-rust
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
-      - name: Install cargo fuzz
-        run: cargo install --locked cargo-fuzz
-      - name: Restore corpus
-        shell: bash
-        run: |
-          aws s3 cp s3://vortex-fuzz-corpus/array_ops_corpus.tar.zst .
-          tar -xf array_ops_corpus.tar.zst
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
-      - name: Minimize corpus
-        run: |
-          mkdir -p fuzz/corpus/array_ops_2
-          cargo +nightly fuzz cmin array_ops fuzz/corpus/array_ops -- fuzz/corpus/array_ops_2
-          rm -rf fuzz/corpus/array_ops
-          mv fuzz/corpus/array_ops_2 fuzz/corpus/array_ops
-      - name: Persist corpus
-        shell: bash
-        run: |
-          tar -acf array_ops_corpus.tar.zst fuzz/corpus/array_ops
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "array_ops_corpus.tar.zst" --body array_ops_corpus.tar.zst --checksum-algorithm CRC32
-        env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-east-1"
-          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: array_ops
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # Compress Roundtrip Fuzzer
+  # ============================================================================
+  compress_fuzz_minimize:
+    name: "Minimize Compress Roundtrip Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: compress_roundtrip
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+
+  # ============================================================================
+  # GPU Compress Fuzzer (CUDA)
+  # ============================================================================
+  gpu_compress_fuzz_minimize:
+    name: "Minimize GPU Compress Fuzz Corpus"
+    uses: ./.github/workflows/minimize_fuzz_corpus_workflow.yml
+    with:
+      fuzz_target: compress_gpu
+      family: "g4dn"
+      image: "ubuntu24-gpu-x64"
+      extra_features: "cuda"
+    secrets:
+      R2_FUZZ_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+      R2_FUZZ_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
