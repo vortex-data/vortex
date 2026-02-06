@@ -82,7 +82,10 @@ where
         parent: &DictArray,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        assert_eq!(child_idx, 1);
+        // Only handle the values child (index 1), not the codes child (index 0).
+        if child_idx != 1 {
+            return Ok(None);
+        }
         if let Some(result) = precondition::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
@@ -110,7 +113,10 @@ where
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        assert_eq!(child_idx, 1);
+        // Only handle the values child (index 1), not the codes child (index 0).
+        if child_idx != 1 {
+            return Ok(None);
+        }
         if let Some(result) = precondition::<V>(array, parent.codes()) {
             return Ok(Some(result));
         }
