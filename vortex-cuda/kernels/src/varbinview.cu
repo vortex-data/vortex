@@ -52,8 +52,8 @@ extern "C" __global__ void copy_strings(
     }
 
     auto view = views[tid];
-    auto offset = dst_offsets[tid];
-    uint8_t *dst = dst_buffer + offset;
+    int32_t offset = dst_offsets[tid];
+    uint8_t *dst = &dst_buffer[offset];
 
     copy_string_to_dst(view, buffers, dst);
 }
