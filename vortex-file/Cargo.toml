@@ -79,7 +79,7 @@ tokio = [
     "vortex-io/tokio",
     "vortex-layout/tokio",
 ]
-zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
+zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03", "uuid"]

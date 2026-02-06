@@ -62,6 +62,8 @@ pub const ALL_INT_SCHEMES: &[&dyn IntegerScheme] = &[
     &RunEndScheme,
     &SequenceScheme,
     &RLE_INTEGER_SCHEME,
+    #[cfg(feature = "pco")]
+    &PcoScheme,
 ];
 
 /// [`Compressor`] for signed and unsigned integers.
@@ -156,6 +158,8 @@ pub enum IntCode {
     Sequence,
     /// RLE encoding - generic run-length encoding.
     Rle,
+    /// Pco (pcodec) compression for integers.
+    Pco,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -187,6 +191,11 @@ pub struct RunEndScheme;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct SequenceScheme;
+
+/// Pco (pcodec) compression for integers.
+#[cfg(feature = "pco")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct PcoScheme;
 
 /// Threshold for the average run length in an array before we consider run-end encoding.
 const RUN_END_THRESHOLD: u32 = 4;
@@ -815,6 +824,49 @@ impl Scheme for SequenceScheme {
             vortex_bail!("sequence encoding does not support nulls");
         }
         sequence_encode(&stats.src)?.ok_or_else(|| vortex_err!("cannot sequence encode array"))
+    }
+}
+
+#[cfg(feature = "pco")]
+impl Scheme for PcoScheme {
+    type StatsType = IntegerStats;
+    type CodeType = IntCode;
+
+    fn code(&self) -> IntCode {
+        IntCode::Pco
+    }
+
+    fn expected_compression_ratio(
+        &self,
+        compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        ctx: CompressorContext,
+        excludes: &[IntCode],
+    ) -> VortexResult<f64> {
+        // Pco does not support I8 or U8.
+        if matches!(
+            stats.src.ptype(),
+            vortex_dtype::PType::I8 | vortex_dtype::PType::U8
+        ) {
+            return Ok(0.0);
+        }
+
+        self.estimate_compression_ratio_with_sampling(compressor, stats, ctx, excludes)
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[IntCode],
+    ) -> VortexResult<ArrayRef> {
+        Ok(vortex_pco::PcoArray::from_primitive(
+            stats.source(),
+            pco::DEFAULT_COMPRESSION_LEVEL,
+            8192,
+        )?
+        .into_array())
     }
 }
 

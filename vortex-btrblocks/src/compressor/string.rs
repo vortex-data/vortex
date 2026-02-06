@@ -124,6 +124,8 @@ pub const ALL_STRING_SCHEMES: &[&dyn StringScheme] = &[
     &FSSTScheme,
     &ConstantScheme,
     &NullDominated,
+    #[cfg(feature = "zstd")]
+    &ZstdScheme,
 ];
 
 /// [`Compressor`] for strings.
@@ -209,6 +211,11 @@ pub struct ConstantScheme;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct NullDominated;
 
+/// Zstd compression without dictionaries (nvCOMP compatible).
+#[cfg(feature = "zstd")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ZstdScheme;
+
 /// Unique identifier for string compression schemes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum StringCode {
@@ -222,6 +229,8 @@ pub enum StringCode {
     Constant,
     /// Sparse encoding for null-dominated arrays.
     Sparse,
+    /// Zstd compression without dictionaries.
+    Zstd,
 }
 
 impl Scheme for UncompressedScheme {
@@ -498,6 +507,32 @@ impl Scheme for NullDominated {
             .map(|a| a.into_array())
         } else {
             Ok(sparse_encoded)
+        }
+    }
+}
+
+#[cfg(feature = "zstd")]
+impl Scheme for ZstdScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> StringCode {
+        StringCode::Zstd
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[StringCode],
+    ) -> VortexResult<ArrayRef> {
+        let zstd = vortex_zstd::ZstdArray::from_var_bin_view_without_dict(stats.source(), 3, 8192)?
+            .into_array();
+        if zstd.nbytes() < stats.source().nbytes() {
+            Ok(zstd)
+        } else {
+            Ok(stats.source().to_array())
         }
     }
 }

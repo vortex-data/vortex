@@ -36,7 +36,10 @@ vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
+pco = { workspace = true, optional = true }
+vortex-pco = { workspace = true, optional = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -47,6 +50,8 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = []
+pco = ["dep:pco", "dep:vortex-pco"]
+zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true

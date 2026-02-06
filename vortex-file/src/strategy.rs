@@ -6,14 +6,8 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
-#[cfg(feature = "zstd")]
-#[path = "strategy_gpu_zstd.rs"]
-mod strategy_gpu_zstd;
-
 // Compressed encodings from encoding crates
 // Canonical array encodings from vortex-array
-#[cfg(feature = "zstd")]
-use strategy_gpu_zstd::GpuCompatibleCompressor;
 use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
 use vortex_array::arrays::BoolVTable;
@@ -120,47 +114,6 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
     registry
 });
 
-/// Static registry of array encodings compatible with CUDA kernel execution.
-///
-/// This includes all canonical encodings needed to represent nested array trees, plus
-/// compressed encodings that have CUDA kernel implementations in `vortex-cuda`.
-#[cfg(feature = "zstd")]
-pub static GPU_ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
-    let registry = ArrayRegistry::default();
-
-    // Canonical encodings from vortex-array
-    registry.register(NullVTable::ID, NullVTable);
-    registry.register(BoolVTable::ID, BoolVTable);
-    registry.register(PrimitiveVTable::ID, PrimitiveVTable);
-    registry.register(DecimalVTable::ID, DecimalVTable);
-    registry.register(VarBinVTable::ID, VarBinVTable);
-    registry.register(VarBinViewVTable::ID, VarBinViewVTable);
-    registry.register(ListVTable::ID, ListVTable);
-    registry.register(ListViewVTable::ID, ListViewVTable);
-    registry.register(FixedSizeListVTable::ID, FixedSizeListVTable);
-    registry.register(StructVTable::ID, StructVTable);
-    registry.register(ExtensionVTable::ID, ExtensionVTable);
-    registry.register(ChunkedVTable::ID, ChunkedVTable);
-    registry.register(ConstantVTable::ID, ConstantVTable);
-    registry.register(MaskedVTable::ID, MaskedVTable);
-    registry.register(DictVTable::ID, DictVTable);
-
-    // Compressed encodings with CUDA kernel support
-    registry.register(ALPVTable::ID, ALPVTable);
-    registry.register(BitPackedVTable::ID, BitPackedVTable);
-    registry.register(DateTimePartsVTable::ID, DateTimePartsVTable);
-    registry.register(DecimalBytePartsVTable::ID, DecimalBytePartsVTable);
-    registry.register(FoRVTable::ID, FoRVTable);
-    registry.register(RunEndVTable::ID, RunEndVTable);
-    registry.register(SequenceVTable::ID, SequenceVTable);
-    registry.register(ZigZagVTable::ID, ZigZagVTable);
-
-    #[cfg(feature = "zstd")]
-    registry.register(ZstdVTable::ID, ZstdVTable);
-
-    registry
-});
-
 /// Build a new [writer strategy][LayoutStrategy] to compress and reorganize chunks of a Vortex file.
 ///
 /// Vortex provides an out-of-the-box file writer that optimizes the layout of chunks on-disk,
@@ -221,26 +174,35 @@ impl WriteStrategyBuilder {
 
     /// Configure a write strategy that emits only CUDA-compatible encodings.
     ///
-    /// This keeps the default write layout pipeline, but:
-    /// - Restricts flat-layout normalization to [`GPU_ALLOWED_ENCODINGS`]
-    /// - Configures BtrBlocks to exclude schemes without CUDA kernel support
+    /// This configures BtrBlocks to use Zstd for strings and exclude schemes
+    /// without CUDA kernel support.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
         let btrblocks = BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
             .exclude_int([IntCode::Sparse, IntCode::Rle])
             .exclude_float([FloatCode::AlpRd, FloatCode::Rle, FloatCode::Sparse])
-            // Keep string schemes disabled in btrblocks; when `zstd` feature is enabled, we
-            // separately encode string/binary leaves as Zstd (without dictionaries).
-            .exclude_string([
-                StringCode::Dict,
-                StringCode::Fsst,
-                StringCode::Constant,
-                StringCode::Sparse,
-            ])
+            .exclude_string([StringCode::Dict, StringCode::Fsst])
             .build();
 
-        self.compressor = Some(Arc::new(GpuCompatibleCompressor::new(btrblocks)));
-        self.allow_encodings = Some((*GPU_ALLOWED_ENCODINGS).clone());
+        self.compressor = Some(Arc::new(btrblocks));
+        self
+    }
+
+    /// Configure a write strategy that uses compact encodings (Pco for numerics, Zstd for
+    /// strings/binary).
+    ///
+    /// This provides better compression ratios than the default BtrBlocks strategy,
+    /// especially for floating-point heavy datasets.
+    #[cfg(feature = "zstd")]
+    pub fn with_compact_encodings(mut self) -> Self {
+        let btrblocks = BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
+            .include_int([IntCode::Pco])
+            .include_float([FloatCode::Pco])
+            .build();
+
+        self.compressor = Some(Arc::new(btrblocks));
         self
     }
 
