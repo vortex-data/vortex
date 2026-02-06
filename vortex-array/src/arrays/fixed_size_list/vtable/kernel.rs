@@ -5,7 +5,9 @@ use crate::arrays::FixedSizeListVTable;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FixedSizeListVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(
-        FixedSizeListVTable,
-    ))]);
+impl FixedSizeListVTable {
+    pub(crate) const PARENT_KERNELS: ParentKernelSet<FixedSizeListVTable> =
+        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(
+            FixedSizeListVTable,
+        ))]);
+}

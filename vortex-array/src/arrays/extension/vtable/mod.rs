@@ -8,6 +8,7 @@ mod operations;
 mod validity;
 mod visitor;
 
+use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -102,7 +103,7 @@ impl VTable for ExtensionVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

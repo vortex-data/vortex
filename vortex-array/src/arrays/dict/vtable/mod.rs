@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -160,7 +161,7 @@ impl VTable for DictVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

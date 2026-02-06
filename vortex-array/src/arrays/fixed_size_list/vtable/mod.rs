@@ -63,7 +63,7 @@ impl VTable for FixedSizeListVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        Self::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn metadata(_array: &FixedSizeListArray) -> VortexResult<Self::Metadata> {

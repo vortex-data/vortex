@@ -32,6 +32,7 @@ mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
+use kernel::PARENT_KERNELS;
 
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 
@@ -141,7 +142,7 @@ impl VTable for VarBinVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {

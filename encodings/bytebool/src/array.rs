@@ -37,6 +37,8 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
 
+use crate::kernel::PARENT_KERNELS;
+
 vtable!(ByteBool);
 
 impl VTable for ByteBoolVTable {
@@ -125,7 +127,7 @@ impl VTable for ByteBoolVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        crate::kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 
