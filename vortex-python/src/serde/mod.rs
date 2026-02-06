@@ -10,7 +10,6 @@ use pyo3::Python;
 use pyo3::buffer::PyBuffer;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use vortex::array::session::ArraySessionExt;
 use vortex::dtype::DType;
 use vortex::ipc::messages::DecoderMessage;
 use vortex::ipc::messages::MessageDecoder;
@@ -72,7 +71,7 @@ fn decode_ipc_array(array_bytes: Vec<u8>, dtype_bytes: Vec<u8>) -> PyVortexResul
     let mut array_buf = Bytes::from(array_bytes);
     let array = match decoder.read_next(&mut array_buf)? {
         PollRead::Some(DecoderMessage::Array((parts, ctx, row_count))) => {
-            parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
+            parts.decode(&dtype, row_count, &ctx, &SESSION)?
         }
         PollRead::Some(_) => {
             return Err(PyValueError::new_err("Expected Array message").into());
@@ -151,7 +150,7 @@ fn decode_ipc_array_buffers<'py>(
     // Decode array
     let array = match decoder.read_next(&mut array_buf)? {
         PollRead::Some(DecoderMessage::Array((parts, ctx, row_count))) => {
-            parts.decode(&dtype, row_count, &ctx, SESSION.arrays().registry())?
+            parts.decode(&dtype, row_count, &ctx, &SESSION)?
         }
         PollRead::Some(_) => {
             return Err(PyValueError::new_err("Expected Array message").into());

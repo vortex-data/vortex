@@ -12,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayAdapter;
@@ -33,6 +34,7 @@ pub type ArrayId = ArcRef<str>;
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`Array`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         id: ArrayId,
@@ -41,6 +43,7 @@ pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef>;
     fn with_children(&self, array: &dyn Array, children: Vec<ArrayRef>) -> VortexResult<ArrayRef>;
 
@@ -81,8 +84,9 @@ impl<V: VTable> DynVTable for ArrayVTableAdapter<V> {
         metadata: &[u8],
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
-        let metadata = V::deserialize(metadata)?;
+        let metadata = V::deserialize(metadata, dtype, len, session)?;
         let array = V::build(dtype, len, &metadata, buffers, children)?;
         assert_eq!(array.len(), len, "Array length mismatch after building");
         assert_eq!(array.dtype(), dtype, "Array dtype mismatch after building");

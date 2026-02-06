@@ -14,7 +14,6 @@ use vortex_array::session::ArraySession;
 use vortex_dtype::session::DTypeSession;
 use vortex_io::session::RuntimeSession;
 use vortex_layout::session::LayoutSession;
-use vortex_metrics::VortexMetrics;
 use vortex_session::VortexSession;
 
 // We re-export like so in order to allow users to search inside subcrates when using the Rust docs.
@@ -155,7 +154,6 @@ impl VortexSessionDefault for VortexSession {
     #[allow(unused_mut)]
     fn default() -> VortexSession {
         let mut session = VortexSession::empty()
-            .with::<VortexMetrics>()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()

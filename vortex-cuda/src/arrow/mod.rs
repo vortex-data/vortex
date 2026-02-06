@@ -9,6 +9,7 @@
 //! More documentation at <https://arrow.apache.org/docs/format/CDeviceDataInterface.html>
 
 mod canonical;
+mod varbinview;
 
 use std::ffi::c_void;
 use std::fmt::Debug;
@@ -24,7 +25,9 @@ use cudarc::runtime::sys::cudaEvent_t;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 
 use crate::CudaBufferExt;
@@ -212,4 +215,24 @@ pub trait ExportDeviceArray: Debug + Send + Sync + 'static {
         array: ArrayRef,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<ArrowDeviceArray>;
+}
+
+/// Check that the validity buffer is empty and does not need to be copied over the device boundary.
+pub(crate) fn check_validity_empty(validity: &Validity) -> VortexResult<()> {
+    if let Validity::AllInvalid | Validity::Array(_) = validity {
+        vortex_bail!("Exporting array with non-trivial validity not supported yet")
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn ensure_device_resident(
+    buffer_handle: BufferHandle,
+    ctx: &mut CudaExecutionCtx,
+) -> VortexResult<BufferHandle> {
+    if buffer_handle.is_on_device() {
+        Ok(buffer_handle)
+    } else {
+        ctx.move_to_device(buffer_handle)?.await
+    }
 }

@@ -22,7 +22,11 @@ use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SegmentSource;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::Counter;
+use vortex_metrics::Histogram;
+use vortex_metrics::Label;
+use vortex_metrics::MetricBuilder;
+use vortex_metrics::MetricsRegistry;
 
 use crate::SegmentSpec;
 use crate::read::IoRequestStream;
@@ -70,7 +74,7 @@ impl FileSegmentSource {
         segments: Arc<[SegmentSpec]>,
         reader: R,
         handle: Handle,
-        metrics: VortexMetrics,
+        metrics: RequestMetrics,
     ) -> Self {
         let (send, recv) = mpsc::unbounded();
 
@@ -88,15 +92,15 @@ impl FileSegmentSource {
         });
         let concurrency = reader.concurrency();
 
-        let drive_fut = async move {
-            let stream = IoRequestStream::new(
-                StreamExt::boxed(recv),
-                coalesce_config,
-                max_alignment,
-                metrics,
-            )
-            .boxed();
+        let stream = IoRequestStream::new(
+            StreamExt::boxed(recv),
+            coalesce_config,
+            max_alignment,
+            metrics,
+        )
+        .boxed();
 
+        let drive_fut = async move {
             stream
                 .map(move |req| {
                     let reader = reader.clone();
@@ -201,5 +205,27 @@ impl Drop for ReadFuture {
         // When the FileHandle is dropped, we can send a shutdown event to the I/O stream.
         // If the I/O stream has already been dropped, this will fail silently.
         drop(self.events.unbounded_send(ReadEvent::Dropped(self.id)));
+    }
+}
+
+pub struct RequestMetrics {
+    pub individual_requests: Counter,
+    pub coalesced_requests: Counter,
+    pub num_requests_coalesced: Histogram,
+}
+
+impl RequestMetrics {
+    pub fn new(metrics_registry: &dyn MetricsRegistry, labels: Vec<Label>) -> Self {
+        Self {
+            individual_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.requests.individual"),
+            coalesced_requests: MetricBuilder::new(metrics_registry)
+                .add_labels(labels.clone())
+                .counter("io.requests.coalesced"),
+            num_requests_coalesced: MetricBuilder::new(metrics_registry)
+                .add_labels(labels)
+                .histogram("io.requests.coalesced.num_coalesced"),
+        }
     }
 }

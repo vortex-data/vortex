@@ -19,6 +19,7 @@ pub use validity::*;
 pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -65,8 +66,17 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     /// Return `None` if the array cannot be serialized.
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>>;
 
-    /// Deserialize metadata from a byte buffer.
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata>;
+    /// Deserialize array metadata from a byte buffer.
+    ///
+    /// To reduce the serialized form, arrays do not store their own DType and length. Instead,
+    /// this is passed down from the parent array during deserialization. These properties are
+    /// exposed here for use during deserialization.
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata>;
 
     /// Writes the array into a canonical builder.
     ///

@@ -66,9 +66,7 @@ pub fn open(
     let vxf = py.detach(|| {
         TOKIO_RUNTIME.block_on(async move {
             let mut options = SESSION.open_options();
-            if without_segment_cache {
-                options = options.without_segment_cache();
-            } else {
+            if !without_segment_cache {
                 // TODO(ngates): use a globally shared segment cache for all files
                 options = options.with_segment_cache(Arc::new(MokaSegmentCache::new(256 << 20)));
             }

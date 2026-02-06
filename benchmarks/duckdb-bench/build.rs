@@ -22,5 +22,22 @@
 fn main() {
     // Propagate DuckDB rpath from vortex-duckdb
     let duckdb_lib = std::env::var("DEP_DUCKDB_LIB_DIR").unwrap();
-    println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+
+    #[cfg(target_os = "macos")]
+    {
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib}");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Inline the dynamically exported symbol list for non-macos targets.
+        const DLIST: &str = "{\
+            custom_labels_abi_version;\
+            custom_labels_current_set;\
+            };";
+
+        let dlist_path = format!("{}/dlist", std::env::var("OUT_DIR").unwrap());
+        std::fs::write(&dlist_path, DLIST).unwrap();
+        println!("cargo:rustc-link-arg=-Wl,-rpath,{duckdb_lib},--dynamic-list={dlist_path}")
+    }
 }

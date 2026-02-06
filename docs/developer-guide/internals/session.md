@@ -32,7 +32,6 @@ Each Vortex crate defines a session variable that holds a registry for its exten
 | `ExprSession`     | `vortex-array`   | Scalar expression vtables                    |
 | `LayoutSession`   | `vortex-layout`  | Layout encoding vtables (Flat, Chunked, ...) |
 | `RuntimeSession`  | `vortex-io`      | Async runtime handle                         |
-| `VortexMetrics`   | `vortex-metrics` | Counters, histograms, and timers             |
 | `CudaSession`     | `vortex-cuda`    | CUDA context, kernels, and stream pool       |
 
 Session variables are created lazily on first access with their `Default` implementation, which

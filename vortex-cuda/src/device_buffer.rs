@@ -118,9 +118,12 @@ impl CudaDeviceBuffer {
     }
 }
 
+// TODO(aduffy): we should add cuda_view_mut and enforce the borrow rules. This is a bit tricky
+//  because many executions are async, we should lean into that with ownership and having any
+//  async context actions take ownership of the buffer and return ownership when they're done.
 /// Extension trait for getting a [`CudaView`] from a [`BufferHandle`].
 pub trait CudaBufferExt {
-    /// Returns a [`CudaView`] for the buffer handle.
+    /// Returns a readonly [`CudaView`] for the buffer handle.
     ///
     /// # Errors
     ///

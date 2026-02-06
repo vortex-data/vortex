@@ -16,6 +16,7 @@ use vortex_array::assert_nth_scalar;
 use vortex_array::serde::ArrayParts;
 use vortex_array::serde::SerializeOptions;
 use vortex_array::session::ArraySession;
+use vortex_array::session::ArraySessionExt;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -27,8 +28,11 @@ use vortex_error::VortexResult;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
-static LEGACY_SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<ArraySession>());
+static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    let session = VortexSession::empty().with::<ArraySession>();
+    session.arrays().register(PcoVTable::ID, PcoVTable);
+    session
+});
 
 use crate::PcoArray;
 use crate::PcoVTable;
@@ -143,9 +147,6 @@ fn test_serde() -> VortexResult<()> {
     let data: PrimitiveArray = (0i32..1_000_000).collect();
     let pco = PcoArray::from_primitive(&data, 3, 100)?.to_array();
 
-    let session = ArraySession::default();
-    session.registry().register(PcoVTable::ID, PcoVTable);
-
     let context = ArrayContext::empty();
 
     let bytes = pco
@@ -166,9 +167,9 @@ fn test_serde() -> VortexResult<()> {
         &DType::Primitive(PType::I32, Nullability::NonNullable),
         1_000_000,
         &context,
-        session.registry(),
+        &SESSION,
     )?;
-    let mut ctx = LEGACY_SESSION.create_execution_ctx();
+    let mut ctx = SESSION.create_execution_ctx();
     let data_type = data.dtype().to_arrow_dtype()?;
     let pco_arrow = pco.execute_arrow(Some(&data_type), &mut ctx)?;
     let decoded_arrow = decoded.execute_arrow(Some(&data_type), &mut ctx)?;

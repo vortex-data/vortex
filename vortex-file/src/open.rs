@@ -14,14 +14,16 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_io::VortexReadAt;
 use vortex_io::session::RuntimeSessionExt;
+use vortex_layout::segments::InstrumentedSegmentCache;
 use vortex_layout::segments::NoOpSegmentCache;
 use vortex_layout::segments::SegmentCache;
-use vortex_layout::segments::SegmentCacheMetrics;
 use vortex_layout::segments::SegmentCacheSourceAdapter;
 use vortex_layout::segments::SegmentId;
 use vortex_layout::segments::SharedSegmentSource;
 use vortex_layout::session::LayoutSessionExt;
-use vortex_metrics::VortexMetrics;
+use vortex_metrics::DefaultMetricsRegistry;
+use vortex_metrics::Label;
+use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::hash_map::HashMap;
 
@@ -32,6 +34,7 @@ use crate::VortexFile;
 use crate::footer::Footer;
 use crate::segments::FileSegmentSource;
 use crate::segments::InitialReadSegmentCache;
+use crate::segments::RequestMetrics;
 
 const INITIAL_READ_SIZE: usize = MAX_POSTSCRIPT_SIZE as usize + EOF_SIZE;
 
@@ -40,7 +43,7 @@ pub struct VortexOpenOptions {
     /// The session to use for opening the file.
     session: VortexSession,
     /// Cache to use for file segments.
-    segment_cache: Arc<dyn SegmentCache>,
+    segment_cache: Option<Arc<dyn SegmentCache>>,
     /// The number of bytes to read when parsing the footer.
     initial_read_size: usize,
     /// An optional, externally provided, file size.
@@ -52,7 +55,9 @@ pub struct VortexOpenOptions {
     /// The segments read during the initial read.
     initial_read_segments: RwLock<HashMap<SegmentId, ByteBuffer>>,
     /// A metrics registry for the file.
-    metrics: Option<VortexMetrics>,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
+    /// Default labels applied to all the file's metrics
+    labels: Vec<Label>,
 }
 
 pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSessionExt {
@@ -60,13 +65,14 @@ pub trait OpenOptionsSessionExt: ArraySessionExt + LayoutSessionExt + RuntimeSes
     fn open_options(&self) -> VortexOpenOptions {
         VortexOpenOptions {
             session: self.session(),
-            segment_cache: Arc::new(NoOpSegmentCache),
+            segment_cache: None,
             initial_read_size: INITIAL_READ_SIZE,
             file_size: None,
             dtype: None,
             footer: None,
             initial_read_segments: Default::default(),
-            metrics: None,
+            metrics_registry: None,
+            labels: Vec::default(),
         }
     }
 }
@@ -81,13 +87,8 @@ impl VortexOpenOptions {
 
     /// Configure a custom [`SegmentCache`].
     pub fn with_segment_cache(mut self, segment_cache: Arc<dyn SegmentCache>) -> Self {
-        self.segment_cache = segment_cache;
+        self.segment_cache = Some(segment_cache);
         self
-    }
-
-    /// Disable segment caching entirely.
-    pub fn without_segment_cache(self) -> Self {
-        self.with_segment_cache(Arc::new(NoOpSegmentCache))
     }
 
     /// Configure a known file size.
@@ -119,9 +120,15 @@ impl VortexOpenOptions {
         self
     }
 
-    /// Configure a custom [`VortexMetrics`].
-    pub fn with_metrics(mut self, metrics: VortexMetrics) -> Self {
-        self.metrics = Some(metrics);
+    /// Configure a custom [`MetricsRegistry`] implementation.
+    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics);
+        self
+    }
+
+    /// Adds labels to all the file's metrics.
+    pub fn with_labels(mut self, labels: Vec<Label>) -> Self {
+        self.labels.extend(labels);
         self
     }
 
@@ -147,36 +154,44 @@ impl VortexOpenOptions {
     /// Open a Vortex file from an in-memory buffer.
     pub fn open_buffer<B: Into<ByteBuffer>>(self, buffer: B) -> VortexResult<VortexFile> {
         // We know this is in memory, so we can open it synchronously.
-        block_on(
-            self.with_initial_read_size(0)
-                .without_segment_cache()
-                .open_read(buffer.into()),
-        )
+        block_on(self.with_initial_read_size(0).open_read(buffer.into()))
     }
 
     /// An API for opening a [`VortexFile`] using any [`VortexReadAt`] implementation.
     pub async fn open_read<R: VortexReadAt + Clone>(self, reader: R) -> VortexResult<VortexFile> {
-        let metrics = self.metrics.clone().unwrap_or_default();
+        let segment_cache = self
+            .segment_cache
+            .clone()
+            .unwrap_or_else(|| Arc::new(NoOpSegmentCache));
+
+        let metrics_registry = self
+            .metrics_registry
+            .clone()
+            .unwrap_or_else(|| Arc::new(DefaultMetricsRegistry::default()));
+
         let footer = if let Some(footer) = self.footer {
             footer
         } else {
             self.read_footer(&reader).await?
         };
 
-        let segment_cache = Arc::new(SegmentCacheMetrics::new(
+        let segment_cache = Arc::new(InstrumentedSegmentCache::new(
             InitialReadSegmentCache {
                 initial: self.initial_read_segments,
-                fallback: self.segment_cache,
+                fallback: segment_cache,
             },
-            metrics.clone(),
+            metrics_registry.as_ref(),
+            self.labels.clone(),
         ));
+
+        let metrics = RequestMetrics::new(metrics_registry.as_ref(), self.labels);
 
         // Create a segment source backed by the VortexRead implementation.
         let segment_source = Arc::new(SharedSegmentSource::new(FileSegmentSource::open(
             footer.segment_map().clone(),
             reader,
             self.session.handle(),
-            metrics.clone(),
+            metrics,
         )));
 
         // Wrap up the segment source to first resolve segments from the initial read cache.
@@ -344,7 +359,6 @@ mod tests {
         // Create a large file (> 1MB)
         let mut buf = ByteBufferMut::empty();
         let mut session = VortexSession::empty()
-            .with::<VortexMetrics>()
             .with::<DTypeSession>()
             .with::<ArraySession>()
             .with::<LayoutSession>()

@@ -55,6 +55,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::PcoChunkInfo;
 use crate::PcoMetadata;
@@ -104,8 +105,13 @@ impl VTable for PcoVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(PcoMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(PcoMetadata::decode(bytes)?))
     }
 
     fn build(

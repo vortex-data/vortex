@@ -53,6 +53,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -103,8 +104,13 @@ impl VTable for ZstdVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ZstdMetadata::decode(bytes)?))
     }
 
     fn build(

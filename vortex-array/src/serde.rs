@@ -26,6 +26,7 @@ use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayContext;
@@ -33,7 +34,7 @@ use crate::ArrayRef;
 use crate::ArrayVisitor;
 use crate::ArrayVisitorExt;
 use crate::buffer::BufferHandle;
-use crate::session::ArrayRegistry;
+use crate::session::ArraySessionExt;
 use crate::stats::StatsSet;
 
 /// Options for serializing an array.
@@ -318,13 +319,15 @@ impl ArrayParts {
         dtype: &DType,
         len: usize,
         ctx: &ArrayContext,
-        registry: &ArrayRegistry,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let encoding_idx = self.flatbuffer().encoding();
         let encoding_id = ctx
             .resolve(encoding_idx)
             .ok_or_else(|| vortex_err!("Unknown encoding index: {}", encoding_idx))?;
-        let vtable = registry
+        let vtable = session
+            .arrays()
+            .registry()
             .find(&encoding_id)
             .ok_or_else(|| vortex_err!("Unknown encoding: {}", encoding_id))?;
 
@@ -335,7 +338,7 @@ impl ArrayParts {
         let children = ArrayPartsChildren {
             parts: self,
             ctx,
-            registry,
+            session,
         };
 
         let decoded = vtable.build(
@@ -345,6 +348,7 @@ impl ArrayParts {
             self.metadata(),
             &buffers,
             &children,
+            session,
         )?;
 
         assert_eq!(
@@ -548,14 +552,14 @@ impl ArrayParts {
 struct ArrayPartsChildren<'a> {
     parts: &'a ArrayParts,
     ctx: &'a ArrayContext,
-    registry: &'a ArrayRegistry,
+    session: &'a VortexSession,
 }
 
 impl ArrayChildren for ArrayPartsChildren<'_> {
     fn get(&self, index: usize, dtype: &DType, len: usize) -> VortexResult<ArrayRef> {
         self.parts
             .child(index)
-            .decode(dtype, len, self.ctx, self.registry)
+            .decode(dtype, len, self.ctx, self.session)
     }
 
     fn len(&self) -> usize {

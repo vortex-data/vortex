@@ -12,7 +12,7 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::StructArrayParts;
 use vortex_array::buffer::BufferHandle;
-use vortex_array::validity::Validity;
+use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DecimalType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_error::VortexResult;
@@ -26,6 +26,10 @@ use crate::arrow::DeviceType;
 use crate::arrow::ExportDeviceArray;
 use crate::arrow::PrivateData;
 use crate::arrow::SyncEvent;
+use crate::arrow::check_validity_empty;
+use crate::arrow::ensure_device_resident;
+use crate::arrow::varbinview::BinaryParts;
+use crate::arrow::varbinview::copy_varbinview_to_varbin;
 use crate::executor::CudaArrayExt;
 
 /// An implementation of `ExportDeviceArray` that exports Vortex arrays to `ArrowDeviceArray` by
@@ -43,11 +47,11 @@ impl ExportDeviceArray for CanonicalDeviceArrayExport {
     ) -> VortexResult<ArrowDeviceArray> {
         let cuda_array = array.execute_cuda(ctx).await?;
 
-        let (arrow_array, sync_event) = export_canonical(cuda_array, ctx).await?;
+        let (arrow_array, _) = export_canonical(cuda_array, ctx).await?;
 
         Ok(ArrowDeviceArray {
             array: arrow_array,
-            sync_event,
+            sync_event: None,
             device_id: ctx.stream().context().ordinal() as i64,
             device_type: DeviceType::Cuda,
             _reserved: Default::default(),
@@ -68,7 +72,7 @@ fn export_canonical(
                     buffer, validity, ..
                 } = primitive.into_parts();
 
-                check_validity_empty(validity)?;
+                check_validity_empty(&validity)?;
 
                 let buffer = ensure_device_resident(buffer, ctx).await?;
 
@@ -96,7 +100,7 @@ fn export_canonical(
                 } = decimal.into_parts();
 
                 // verify that there is no null buffer
-                check_validity_empty(validity)?;
+                check_validity_empty(&validity)?;
 
                 // TODO(aduffy): GPU kernel for upcasting.
                 vortex_ensure!(
@@ -120,12 +124,11 @@ fn export_canonical(
                     buffer, validity, ..
                 } = values.into_parts();
 
-                check_validity_empty(validity)?;
+                check_validity_empty(&validity)?;
 
                 let buffer = ensure_device_resident(buffer, ctx).await?;
                 export_fixed_size(buffer, len, 0, ctx)
             }
-
             Canonical::Bool(bool_array) => {
                 let BoolArrayParts {
                     bits,
@@ -135,9 +138,39 @@ fn export_canonical(
                     ..
                 } = bool_array.into_parts();
 
-                check_validity_empty(validity)?;
+                check_validity_empty(&validity)?;
 
                 export_fixed_size(bits, len, offset, ctx)
+            }
+            Canonical::VarBinView(varbinview) => {
+                let len = varbinview.len();
+                check_validity_empty(varbinview.validity())?;
+
+                let BinaryParts { offsets, bytes } =
+                    copy_varbinview_to_varbin(varbinview, ctx).await?;
+
+                let offsets = ensure_device_resident(offsets, ctx).await?;
+                let bytes = ensure_device_resident(bytes, ctx).await?;
+
+                let buffers = vec![None, Some(offsets), Some(bytes)];
+                let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
+                let sync_event = private_data.sync_event();
+                //
+                let arrow_array = ArrowArray {
+                    length: len as i64,
+                    null_count: 0,
+                    offset: 0,
+                    // 1 (optional) buffer for nulls, one buffer for the data
+                    n_buffers: 2,
+                    buffers: private_data.buffer_ptrs.as_mut_ptr(),
+                    n_children: 0,
+                    children: std::ptr::null_mut(),
+                    release: Some(release_array),
+                    dictionary: std::ptr::null_mut(),
+                    private_data: Box::into_raw(private_data).cast(),
+                };
+
+                Ok((arrow_array, sync_event))
             }
             // TODO(aduffy): implement VarBinView. cudf doesn't support it, so we need to
             //  execute a kernel to translate from VarBinView -> VarBin.
@@ -155,7 +188,7 @@ async fn export_struct(
         validity, fields, ..
     } = array.into_parts();
 
-    check_validity_empty(validity)?;
+    check_validity_empty(&validity)?;
 
     // We need the children to be held across await points.
     let mut children = Vec::with_capacity(fields.len());
@@ -218,26 +251,6 @@ fn export_fixed_size(
     };
 
     Ok((arrow_array, sync_event))
-}
-
-/// Check that the validity buffer is empty and does not need to be copied over the device boundary.
-fn check_validity_empty(validity: Validity) -> VortexResult<()> {
-    if let Validity::AllInvalid | Validity::Array(_) = validity {
-        vortex_bail!("Exporting array with non-trivial validity not supported yet")
-    }
-
-    Ok(())
-}
-
-async fn ensure_device_resident(
-    buffer_handle: BufferHandle,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<BufferHandle> {
-    if buffer_handle.is_on_device() {
-        Ok(buffer_handle)
-    } else {
-        ctx.move_to_device(buffer_handle)?.await
-    }
 }
 
 // export some nested data

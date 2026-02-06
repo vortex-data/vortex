@@ -20,11 +20,13 @@ use std::sync::LazyLock;
 use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::Decimal128Array;
+use arrow_array::StringArray;
 use arrow_array::UInt32Array;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
+use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
@@ -33,6 +35,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::dtype::DecimalDType;
@@ -40,7 +43,6 @@ use vortex::dtype::FieldNames;
 use vortex::expr::session::ExprSession;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
-use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -48,7 +50,6 @@ use vortex_cuda::arrow::DeviceArrayExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
-        .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
@@ -67,19 +68,31 @@ pub unsafe extern "C" fn export_array(
 
     let primitive = PrimitiveArray::from_iter(0u32..5);
     let decimal = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2));
+    let strings = VarBinViewArray::from_iter_str([
+        "one",
+        "two",
+        "this string is long three",
+        "four",
+        "this string is long five",
+    ]);
 
     let array = StructArray::new(
-        FieldNames::from_iter(["prims", "decimals"]),
-        vec![primitive.into_array(), decimal.into_array()],
+        FieldNames::from_iter(["prims", "decimals", "strings"]),
+        vec![
+            primitive.into_array(),
+            decimal.into_array(),
+            strings.into_array(),
+        ],
         5,
         Validity::NonNullable,
     )
     .into_array();
 
-    let data_type = array
-        .dtype()
-        .to_arrow_dtype()
-        .expect("converting schema to Arrow DataType");
+    let data_type = DataType::Struct(Fields::from_iter([
+        Field::new("prims", DataType::UInt32, false),
+        Field::new("decimals", DataType::Decimal128(38, 2), false),
+        Field::new("strings", DataType::Utf8, false),
+    ]));
 
     *schema_ptr = FFI_ArrowSchema::try_from(data_type).expect("data_type to FFI_ArrowSchema");
 
@@ -115,10 +128,18 @@ pub unsafe extern "C" fn validate_array(
     let decimal = Decimal128Array::from_iter_values(0..5)
         .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
+    let string = StringArray::from_iter_values([
+        "one",
+        "two",
+        "this string is long three",
+        "four",
+        "this string is long five",
+    ]);
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), false),
         Field::new("decimals", decimal.data_type().clone(), false),
+        Field::new("strings", string.data_type().clone(), false),
     ]);
 
     assert_eq!(
@@ -128,7 +149,7 @@ pub unsafe extern "C" fn validate_array(
         struct_array.fields()
     );
 
-    let expected_fields: [ArrayRef; _] = [Arc::new(primitive), Arc::new(decimal)];
+    let expected_fields: [ArrayRef; _] = [Arc::new(primitive), Arc::new(decimal), Arc::new(string)];
 
     for (expected, actual) in expected_fields.iter().zip(struct_array.columns()) {
         assert_eq!(expected.as_ref(), actual.as_ref());
