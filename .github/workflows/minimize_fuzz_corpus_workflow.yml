@@ -39,6 +39,12 @@ jobs:
       - extras=s3-cache
       - tag=${{ inputs.fuzz_target }}-minimize
     steps:
+      - name: Bail if not on develop
+        if: github.ref != 'refs/heads/develop'
+        run: |
+          echo "::error::Corpus minimization should only run on the develop branch (current: ${{ github.ref }})"
+          exit 1
+
       - uses: runs-on/action@v2
         with:
           sccache: s3
