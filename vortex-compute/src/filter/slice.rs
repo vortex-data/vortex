@@ -16,6 +16,7 @@ use vortex_buffer::BitView;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
 use vortex_mask::Mask;
+use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::filter::Filter;
@@ -45,16 +46,9 @@ impl<T: Copy> Filter<MaskValues> for &[T] {
             "Selection mask length must equal the buffer length"
         );
 
-        if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {
-            // High density: use slices (contiguous ranges)
-            self.filter(mask_values.slices())
-        } else {
-            // Low density: stream indices directly from bitmap without allocating
-            let mut out = BufferMut::<T>::with_capacity(mask_values.true_count());
-            for idx in mask_values.bit_buffer().set_indices() {
-                out.push(self[idx]);
-            }
-            out.freeze()
+        match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+            MaskIter::Indices(indices) => self.filter(indices),
+            MaskIter::Slices(slices) => self.filter(slices),
         }
     }
 }
