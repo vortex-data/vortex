@@ -171,7 +171,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "index 20 out of bounds")]
+    #[should_panic(expected = "index out of bounds")]
     fn test_bounds_check() {
         let array = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);

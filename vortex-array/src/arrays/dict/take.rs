@@ -52,7 +52,11 @@ pub trait TakeExecute: VTable {
 fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
-        return Some(Canonical::empty(array.dtype()).into_array());
+        let result_dtype = array
+            .dtype()
+            .clone()
+            .union_nullability(indices.dtype().nullability());
+        return Some(Canonical::empty(&result_dtype).into_array());
     }
 
     // TODO(joe): shall we enable this seems expensive.

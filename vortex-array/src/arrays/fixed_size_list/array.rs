@@ -227,8 +227,9 @@ impl FixedSizeListArray {
     pub fn fixed_size_list_elements_at(&self, index: usize) -> VortexResult<ArrayRef> {
         debug_assert!(
             index < self.len,
-            "index out of bounds: the len is {} but the index is {index}",
-            self.len
+            "index {} out of bounds: the len is {}",
+            index,
+            self.len,
         );
         debug_assert!(self.validity.is_valid(index).unwrap_or(false));
 

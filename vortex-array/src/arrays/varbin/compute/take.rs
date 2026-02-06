@@ -265,7 +265,7 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::VarBinVTable;
+    use crate::arrays::VarBinViewVTable;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
@@ -323,10 +323,10 @@ mod tests {
         let indices = buffer![0u32, 0u32, 0u32].into_array();
         let taken = take(array.as_ref(), indices.as_ref()).unwrap();
 
-        let taken_str = taken.as_::<VarBinVTable>();
-        assert_eq!(taken_str.len(), 3);
-        assert_eq!(taken_str.bytes_at(0).as_bytes(), scream.as_bytes());
-        assert_eq!(taken_str.bytes_at(1).as_bytes(), scream.as_bytes());
-        assert_eq!(taken_str.bytes_at(2).as_bytes(), scream.as_bytes());
+        let taken_view = taken.as_::<VarBinViewVTable>();
+        assert_eq!(taken_view.len(), 3);
+        assert_eq!(taken_view.bytes_at(0).as_slice(), scream.as_bytes());
+        assert_eq!(taken_view.bytes_at(1).as_slice(), scream.as_bytes());
+        assert_eq!(taken_view.bytes_at(2).as_slice(), scream.as_bytes());
     }
 }
