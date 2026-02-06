@@ -30,7 +30,11 @@ impl TakeExecute for MaskedVTable {
             )?;
             array.child.take(filled_take)?.to_canonical()?.into_array()
         } else {
-            array.child.take(indices.to_array())?.to_canonical()?.into_array()
+            array
+                .child
+                .take(indices.to_array())?
+                .to_canonical()?
+                .into_array()
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity

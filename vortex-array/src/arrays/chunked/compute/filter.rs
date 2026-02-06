@@ -177,8 +177,7 @@ fn filter_indices(
 
     if !chunk_indices.is_empty() {
         let chunk = array.chunk(current_chunk_id);
-        let indices =
-            PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
+        let indices = PrimitiveArray::new(chunk_indices.clone().freeze(), Validity::NonNullable);
         let filtered_chunk = chunk.take(indices.to_array())?.to_canonical()?.into_array();
         result.push(filtered_chunk);
     }
