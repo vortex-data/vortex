@@ -49,7 +49,7 @@ pub trait TakeExecute: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the take operation,
 /// or `None` if the take should proceed normally.
-pub fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<ArrayRef> {
     // Fast-path for empty indices.
     if indices.is_empty() {
         return Some(Canonical::empty(array.dtype()).into_array());

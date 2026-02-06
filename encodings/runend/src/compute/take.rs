@@ -10,7 +10,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
@@ -96,7 +95,7 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
         PrimitiveArray::new(buffer, validity.clone())
     });
 
-    take(array.values(), physical_indices.as_ref())
+    array.values().take(physical_indices.to_array())
 }
 
 #[cfg(test)]

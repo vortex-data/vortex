@@ -9,7 +9,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_array::kernel::ParentKernelSet;
@@ -25,9 +24,9 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
     // we go ahead and canonicalize here to avoid worst-case canonicalizing 3 separate times
     let indices = indices.to_primitive();
 
-    let taken_days = take(array.days(), indices.as_ref())?;
-    let taken_seconds = take(array.seconds(), indices.as_ref())?;
-    let taken_subseconds = take(array.subseconds(), indices.as_ref())?;
+    let taken_days = array.days().take(indices.to_array())?;
+    let taken_seconds = array.seconds().take(indices.to_array())?;
+    let taken_subseconds = array.subseconds().take(indices.to_array())?;
 
     // Update the dtype if the nullability changed due to nullable indices
     let dtype = if taken_days.dtype().is_nullable() != array.dtype().is_nullable() {

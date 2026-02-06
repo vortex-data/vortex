@@ -11,11 +11,10 @@ use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::{self};
 use crate::kernel::ParentKernelSet;
 
 fn take_extension(array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_storage = compute::take(array.storage(), indices)?;
+    let taken_storage = array.storage().take(indices.to_array())?;
     Ok(ExtensionArray::new(
         array
             .ext_dtype()

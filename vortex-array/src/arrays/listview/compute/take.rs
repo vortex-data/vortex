@@ -15,7 +15,7 @@ use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::{self};
+use crate::compute;
 use crate::executor::ExecutionCtx;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
@@ -55,8 +55,8 @@ fn take_listview(array: &ListViewArray, indices: &dyn Array) -> VortexResult<Arr
     // Take the offsets and sizes arrays at the requested indices.
     // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
     // contain duplicates.
-    let nullable_new_offsets = compute::take(offsets.as_ref(), indices)?;
-    let nullable_new_sizes = compute::take(sizes.as_ref(), indices)?;
+    let nullable_new_offsets = offsets.take(indices.to_array())?;
+    let nullable_new_sizes = sizes.take(indices.to_array())?;
 
     // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
     // zeros to represent null lists).

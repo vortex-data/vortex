@@ -13,7 +13,6 @@ use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::compute::mask;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
@@ -30,7 +29,7 @@ impl FilterReduce for ZigZagVTable {
 }
 
 fn take_zigzag(array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let encoded = take(array.encoded(), indices)?;
+    let encoded = array.encoded().take(indices.to_array())?;
     Ok(ZigZagArray::try_new(encoded)?.into_array())
 }
 

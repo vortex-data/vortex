@@ -8,7 +8,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -18,7 +17,7 @@ use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
 fn take_alprd(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_left_parts = take(array.left_parts(), indices)?;
+    let taken_left_parts = array.left_parts().take(indices.to_array())?;
     let left_parts_exceptions = array
         .left_parts_patches()
         .map(|patches| patches.take(indices))
@@ -33,7 +32,7 @@ fn take_alprd(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef>
         })
         .transpose()?;
     let right_parts = fill_null(
-        &take(array.right_parts(), indices)?,
+        &array.right_parts().take(indices.to_array())?,
         &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
     )?;
 

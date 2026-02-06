@@ -13,7 +13,6 @@ use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -23,7 +22,7 @@ use crate::FoRVTable;
 
 fn take_for(array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
     FoRArray::try_new(
-        take(array.encoded(), indices)?,
+        array.encoded().take(indices.to_array())?,
         array.reference_scalar().clone(),
     )
     .map(|a| a.into_array())

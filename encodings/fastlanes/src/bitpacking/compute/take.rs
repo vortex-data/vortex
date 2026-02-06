@@ -13,7 +13,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
@@ -41,7 +40,7 @@ pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 fn take_bitpacked(array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
     // If the indices are large enough, it's faster to flatten and take the primitive array.
     if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-        return take(array.to_primitive().as_ref(), indices);
+        return array.to_primitive().take(indices.to_array());
     }
 
     // NOTE: we use the unsigned PType because all values in the BitPackedArray must

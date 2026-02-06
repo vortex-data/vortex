@@ -7,7 +7,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
@@ -15,7 +14,7 @@ use crate::ALPArray;
 use crate::ALPVTable;
 
 fn take_alp(array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_encoded = take(array.encoded(), indices)?;
+    let taken_encoded = array.encoded().take(indices.to_array())?;
     let taken_patches = array
         .patches()
         .map(|p| p.take(indices))

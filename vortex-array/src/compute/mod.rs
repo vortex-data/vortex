@@ -98,7 +98,6 @@ pub fn warm_up_vtables() {
     nan_count::warm_up_vtable();
     numeric::warm_up_vtable();
     sum::warm_up_vtable();
-    take::warm_up_vtable();
     zip::warm_up_vtable();
 }
 

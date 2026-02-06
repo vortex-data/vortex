@@ -13,7 +13,6 @@ use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::compute::fill_null;
-use vortex_array::compute::take;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
@@ -30,11 +29,13 @@ fn take_fsst(array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
             .union_nullability(indices.dtype().nullability()),
         array.symbols().clone(),
         array.symbol_lengths().clone(),
-        take(array.codes().as_ref(), indices)?
+        array
+            .codes()
+            .take(indices.to_array())?
             .as_::<VarBinVTable>()
             .clone(),
         fill_null(
-            &take(array.uncompressed_lengths(), indices)?,
+            &array.uncompressed_lengths().take(indices.to_array())?,
             &Scalar::new(
                 array.uncompressed_lengths_dtype().clone(),
                 ScalarValue::from(0),

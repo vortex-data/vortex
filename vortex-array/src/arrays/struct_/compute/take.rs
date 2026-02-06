@@ -13,7 +13,7 @@ use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::{self};
+use crate::compute;
 use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -39,7 +39,7 @@ fn take_struct(array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRe
         array
             .unmasked_fields()
             .iter()
-            .map(|field| compute::take(field, inner_indices))
+            .map(|field| field.take(inner_indices.to_array()))
             .collect::<Result<Vec<_>, _>>()?,
         array.struct_fields().clone(),
         indices.len(),
