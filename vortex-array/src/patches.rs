@@ -1044,9 +1044,11 @@ where
             AllOr::None => true,
             AllOr::Some(buf) => !buf.value(idx_in_take),
         };
-        if include_nulls && is_null {
-            new_sparse_indices.push(idx_in_take as u64);
-            value_indices.push(0);
+        if is_null {
+            if include_nulls {
+                new_sparse_indices.push(idx_in_take as u64);
+                value_indices.push(0);
+            }
         } else if ti >= min_index && ti <= max_index {
             let ti_as_i = I::try_from(ti)
                 .map_err(|_| vortex_err!("take index does not fit in index type"))?;
@@ -1185,10 +1187,13 @@ fn take_indices_with_search_fn<
     let mut new_indices = BufferMut::with_capacity(take_indices.len());
 
     for (new_patch_idx, &take_idx) in take_indices.iter().enumerate() {
-        if include_nulls && !take_validity.value(new_patch_idx) {
-            // For nulls, patch index doesn't matter - use 0 for consistency
-            values_indices.push(0u64);
-            new_indices.push(new_patch_idx as u64);
+        if !take_validity.value(new_patch_idx) {
+            if include_nulls {
+                // For nulls, patch index doesn't matter - use 0 for consistency
+                values_indices.push(0u64);
+                new_indices.push(new_patch_idx as u64);
+            }
+            continue;
         } else {
             let search_result = match I::from(take_idx) {
                 Some(idx) => search_fn(idx)?,
