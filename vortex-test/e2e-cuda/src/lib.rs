@@ -40,7 +40,6 @@ use vortex::dtype::FieldNames;
 use vortex::expr::session::ExprSession;
 use vortex::io::session::RuntimeSession;
 use vortex::layout::session::LayoutSession;
-use vortex::metrics::VortexMetrics;
 use vortex::session::VortexSession;
 use vortex_cuda::CudaSession;
 use vortex_cuda::arrow::ArrowDeviceArray;
@@ -48,7 +47,6 @@ use vortex_cuda::arrow::DeviceArrayExt;
 
 static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
     VortexSession::empty()
-        .with::<VortexMetrics>()
         .with::<ArraySession>()
         .with::<LayoutSession>()
         .with::<ExprSession>()
