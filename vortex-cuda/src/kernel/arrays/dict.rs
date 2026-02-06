@@ -21,8 +21,8 @@ use vortex_dtype::DType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_simd_ptype;
-use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -75,7 +75,7 @@ async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> Vorte
 
     // Dispatch based on both value type and code type
     match_each_native_simd_ptype!(values_ptype, |V| {
-        match_each_unsigned_integer_ptype!(codes_ptype, |I| {
+        match_each_integer_ptype!(codes_ptype, |I| {
             execute_dict_prim_typed::<V, I>(values_prim, codes_prim, ctx).await
         })
     })
@@ -165,7 +165,7 @@ async fn execute_dict_decimal(
     let decimal_type = values_decimal.values_type();
 
     match_each_decimal_value_type!(decimal_type, |V| {
-        match_each_unsigned_integer_ptype!(codes_ptype, |C| {
+        match_each_integer_ptype!(codes_ptype, |C| {
             execute_dict_decimal_typed::<V, C>(values_decimal, codes_prim, dtype, ctx).await
         })
     })

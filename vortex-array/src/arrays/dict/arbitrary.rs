@@ -46,10 +46,26 @@ impl ArbitraryDictArray {
 
         // Choose a random PType at least as wide as the minimum
         let valid_ptypes: &[PType] = match min_codes_ptype {
-            PType::U8 => &[PType::U8, PType::U16, PType::U32, PType::U64],
-            PType::U16 => &[PType::U16, PType::U32, PType::U64],
-            PType::U32 => &[PType::U32, PType::U64],
-            PType::U64 => &[PType::U64],
+            PType::U8 => &[
+                PType::U8,
+                PType::U16,
+                PType::U32,
+                PType::U64,
+                PType::I8,
+                PType::I16,
+                PType::I32,
+                PType::I64,
+            ],
+            PType::U16 => &[
+                PType::U16,
+                PType::U32,
+                PType::U64,
+                PType::I16,
+                PType::I32,
+                PType::I64,
+            ],
+            PType::U32 => &[PType::U32, PType::U64, PType::I32, PType::I64],
+            PType::U64 => &[PType::U64, PType::I64],
             _ => unreachable!(),
         };
         let codes_ptype = *u.choose(valid_ptypes)?;
@@ -61,6 +77,10 @@ impl ArbitraryDictArray {
             PType::U16 => random_codes::<u16>(u, codes_len, values_len, codes_nullable)?,
             PType::U32 => random_codes::<u32>(u, codes_len, values_len, codes_nullable)?,
             PType::U64 => random_codes::<u64>(u, codes_len, values_len, codes_nullable)?,
+            PType::I8 => random_codes::<i8>(u, codes_len, values_len, codes_nullable)?,
+            PType::I16 => random_codes::<i16>(u, codes_len, values_len, codes_nullable)?,
+            PType::I32 => random_codes::<i32>(u, codes_len, values_len, codes_nullable)?,
+            PType::I64 => random_codes::<i64>(u, codes_len, values_len, codes_nullable)?,
             _ => unreachable!(),
         };
 
@@ -71,7 +91,7 @@ impl ArbitraryDictArray {
     }
 }
 
-/// Generate random codes for a DictArray with a specific unsigned integer type.
+/// Generate random codes for a DictArray with a specific integer type.
 fn random_codes<T>(
     u: &mut Unstructured,
     len: usize,
