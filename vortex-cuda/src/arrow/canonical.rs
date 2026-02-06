@@ -253,8 +253,6 @@ fn export_fixed_size(
     Ok((arrow_array, sync_event))
 }
 
-// export some nested data
-
 unsafe extern "C" fn release_array(array: *mut ArrowArray) {
     // SAFETY: this is only safe if we're dropping an ArrowArray that was created from Rust
     //  code. This is necessary to ensure that the fields inside the CudaPrivateData
