@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod tree;
-mod tree_no_metadata;
 
 use std::fmt::Display;
 
 use itertools::Itertools as _;
 use tree::TreeDisplayWrapper;
 
-use crate::{Array, display::tree_no_metadata::TreeNoMetadataDisplayWrapper};
+use crate::Array;
 
 /// Describe how to convert an array to a string.
 ///
@@ -47,29 +46,9 @@ pub enum DisplayOptions {
     /// );
     /// ```
     CommaSeparatedScalars { omit_comma_after_space: bool },
-    /// The tree of encodings with neither metadata, buffers, nor values.
+    /// The tree of encodings without any concrete values.
     ///
-    /// ```
-    /// # use vortex_array::display::DisplayOptions;
-    /// # use vortex_array::IntoArray;
-    /// # use vortex_buffer::buffer;
-    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
-    /// let expected = "root: vortex.primitive(i16, len=5)\n";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeNoMetadataDisplay)), expected);
-    ///
-    /// # use vortex_array::arrays::StructArray;
-    /// let array = StructArray::from_fields(&[
-    ///     ("x", buffer![1, 2].into_array()),
-    ///     ("y", buffer![3, 4].into_array()),
-    /// ]).unwrap().into_array();
-    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
-    ///   x: vortex.primitive(i32, len=2)
-    ///   y: vortex.primitive(i32, len=2)
-    /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeNoMetadataDisplay)), expected);
-    /// ```
-    TreeNoMetadataDisplay,
-    /// The tree of encodings and all metadata but no values.
+    /// With buffers, metadata, and stats:
     ///
     /// ```
     /// # use vortex_array::display::DisplayOptions;
@@ -80,9 +59,210 @@ pub enum DisplayOptions {
     ///   metadata: EmptyMetadata
     ///   buffer: values host 10 B (align=2) (100.00%)
     /// ";
-    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay)), expected);
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     metadata: EmptyMetadata
+    ///     buffer: values host 8 B (align=4) (100.00%)
+    ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     metadata: EmptyMetadata
+    ///     buffer: values host 8 B (align=4) (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: true })), expected);
     /// ```
-    TreeDisplay,
+    ///
+    /// With metadata and stats but no buffers:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   metadata: EmptyMetadata
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
+    ///   metadata: EmptyMetadata
+    ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     metadata: EmptyMetadata
+    ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     metadata: EmptyMetadata
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: true })), expected);
+    /// ```
+    ///
+    /// With metadata and buffers but no stats:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)
+    ///   metadata: EmptyMetadata
+    ///   buffer: values host 10 B (align=2)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   metadata: EmptyMetadata
+    ///   x: vortex.primitive(i32, len=2)
+    ///     metadata: EmptyMetadata
+    ///     buffer: values host 8 B (align=4)
+    ///   y: vortex.primitive(i32, len=2)
+    ///     metadata: EmptyMetadata
+    ///     buffer: values host 8 B (align=4)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: true, stats: false })), expected);
+    /// ```
+    ///
+    /// With buffers and stats but no metadata:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    ///   buffer: values host 10 B (align=2) (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
+    ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     buffer: values host 8 B (align=4) (100.00%)
+    ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///     buffer: values host 8 B (align=4) (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: true })), expected);
+    /// ```
+    ///
+    /// With just buffers:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)
+    ///   buffer: values host 10 B (align=2)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   x: vortex.primitive(i32, len=2)
+    ///     buffer: values host 8 B (align=4)
+    ///   y: vortex.primitive(i32, len=2)
+    ///     buffer: values host 8 B (align=4)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: true, metadata: false, stats: false })), expected);
+    /// ```
+    ///
+    /// With just metadata:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)
+    ///   metadata: EmptyMetadata
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   metadata: EmptyMetadata
+    ///   x: vortex.primitive(i32, len=2)
+    ///     metadata: EmptyMetadata
+    ///   y: vortex.primitive(i32, len=2)
+    ///     metadata: EmptyMetadata
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: true, stats: false })), expected);
+    /// ```
+    ///
+    /// With just stats:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5) nbytes=10 B (100.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2) nbytes=16 B (100.00%)
+    ///   x: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    ///   y: vortex.primitive(i32, len=2) nbytes=8 B (50.00%)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: true })), expected);
+    /// ```
+    ///
+    /// With neither buffers, metadata, stats, nor values:
+    ///
+    /// ```
+    /// # use vortex_array::display::DisplayOptions;
+    /// # use vortex_array::IntoArray;
+    /// # use vortex_buffer::buffer;
+    /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
+    /// let expected = "root: vortex.primitive(i16, len=5)\n";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false })), expected);
+    ///
+    /// # use vortex_array::arrays::StructArray;
+    /// let array = StructArray::from_fields(&[
+    ///     ("x", buffer![1, 2].into_array()),
+    ///     ("y", buffer![3, 4].into_array()),
+    /// ]).unwrap().into_array();
+    /// let expected = "root: vortex.struct({x=i32, y=i32}, len=2)
+    ///   x: vortex.primitive(i32, len=2)
+    ///   y: vortex.primitive(i32, len=2)
+    /// ";
+    /// assert_eq!(format!("{}", array.display_as(DisplayOptions::TreeDisplay { buffers: false, metadata: false, stats: false })), expected);
+    /// ```
+    TreeDisplay {
+        buffers: bool,
+        metadata: bool,
+        stats: bool,
+    },
     /// Display values in a formatted table with columns.
     ///
     /// For struct arrays, displays a column for each field in the struct.
@@ -187,7 +367,7 @@ impl dyn Array + '_ {
         DisplayArrayAs(self, options)
     }
 
-    /// Display the tree of array encodings and lengths without metadata or buffers.
+    /// Display the tree of array encodings and lengths without metadata, buffers, or stats.
     ///
     /// # Examples
     /// ```
@@ -196,7 +376,7 @@ impl dyn Array + '_ {
     /// # use vortex_buffer::buffer;
     /// let array = buffer![0_i16, 1, 2, 3, 4].into_array();
     /// let expected = "root: vortex.primitive(i16, len=5)\n";
-    /// assert_eq!(format!("{}", array.display_tree_no_metadata()), expected);
+    /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     ///
     /// # use vortex_array::arrays::StructArray;
     /// let array = StructArray::from_fields(&[
@@ -207,10 +387,17 @@ impl dyn Array + '_ {
     ///   x: vortex.primitive(i32, len=2)
     ///   y: vortex.primitive(i32, len=2)
     /// ";
-    /// assert_eq!(format!("{}", array.display_tree_no_metadata()), expected);
+    /// assert_eq!(format!("{}", array.display_tree_encodings_only()), expected);
     /// ```
-    pub fn display_tree_no_metadata(&self) -> impl Display {
-        DisplayArrayAs(self, DisplayOptions::TreeNoMetadataDisplay)
+    pub fn display_tree_encodings_only(&self) -> impl Display {
+        DisplayArrayAs(
+            self,
+            DisplayOptions::TreeDisplay {
+                buffers: false,
+                metadata: false,
+                stats: false,
+            },
+        )
     }
 
     /// Display the tree of encodings of this array as an indented lists.
@@ -233,7 +420,14 @@ impl dyn Array + '_ {
     /// assert_eq!(format!("{}", array.display_tree()), expected);
     /// ```
     pub fn display_tree(&self) -> impl Display {
-        DisplayArrayAs(self, DisplayOptions::TreeDisplay)
+        DisplayArrayAs(
+            self,
+            DisplayOptions::TreeDisplay {
+                buffers: true,
+                metadata: true,
+                stats: true,
+            },
+        )
     }
 
     /// Display the array as a formatted table.
@@ -295,10 +489,22 @@ impl dyn Array + '_ {
                 )?;
                 write!(f, "]")
             }
-            DisplayOptions::TreeNoMetadataDisplay => {
-                write!(f, "{}", TreeNoMetadataDisplayWrapper(self.to_array()))
+            DisplayOptions::TreeDisplay {
+                buffers,
+                metadata,
+                stats,
+            } => {
+                write!(
+                    f,
+                    "{}",
+                    TreeDisplayWrapper {
+                        array: self.to_array(),
+                        buffers: *buffers,
+                        metadata: *metadata,
+                        stats: *stats
+                    }
+                )
             }
-            DisplayOptions::TreeDisplay => write!(f, "{}", TreeDisplayWrapper(self.to_array())),
             #[cfg(feature = "table-display")]
             DisplayOptions::TableDisplay => {
                 use vortex_dtype::DType;
