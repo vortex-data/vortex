@@ -24,38 +24,34 @@ use vortex_error::vortex_bail;
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-#[expect(
-    clippy::cast_possible_truncation,
-    reason = "index cast to usize inside macro"
-)]
-fn take_runend(array: &RunEndArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let primitive_indices = indices.to_primitive();
-
-    let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
-        primitive_indices
-            .as_slice::<P>()
-            .iter()
-            .copied()
-            .map(|idx| {
-                let usize_idx = idx as usize;
-                if usize_idx >= array.len() {
-                    vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
-                }
-                Ok(usize_idx)
-            })
-            .collect::<VortexResult<Vec<_>>>()?
-    });
-
-    take_indices_unchecked(array, &checked_indices, primitive_indices.validity())
-}
-
 impl TakeExecute for RunEndVTable {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "index cast to usize inside macro"
+    )]
     fn take(
         array: &RunEndArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_runend(array, indices).map(Some)
+        let primitive_indices = indices.to_primitive();
+
+        let checked_indices = match_each_integer_ptype!(primitive_indices.ptype(), |P| {
+            primitive_indices
+                .as_slice::<P>()
+                .iter()
+                .copied()
+                .map(|idx| {
+                    let usize_idx = idx as usize;
+                    if usize_idx >= array.len() {
+                        vortex_bail!(OutOfBounds: usize_idx, 0, array.len());
+                    }
+                    Ok(usize_idx)
+                })
+                .collect::<VortexResult<Vec<_>>>()?
+        });
+
+        take_indices_unchecked(array, &checked_indices, primitive_indices.validity()).map(Some)
     }
 }
 

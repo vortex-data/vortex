@@ -73,30 +73,6 @@ impl FilterKernel for RunEndVTable {
     }
 }
 
-// We expose this function to our benchmarks.
-pub fn filter_run_end(array: &RunEndArray, mask: &Mask) -> VortexResult<ArrayRef> {
-    let primitive_run_ends = array.ends().to_primitive();
-    let (run_ends, values_mask) =
-        match_each_unsigned_integer_ptype!(primitive_run_ends.ptype(), |P| {
-            filter_run_end_primitive(
-                primitive_run_ends.as_slice::<P>(),
-                array.offset() as u64,
-                array.len() as u64,
-                mask.values()
-                    .vortex_expect("AllTrue and AllFalse handled by filter fn")
-                    .bit_buffer(),
-            )?
-        });
-    let values = array.values().filter(values_mask)?;
-
-    // SAFETY: enforced by filter_run_end_primitive
-    unsafe {
-        Ok(
-            RunEndArray::new_unchecked(run_ends.into_array(), values, 0, mask.true_count())
-                .into_array(),
-        )
-    }
-}
 
 // Code adapted from apache arrow-rs https://github.com/apache/arrow-rs/blob/b1f5c250ebb6c1252b4e7c51d15b8e77f4c361fa/arrow-select/src/filter.rs#L425
 fn filter_run_end_primitive<R: NativePType + AddAssign + From<bool> + AsPrimitive<u64>>(

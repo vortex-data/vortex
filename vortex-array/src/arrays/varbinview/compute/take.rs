@@ -24,37 +24,35 @@ use crate::executor::ExecutionCtx;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
-/// Take involves creating a new array that references the old array, just with the given set of views.
-fn take_varbinview(array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let validity = array.validity().take(indices)?;
-    let indices = indices.to_primitive();
-
-    let indices_mask = indices.validity_mask()?;
-    let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
-        take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
-    });
-
-    // SAFETY: taking all components at same indices maintains invariants
-    unsafe {
-        Ok(VarBinViewArray::new_handle_unchecked(
-            BufferHandle::new_host(views_buffer.into_byte_buffer()),
-            array.buffers().clone(),
-            array
-                .dtype()
-                .union_nullability(indices.dtype().nullability()),
-            validity,
-        )
-        .into_array())
-    }
-}
-
 impl TakeExecute for VarBinViewVTable {
+    /// Take involves creating a new array that references the old array, just with the given set of views.
     fn take(
         array: &VarBinViewArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_varbinview(array, indices).map(Some)
+        let validity = array.validity().take(indices)?;
+        let indices = indices.to_primitive();
+
+        let indices_mask = indices.validity_mask()?;
+        let views_buffer = match_each_integer_ptype!(indices.ptype(), |I| {
+            take_views(array.views(), indices.as_slice::<I>(), &indices_mask)
+        });
+
+        // SAFETY: taking all components at same indices maintains invariants
+        unsafe {
+            Ok(Some(
+                VarBinViewArray::new_handle_unchecked(
+                    BufferHandle::new_host(views_buffer.into_byte_buffer()),
+                    array.buffers().clone(),
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                    validity,
+                )
+                .into_array(),
+            ))
+        }
     }
 }
 

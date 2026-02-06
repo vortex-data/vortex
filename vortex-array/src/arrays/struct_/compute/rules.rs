@@ -9,7 +9,6 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
-use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::ScalarFnArrayExt;
 use crate::arrays::ScalarFnArrayView;
 use crate::arrays::SliceReduceAdaptor;

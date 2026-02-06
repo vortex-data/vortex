@@ -12,21 +12,14 @@ use vortex_error::VortexResult;
 use crate::DecimalBytePartsArray;
 use crate::DecimalBytePartsVTable;
 
-fn take_decimal_byte_parts(
-    array: &DecimalBytePartsArray,
-    indices: &dyn Array,
-) -> VortexResult<ArrayRef> {
-    DecimalBytePartsArray::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
-        .map(|a| a.to_array())
-}
-
 impl TakeExecute for DecimalBytePartsVTable {
     fn take(
         array: &DecimalBytePartsArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_decimal_byte_parts(array, indices).map(Some)
+        DecimalBytePartsArray::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
+            .map(|a| Some(a.to_array()))
     }
 }
 

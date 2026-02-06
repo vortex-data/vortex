@@ -28,19 +28,16 @@ use crate::vtable::ValidityHelper;
 /// Unlike `ListView`, `FixedSizeListArray` must rebuild the elements array because it requires
 /// that elements start at offset 0 and be perfectly packed without gaps. We expand list indices
 /// into element indices and push them down to the child elements array.
-fn take_fixed_size_list(array: &FixedSizeListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
-        take_with_indices::<I>(array, indices)
-    })
-}
-
 impl TakeExecute for FixedSizeListVTable {
     fn take(
         array: &FixedSizeListArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_fixed_size_list(array, indices).map(Some)
+        match_each_integer_ptype!(indices.dtype().as_ptype(), |I| {
+            take_with_indices::<I>(array, indices)
+        })
+        .map(Some)
     }
 }
 

@@ -3,14 +3,11 @@
 
 use std::fmt::Debug;
 
-use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
-use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::DictVTable;
 use vortex_array::kernel::ExecuteParentKernel;
-use vortex_array::matcher::Matcher;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 

@@ -19,32 +19,28 @@ use crate::executor::ExecutionCtx;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
-fn take_decimal(array: &DecimalArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let indices = indices.to_primitive();
-    let validity = array.validity().take(indices.as_ref())?;
-
-    // TODO(joe): if the true count of take indices validity is low, only take array values with
-    // valid indices.
-    let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
-        match_each_integer_ptype!(indices.ptype(), |I| {
-            let buffer =
-                take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
-            // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
-            // Validity is computed correctly from the parent array and indices.
-            unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }
-        })
-    });
-
-    Ok(decimal.to_array())
-}
-
 impl TakeExecute for DecimalVTable {
     fn take(
         array: &DecimalArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_decimal(array, indices).map(Some)
+        let indices = indices.to_primitive();
+        let validity = array.validity().take(indices.as_ref())?;
+
+        // TODO(joe): if the true count of take indices validity is low, only take array values with
+        // valid indices.
+        let decimal = match_each_decimal_value_type!(array.values_type(), |D| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                let buffer =
+                    take_to_buffer::<I, D>(indices.as_slice::<I>(), array.buffer::<D>().as_slice());
+                // SAFETY: Take operation preserves decimal dtype and creates valid buffer.
+                // Validity is computed correctly from the parent array and indices.
+                unsafe { DecimalArray::new_unchecked(buffer, array.decimal_dtype(), validity) }
+            })
+        });
+
+        Ok(Some(decimal.to_array()))
     }
 }
 

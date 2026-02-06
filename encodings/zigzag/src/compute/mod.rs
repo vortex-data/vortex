@@ -28,18 +28,14 @@ impl FilterReduce for ZigZagVTable {
     }
 }
 
-fn take_zigzag(array: &ZigZagArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let encoded = array.encoded().take(indices.to_array())?;
-    Ok(ZigZagArray::try_new(encoded)?.into_array())
-}
-
 impl TakeExecute for ZigZagVTable {
     fn take(
         array: &ZigZagArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_zigzag(array, indices).map(Some)
+        let encoded = array.encoded().take(indices.to_array())?;
+        Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
     }
 }
 

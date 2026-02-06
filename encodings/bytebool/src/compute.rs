@@ -57,34 +57,32 @@ impl MaskKernel for ByteBoolVTable {
 
 register_kernel!(MaskKernelAdapter(ByteBoolVTable).lift());
 
-fn take_bytebool(array: &ByteBoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let indices = indices.to_primitive();
-    let bools = array.as_slice();
-
-    // This handles combining validity from both source array and nullable indices
-    let validity = array.validity().take(indices.as_ref())?;
-
-    let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
-        indices
-            .as_slice::<I>()
-            .iter()
-            .map(|&idx| {
-                let idx: usize = idx.as_();
-                bools[idx]
-            })
-            .collect::<Vec<bool>>()
-    });
-
-    Ok(ByteBoolArray::from_vec(taken_bools, validity).into_array())
-}
-
 impl TakeExecute for ByteBoolVTable {
     fn take(
         array: &ByteBoolArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_bytebool(array, indices).map(Some)
+        let indices = indices.to_primitive();
+        let bools = array.as_slice();
+
+        // This handles combining validity from both source array and nullable indices
+        let validity = array.validity().take(indices.as_ref())?;
+
+        let taken_bools = match_each_integer_ptype!(indices.ptype(), |I| {
+            indices
+                .as_slice::<I>()
+                .iter()
+                .map(|&idx| {
+                    let idx: usize = idx.as_();
+                    bools[idx]
+                })
+                .collect::<Vec<bool>>()
+        });
+
+        Ok(Some(
+            ByteBoolArray::from_vec(taken_bools, validity).into_array(),
+        ))
     }
 }
 

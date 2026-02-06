@@ -18,43 +18,41 @@ use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-fn take_struct(array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    // If the struct array is empty then the indices must be all null, otherwise it will access
-    // an out of bounds element
-    if array.is_empty() {
-        return StructArray::try_new_with_dtype(
-            array.unmasked_fields().clone(),
-            array.struct_fields().clone(),
-            indices.len(),
-            Validity::AllInvalid,
-        )
-        .map(StructArray::into_array);
-    }
-    // The validity is applied to the struct validity,
-    let inner_indices = &compute::fill_null(
-        indices,
-        &Scalar::default_value(indices.dtype().with_nullability(Nullability::NonNullable)),
-    )?;
-    StructArray::try_new_with_dtype(
-        array
-            .unmasked_fields()
-            .iter()
-            .map(|field| field.take(inner_indices.to_array()))
-            .collect::<Result<Vec<_>, _>>()?,
-        array.struct_fields().clone(),
-        indices.len(),
-        array.validity().take(indices)?,
-    )
-    .map(|a| a.into_array())
-}
-
 impl TakeExecute for StructVTable {
     fn take(
         array: &StructArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_struct(array, indices).map(Some)
+        // If the struct array is empty then the indices must be all null, otherwise it will access
+        // an out of bounds element
+        if array.is_empty() {
+            return StructArray::try_new_with_dtype(
+                array.unmasked_fields().clone(),
+                array.struct_fields().clone(),
+                indices.len(),
+                Validity::AllInvalid,
+            )
+            .map(StructArray::into_array)
+            .map(Some);
+        }
+        // The validity is applied to the struct validity,
+        let inner_indices = &compute::fill_null(
+            indices,
+            &Scalar::default_value(indices.dtype().with_nullability(Nullability::NonNullable)),
+        )?;
+        StructArray::try_new_with_dtype(
+            array
+                .unmasked_fields()
+                .iter()
+                .map(|field| field.take(inner_indices.to_array()))
+                .collect::<Result<Vec<_>, _>>()?,
+            array.struct_fields().clone(),
+            indices.len(),
+            array.validity().take(indices)?,
+        )
+        .map(|a| a.into_array())
+        .map(Some)
     }
 }
 

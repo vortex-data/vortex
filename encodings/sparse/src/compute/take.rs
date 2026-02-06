@@ -14,45 +14,45 @@ use vortex_error::VortexResult;
 use crate::SparseArray;
 use crate::SparseVTable;
 
-fn take_sparse(array: &SparseArray, take_indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let patches_take = if array.fill_scalar().is_null() {
-        array.patches().take(take_indices)?
-    } else {
-        array.patches().take_with_nulls(take_indices)?
-    };
-
-    let Some(new_patches) = patches_take else {
-        let result_fill_scalar = array.fill_scalar().cast(
-            &array
-                .dtype()
-                .union_nullability(take_indices.dtype().nullability()),
-        )?;
-        return Ok(ConstantArray::new(result_fill_scalar, take_indices.len()).into_array());
-    };
-
-    // See `SparseEncoding::slice`.
-    if new_patches.array_len() == new_patches.values().len() {
-        return Ok(new_patches.into_values());
-    }
-
-    Ok(SparseArray::try_new_from_patches(
-        new_patches,
-        array.fill_scalar().cast(
-            &array
-                .dtype()
-                .union_nullability(take_indices.dtype().nullability()),
-        )?,
-    )?
-    .into_array())
-}
-
 impl TakeExecute for SparseVTable {
     fn take(
         array: &SparseArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_sparse(array, indices).map(Some)
+        let patches_take = if array.fill_scalar().is_null() {
+            array.patches().take(indices)?
+        } else {
+            array.patches().take_with_nulls(indices)?
+        };
+
+        let Some(new_patches) = patches_take else {
+            let result_fill_scalar = array.fill_scalar().cast(
+                &array
+                    .dtype()
+                    .union_nullability(indices.dtype().nullability()),
+            )?;
+            return Ok(Some(
+                ConstantArray::new(result_fill_scalar, indices.len()).into_array(),
+            ));
+        };
+
+        // See `SparseEncoding::slice`.
+        if new_patches.array_len() == new_patches.values().len() {
+            return Ok(Some(new_patches.into_values()));
+        }
+
+        Ok(Some(
+            SparseArray::try_new_from_patches(
+                new_patches,
+                array.fill_scalar().cast(
+                    &array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                )?,
+            )?
+            .into_array(),
+        ))
     }
 }
 

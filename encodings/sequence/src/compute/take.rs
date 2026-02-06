@@ -30,28 +30,6 @@ use vortex_scalar::Scalar;
 use crate::SequenceArray;
 use crate::SequenceVTable;
 
-fn take_sequence(array: &SequenceArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let mask = indices.validity_mask()?;
-    let indices = indices.to_primitive();
-    let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
-
-    match_each_integer_ptype!(indices.ptype(), |T| {
-        let indices = indices.as_slice::<T>();
-        match_each_native_ptype!(array.ptype(), |S| {
-            let mul = array.multiplier().cast::<S>();
-            let base = array.base().cast::<S>();
-            Ok(take_inner(
-                mul,
-                base,
-                indices,
-                mask,
-                result_nullability,
-                array.len(),
-            ))
-        })
-    })
-}
-
 fn take_inner<T: IntegerPType, S: NativePType>(
     mul: S,
     base: S,
@@ -103,7 +81,25 @@ impl TakeExecute for SequenceVTable {
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_sequence(array, indices).map(Some)
+        let mask = indices.validity_mask()?;
+        let indices = indices.to_primitive();
+        let result_nullability = array.dtype().nullability() | indices.dtype().nullability();
+
+        match_each_integer_ptype!(indices.ptype(), |T| {
+            let indices = indices.as_slice::<T>();
+            match_each_native_ptype!(array.ptype(), |S| {
+                let mul = array.multiplier().cast::<S>();
+                let base = array.base().cast::<S>();
+                Ok(Some(take_inner(
+                    mul,
+                    base,
+                    indices,
+                    mask,
+                    result_nullability,
+                    array.len(),
+                )))
+            })
+        })
     }
 }
 

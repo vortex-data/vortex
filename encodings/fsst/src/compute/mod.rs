@@ -21,37 +21,35 @@ use vortex_scalar::ScalarValue;
 use crate::FSSTArray;
 use crate::FSSTVTable;
 
-fn take_fsst(array: &FSSTArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    Ok(FSSTArray::try_new(
-        array
-            .dtype()
-            .clone()
-            .union_nullability(indices.dtype().nullability()),
-        array.symbols().clone(),
-        array.symbol_lengths().clone(),
-        array
-            .codes()
-            .take(indices.to_array())?
-            .as_::<VarBinVTable>()
-            .clone(),
-        fill_null(
-            &array.uncompressed_lengths().take(indices.to_array())?,
-            &Scalar::new(
-                array.uncompressed_lengths_dtype().clone(),
-                ScalarValue::from(0),
-            ),
-        )?,
-    )?
-    .into_array())
-}
-
 impl TakeExecute for FSSTVTable {
     fn take(
         array: &FSSTArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_fsst(array, indices).map(Some)
+        Ok(Some(
+            FSSTArray::try_new(
+                array
+                    .dtype()
+                    .clone()
+                    .union_nullability(indices.dtype().nullability()),
+                array.symbols().clone(),
+                array.symbol_lengths().clone(),
+                array
+                    .codes()
+                    .take(indices.to_array())?
+                    .as_::<VarBinVTable>()
+                    .clone(),
+                fill_null(
+                    &array.uncompressed_lengths().take(indices.to_array())?,
+                    &Scalar::new(
+                        array.uncompressed_lengths_dtype().clone(),
+                        ScalarValue::from(0),
+                    ),
+                )?,
+            )?
+            .into_array(),
+        ))
     }
 }
 

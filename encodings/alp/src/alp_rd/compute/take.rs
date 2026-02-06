@@ -16,46 +16,44 @@ use vortex_scalar::ScalarValue;
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
 
-fn take_alprd(array: &ALPRDArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_left_parts = array.left_parts().take(indices.to_array())?;
-    let left_parts_exceptions = array
-        .left_parts_patches()
-        .map(|patches| patches.take(indices))
-        .transpose()?
-        .flatten()
-        .map(|p| {
-            let values_dtype = p
-                .values()
-                .dtype()
-                .with_nullability(taken_left_parts.dtype().nullability());
-            p.cast_values(&values_dtype)
-        })
-        .transpose()?;
-    let right_parts = fill_null(
-        &array.right_parts().take(indices.to_array())?,
-        &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
-    )?;
-
-    Ok(ALPRDArray::try_new(
-        array
-            .dtype()
-            .with_nullability(taken_left_parts.dtype().nullability()),
-        taken_left_parts,
-        array.left_parts_dictionary().clone(),
-        right_parts,
-        array.right_bit_width(),
-        left_parts_exceptions,
-    )?
-    .into_array())
-}
-
 impl TakeExecute for ALPRDVTable {
     fn take(
         array: &ALPRDArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_alprd(array, indices).map(Some)
+        let taken_left_parts = array.left_parts().take(indices.to_array())?;
+        let left_parts_exceptions = array
+            .left_parts_patches()
+            .map(|patches| patches.take(indices))
+            .transpose()?
+            .flatten()
+            .map(|p| {
+                let values_dtype = p
+                    .values()
+                    .dtype()
+                    .with_nullability(taken_left_parts.dtype().nullability());
+                p.cast_values(&values_dtype)
+            })
+            .transpose()?;
+        let right_parts = fill_null(
+            &array.right_parts().take(indices.to_array())?,
+            &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
+        )?;
+
+        Ok(Some(
+            ALPRDArray::try_new(
+                array
+                    .dtype()
+                    .with_nullability(taken_left_parts.dtype().nullability()),
+                taken_left_parts,
+                array.left_parts_dictionary().clone(),
+                right_parts,
+                array.right_bit_width(),
+                left_parts_exceptions,
+            )?
+            .into_array(),
+        ))
     }
 }
 

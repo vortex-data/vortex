@@ -20,21 +20,19 @@ use vortex_mask::Mask;
 use crate::FoRArray;
 use crate::FoRVTable;
 
-fn take_for(array: &FoRArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    FoRArray::try_new(
-        array.encoded().take(indices.to_array())?,
-        array.reference_scalar().clone(),
-    )
-    .map(|a| a.into_array())
-}
-
 impl TakeExecute for FoRVTable {
     fn take(
         array: &FoRArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_for(array, indices).map(Some)
+        Ok(Some(
+            FoRArray::try_new(
+                array.encoded().take(indices.to_array())?,
+                array.reference_scalar().clone(),
+            )?
+            .into_array(),
+        ))
     }
 }
 

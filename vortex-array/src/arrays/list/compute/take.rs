@@ -26,33 +26,29 @@ use crate::vtable::ValidityHelper;
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
 // the `ListView::take` compute function once `ListView` is more stable.
 
-/// Take implementation for [`ListArray`].
-///
-/// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
-/// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
-/// non-contiguous indices would violate this requirement.
-#[expect(clippy::cognitive_complexity)]
-fn take_list(array: &ListArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let indices = indices.to_primitive();
-    // This is an over-approximation of the total number of elements in the resulting array.
-    let total_approx = array.elements().len().saturating_mul(indices.len());
-
-    match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
-        match_each_integer_ptype!(indices.ptype(), |I| {
-            match_smallest_offset_type!(total_approx, |OutputOffsetType| {
-                _take::<I, O, OutputOffsetType>(array, &indices)
-            })
-        })
-    })
-}
-
 impl TakeExecute for ListVTable {
+    /// Take implementation for [`ListArray`].
+    ///
+    /// Unlike `ListView`, `ListArray` must rebuild the elements array to maintain its invariant
+    /// that lists are stored contiguously and in-order (`offset[i+1] >= offset[i]`). Taking
+    /// non-contiguous indices would violate this requirement.
+    #[expect(clippy::cognitive_complexity)]
     fn take(
         array: &ListArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_list(array, indices).map(Some)
+        let indices = indices.to_primitive();
+        // This is an over-approximation of the total number of elements in the resulting array.
+        let total_approx = array.elements().len().saturating_mul(indices.len());
+
+        match_each_integer_ptype!(array.offsets().dtype().as_ptype(), |O| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                match_smallest_offset_type!(total_approx, |OutputOffsetType| {
+                    _take::<I, O, OutputOffsetType>(array, &indices).map(Some)
+                })
+            })
+        })
     }
 }
 

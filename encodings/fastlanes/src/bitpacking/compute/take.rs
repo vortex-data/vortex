@@ -37,34 +37,30 @@ use crate::bitpack_decompress;
 /// see https://github.com/vortex-data/vortex/pull/190#issue-2223752833
 pub(super) const UNPACK_CHUNK_THRESHOLD: usize = 8;
 
-fn take_bitpacked(array: &BitPackedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    // If the indices are large enough, it's faster to flatten and take the primitive array.
-    if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
-        return array.to_primitive().take(indices.to_array());
-    }
-
-    // NOTE: we use the unsigned PType because all values in the BitPackedArray must
-    //  be non-negative (pre-condition of creating the BitPackedArray).
-    let ptype: PType = PType::try_from(array.dtype())?;
-    let validity = array.validity();
-    let taken_validity = validity.take(indices)?;
-
-    let indices = indices.to_primitive();
-    let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
-        match_each_integer_ptype!(indices.ptype(), |I| {
-            take_primitive::<T, I>(array, &indices, taken_validity)?
-        })
-    });
-    Ok(taken.reinterpret_cast(ptype).into_array())
-}
-
 impl TakeExecute for BitPackedVTable {
     fn take(
         array: &BitPackedArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_bitpacked(array, indices).map(Some)
+        // If the indices are large enough, it's faster to flatten and take the primitive array.
+        if indices.len() * UNPACK_CHUNK_THRESHOLD > array.len() {
+            return array.to_primitive().take(indices.to_array()).map(Some);
+        }
+
+        // NOTE: we use the unsigned PType because all values in the BitPackedArray must
+        //  be non-negative (pre-condition of creating the BitPackedArray).
+        let ptype: PType = PType::try_from(array.dtype())?;
+        let validity = array.validity();
+        let taken_validity = validity.take(indices)?;
+
+        let indices = indices.to_primitive();
+        let taken = match_each_unsigned_integer_ptype!(ptype.to_unsigned(), |T| {
+            match_each_integer_ptype!(indices.ptype(), |I| {
+                take_primitive::<T, I>(array, &indices, taken_validity)?
+            })
+        });
+        Ok(Some(taken.reinterpret_cast(ptype).into_array()))
     }
 }
 
