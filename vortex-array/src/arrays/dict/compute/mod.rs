@@ -27,20 +27,18 @@ use crate::arrays::filter::FilterReduce;
 use crate::compute::take;
 use crate::kernel::ParentKernelSet;
 
-fn take_dict(array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let codes = take(array.codes(), indices)?;
-    // SAFETY: selecting codes doesn't change the invariants of DictArray
-    // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
-    Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()).into_array() })
-}
-
 impl TakeExecute for DictVTable {
     fn take(
         array: &DictArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_dict(array, indices).map(Some)
+        let codes = take(array.codes(), indices)?;
+        // SAFETY: selecting codes doesn't change the invariants of DictArray
+        // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+        }))
     }
 }
 

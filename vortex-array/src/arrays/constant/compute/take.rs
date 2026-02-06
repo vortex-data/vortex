@@ -16,43 +16,39 @@ use crate::arrays::TakeReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
 
-fn take_constant(array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let result = match indices.validity_mask()?.bit_buffer() {
-        AllOr::All => {
-            let scalar = Scalar::new(
-                array
-                    .scalar()
-                    .dtype()
-                    .union_nullability(indices.dtype().nullability()),
-                array.scalar().value().clone(),
-            );
-            ConstantArray::new(scalar, indices.len()).into_array()
-        }
-        AllOr::None => ConstantArray::new(
-            Scalar::null(
-                array
-                    .dtype()
-                    .union_nullability(indices.dtype().nullability()),
-            ),
-            indices.len(),
-        )
-        .into_array(),
-        AllOr::Some(v) => {
-            let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
-
-            if array.scalar().is_null() {
-                return Ok(arr);
-            }
-
-            MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
-        }
-    };
-    Ok(result)
-}
-
 impl TakeReduce for ConstantVTable {
     fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-        take_constant(array, indices).map(Some)
+        let result = match indices.validity_mask()?.bit_buffer() {
+            AllOr::All => {
+                let scalar = Scalar::new(
+                    array
+                        .scalar()
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                    array.scalar().value().clone(),
+                );
+                ConstantArray::new(scalar, indices.len()).into_array()
+            }
+            AllOr::None => ConstantArray::new(
+                Scalar::null(
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                ),
+                indices.len(),
+            )
+            .into_array(),
+            AllOr::Some(v) => {
+                let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
+
+                if array.scalar().is_null() {
+                    return Ok(Some(arr));
+                }
+
+                MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
+            }
+        };
+        Ok(Some(result))
     }
 }
 

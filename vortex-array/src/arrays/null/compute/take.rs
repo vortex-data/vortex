@@ -15,25 +15,21 @@ use crate::arrays::TakeReduce;
 use crate::arrays::TakeReduceAdaptor;
 use crate::optimizer::rules::ParentRuleSet;
 
-#[allow(clippy::cast_possible_truncation)]
-fn take_null(array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let indices = indices.to_primitive();
-
-    // Enforce all indices are valid
-    match_each_integer_ptype!(indices.ptype(), |T| {
-        for index in indices.as_slice::<T>() {
-            if (*index as usize) >= array.len() {
-                vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
-            }
-        }
-    });
-
-    Ok(NullArray::new(indices.len()).into_array())
-}
-
 impl TakeReduce for NullVTable {
+    #[allow(clippy::cast_possible_truncation)]
     fn take(array: &NullArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
-        take_null(array, indices).map(Some)
+        let indices = indices.to_primitive();
+
+        // Enforce all indices are valid
+        match_each_integer_ptype!(indices.ptype(), |T| {
+            for index in indices.as_slice::<T>() {
+                if (*index as usize) >= array.len() {
+                    vortex_bail!(OutOfBounds: *index as usize, 0, array.len());
+                }
+            }
+        });
+
+        Ok(Some(NullArray::new(indices.len()).into_array()))
     }
 }
 

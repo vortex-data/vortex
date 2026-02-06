@@ -3,7 +3,10 @@
 
 use crate::arrays::FilterExecuteAdaptor;
 use crate::arrays::ListVTable;
+use crate::arrays::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-pub(crate) const PARENT_KERNELS: ParentKernelSet<ListVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&FilterExecuteAdaptor(ListVTable))]);
+pub(crate) const PARENT_KERNELS: ParentKernelSet<ListVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&FilterExecuteAdaptor(ListVTable)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(ListVTable)),
+]);

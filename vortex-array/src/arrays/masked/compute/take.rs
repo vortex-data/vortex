@@ -17,32 +17,30 @@ use crate::compute::take;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
-fn take_masked(array: &MaskedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_child = if !indices.all_valid()? {
-        // This is safe because we'll mask out these positions in the validity
-        let filled_take = fill_null(
-            indices,
-            &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
-        )?;
-        take(&array.child, &filled_take)?
-    } else {
-        take(&array.child, indices)?
-    };
-
-    // Compute the new validity by taking from array's validity and merging with indices validity
-    let taken_validity = array.validity().take(indices)?;
-
-    // Construct new MaskedArray
-    Ok(MaskedArray::try_new(taken_child, taken_validity)?.into_array())
-}
-
 impl TakeExecute for MaskedVTable {
     fn take(
         array: &MaskedArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_masked(array, indices).map(Some)
+        let taken_child = if !indices.all_valid()? {
+            // This is safe because we'll mask out these positions in the validity
+            let filled_take = fill_null(
+                indices,
+                &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
+            )?;
+            take(&array.child, &filled_take)?
+        } else {
+            take(&array.child, indices)?
+        };
+
+        // Compute the new validity by taking from array's validity and merging with indices validity
+        let taken_validity = array.validity().take(indices)?;
+
+        // Construct new MaskedArray
+        Ok(Some(
+            MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
+        ))
     }
 }
 

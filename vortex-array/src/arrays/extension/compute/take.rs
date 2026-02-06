@@ -13,24 +13,22 @@ use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-fn take_extension(array: &ExtensionArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-    let taken_storage = array.storage().take(indices.to_array())?;
-    Ok(ExtensionArray::new(
-        array
-            .ext_dtype()
-            .with_nullability(taken_storage.dtype().nullability()),
-        taken_storage,
-    )
-    .into_array())
-}
-
 impl TakeExecute for ExtensionVTable {
     fn take(
         array: &ExtensionArray,
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        take_extension(array, indices).map(Some)
+        let taken_storage = array.storage().take(indices.to_array())?;
+        Ok(Some(
+            ExtensionArray::new(
+                array
+                    .ext_dtype()
+                    .with_nullability(taken_storage.dtype().nullability()),
+                taken_storage,
+            )
+            .into_array(),
+        ))
     }
 }
 

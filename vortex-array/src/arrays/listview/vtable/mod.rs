@@ -25,6 +25,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -169,5 +170,14 @@ impl VTable for ListViewVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
