@@ -175,4 +175,11 @@ jobs:
             "remote_storage": "s3://vortex-bench-dev-eu/${{github.ref_name}}/${{github.run_id}}/fineweb/",
             "targets": "datafusion:parquet,datafusion:vortex,datafusion:vortex-compact,duckdb:parquet,duckdb:vortex,duckdb:vortex-compact"
           },
+          {
+            "id": "polarsignals",
+            "subcommand": "polarsignals",
+            "name": "PolarSignals Profiling",
+            "targets": "datafusion:vortex",
+            "scale_factor": "1"
+          },
         ]
