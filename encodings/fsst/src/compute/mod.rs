@@ -10,10 +10,8 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::arrays::VarBinVTable;
+use vortex_array::arrays::take_into_varbin;
 use vortex_array::compute::fill_null;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -35,11 +33,7 @@ impl TakeExecute for FSSTVTable {
                     .union_nullability(indices.dtype().nullability()),
                 array.symbols().clone(),
                 array.symbol_lengths().clone(),
-                array
-                    .codes()
-                    .take(indices.to_array())?
-                    .as_::<VarBinVTable>()
-                    .clone(),
+                take_into_varbin(array.codes(), indices)?,
                 fill_null(
                     &array.uncompressed_lengths().take(indices.to_array())?,
                     &Scalar::new(
@@ -51,11 +45,6 @@ impl TakeExecute for FSSTVTable {
             .into_array(),
         ))
     }
-}
-
-impl FSSTVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

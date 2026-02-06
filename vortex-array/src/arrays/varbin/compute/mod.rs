@@ -4,6 +4,7 @@
 pub(crate) mod rules;
 mod slice;
 pub(crate) use min_max::varbin_compute_min_max;
+pub use take::take_into_varbin;
 
 mod cast;
 mod compare;

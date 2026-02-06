@@ -11,6 +11,7 @@ use vortex_array::arrays::ExactScalarFn;
 use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::ScalarFnArrayView;
 use vortex_array::arrays::ScalarFnVTable;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::Operator;
 use vortex_array::expr::Binary;
 use vortex_array::kernel::ExecuteParentKernel;
@@ -34,6 +35,7 @@ use crate::compute::compare::find_intersection_scalar;
 pub(crate) const PARENT_KERNELS: ParentKernelSet<SequenceVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&SequenceCompareKernel),
     ParentKernelSet::lift(&FilterExecuteAdaptor(SequenceVTable)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(SequenceVTable)),
 ]);
 
 /// Kernel to execute comparison operations directly on a sequence array.

@@ -8,12 +8,10 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::CastKernel;
 use vortex_array::compute::CastKernelAdapter;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_array::register_kernel;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
@@ -84,11 +82,6 @@ impl TakeExecute for ByteBoolVTable {
             ByteBoolArray::from_vec(taken_bools, validity).into_array(),
         ))
     }
-}
-
-impl ByteBoolVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

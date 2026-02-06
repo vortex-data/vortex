@@ -118,6 +118,15 @@ impl VTable for ByteBoolVTable {
         let validity = array.validity().clone();
         Ok(BoolArray::new(boolean_buffer, validity).into_array())
     }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        crate::kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
 }
 
 #[derive(Clone, Debug)]

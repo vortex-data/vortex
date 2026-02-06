@@ -24,11 +24,9 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::cast;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -105,11 +103,6 @@ impl TakeExecute for PrimitiveVTable {
             .take(array, &unsigned_indices, validity)
             .map(Some)
     }
-}
-
-impl PrimitiveVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 // Compiler may see this as unused based on enabled features

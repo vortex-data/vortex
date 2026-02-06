@@ -10,8 +10,6 @@ use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
-use crate::kernel::ParentKernelSet;
 
 impl TakeExecute for ExtensionVTable {
     fn take(
@@ -30,9 +28,4 @@ impl TakeExecute for ExtensionVTable {
             .into_array(),
         ))
     }
-}
-
-impl ExtensionVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }

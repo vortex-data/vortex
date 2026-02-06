@@ -7,8 +7,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::SparseArray;
@@ -54,11 +52,6 @@ impl TakeExecute for SparseVTable {
             .into_array(),
         ))
     }
-}
-
-impl SparseVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

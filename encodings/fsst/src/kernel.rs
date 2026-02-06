@@ -2,12 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::arrays::FilterExecuteAdaptor;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::kernel::ParentKernelSet;
 
 use crate::FSSTVTable;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable))]);
+pub(super) const PARENT_KERNELS: ParentKernelSet<FSSTVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&FilterExecuteAdaptor(FSSTVTable)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(FSSTVTable)),
+]);
 
 #[cfg(test)]
 mod tests {

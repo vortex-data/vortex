@@ -5,8 +5,8 @@ mod array;
 pub use array::VarBinArray;
 
 pub(crate) mod compute;
+pub use compute::take_into_varbin;
 pub(crate) use compute::varbin_compute_min_max;
-// For use in `varbinview`.
 
 mod vtable;
 pub use vtable::VarBinVTable;

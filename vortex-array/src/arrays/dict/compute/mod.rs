@@ -18,13 +18,11 @@ use vortex_mask::Mask;
 use super::DictArray;
 use super::DictVTable;
 use super::TakeExecute;
-use super::TakeExecuteAdaptor;
 use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
-use crate::kernel::ParentKernelSet;
 
 impl TakeExecute for DictVTable {
     fn take(
@@ -43,11 +41,6 @@ impl TakeExecute for DictVTable {
             DictArray::new_unchecked(codes, array.values().clone()).into_array()
         }))
     }
-}
-
-impl DictVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 impl FilterReduce for DictVTable {

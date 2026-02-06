@@ -10,8 +10,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
@@ -103,11 +101,6 @@ impl TakeExecute for SequenceVTable {
     }
 }
 
-impl SequenceVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
-}
-
 #[cfg(test)]
 mod test {
     use rstest::rstest;
@@ -171,7 +164,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "index out of bounds")]
+    #[should_panic(expected = "out of bounds")]
     fn test_bounds_check() {
         let array = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);

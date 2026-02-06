@@ -10,16 +10,20 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::FilterExecuteAdaptor;
 use vortex_array::arrays::SliceArray;
 use vortex_array::arrays::SliceVTable;
+use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::kernel::ExecuteParentKernel;
 use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::RunEndArray;
 use crate::RunEndVTable;
+use crate::compute::take_from::RunEndVTableTakeFrom;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet::new(&[
     ParentKernelSet::lift(&RunEndSliceKernel),
     ParentKernelSet::lift(&FilterExecuteAdaptor(RunEndVTable)),
+    ParentKernelSet::lift(&TakeExecuteAdaptor(RunEndVTable)),
+    ParentKernelSet::lift(&RunEndVTableTakeFrom),
 ]);
 
 /// Kernel to execute slicing on a RunEnd array.

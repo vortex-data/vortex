@@ -7,11 +7,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::fill_null;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
@@ -95,11 +93,6 @@ impl TakeExecute for DateTimePartsVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         take_datetime_parts(array, indices).map(Some)
     }
-}
-
-impl DateTimePartsVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

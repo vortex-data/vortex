@@ -9,11 +9,9 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::MaskKernel;
 use vortex_array::compute::MaskKernelAdapter;
 use vortex_array::compute::mask;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
@@ -37,11 +35,6 @@ impl TakeExecute for ZigZagVTable {
         let encoded = array.encoded().take(indices.to_array())?;
         Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
     }
-}
-
-impl ZigZagVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 impl MaskKernel for ZigZagVTable {

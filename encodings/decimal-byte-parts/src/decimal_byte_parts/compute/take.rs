@@ -5,8 +5,6 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::DecimalBytePartsArray;
@@ -21,9 +19,4 @@ impl TakeExecute for DecimalBytePartsVTable {
         DecimalBytePartsArray::try_new(array.msp.take(indices.to_array())?, *array.decimal_dtype())
             .map(|a| Some(a.to_array()))
     }
-}
-
-impl DecimalBytePartsVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }

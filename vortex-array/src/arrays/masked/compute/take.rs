@@ -11,9 +11,7 @@ use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::fill_null;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for MaskedVTable {
@@ -45,11 +43,6 @@ impl TakeExecute for MaskedVTable {
             MaskedArray::try_new(taken_child, taken_validity)?.into_array(),
         ))
     }
-}
-
-impl MaskedVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

@@ -37,6 +37,7 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 
 use crate::canonical::decode_to_temporal;
+use crate::compute::kernel::PARENT_KERNELS;
 use crate::compute::rules::PARENT_RULES;
 
 vtable!(DateTimeParts);
@@ -161,6 +162,15 @@ impl VTable for DateTimePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

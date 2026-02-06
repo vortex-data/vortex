@@ -14,10 +14,8 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::compute;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -97,9 +95,4 @@ impl TakeExecute for ListViewVTable {
                 .into_array(),
         ))
     }
-}
-
-impl ListViewVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }

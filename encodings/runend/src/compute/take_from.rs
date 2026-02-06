@@ -1,70 +1,70 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
+use vortex_array::IntoArray;
+use vortex_array::arrays::DictArray;
+use vortex_array::arrays::DictVTable;
+use vortex_array::kernel::ExecuteParentKernel;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+
+use crate::RunEndArray;
+use crate::RunEndVTable;
+
+#[derive(Debug)]
+pub(crate) struct RunEndVTableTakeFrom;
+
+impl ExecuteParentKernel<RunEndVTable> for RunEndVTableTakeFrom {
+    type Parent = DictVTable;
+
+    fn execute_parent(
+        &self,
+        array: &RunEndArray,
+        dict: &DictArray,
+        child_idx: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        if child_idx != 0 {
+            return Ok(None);
+        }
+        // Only `Primitive` and `Bool` are valid run-end value types.
+        // TODO: Support additional DTypes
+        if !matches!(dict.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
+            return Ok(None);
+        }
+
+        // Create a new run-end array containing values as values, instead of indices as values.
+        // SAFETY: we are copying ends from an existing valid RunEndArray
+        let ree_array = unsafe {
+            RunEndArray::new_unchecked(
+                array.ends().clone(),
+                dict.values().take(array.values().clone())?,
+                array.offset(),
+                array.len(),
+            )
+        };
+        //
+        Ok(Some(ree_array.into_array()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::fmt::Debug;
-
     use vortex_array::Array;
-    use vortex_array::ArrayRef;
     use vortex_array::ExecutionCtx;
     use vortex_array::IntoArray;
     use vortex_array::arrays::DictArray;
-    use vortex_array::arrays::DictVTable;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::kernel::ExecuteParentKernel;
     use vortex_buffer::buffer;
-    use vortex_dtype::DType;
     use vortex_error::VortexResult;
     use vortex_session::VortexSession;
 
     use crate::RunEndArray;
-    use crate::RunEndVTable;
-
-    #[derive(Debug)]
-    struct RunEndVTableTakeFrom;
-
-    impl ExecuteParentKernel<RunEndVTable> for RunEndVTableTakeFrom {
-        type Parent = DictVTable;
-
-        fn execute_parent(
-            &self,
-            array: &RunEndArray,
-            dict: &DictArray,
-            child_idx: usize,
-            _ctx: &mut ExecutionCtx,
-        ) -> VortexResult<Option<ArrayRef>> {
-            if child_idx != 0 {
-                return Ok(None);
-            }
-            // Only `Primitive` and `Bool` are valid run-end value types.
-            // TODO: Support additional DTypes
-            if !matches!(dict.dtype(), DType::Primitive(_, _) | DType::Bool(_)) {
-                return Ok(None);
-            }
-
-            //         // Transform the run-end encoding from storing indices to storing values
-            //         // by taking values from `source` at positions specified by `indices.values()`.
-            //
-            //         // Create a new run-end array containing values as values, instead of indices as values.
-            //         // SAFETY: we are copying ends from an existing valid RunEndArray
-            let ree_array = unsafe {
-                RunEndArray::new_unchecked(
-                    array.ends().clone(),
-                    dict.values().take(array.values().clone())?,
-                    array.offset(),
-                    array.len(),
-                )
-            };
-            //
-            Ok(Some(ree_array.into_array()))
-
-            // TODO: implement run-end take from optimization
-            // For now, skip this optimization and fall back to default take
-            // Ok(None)
-        }
-    }
+    use crate::compute::take_from::RunEndVTableTakeFrom;
 
     /// Build a DictArray whose codes are run-end encoded.
     ///

@@ -45,6 +45,7 @@ use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
+use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
 vtable!(DecimalByteParts);
@@ -129,6 +130,15 @@ impl VTable for DecimalBytePartsVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         to_canonical_decimal(array, ctx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

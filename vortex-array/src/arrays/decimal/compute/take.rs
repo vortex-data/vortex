@@ -14,9 +14,7 @@ use crate::ToCanonical;
 use crate::arrays::DecimalArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for DecimalVTable {
@@ -42,11 +40,6 @@ impl TakeExecute for DecimalVTable {
 
         Ok(Some(decimal.to_array()))
     }
-}
-
-impl DecimalVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[inline]

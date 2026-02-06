@@ -16,11 +16,9 @@ use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Re-revert to the version where we simply convert to a `ListView` and call
@@ -50,11 +48,6 @@ impl TakeExecute for ListVTable {
             })
         })
     }
-}
-
-impl ListVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(

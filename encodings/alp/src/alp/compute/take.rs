@@ -6,8 +6,6 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
@@ -37,11 +35,6 @@ impl TakeExecute for ALPVTable {
             ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
         ))
     }
-}
-
-impl ALPVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

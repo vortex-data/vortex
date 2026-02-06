@@ -6,9 +6,7 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
 use vortex_array::compute::fill_null;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -55,11 +53,6 @@ impl TakeExecute for ALPRDVTable {
             .into_array(),
         ))
     }
-}
-
-impl ALPRDVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

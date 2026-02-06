@@ -9,8 +9,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
@@ -53,11 +51,6 @@ impl TakeExecute for RunEndVTable {
 
         take_indices_unchecked(array, &checked_indices, primitive_indices.validity()).map(Some)
     }
-}
-
-impl RunEndVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.

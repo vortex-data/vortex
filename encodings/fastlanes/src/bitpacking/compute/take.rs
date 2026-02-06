@@ -12,8 +12,6 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::arrays::TakeExecuteAdaptor;
-use vortex_array::kernel::ParentKernelSet;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -62,11 +60,6 @@ impl TakeExecute for BitPackedVTable {
         });
         Ok(Some(taken.reinterpret_cast(ptype).into_array()))
     }
-}
-
-impl BitPackedVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 fn take_primitive<T: NativePType + BitPacking, I: IntegerPType>(

@@ -12,9 +12,7 @@ use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::compute;
-use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -54,9 +52,4 @@ impl TakeExecute for StructVTable {
         .map(|a| a.into_array())
         .map(Some)
     }
-}
-
-impl StructVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }

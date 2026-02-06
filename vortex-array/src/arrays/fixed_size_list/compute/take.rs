@@ -17,9 +17,7 @@ use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -39,11 +37,6 @@ impl TakeExecute for FixedSizeListVTable {
         })
         .map(Some)
     }
-}
-
-impl FixedSizeListVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 /// Dispatches to the appropriate take implementation based on list size and nullability.

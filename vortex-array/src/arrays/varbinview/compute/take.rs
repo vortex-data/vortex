@@ -16,12 +16,10 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for VarBinViewVTable {
@@ -54,11 +52,6 @@ impl TakeExecute for VarBinViewVTable {
             ))
         }
     }
-}
-
-impl VarBinViewVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 fn take_views<I: AsPrimitive<usize>>(

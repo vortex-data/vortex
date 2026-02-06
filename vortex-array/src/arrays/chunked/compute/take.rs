@@ -13,12 +13,10 @@ use crate::ToCanonical;
 use crate::arrays::ChunkedVTable;
 use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::cast;
 use crate::compute::take;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::validity::Validity;
 
 fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
@@ -91,11 +89,6 @@ impl TakeExecute for ChunkedVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         take_chunked(array, indices).map(Some)
     }
-}
-
-impl ChunkedVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 #[cfg(test)]

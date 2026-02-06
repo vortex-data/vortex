@@ -18,10 +18,8 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::TakeExecute;
-use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::fill_null;
 use crate::executor::ExecutionCtx;
-use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for BoolVTable {
@@ -49,11 +47,6 @@ impl TakeExecute for BoolVTable {
             BoolArray::new(buffer, array.validity().take(indices)?).to_array(),
         ))
     }
-}
-
-impl BoolVTable {
-    pub const TAKE_KERNELS: ParentKernelSet<Self> =
-        ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor::<Self>(Self))]);
 }
 
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
