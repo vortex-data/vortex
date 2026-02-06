@@ -141,9 +141,13 @@ pub(crate) async fn copy_varbinview_to_varbin(
             .map_err(|d| vortex_err!("copy_strings kernel failure: {d}"))?;
     }
 
+    // synchronize?
+    ctx.stream()
+        .synchronize()
+        .map_err(|e| vortex_err!("synchronize failure: {e}"))?;
+
     // now, offsets should contain the final offsets, and data_buf should contain all the
     // string data.
-
     let bytes_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(data_buf)));
     let offsets_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(offsets)));
 
