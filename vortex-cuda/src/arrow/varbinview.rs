@@ -99,7 +99,9 @@ pub(crate) async fn copy_varbinview_to_varbin(
 
     // synchronize so the offset writes complete
     // now it is safe to read the memory again.
-    ctx.synchronize_stream()?;
+    ctx.stream()
+        .synchronize()
+        .map_err(|d| vortex_err!("synchronize stream failed: {d}"))?;
 
     let last_offset_host = ctx
         .stream()
