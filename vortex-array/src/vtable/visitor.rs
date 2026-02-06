@@ -5,8 +5,34 @@ use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayChildVisitorUnnamed;
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::buffer::BufferHandle;
+use crate::validity::Validity;
 use crate::vtable::VTable;
+
+/// Returns the validity as a child array if it produces one.
+///
+/// - `NonNullable` and `AllValid` produce no child (returns `None`)
+/// - `AllInvalid` produces a `ConstantArray` of `false` values
+/// - `Array` returns the validity array
+#[inline]
+pub fn validity_to_child(validity: &Validity, len: usize) -> Option<ArrayRef> {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => None,
+        Validity::AllInvalid => Some(ConstantArray::new(false, len).into_array()),
+        Validity::Array(array) => Some(array.clone()),
+    }
+}
+
+/// Returns 1 if validity produces a child, 0 otherwise.
+#[inline]
+pub fn validity_nchildren(validity: &Validity) -> usize {
+    match validity {
+        Validity::NonNullable | Validity::AllValid => 0,
+        Validity::AllInvalid | Validity::Array(_) => 1,
+    }
+}
 
 pub trait VisitorVTable<V: VTable> {
     /// Visit the buffers of the array.

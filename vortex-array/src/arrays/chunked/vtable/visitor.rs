@@ -26,4 +26,15 @@ impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
             visitor.visit_child(chunk);
         }
     }
+
+    fn nchildren(array: &ChunkedArray) -> usize {
+        1 + array.chunks().len()
+    }
+
+    fn nth_child(array: &ChunkedArray, idx: usize) -> Option<crate::ArrayRef> {
+        match idx {
+            0 => Some(array.chunk_offsets.to_array()),
+            n => array.chunks().get(n - 1).cloned(),
+        }
+    }
 }
