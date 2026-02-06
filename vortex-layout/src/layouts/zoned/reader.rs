@@ -39,6 +39,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::zoned::ZonedLayout;
 use crate::layouts::zoned::zone_map::ZoneMap;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 type SharedZoneMap = Shared<BoxFuture<'static, SharedVortexResult<ZoneMap>>>;
@@ -133,6 +134,7 @@ impl ZonedReader {
                         &(0..nzones as u64),
                         &root(),
                         MaskFuture::new_true(nzones),
+                        SegmentPriority::ZoneMap, // Zone maps are highest priority
                     )
                     .vortex_expect("Failed construct zone map evaluation");
 
@@ -242,11 +244,12 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         tracing::debug!("Stats pruning evaluation: {} - {}", &self.name, expr);
-        let data_eval = self
-            .data_child()?
-            .pruning_evaluation(row_range, expr, mask.clone())?;
+        let data_eval =
+            self.data_child()?
+                .pruning_evaluation(row_range, expr, mask.clone(), priority)?;
 
         let Some(pruning_mask_future) = self.pruning_mask_future(expr.clone()) else {
             tracing::debug!("Stats pruning evaluation: not prune-able {expr}");
@@ -314,8 +317,10 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
-        self.data_child()?.filter_evaluation(row_range, expr, mask)
+        self.data_child()?
+            .filter_evaluation(row_range, expr, mask, priority)
     }
 
     fn projection_evaluation(
@@ -323,11 +328,12 @@ impl LayoutReader for ZonedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO(ngates): there are some projection expressions that we may also be able to
         //  short-circuit with statistics.
         self.data_child()?
-            .projection_evaluation(row_range, expr, mask)
+            .projection_evaluation(row_range, expr, mask, priority)
     }
 }
 
@@ -416,11 +422,12 @@ mod test {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::zoned::writer::ZonedLayoutOptions;
     use crate::layouts::zoned::writer::ZonedStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[fixture]
     /// Create a stats layout with three chunks of primitive arrays.
@@ -455,14 +462,16 @@ mod test {
     fn test_stats_evaluator(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_| async {
+        block_on(|handle| async {
+            let session = test_session(handle);
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await
@@ -477,9 +486,10 @@ mod test {
     fn test_stats_pruning_mask(
         #[from(stats_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_| async {
+        block_on(|handle| async {
+            let session = test_session(handle);
             let row_count = layout.row_count();
-            let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
 
             // Choose a prune-able expression
             let expr = gt(root(), lit(7));
@@ -489,6 +499,7 @@ mod test {
                     &(0..row_count),
                     &expr,
                     Mask::new_true(row_count.try_into().unwrap()),
+                    SegmentPriority::ZoneMap,
                 )
                 .unwrap()
                 .await

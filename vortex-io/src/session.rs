@@ -52,5 +52,26 @@ pub trait RuntimeSessionExt: SessionExt {
         self.get_mut::<RuntimeSession>().handle = Some(handle);
         self
     }
+
+    /// Configure the runtime session to use a CPUSegregatedRuntime.
+    ///
+    /// This separates CPU-bound work from I/O to prevent I/O starvation.
+    /// The CPU pool will reserve 2 cores for I/O by default.
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn with_cpu_segregated_runtime(self) -> Self {
+        self.get_mut::<RuntimeSession>().handle =
+            Some(crate::runtime::CPUSegregatedRuntime::current());
+        self
+    }
+
+    /// Configure the runtime session to use a CPUSegregatedRuntime,
+    /// reserving the specified number of cores for I/O.
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn with_cpu_segregated_runtime_reserved(self, reserved_for_io: usize) -> Self {
+        self.get_mut::<RuntimeSession>().handle = Some(
+            crate::runtime::CPUSegregatedRuntime::current_with_reserved(reserved_for_io),
+        );
+        self
+    }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

@@ -12,6 +12,8 @@ use pin_project_lite::pin_project;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
+use vortex_layout::segments::SegmentPriority;
+use vortex_utils::aliases::hash_map::HashMap;
 
 use crate::read::ReadRequest;
 use crate::read::RequestId;
@@ -105,11 +107,13 @@ struct State {
     // Maintains the set of pending requests, ordered by insertion.
     requests: BTreeMap<RequestId, ReadRequest>,
 
-    // Maintains a set of polled requests, ordered by insertion.
-    // Note that we intentionally choose a (polled, insertion) priority, such that earlier requests
-    // still complete first if both an early and late request have been polled. First-polled
-    // and most-recently-polled both have issues of priority inversion for our use-case.
-    polled_requests: BTreeMap<RequestId, ReadRequest>,
+    // Maintains a set of polled requests, ordered by (priority, insertion_order).
+    // Priority ordering ensures higher priority requests (lower SegmentPriority value)
+    // are processed first. Within the same priority, earlier requests complete first.
+    polled_requests: BTreeMap<(SegmentPriority, RequestId), ReadRequest>,
+
+    // Maps request ID to its priority for efficient lookup by ID.
+    polled_priority_by_id: HashMap<RequestId, SegmentPriority>,
 
     // Spatial index - allows us to find nearby requests for coalescing sorted by offset.
     requests_by_offset: BTreeSet<(u64, RequestId)>,
@@ -124,6 +128,7 @@ impl State {
         Self {
             requests: BTreeMap::new(),
             polled_requests: BTreeMap::new(),
+            polled_priority_by_id: HashMap::new(),
             requests_by_offset: BTreeSet::new(),
             metrics,
             coalesced_buffer_alignment,
@@ -140,7 +145,9 @@ impl State {
             }
             ReadEvent::Polled(req_id) => {
                 if let Some(req) = self.requests.remove(&req_id) {
-                    self.polled_requests.insert(req_id, req);
+                    let priority = req.priority;
+                    self.polled_priority_by_id.insert(req_id, priority);
+                    self.polled_requests.insert((priority, req_id), req);
                 }
             }
             ReadEvent::Dropped(req_id) => {
@@ -148,7 +155,9 @@ impl State {
                     self.requests_by_offset.remove(&(req.offset, req_id));
                     tracing::debug!(?req, "ReadRequest dropped before poll");
                 }
-                if let Some(req) = self.polled_requests.remove(&req_id) {
+                if let Some(priority) = self.polled_priority_by_id.remove(&req_id)
+                    && let Some(req) = self.polled_requests.remove(&(priority, req_id))
+                {
                     self.requests_by_offset.remove(&(req.offset, req_id));
                     tracing::debug!(?req, "ReadRequest dropped after poll");
                 }
@@ -179,11 +188,14 @@ impl State {
     }
 
     /// Find the next uncoalesced request, choosing only polled requests.
+    /// Requests are ordered by (priority, insertion_order), so higher priority requests
+    /// are returned first.
     fn next_uncoalesced(&mut self) -> Option<ReadRequest> {
-        while let Some((req_id, req)) = self.polled_requests.pop_first() {
+        while let Some(((priority, req_id), req)) = self.polled_requests.pop_first() {
+            self.polled_priority_by_id.remove(&req_id);
             self.requests_by_offset.remove(&(req.offset, req_id));
             if req.callback.is_closed() {
-                tracing::debug!("Dropping canceled request");
+                tracing::debug!(?priority, "Dropping canceled request");
                 continue;
             }
             return Some(req);
@@ -230,9 +242,11 @@ impl State {
                     continue;
                 }
 
+                // Look up request in polled_requests (by priority) or pending requests
                 let req = self
-                    .polled_requests
+                    .polled_priority_by_id
                     .get(&req_id)
+                    .and_then(|&priority| self.polled_requests.get(&(priority, req_id)))
                     .or_else(|| self.requests.get(&req_id))
                     .vortex_expect("Missing request in requests_by_offset");
 
@@ -260,9 +274,12 @@ impl State {
 
                     current_start = new_start;
                     current_end = new_end;
+
+                    // Remove from polled_requests (by priority) or pending requests
                     let req = self
-                        .polled_requests
+                        .polled_priority_by_id
                         .remove(&req_id)
+                        .and_then(|priority| self.polled_requests.remove(&(priority, req_id)))
                         .or_else(|| self.requests.remove(&req_id))
                         .vortex_expect("Missing request in requests_by_offset");
 
@@ -273,12 +290,15 @@ impl State {
             }
         }
 
-        // Remove any dropped requests
+        // Remove any dropped requests from spatial index and clear any remaining entries
         for (req_offset, req_id) in keys_to_remove {
             self.requests_by_offset.remove(&(req_offset, req_id));
-            self.polled_requests
-                .remove(&req_id)
-                .or_else(|| self.requests.remove(&req_id));
+            // Try to remove from polled_requests if not already removed
+            if let Some(priority) = self.polled_priority_by_id.remove(&req_id) {
+                self.polled_requests.remove(&(priority, req_id));
+            } else {
+                self.requests.remove(&req_id);
+            }
         }
 
         // Sort requests by offset for correct slicing in resolve
@@ -309,6 +329,7 @@ mod tests {
     use vortex_array::buffer::BufferHandle;
     use vortex_buffer::Alignment;
     use vortex_error::VortexResult;
+    use vortex_layout::segments::SegmentPriority;
     use vortex_metrics::DefaultMetricsRegistry;
     use vortex_metrics::MetricValue;
     use vortex_metrics::MetricsRegistry;
@@ -321,6 +342,15 @@ mod tests {
         offset: u64,
         length: usize,
     ) -> (ReadRequest, oneshot::Receiver<VortexResult<BufferHandle>>) {
+        create_request_with_priority(id, offset, length, SegmentPriority::default())
+    }
+
+    fn create_request_with_priority(
+        id: usize,
+        offset: u64,
+        length: usize,
+        priority: SegmentPriority,
+    ) -> (ReadRequest, oneshot::Receiver<VortexResult<BufferHandle>>) {
         let (tx, rx) = oneshot::channel();
         (
             ReadRequest {
@@ -328,6 +358,7 @@ mod tests {
                 offset,
                 length,
                 alignment: Alignment::none(),
+                priority,
                 callback: tx,
             },
             rx,
@@ -390,6 +421,62 @@ mod tests {
         assert_eq!(outputs.len(), 3);
 
         // Should be in insertion order, not poll order!
+        let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
+        assert_eq!(offsets, vec![0, 100, 200]); // req1, req2, req3
+    }
+
+    #[tokio::test]
+    async fn test_segment_priority_ordering() {
+        // Create requests with different priorities:
+        // - req1: ProjectionColumn (lowest priority, id=1)
+        // - req2: ZoneMap (highest priority, id=2)
+        // - req3: FilterColumn (medium priority, id=3)
+        let (req1, _rx1) =
+            create_request_with_priority(1, 0, 10, SegmentPriority::ProjectionColumn);
+        let (req2, _rx2) = create_request_with_priority(2, 100, 10, SegmentPriority::ZoneMap);
+        let (req3, _rx3) = create_request_with_priority(3, 200, 10, SegmentPriority::FilterColumn);
+
+        let events = vec![
+            // Insert in id order
+            ReadEvent::Request(req1),
+            ReadEvent::Request(req2),
+            ReadEvent::Request(req3),
+            // Poll all at once
+            ReadEvent::Polled(1),
+            ReadEvent::Polled(2),
+            ReadEvent::Polled(3),
+        ];
+
+        let outputs = collect_outputs(events, None).await;
+        assert_eq!(outputs.len(), 3);
+
+        // Should be ordered by priority: ZoneMap (2), FilterColumn (3), ProjectionColumn (1)
+        let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
+        assert_eq!(offsets, vec![100, 200, 0]); // req2, req3, req1
+    }
+
+    #[tokio::test]
+    async fn test_segment_priority_within_same_priority() {
+        // Within the same priority, earlier inserted requests should be processed first
+        let (req1, _rx1) = create_request_with_priority(1, 0, 10, SegmentPriority::FilterColumn);
+        let (req2, _rx2) = create_request_with_priority(2, 100, 10, SegmentPriority::FilterColumn);
+        let (req3, _rx3) = create_request_with_priority(3, 200, 10, SegmentPriority::FilterColumn);
+
+        let events = vec![
+            // Insert in reverse order
+            ReadEvent::Request(req3),
+            ReadEvent::Request(req2),
+            ReadEvent::Request(req1),
+            // Poll all
+            ReadEvent::Polled(1),
+            ReadEvent::Polled(2),
+            ReadEvent::Polled(3),
+        ];
+
+        let outputs = collect_outputs(events, None).await;
+        assert_eq!(outputs.len(), 3);
+
+        // Within same priority, should be ordered by insertion order (id order)
         let offsets: Vec<u64> = outputs.iter().map(|req| req.offset()).collect();
         assert_eq!(offsets, vec![0, 100, 200]); // req1, req2, req3
     }
@@ -465,6 +552,7 @@ mod tests {
             offset: 6,
             length: 5,
             alignment: Alignment::new(2),
+            priority: SegmentPriority::default(),
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -472,6 +560,7 @@ mod tests {
             offset: 12,
             length: 1,
             alignment: Alignment::new(4),
+            priority: SegmentPriority::default(),
             callback: tx2,
         };
 
@@ -540,6 +629,7 @@ mod tests {
             offset: 0,
             length: 10,
             alignment: Alignment::none(),
+            priority: SegmentPriority::default(),
             callback: tx1,
         };
         let req2 = ReadRequest {
@@ -547,6 +637,7 @@ mod tests {
             offset: 100,
             length: 10,
             alignment: Alignment::none(),
+            priority: SegmentPriority::default(),
             callback: tx2,
         };
 

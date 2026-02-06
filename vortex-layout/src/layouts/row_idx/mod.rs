@@ -42,6 +42,7 @@ use vortex_utils::aliases::dash_map::DashMap;
 use crate::ArrayFuture;
 use crate::LayoutReader;
 use crate::layouts::partitioned::PartitionedExprEval;
+use crate::segments::SegmentPriority;
 
 pub struct RowIdxLayoutReader {
     name: Arc<str>,
@@ -172,6 +173,7 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         Ok(match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => row_idx_mask_future(
@@ -181,7 +183,9 @@ impl LayoutReader for RowIdxLayoutReader {
                 MaskFuture::ready(mask),
                 self.session.clone(),
             ),
-            Partitioning::Child(expr) => self.child.pruning_evaluation(row_range, expr, mask)?,
+            Partitioning::Child(expr) => self
+                .child
+                .pruning_evaluation(row_range, expr, mask, priority)?,
             Partitioning::Partitioned(..) => MaskFuture::ready(mask),
         })
     }
@@ -191,12 +195,15 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         match &self.partition_expr(expr) {
             // Since this is run during pruning, we skip re-evaluating the row index expression
             // during the filter evaluation.
             Partitioning::RowIdx(_) => Ok(mask),
-            Partitioning::Child(expr) => self.child.filter_evaluation(row_range, expr, mask),
+            Partitioning::Child(expr) => self
+                .child
+                .filter_evaluation(row_range, expr, mask, priority),
             Partitioning::Partitioned(p) => p.clone().into_mask_future(
                 mask,
                 |annotation, expr, mask| match annotation {
@@ -207,13 +214,17 @@ impl LayoutReader for RowIdxLayoutReader {
                         mask,
                         self.session.clone(),
                     )),
-                    Partition::Child => self.child.filter_evaluation(row_range, expr, mask),
+                    Partition::Child => self
+                        .child
+                        .filter_evaluation(row_range, expr, mask, priority),
                 },
                 |annotation, expr, mask| match annotation {
                     Partition::RowIdx => {
                         Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
                     }
-                    Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
+                    Partition::Child => self
+                        .child
+                        .projection_evaluation(row_range, expr, mask, priority),
                 },
                 self.session.clone(),
             ),
@@ -225,19 +236,24 @@ impl LayoutReader for RowIdxLayoutReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         match &self.partition_expr(expr) {
             Partitioning::RowIdx(expr) => {
                 Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
             }
-            Partitioning::Child(expr) => self.child.projection_evaluation(row_range, expr, mask),
+            Partitioning::Child(expr) => self
+                .child
+                .projection_evaluation(row_range, expr, mask, priority),
             Partitioning::Partitioned(p) => {
                 p.clone()
                     .into_array_future(mask, |annotation, expr, mask| match annotation {
                         Partition::RowIdx => {
                             Ok(row_idx_array_future(self.row_offset, row_range, expr, mask))
                         }
-                        Partition::Child => self.child.projection_evaluation(row_range, expr, mask),
+                        Partition::Child => self
+                            .child
+                            .projection_evaluation(row_range, expr, mask, priority),
                     })
             }
         }
@@ -314,14 +330,16 @@ mod tests {
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::row_idx::RowIdxLayoutReader;
     use crate::layouts::row_idx::row_idx;
+    use crate::segments::SegmentPriority;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[test]
     fn flat_expr_no_row_id() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -340,13 +358,14 @@ mod tests {
             let expr = eq(root(), lit(3i32));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                SESSION.clone(),
+                layout.new_reader("".into(), segments, &session).unwrap(),
+                session.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
                 &expr,
                 MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                SegmentPriority::ProjectionColumn,
             )
             .unwrap()
             .await
@@ -362,6 +381,7 @@ mod tests {
     #[test]
     fn flat_expr_row_id() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -380,13 +400,14 @@ mod tests {
             let expr = gt(row_idx(), lit(3u64));
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                SESSION.clone(),
+                layout.new_reader("".into(), segments, &session).unwrap(),
+                session.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
                 &expr,
                 MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                SegmentPriority::ProjectionColumn,
             )
             .unwrap()
             .await
@@ -402,6 +423,7 @@ mod tests {
     #[test]
     fn flat_expr_or() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -424,13 +446,14 @@ mod tests {
 
             let result = RowIdxLayoutReader::new(
                 0,
-                layout.new_reader("".into(), segments, &SESSION).unwrap(),
-                SESSION.clone(),
+                layout.new_reader("".into(), segments, &session).unwrap(),
+                session.clone(),
             )
             .projection_evaluation(
                 &(0..layout.row_count()),
                 &expr,
                 MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                SegmentPriority::ProjectionColumn,
             )
             .unwrap()
             .await

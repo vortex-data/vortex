@@ -19,6 +19,8 @@ pub use blocking::*;
 mod handle;
 pub use handle::*;
 
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+mod cpu_segregated;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod current;
 #[cfg(not(target_arch = "wasm32"))]
@@ -29,6 +31,8 @@ pub mod single;
 mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+pub use cpu_segregated::CPUSegregatedRuntime;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 

@@ -26,6 +26,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::chunked::ChunkedLayout;
 use crate::reader::LayoutReader;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 /// A [`LayoutReader`] for chunked layouts.
@@ -200,13 +201,14 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
-                .pruning_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .pruning_evaluation(&chunk_range, expr, mask.slice(mask_range), priority)
                 .map_err(|err| {
                     err.with_context(format!(
                         "While evaluating pruning filter on chunk {chunk_idx}"
@@ -242,13 +244,14 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         let mut chunk_evals = vec![];
 
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
-                .filter_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .filter_evaluation(&chunk_range, expr, mask.slice(mask_range), priority)
                 .map_err(|err| {
                     err.with_context(format!("While evaluating filter on chunk {chunk_idx}"))
                 })?;
@@ -277,6 +280,7 @@ impl LayoutReader for ChunkedReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let dtype = expr.return_dtype(self.dtype())?;
         let mut chunk_evals = vec![];
@@ -284,7 +288,7 @@ impl LayoutReader for ChunkedReader {
         for (chunk_idx, chunk_range, mask_range) in self.ranges(row_range) {
             let chunk_reader = self.chunk_reader(chunk_idx)?;
             let chunk_eval = chunk_reader
-                .projection_evaluation(&chunk_range, expr, mask.slice(mask_range))
+                .projection_evaluation(&chunk_range, expr, mask.slice(mask_range), priority)
                 .map_err(|err| {
                     err.with_context(format!("While evaluating projection on chunk {chunk_idx}"))
                 })?;
@@ -329,12 +333,13 @@ mod test {
     use crate::LayoutStrategy;
     use crate::layouts::chunked::writer::ChunkedLayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt as _;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[fixture]
     /// Create a chunked layout with three chunks of primitive arrays.
@@ -370,14 +375,16 @@ mod test {
     fn test_chunked_evaluator(
         #[from(chunked_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        block_on(|_h| async {
+        block_on(|handle| async {
+            let session = test_session(handle);
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(usize::try_from(layout.row_count()).unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await

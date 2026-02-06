@@ -229,10 +229,11 @@ mod tests {
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     // Currently, flat layouts do not force compute stats during write, they only retain
     // pre-computed stats.
@@ -240,6 +241,7 @@ mod tests {
     #[test]
     fn flat_stats() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -256,12 +258,13 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await
@@ -277,6 +280,7 @@ mod tests {
     #[test]
     fn truncates_variable_size_stats() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -305,12 +309,13 @@ mod tests {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await
@@ -336,6 +341,7 @@ mod tests {
     #[test]
     fn struct_array_round_trip() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let mut validity_builder = BitBufferMut::with_capacity(2);
             validity_builder.append(true);
             validity_builder.append(false);
@@ -376,12 +382,13 @@ mod tests {
 
             // We should be able to read the array we just wrote.
             let result: ArrayRef = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await

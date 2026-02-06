@@ -28,6 +28,7 @@ use vortex_dtype::FieldMask;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
@@ -36,6 +37,7 @@ use super::DictLayout;
 use crate::LayoutReader;
 use crate::LayoutReaderRef;
 use crate::layouts::SharedArrayFuture;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 pub struct DictReader {
@@ -95,6 +97,8 @@ impl DictReader {
                         &(0..values_len as u64),
                         &root(),
                         MaskFuture::new_true(values_len),
+                        // Dict values are fetched as part of filter/projection evaluation
+                        SegmentPriority::ProjectionColumn,
                     )
                     .vortex_expect("must construct dict values array evaluation")
                     .map_err(Arc::new)
@@ -164,6 +168,7 @@ impl LayoutReader for DictReader {
         _row_range: &Range<u64>,
         _expr: &Expression,
         mask: Mask,
+        _priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         // NOTE: we can get the values here, convert expression to the codes domain, and push down
         // to the codes child. We don't do that here because:
@@ -177,6 +182,7 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         // TODO(joe): fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(expr.clone());
@@ -188,19 +194,27 @@ impl LayoutReader for DictReader {
             row_range,
             &root(),
             MaskFuture::new_true(mask.len()),
+            priority,
         )?;
 
         let session = self.session.clone();
+        let handle = self.session.handle();
 
         Ok(MaskFuture::new(mask.len(), async move {
             // Join on the I/O futures first, before the mask.
             let (codes, values) = try_join!(codes_eval, values_eval.map_err(VortexError::from))?;
             let mask = mask.await?;
 
-            let mut ctx = session.create_execution_ctx();
-            let dict_mask = values.take(codes)?.execute::<Mask>(&mut ctx)?;
+            // Spawn CPU-intensive work on the CPU pool to avoid blocking I/O threads.
+            let dict_mask = handle
+                .spawn_cpu(move || -> VortexResult<Mask> {
+                    let mut ctx = session.create_execution_ctx();
+                    let dict_mask = values.take(codes)?.execute::<Mask>(&mut ctx)?;
+                    Ok(mask.bitand(&dict_mask))
+                })
+                .await?;
 
-            Ok(mask.bitand(&dict_mask))
+            Ok(dict_mask)
         }))
     }
 
@@ -209,32 +223,41 @@ impl LayoutReader for DictReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         // TODO: fix up expr partitioning with fallible & null sensitive annotations
         let values_eval = self.values_eval(root());
         let codes_eval = self
             .codes
-            .projection_evaluation(row_range, &root(), mask)
+            .projection_evaluation(row_range, &root(), mask, priority)
             .map_err(|err| err.with_context("While evaluating projection on codes"))?;
         let expr = expr.clone();
 
         let all_values_referenced = self.layout.has_all_values_referenced();
+        let handle = self.session.handle();
         Ok(async move {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
-            // SAFETY: Layout was validated at write time.
-            //  * The codes dtype is guaranteed to be an integer type from the layout
-            //  * The codes child reader ensures the correct dtype.
-            //  * The layout stores `all_values_referenced` and if this is malicious then it must
-            //    only affect correctness not memory safety.
-            let array = unsafe {
-                DictArray::new_unchecked(codes, values)
-                    .set_all_values_referenced(all_values_referenced)
-            }
-            .to_array()
-            .optimize()?;
+            // Spawn CPU-intensive work on the CPU pool to avoid blocking I/O threads.
+            let array = handle
+                .spawn_cpu(move || -> VortexResult<ArrayRef> {
+                    // SAFETY: Layout was validated at write time.
+                    //  * The codes dtype is guaranteed to be an integer type from the layout
+                    //  * The codes child reader ensures the correct dtype.
+                    //  * The layout stores `all_values_referenced` and if this is malicious then it must
+                    //    only affect correctness not memory safety.
+                    let array = unsafe {
+                        DictArray::new_unchecked(codes, values)
+                            .set_all_values_referenced(all_values_referenced)
+                    }
+                    .to_array()
+                    .optimize()?;
 
-            array.apply(&expr)
+                    array.apply(&expr)
+                })
+                .await?;
+
+            Ok(array)
         }
         .boxed())
     }
@@ -272,16 +295,18 @@ mod tests {
     use crate::layouts::dict::writer::DictLayoutOptions;
     use crate::layouts::dict::writer::DictStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
     use crate::sequence::SequentialStreamAdapter;
     use crate::sequence::SequentialStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[test]
     fn reading_nested_packs_works() {
         block_on(|handle| async move {
+            let session = test_session(handle.clone());
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -332,12 +357,13 @@ mod tests {
             );
             assert!(layout.encoding_id() == LayoutId::new_ref("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &expression,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await
@@ -380,6 +406,7 @@ mod tests {
         #[case] expected: Vec<bool>,
     ) {
         block_on(|handle| async move {
+            let session = test_session(handle.clone());
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -414,9 +441,14 @@ mod tests {
                 )),
             );
             let mask = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
-                .filter_evaluation(&(0..3), &filter, MaskFuture::new_true(3))
+                .filter_evaluation(
+                    &(0..3),
+                    &filter,
+                    MaskFuture::new_true(3),
+                    SegmentPriority::FilterColumn,
+                )
                 .unwrap()
                 .await
                 .unwrap();
@@ -428,6 +460,7 @@ mod tests {
     #[test]
     fn reading_is_null_works() {
         block_on(|handle| async move {
+            let session = test_session(handle.clone());
             let strategy = DictStrategy::new(
                 FlatLayoutStrategy::default(),
                 FlatLayoutStrategy::default(),
@@ -473,12 +506,13 @@ mod tests {
             let expression = not(is_null(root())); // easier to test not_is_null b/c that's the validity array
             assert_eq!(layout.encoding_id(), LayoutId::new_ref("vortex.dict"));
             let actual = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &expression,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await

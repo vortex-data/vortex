@@ -12,6 +12,7 @@ use vortex_buffer::Alignment;
 use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_layout::segments::SegmentPriority;
 
 /// An I/O request, either a single read or a coalesced set of reads.
 pub(crate) struct IoRequest(IoRequestInner);
@@ -90,6 +91,7 @@ pub struct ReadRequest {
     pub(crate) offset: u64,
     pub(crate) length: usize,
     pub(crate) alignment: Alignment,
+    pub(crate) priority: SegmentPriority,
     pub(crate) callback: oneshot::Sender<VortexResult<BufferHandle>>,
 }
 
@@ -100,6 +102,7 @@ impl Debug for ReadRequest {
             .field("offset", &self.offset)
             .field("length", &self.length)
             .field("alignment", &self.alignment)
+            .field("priority", &self.priority)
             .field("is_closed", &self.callback.is_closed())
             .finish()
     }

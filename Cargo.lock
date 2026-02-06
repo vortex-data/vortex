@@ -10815,6 +10815,7 @@ dependencies = [
  "oneshot",
  "parking_lot",
  "pin-project-lite",
+ "rayon",
  "rstest",
  "smol",
  "tempfile",

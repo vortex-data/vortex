@@ -44,6 +44,7 @@ use crate::LayoutReaderRef;
 use crate::LazyReaderChildren;
 use crate::layouts::partitioned::PartitionedExprEval;
 use crate::layouts::struct_::StructLayout;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 pub struct StructReader {
@@ -248,12 +249,13 @@ impl LayoutReader for StructReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
-                .pruning_evaluation(row_range, partition, mask)
+                .pruning_evaluation(row_range, partition, mask, priority)
                 .map_err(|err| {
                     err.with_context(format!("While evaluating pruning filter partition {name}"))
                 }),
@@ -270,12 +272,13 @@ impl LayoutReader for StructReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         // Partition the expression into expressions that can be evaluated over individual fields
         match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => self
                 .field_reader(name)?
-                .filter_evaluation(row_range, partition, mask)
+                .filter_evaluation(row_range, partition, mask, priority)
                 .map_err(|err| {
                     err.with_context(format!("While evaluating filter partition {name}"))
                 }),
@@ -283,14 +286,14 @@ impl LayoutReader for StructReader {
                 mask,
                 |name, expr, mask| {
                     self.field_reader(name)?
-                        .filter_evaluation(row_range, expr, mask)
+                        .filter_evaluation(row_range, expr, mask, priority)
                         .map_err(|err| {
                             err.with_context(format!("While evaluating filter partition {name}"))
                         })
                 },
                 |name, expr, mask| {
                     self.field_reader(name)?
-                        .projection_evaluation(row_range, expr, mask)
+                        .projection_evaluation(row_range, expr, mask, priority)
                         .map_err(|err| {
                             err.with_context(format!(
                                 "While evaluating projection partition {name}"
@@ -307,17 +310,20 @@ impl LayoutReader for StructReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask_fut: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<ArrayFuture> {
         let validity_fut = self
             .validity()?
-            .map(|reader| reader.projection_evaluation(row_range, &root(), mask_fut.clone()))
+            .map(|reader| {
+                reader.projection_evaluation(row_range, &root(), mask_fut.clone(), priority)
+            })
             .transpose()?;
 
         // Partition the expression into expressions that can be evaluated over individual fields
         let (projected, is_pack_merge) = match &self.partition_expr(expr.clone()) {
             Partitioned::Single(name, partition) => (
                 self.field_reader(name)?
-                    .projection_evaluation(row_range, partition, mask_fut)
+                    .projection_evaluation(row_range, partition, mask_fut, priority)
                     .map_err(|err| {
                         err.with_context(format!("While evaluating projection partition {name}"))
                     })?,
@@ -329,7 +335,7 @@ impl LayoutReader for StructReader {
                     .clone()
                     .into_array_future(mask_fut, |name, expr, mask| {
                         self.field_reader(name)?
-                            .projection_evaluation(row_range, expr, mask)
+                            .projection_evaluation(row_range, expr, mask, priority)
                             .map_err(|err| {
                                 err.with_context(format!(
                                     "While evaluating projection partition {name}"
@@ -414,11 +420,12 @@ mod tests {
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
     use crate::layouts::table::TableStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::SegmentSource;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[fixture]
     fn empty_struct() -> (Arc<dyn SegmentSource>, LayoutRef) {
@@ -581,14 +588,20 @@ mod tests {
     fn test_struct_layout_or(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let filt = or(
             eq(col("a"), lit(7)),
             or(eq(col("b"), lit(5)), eq(col("a"), lit(3))),
         );
-        let result = block_on(|_| {
+        let result = block_on(|handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
             reader
-                .filter_evaluation(&(0..3), &filt, MaskFuture::new_true(3))
+                .filter_evaluation(
+                    &(0..3),
+                    &filt,
+                    MaskFuture::new_true(3),
+                    SegmentPriority::FilterColumn,
+                )
                 .unwrap()
         })
         .unwrap();
@@ -599,11 +612,17 @@ mod tests {
     fn test_struct_layout(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(|_| {
+        let result = block_on(|handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
             reader
-                .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::new_true(3),
+                    SegmentPriority::ProjectionColumn,
+                )
                 .unwrap()
         })
         .unwrap();
@@ -615,14 +634,16 @@ mod tests {
     fn test_struct_layout_row_mask(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = gt(get_item("a", root()), get_item("b", root()));
-        let result = block_on(|_| {
+        let result = block_on(|handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
             reader
                 .projection_evaluation(
                     &(0..3),
                     &expr,
                     MaskFuture::ready(Mask::from_iter([true, true, false])),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
         })
@@ -636,18 +657,20 @@ mod tests {
     fn test_struct_layout_select(
         #[from(struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = pack(
             [("a", get_item("a", root())), ("b", get_item("b", root()))],
             Nullability::NonNullable,
         );
-        let result = block_on(|_| {
+        let result = block_on(|handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
             reader
                 .projection_evaluation(
                     &(0..3),
                     &expr,
                     // Take rows 0 and 1, skip row 2, and anything after that
                     MaskFuture::ready(Mask::from_iter([true, true, false])),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
         })
@@ -673,13 +696,20 @@ mod tests {
         #[from(null_struct_layout)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
         // Read the layout source from the top.
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = get_item("a", root());
-        let project = reader
-            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
-            .unwrap();
-
-        let result = block_on(move |_| project).unwrap();
+        let result = block_on(move |handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
+            reader
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::new_true(3),
+                    SegmentPriority::ProjectionColumn,
+                )
+                .unwrap()
+        })
+        .unwrap();
         // Result should be the primitive array with a single field.
         assert_eq!(
             result.dtype(),
@@ -702,17 +732,24 @@ mod tests {
         // Project out the nested struct field.
         // The projection should preserve the nulls of the `b` struct when we select out the
         // child column `c`.
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = select(
             vec![FieldName::from("c")],
             get_item("b", get_item("a", root())),
         );
 
-        let project = reader
-            .projection_evaluation(&(0..3), &expr, MaskFuture::new_true(3))
-            .unwrap();
-
-        let result = block_on(move |_| project).unwrap();
+        let result = block_on(move |handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
+            reader
+                .projection_evaluation(
+                    &(0..3),
+                    &expr,
+                    MaskFuture::new_true(3),
+                    SegmentPriority::ProjectionColumn,
+                )
+                .unwrap()
+        })
+        .unwrap();
 
         // The result is a nullable struct (because root.a.b is nullable) with a non-nullable
         // field "c" (because the original field was non-nullable).
@@ -757,14 +794,21 @@ mod tests {
     fn test_empty_struct(
         #[from(empty_struct)] (segments, layout): (Arc<dyn SegmentSource>, LayoutRef),
     ) {
-        let reader = layout.new_reader("".into(), segments, &SESSION).unwrap();
         let expr = pack(Vec::<(String, Expression)>::new(), Nullability::Nullable);
 
-        let project = reader
-            .projection_evaluation(&(0..5), &expr, MaskFuture::new_true(5))
-            .unwrap();
-
-        let result = block_on(move |_| project).unwrap();
+        let result = block_on(move |handle| {
+            let session = test_session(handle);
+            let reader = layout.new_reader("".into(), segments, &session).unwrap();
+            reader
+                .projection_evaluation(
+                    &(0..5),
+                    &expr,
+                    MaskFuture::new_true(5),
+                    SegmentPriority::ProjectionColumn,
+                )
+                .unwrap()
+        })
+        .unwrap();
         assert!(result.dtype().is_struct());
 
         assert_eq!(result.len(), 5);

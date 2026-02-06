@@ -22,6 +22,7 @@ use vortex_io::VortexReadAt;
 use vortex_io::runtime::Handle;
 use vortex_layout::segments::SegmentFuture;
 use vortex_layout::segments::SegmentId;
+use vortex_layout::segments::SegmentPriority;
 use vortex_layout::segments::SegmentSource;
 use vortex_metrics::Counter;
 use vortex_metrics::Histogram;
@@ -135,6 +136,10 @@ impl FileSegmentSource {
 
 impl SegmentSource for FileSegmentSource {
     fn request(&self, id: SegmentId) -> SegmentFuture {
+        self.request_with_priority(id, SegmentPriority::default())
+    }
+
+    fn request_with_priority(&self, id: SegmentId, priority: SegmentPriority) -> SegmentFuture {
         // We eagerly register the read request here assuming the behaviour of [`FileRead`], where
         // coalescing becomes effective prior to the future being polled.
         let spec = match self.segments.get(*id as usize).cloned() {
@@ -151,12 +156,13 @@ impl SegmentSource for FileSegmentSource {
         } = spec;
 
         let (send, recv) = oneshot::channel();
-        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let req_id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let event = ReadEvent::Request(ReadRequest {
-            id,
+            id: req_id,
             offset,
             length: length as usize,
             alignment,
+            priority,
             callback: send,
         });
 
@@ -166,7 +172,7 @@ impl SegmentSource for FileSegmentSource {
         }
 
         let fut = ReadFuture {
-            id,
+            id: req_id,
             recv,
             polled: false,
             events: self.events.clone(),

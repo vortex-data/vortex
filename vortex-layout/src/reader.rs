@@ -19,6 +19,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::children::LayoutChildren;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 pub type LayoutReaderRef = Arc<dyn LayoutReader>;
@@ -47,11 +48,15 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// Returns a mask where all false values are proven to be false in the given expression.
     ///
     /// The returned mask **does not** need to have been intersected with the input mask.
+    ///
+    /// The priority parameter indicates how urgently segment I/O should be scheduled.
+    /// Default is `SegmentPriority::ZoneMap` for pruning operations.
     fn pruning_evaluation(
         &self,
         row_range: &Range<u64>,
         expr: &Expression,
         mask: Mask,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture>;
 
     /// Refines the given mask, returning a mask equal in length to the input mask.
@@ -59,6 +64,9 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
     /// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
     /// as possible before it is used.
+    ///
+    /// The priority parameter indicates how urgently segment I/O should be scheduled.
+    /// Default is `SegmentPriority::FilterColumn` for filter operations.
     ///
     /// ## Post-conditions
     ///
@@ -68,6 +76,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture>;
 
     /// Evaluates an expression against an array.
@@ -75,6 +84,9 @@ pub trait LayoutReader: 'static + Send + Sync {
     /// It is recommended to defer awaiting the input mask for as long as possible (ideally, after
     /// all I/O is complete). This allows other conjuncts the opportunity to refine the mask as much
     /// as possible before it is used.
+    ///
+    /// The priority parameter indicates how urgently segment I/O should be scheduled.
+    /// Default is `SegmentPriority::ProjectionColumn` for projection operations.
     ///
     /// ## Post-conditions
     ///
@@ -84,6 +96,7 @@ pub trait LayoutReader: 'static + Send + Sync {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<ArrayFuture>;
 }
 

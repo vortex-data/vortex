@@ -18,12 +18,14 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldMask;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::LayoutReader;
 use crate::layouts::SharedArrayFuture;
 use crate::layouts::flat::FlatLayout;
+use crate::segments::SegmentPriority;
 use crate::segments::SegmentSource;
 
 /// The threshold of mask density below which we will evaluate the expression only over the
@@ -56,14 +58,20 @@ impl FlatReader {
     }
 
     /// Register the segment request and return a future that would resolve into the deserialised array.
-    fn array_future(&self) -> SharedArrayFuture {
+    ///
+    /// The priority parameter indicates how urgently this segment should be fetched relative to
+    /// other pending I/O requests. Higher priority segments (lower SegmentPriority value) will
+    /// be fetched before lower priority segments.
+    fn array_future(&self, priority: SegmentPriority) -> SharedArrayFuture {
         let row_count =
             usize::try_from(self.layout.row_count()).vortex_expect("row count must fit in usize");
 
         // We create the segment_fut here to ensure we give the segment reader visibility into
         // how to prioritize this segment, even if the `array` future has already been initialized.
         // This is gross... see the function's TODO for a maybe better solution?
-        let segment_fut = self.segment_source.request(self.layout.segment_id());
+        let segment_fut = self
+            .segment_source
+            .request_with_priority(self.layout.segment_id(), priority);
 
         let ctx = self.layout.array_ctx().clone();
         let session = self.session.clone();
@@ -115,7 +123,9 @@ impl LayoutReader for FlatReader {
         _row_range: &Range<u64>,
         _expr: &Expression,
         mask: Mask,
+        _priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
+        // FlatReader does not perform pruning - just pass through the mask
         Ok(MaskFuture::ready(mask))
     }
 
@@ -124,54 +134,65 @@ impl LayoutReader for FlatReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<MaskFuture> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
-        let array = self.array_future();
+        let array = self.array_future(priority);
         let expr = expr.clone();
         let session = self.session.clone();
 
+        let handle = session.handle();
         Ok(MaskFuture::new(mask.len(), async move {
             // TODO(ngates): if the mask density is low enough, or if the mask is dense within a range
             //  (as often happens with zone map pruning), then we could slice/filter the array prior
             //  to evaluating the expression.
-            let mut array = array.clone().await?;
+            let array = array.clone().await?;
             let mask = mask.await?;
 
-            // Slice the array based on the row mask.
-            if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
-            }
+            // Spawn CPU-intensive work on the CPU pool to avoid blocking I/O threads.
+            let array_mask = handle
+                .spawn_cpu(move || -> VortexResult<Mask> {
+                    // Slice the array based on the row mask.
+                    let array = if row_range.start > 0 || row_range.end < array.len() {
+                        array.slice(row_range.clone())?
+                    } else {
+                        array
+                    };
 
-            let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
-                // We have the choice to apply the filter or the expression first, we apply the
-                // expression first so that it can try pushing down itself and then the filter
-                // after this.
-                let array = array.apply(&expr)?;
-                let array = array.filter(mask.clone())?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                    let array_mask = if mask.density() < EXPR_EVAL_THRESHOLD {
+                        // We have the choice to apply the filter or the expression first, we apply the
+                        // expression first so that it can try pushing down itself and then the filter
+                        // after this.
+                        let array = array.apply(&expr)?;
+                        let array = array.filter(mask.clone())?;
+                        let mut ctx = session.create_execution_ctx();
+                        let array_mask = array.execute::<Mask>(&mut ctx)?;
 
-                mask.intersect_by_rank(&array_mask)
-            } else {
-                // Run over the full array, with a simpler bitand at the end.
-                let array = array.apply(&expr)?;
-                let mut ctx = session.create_execution_ctx();
-                let array_mask = array.execute::<Mask>(&mut ctx)?;
+                        mask.intersect_by_rank(&array_mask)
+                    } else {
+                        // Run over the full array, with a simpler bitand at the end.
+                        let array = array.apply(&expr)?;
+                        let mut ctx = session.create_execution_ctx();
+                        let array_mask = array.execute::<Mask>(&mut ctx)?;
 
-                mask.bitand(&array_mask)
-            };
+                        mask.bitand(&array_mask)
+                    };
 
-            tracing::debug!(
-                "Flat mask evaluation {} - {} (mask = {}) => {}",
-                name,
-                expr,
-                mask.density(),
-                array_mask.density(),
-            );
+                    tracing::debug!(
+                        "Flat mask evaluation {} - {} (mask = {}) => {}",
+                        name,
+                        expr,
+                        mask.density(),
+                        array_mask.density(),
+                    );
+
+                    Ok(array_mask)
+                })
+                .await?;
 
             Ok(array_mask)
         }))
@@ -182,36 +203,49 @@ impl LayoutReader for FlatReader {
         row_range: &Range<u64>,
         expr: &Expression,
         mask: MaskFuture,
+        priority: SegmentPriority,
     ) -> VortexResult<BoxFuture<'static, VortexResult<ArrayRef>>> {
         let row_range = usize::try_from(row_range.start)
             .vortex_expect("Row range begin must fit within FlatLayout size")
             ..usize::try_from(row_range.end)
                 .vortex_expect("Row range end must fit within FlatLayout size");
         let name = self.name.clone();
-        let array = self.array_future();
+        let array = self.array_future(priority);
         let expr = expr.clone();
 
+        let handle = self.session.handle();
         Ok(async move {
             tracing::debug!("Flat array evaluation {} - {}", name, expr);
 
-            let mut array = array.clone().await?;
+            let array = array.clone().await?;
             let mask = mask.await?;
 
-            // Slice the array based on the row mask.
-            if row_range.start > 0 || row_range.end < array.len() {
-                array = array.slice(row_range.clone())?;
-            }
+            // Spawn CPU-intensive work on the CPU pool to avoid blocking I/O threads.
+            let array = handle
+                .spawn_cpu(move || -> VortexResult<ArrayRef> {
+                    // Slice the array based on the row mask.
+                    let array = if row_range.start > 0 || row_range.end < array.len() {
+                        array.slice(row_range.clone())?
+                    } else {
+                        array
+                    };
 
-            // First apply the filter to the array.
-            // NOTE(ngates): we *must* filter first before applying the expression, as the
-            // expression may depend on the filtered rows being removed e.g.
-            //  `CAST(a, u8) WHERE a < 256`
-            if !mask.all_true() {
-                array = array.filter(mask)?;
-            }
+                    // First apply the filter to the array.
+                    // NOTE(ngates): we *must* filter first before applying the expression, as the
+                    // expression may depend on the filtered rows being removed e.g.
+                    //  `CAST(a, u8) WHERE a < 256`
+                    let array = if !mask.all_true() {
+                        array.filter(mask)?
+                    } else {
+                        array
+                    };
 
-            // Evaluate the projection expression.
-            array = array.apply(&expr)?;
+                    // Evaluate the projection expression.
+                    let array = array.apply(&expr)?;
+
+                    Ok(array)
+                })
+                .await?;
 
             Ok(array)
         }
@@ -239,14 +273,16 @@ mod test {
 
     use crate::LayoutStrategy;
     use crate::layouts::flat::writer::FlatLayoutStrategy;
+    use crate::segments::SegmentPriority;
     use crate::segments::TestSegments;
     use crate::sequence::SequenceId;
     use crate::sequence::SequentialArrayStreamExt;
-    use crate::test::SESSION;
+    use crate::test::test_session;
 
     #[test]
     fn flat_identity() -> VortexResult<()> {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -267,11 +303,12 @@ mod test {
             );
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)?
+                .new_reader("".into(), segments, &session)?
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &root(),
                     MaskFuture::new_true(layout.row_count().try_into()?),
+                    SegmentPriority::ProjectionColumn,
                 )?
                 .await?;
 
@@ -284,6 +321,7 @@ mod test {
     #[test]
     fn flat_expr() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
 
             let segments = Arc::new(TestSegments::default());
@@ -302,12 +340,13 @@ mod test {
 
             let expr = gt(root(), lit(3i32));
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
                 .projection_evaluation(
                     &(0..layout.row_count()),
                     &expr,
                     MaskFuture::new_true(layout.row_count().try_into().unwrap()),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .unwrap()
                 .await
@@ -321,6 +360,7 @@ mod test {
     #[test]
     fn flat_unaligned_row_mask() {
         block_on(|handle| async {
+            let session = test_session(handle.clone());
             let ctx = ArrayContext::empty();
             let segments = Arc::new(TestSegments::default());
             let (ptr, eof) = SequenceId::root().split();
@@ -337,9 +377,14 @@ mod test {
                 .unwrap();
 
             let result = layout
-                .new_reader("".into(), segments, &SESSION)
+                .new_reader("".into(), segments, &session)
                 .unwrap()
-                .projection_evaluation(&(2..4), &root(), MaskFuture::new_true(2))
+                .projection_evaluation(
+                    &(2..4),
+                    &root(),
+                    MaskFuture::new_true(2),
+                    SegmentPriority::ProjectionColumn,
+                )
                 .unwrap()
                 .await
                 .unwrap();

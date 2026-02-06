@@ -16,6 +16,7 @@ use vortex_array::MaskFuture;
 use vortex_array::expr::Expression;
 use vortex_error::VortexResult;
 use vortex_layout::LayoutReader;
+use vortex_layout::segments::SegmentPriority;
 use vortex_mask::Mask;
 
 use crate::filter::FilterExpr;
@@ -90,7 +91,12 @@ pub(super) fn split_exec<A: 'static + Send>(
                     dynamic_versions[idx] = filter.dynamic_updates(idx).map(|du| du.version());
 
                     let conjunct_mask = reader
-                        .pruning_evaluation(&row_range, conjunct, mask.clone())?
+                        .pruning_evaluation(
+                            &row_range,
+                            conjunct,
+                            mask.clone(),
+                            SegmentPriority::ZoneMap,
+                        )?
                         .await?;
                     mask = mask.bitand(&conjunct_mask);
                 }
@@ -114,7 +120,12 @@ pub(super) fn split_exec<A: 'static + Send>(
                         // The dynamic expression has been updated, re-run the pruning.
                         dynamic_versions[idx] = Some(dv);
                         let conjunct_mask = reader
-                            .pruning_evaluation(&row_range, conjunct, mask.clone())?
+                            .pruning_evaluation(
+                                &row_range,
+                                conjunct,
+                                mask.clone(),
+                                SegmentPriority::ZoneMap,
+                            )?
                             .await?;
                         mask = mask.bitand(&conjunct_mask);
                     }
@@ -123,7 +134,12 @@ pub(super) fn split_exec<A: 'static + Send>(
                     }
 
                     let conjunct_mask = reader
-                        .filter_evaluation(&row_range, conjunct, MaskFuture::ready(mask))?
+                        .filter_evaluation(
+                            &row_range,
+                            conjunct,
+                            MaskFuture::ready(mask),
+                            SegmentPriority::FilterColumn,
+                        )?
                         .await?;
                     filter.report_selectivity(idx, conjunct_mask.density());
 
@@ -137,9 +153,12 @@ pub(super) fn split_exec<A: 'static + Send>(
     };
 
     // Step 4: execute the projection, only at the mask for rows which match the filter
-    let projection_future =
-        ctx.reader
-            .projection_evaluation(&row_range, &ctx.projection, filter_mask.clone())?;
+    let projection_future = ctx.reader.projection_evaluation(
+        &row_range,
+        &ctx.projection,
+        filter_mask.clone(),
+        SegmentPriority::ProjectionColumn,
+    )?;
 
     let mapper = ctx.mapper.clone();
     let array_fut = async move {

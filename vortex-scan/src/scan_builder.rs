@@ -461,6 +461,7 @@ mod test {
     use vortex_io::runtime::single::SingleThreadRuntime;
     use vortex_layout::ArrayFuture;
     use vortex_layout::LayoutReader;
+    use vortex_layout::segments::SegmentPriority;
     use vortex_mask::Mask;
 
     use super::ScanBuilder;
@@ -513,6 +514,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: Mask,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
         }
@@ -522,6 +524,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
         }
@@ -531,6 +534,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
                 unreachable!("scan should not be polled in this test")
@@ -600,6 +604,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             mask: Mask,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             Ok(MaskFuture::ready(mask))
         }
@@ -609,6 +614,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             Ok(mask)
         }
@@ -618,6 +624,7 @@ mod test {
             row_range: &Range<u64>,
             _expr: &Expression,
             _mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<ArrayFuture> {
             let start = usize::try_from(row_range.start)
                 .map_err(|_| vortex_err!("row_range.start must fit in usize"))?;
@@ -706,6 +713,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: Mask,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
         }
@@ -715,6 +723,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<MaskFuture> {
             unimplemented!("not needed for this test");
         }
@@ -724,6 +733,7 @@ mod test {
             _row_range: &Range<u64>,
             _expr: &Expression,
             _mask: MaskFuture,
+            _priority: SegmentPriority,
         ) -> VortexResult<ArrayFuture> {
             Ok(Box::pin(async move {
                 unreachable!("scan should not be polled in this test")

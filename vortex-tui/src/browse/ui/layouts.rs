@@ -36,6 +36,7 @@ use vortex::error::VortexExpect;
 use vortex::expr::root;
 use vortex::layout::layouts::flat::FlatVTable;
 use vortex::layout::layouts::zoned::ZonedVTable;
+use vortex::layout::segments::SegmentPriority;
 
 use crate::browse::app::AppState;
 use crate::browse::app::LayoutCursor;
@@ -132,6 +133,7 @@ fn render_array(app: &AppState<'_>, area: Rect, buf: &mut Buffer, is_stats_table
                     MaskFuture::new_true(
                         usize::try_from(row_count).vortex_expect("row_count overflowed usize"),
                     ),
+                    SegmentPriority::ProjectionColumn,
                 )
                 .vortex_expect("Failed to construct projection"),
         )
