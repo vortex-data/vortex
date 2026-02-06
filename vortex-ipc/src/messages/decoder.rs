@@ -170,13 +170,13 @@ mod test {
     use vortex_array::Array;
     use vortex_array::IntoArray;
     use vortex_array::arrays::ConstantArray;
-    use vortex_array::session::ArraySession;
     use vortex_buffer::buffer;
     use vortex_error::vortex_panic;
 
     use super::*;
     use crate::messages::EncoderMessage;
     use crate::messages::MessageEncoder;
+    use crate::test::SESSION;
 
     fn write_and_read(expected: &dyn Array) {
         let mut ipc_bytes = BytesMut::new();
@@ -195,9 +195,8 @@ mod test {
         };
 
         // Decode the array parts with the context
-        let registry = ArraySession::default().registry().clone();
         let actual = array_parts
-            .decode(expected.dtype(), row_count, &ctx, &registry)
+            .decode(expected.dtype(), row_count, &ctx, &SESSION)
             .unwrap();
 
         assert_eq!(expected.len(), actual.len());

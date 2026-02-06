@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -76,7 +77,12 @@ impl VTable for ListVTable {
         Ok(Some(SerializeMetadata::serialize(metadata)))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
             <ProstMetadata<ListMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))

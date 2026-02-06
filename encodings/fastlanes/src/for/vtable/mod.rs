@@ -21,6 +21,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
 use crate::FoRArray;
 use crate::r#for::array::for_decompress::decompress;
@@ -74,8 +75,13 @@ impl VTable for FoRVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        ScalarValueMetadata::deserialize(buffer)
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        ScalarValueMetadata::deserialize(bytes)
     }
 
     fn build(

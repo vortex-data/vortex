@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
+use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -65,7 +66,12 @@ impl VTable for DecimalVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         let metadata = ProstMetadata::<DecimalMetadata>::deserialize(bytes)?;
         Ok(ProstMetadata(metadata))
     }
@@ -154,11 +160,11 @@ mod tests {
 
     use crate::ArrayContext;
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
     use crate::arrays::DecimalArray;
     use crate::arrays::DecimalVTable;
     use crate::serde::ArrayParts;
     use crate::serde::SerializeOptions;
-    use crate::session::ArraySession;
     use crate::validity::Validity;
 
     #[test]
@@ -183,10 +189,8 @@ mod tests {
 
         let concat = concat.freeze();
 
-        let session = ArraySession::default();
-
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, 5, &ctx, session.registry()).unwrap();
+        let decoded = parts.decode(&dtype, 5, &ctx, &LEGACY_SESSION).unwrap();
         assert!(decoded.is::<DecimalVTable>());
     }
 }

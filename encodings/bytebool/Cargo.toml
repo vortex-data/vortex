@@ -24,6 +24,7 @@ vortex-dtype = { workspace = true }
 vortex-error = { workspace = true }
 vortex-mask = { workspace = true }
 vortex-scalar = { workspace = true }
+vortex-session = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }

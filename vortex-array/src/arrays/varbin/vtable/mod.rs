@@ -32,6 +32,7 @@ mod validity;
 mod visitor;
 
 use canonical::varbin_to_canonical;
+use vortex_session::VortexSession;
 
 use crate::arrays::varbin::compute::rules::PARENT_RULES;
 
@@ -68,7 +69,12 @@ impl VTable for VarBinVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(ProstMetadata::<VarBinMetadata>::deserialize(
             bytes,
         )?))

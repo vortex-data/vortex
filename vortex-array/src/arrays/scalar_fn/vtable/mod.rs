@@ -19,6 +19,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
 use crate::Array;
@@ -74,7 +75,12 @@ impl VTable for ScalarFnVTable {
         Ok(None)
     }
 
-    fn deserialize(_bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
     }
 

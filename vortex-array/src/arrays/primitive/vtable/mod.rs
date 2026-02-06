@@ -25,6 +25,7 @@ mod validity;
 mod visitor;
 
 use vortex_buffer::Alignment;
+use vortex_session::VortexSession;
 
 use crate::arrays::primitive::compute::rules::RULES;
 use crate::vtable::ArrayId;
@@ -53,7 +54,12 @@ impl VTable for PrimitiveVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 

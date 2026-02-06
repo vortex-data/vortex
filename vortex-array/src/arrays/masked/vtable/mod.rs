@@ -12,6 +12,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -73,7 +74,12 @@ impl VTable for MaskedVTable {
         Ok(Some(vec![]))
     }
 
-    fn deserialize(_buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        _bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(EmptyMetadata)
     }
 
@@ -165,7 +171,6 @@ mod tests {
     use vortex_error::VortexError;
 
     use crate::ArrayContext;
-    use crate::ArraySession;
     use crate::Canonical;
     use crate::IntoArray;
     use crate::LEGACY_SESSION;
@@ -213,10 +218,8 @@ mod tests {
         }
         let concat = concat.freeze();
 
-        let session = ArraySession::default();
-
         let parts = ArrayParts::try_from(concat).unwrap();
-        let decoded = parts.decode(&dtype, len, &ctx, session.registry()).unwrap();
+        let decoded = parts.decode(&dtype, len, &ctx, &LEGACY_SESSION).unwrap();
 
         assert!(decoded.is::<MaskedVTable>());
         assert_eq!(

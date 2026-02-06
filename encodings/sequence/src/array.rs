@@ -42,6 +42,7 @@ use vortex_error::vortex_err;
 use vortex_scalar::PValue;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
 use crate::kernel::PARENT_KERNELS;
 use crate::rules::RULES;
@@ -223,9 +224,14 @@ impl VTable for SequenceVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
-            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(buffer)?,
+            <ProstMetadata<SequenceMetadata> as DeserializeMetadata>::deserialize(bytes)?,
         ))
     }
 

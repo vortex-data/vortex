@@ -31,6 +31,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
 use vortex::scalar::Scalar;
+use vortex::session::VortexSession;
 
 use crate::arrays::py::PythonArray;
 
@@ -81,7 +82,12 @@ impl VTable for PythonVTable {
         Ok(Some(metadata.serialize()))
     }
 
-    fn deserialize(bytes: &[u8]) -> VortexResult<Self::Metadata> {
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
         Ok(RawMetadata(bytes.to_vec()))
     }
 

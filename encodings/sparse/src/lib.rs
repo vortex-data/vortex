@@ -47,6 +47,7 @@ use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
+use vortex_session::VortexSession;
 
 use crate::canonical::execute_sparse;
 
@@ -89,8 +90,13 @@ impl VTable for SparseVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(SparseMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(SparseMetadata::decode(bytes)?))
     }
 
     fn build(
