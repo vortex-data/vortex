@@ -40,7 +40,6 @@ use crate::segments::SegmentSource;
 
 pub struct DictReader {
     layout: DictLayout,
-    #[expect(dead_code)] // Typically used for logging
     name: Arc<str>,
     session: VortexSession,
 
