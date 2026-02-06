@@ -20,6 +20,7 @@ use std::sync::LazyLock;
 use arrow_array::Array;
 use arrow_array::ArrayRef;
 use arrow_array::Decimal128Array;
+use arrow_array::StringArray;
 use arrow_array::UInt32Array;
 use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
@@ -33,6 +34,7 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::StructArray;
+use vortex::array::arrays::VarBinViewArray;
 use vortex::array::session::ArraySession;
 use vortex::array::validity::Validity;
 use vortex::dtype::DecimalDType;
@@ -67,10 +69,21 @@ pub unsafe extern "C" fn export_array(
 
     let primitive = PrimitiveArray::from_iter(0u32..5);
     let decimal = DecimalArray::from_iter(0i128..5, DecimalDType::new(38, 2));
+    let strings = VarBinViewArray::from_iter_str([
+        "one",
+        "two",
+        "this string is long three",
+        "four",
+        "this string is long five",
+    ]);
 
     let array = StructArray::new(
-        FieldNames::from_iter(["prims", "decimals"]),
-        vec![primitive.into_array(), decimal.into_array()],
+        FieldNames::from_iter(["prims", "decimals", "strings"]),
+        vec![
+            primitive.into_array(),
+            decimal.into_array(),
+            strings.into_array(),
+        ],
         5,
         Validity::NonNullable,
     )
@@ -115,10 +128,18 @@ pub unsafe extern "C" fn validate_array(
     let decimal = Decimal128Array::from_iter_values(0..5)
         .with_precision_and_scale(38, 2)
         .expect("with_precision_and_scale");
+    let string = StringArray::from_iter_values([
+        "one",
+        "two",
+        "this string is long three",
+        "four",
+        "this string is long five",
+    ]);
 
     let expected_fields = Fields::from_iter([
         Field::new("prims", primitive.data_type().clone(), false),
         Field::new("decimals", decimal.data_type().clone(), false),
+        Field::new("strings", string.data_type().clone(), false),
     ]);
 
     assert_eq!(
@@ -128,7 +149,7 @@ pub unsafe extern "C" fn validate_array(
         struct_array.fields()
     );
 
-    let expected_fields: [ArrayRef; _] = [Arc::new(primitive), Arc::new(decimal)];
+    let expected_fields: [ArrayRef; _] = [Arc::new(primitive), Arc::new(decimal), Arc::new(string)];
 
     for (expected, actual) in expected_fields.iter().zip(struct_array.columns()) {
         assert_eq!(expected.as_ref(), actual.as_ref());

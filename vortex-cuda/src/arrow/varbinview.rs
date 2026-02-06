@@ -11,8 +11,9 @@ use cudarc::driver::PushKernelArg;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewArrayParts;
 use vortex_array::buffer::BufferHandle;
+use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_error::{VortexExpect, VortexResult};
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
