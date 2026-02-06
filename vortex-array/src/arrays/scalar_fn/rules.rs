@@ -121,7 +121,10 @@ impl ReduceNode for ArrayRef {
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(<dyn Array>::children(self)[idx].clone())
+        Arc::new(
+            self.nth_child(idx)
+                .vortex_expect("child index out of bounds"),
+        )
     }
 
     fn child_count(&self) -> usize {

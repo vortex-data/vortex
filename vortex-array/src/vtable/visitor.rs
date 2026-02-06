@@ -58,4 +58,32 @@ pub trait VisitorVTable<V: VTable> {
         <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
         visitor.0
     }
+
+    /// Get the nth child of the array without allocating a Vec.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    fn nth_child(array: &V::Array, idx: usize) -> Option<ArrayRef> {
+        struct NthChildVisitor {
+            target_idx: usize,
+            current_idx: usize,
+            result: Option<ArrayRef>,
+        }
+
+        impl ArrayChildVisitor for NthChildVisitor {
+            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+                if self.current_idx == self.target_idx && self.result.is_none() {
+                    self.result = Some(array.clone());
+                }
+                self.current_idx += 1;
+            }
+        }
+
+        let mut visitor = NthChildVisitor {
+            target_idx: idx,
+            current_idx: 0,
+            result: None,
+        };
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children(array, &mut visitor);
+        visitor.result
+    }
 }

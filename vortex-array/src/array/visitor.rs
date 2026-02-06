@@ -22,6 +22,11 @@ pub trait ArrayVisitor {
     /// Returns the number of children of the array.
     fn nchildren(&self) -> usize;
 
+    /// Returns the nth child of the array without allocating a Vec.
+    ///
+    /// Returns `None` if the index is out of bounds.
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef>;
+
     /// Returns the names of the children of the array.
     fn children_names(&self) -> Vec<String>;
 
@@ -63,6 +68,10 @@ impl ArrayVisitor for Arc<dyn Array> {
 
     fn nchildren(&self) -> usize {
         self.as_ref().nchildren()
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        self.as_ref().nth_child(idx)
     }
 
     fn children_names(&self) -> Vec<String> {

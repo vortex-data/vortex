@@ -651,6 +651,10 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
     }
 
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        <V::VisitorVTable as VisitorVTable<V>>::nth_child(&self.0, idx)
+    }
+
     fn children_names(&self) -> Vec<String> {
         struct ChildNameCollector {
             names: Vec<String>,
