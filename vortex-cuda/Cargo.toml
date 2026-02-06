@@ -64,6 +64,7 @@ vortex-scalar = { workspace = true }
 
 [build-dependencies]
 fastlanes = { workspace = true }
+walkdir = { workspace = true }
 
 [[bench]]
 name = "for_cuda"
