@@ -34,7 +34,7 @@ impl PyIntoArray {
         self.0.inner()
     }
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub fn into_inner(self) -> ArrayRef {
         self.0.into_inner()
     }

@@ -40,7 +40,6 @@ use crate::segments::SegmentSource;
 
 pub struct DictReader {
     layout: DictLayout,
-    #[allow(dead_code)] // Typically used for logging
     name: Arc<str>,
     session: VortexSession,
 
@@ -224,7 +223,7 @@ impl LayoutReader for DictReader {
             let (values, codes) = try_join!(values_eval.map_err(VortexError::from), codes_eval)?;
 
             // SAFETY: Layout was validated at write time.
-            //  * The codes dtype is guaranteed to be an unsigned integer type from the layout
+            //  * The codes dtype is guaranteed to be an integer type from the layout
             //  * The codes child reader ensures the correct dtype.
             //  * The layout stores `all_values_referenced` and if this is malicious then it must
             //    only affect correctness not memory safety.
