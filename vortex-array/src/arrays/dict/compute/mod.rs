@@ -24,7 +24,6 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
-use crate::compute::take;
 use crate::kernel::ParentKernelSet;
 
 impl TakeExecute for DictVTable {
@@ -33,7 +32,7 @@ impl TakeExecute for DictVTable {
         indices: &dyn Array,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let codes = take(array.codes(), indices)?;
+        let codes = array.codes().take(indices.to_array())?.to_canonical()?.into_array();
         // SAFETY: selecting codes doesn't change the invariants of DictArray
         // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
         Ok(Some(unsafe {

@@ -13,7 +13,6 @@ use crate::arrays::MaskedVTable;
 use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::fill_null;
-use crate::compute::take;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
 
@@ -29,9 +28,9 @@ impl TakeExecute for MaskedVTable {
                 indices,
                 &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
             )?;
-            take(&array.child, &filled_take)?
+            array.child.take(filled_take)?.to_canonical()?.into_array()
         } else {
-            take(&array.child, indices)?
+            array.child.take(indices.to_array())?.to_canonical()?.into_array()
         };
 
         // Compute the new validity by taking from array's validity and merging with indices validity

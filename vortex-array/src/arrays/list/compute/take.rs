@@ -10,6 +10,7 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
@@ -18,7 +19,6 @@ use crate::arrays::TakeExecute;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::builders::ArrayBuilder;
 use crate::builders::PrimitiveBuilder;
-use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::kernel::ParentKernelSet;
 use crate::vtable::ValidityHelper;
@@ -108,7 +108,11 @@ fn _take<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPType>(
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
 
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = array
+        .elements()
+        .take(elements_to_take.to_array())?
+        .to_canonical()?
+        .into_array();
 
     Ok(ListArray::try_new(
         new_elements,
@@ -176,7 +180,11 @@ fn _take_nullable<I: IntegerPType, O: IntegerPType, OutputOffsetType: IntegerPTy
 
     let elements_to_take = elements_to_take.finish();
     let new_offsets = new_offsets.finish();
-    let new_elements = take(array.elements(), elements_to_take.as_ref())?;
+    let new_elements = array
+        .elements()
+        .take(elements_to_take.to_array())?
+        .to_canonical()?
+        .into_array();
 
     Ok(ListArray::try_new(
         new_elements,

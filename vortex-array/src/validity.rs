@@ -28,7 +28,6 @@ use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
 use crate::compute::fill_null;
 use crate::compute::sum;
-use crate::compute::take;
 use crate::patches::Patches;
 
 /// Validity information for an array
@@ -173,7 +172,7 @@ impl Validity {
             },
             Self::AllInvalid => Ok(Self::AllInvalid),
             Self::Array(is_valid) => {
-                let maybe_is_valid = take(is_valid, indices)?;
+                let maybe_is_valid = is_valid.take(indices.to_array())?.to_canonical()?.into_array();
                 // Null indices invalidate that position.
                 let is_valid = fill_null(&maybe_is_valid, &Scalar::from(false))?;
                 Ok(Self::Array(is_valid))

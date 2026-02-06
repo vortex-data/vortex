@@ -8,7 +8,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
-use vortex_array::compute::take;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
