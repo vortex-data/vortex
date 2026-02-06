@@ -66,6 +66,8 @@ pub struct DictLayoutConstraints {
     /// The codes dtype is determined upfront from this constraint:
     /// - [`PType::U8`] when max_len <= 255
     /// - [`PType::U16`] when max_len > 255
+    ///
+    /// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
     pub max_len: u16,
 }
 

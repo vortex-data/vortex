@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Dictionary compressor that reuses the unique values in the `IntegerStats`.
+//!
+//! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;

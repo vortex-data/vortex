@@ -58,6 +58,9 @@ pub fn dict_encoder(array: &dyn Array, constraints: &DictConstraints) -> Box<dyn
     dict_builder
 }
 
+/// Encode an array as a `DictArray` subject to the given constraints.
+///
+/// Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 pub fn dict_encode_with_constraints(
     array: &dyn Array,
     constraints: &DictConstraints,

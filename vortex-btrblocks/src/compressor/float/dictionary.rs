@@ -2,6 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 //! Float-specific dictionary encoding implementation.
+//!
+//! Vortex encoders must always produce unsigned integer codes; signed codes are only accepted for external compatibility.
 
 use vortex_array::IntoArray;
 use vortex_array::arrays::DictArray;
