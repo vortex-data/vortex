@@ -17,17 +17,17 @@ typedef int32_t* Offsets;
 struct InlinedBinaryView {
     int32_t size;
     uint8_t bytes[12];
-}
+};
 
 struct RefBinaryView {
     int32_t size;
     uint8_t prefix[4];
     int32_t index;
     int32_t offset;
-}
+};
 
 // The BinaryView type is how we access values.
 union alignas(int64_t) BinaryView {
     InlinedBinaryView inlined;
     RefBinaryView ref;
-}
+};
