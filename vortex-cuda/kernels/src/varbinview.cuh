@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#pragma once
 
 // Maximum length of inlined string.
 constexpr int32_t MAX_INLINED_SIZE = 12;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#include "config.cuh"
 #include "varbinview.cuh"
 
 // Lookup a string from a binary view, copying it into
