@@ -118,6 +118,7 @@ pub(crate) async fn copy_varbinview_to_varbin(
     let data_buf_view = data_buf.as_view();
 
     let mut kernel = ctx.launch_builder(&copy_strings);
+    kernel.arg(&len_i64);
     kernel.arg(&views_view);
     kernel.arg(&buffer_ptrs_view);
     kernel.arg(&data_buf_view);
