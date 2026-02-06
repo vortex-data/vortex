@@ -14,26 +14,13 @@ __device__ void copy_string_to_dst(
     int32_t size = view.inlined.size;
     uint8_t *src;
     if (size <= MAX_INLINED_SIZE) {
+        // TODO(aduffy): use uint64_t loads instead?
         src = view.inlined.data;
     } else {
         auto ref = view.ref;
         src = buffers[ref.index] + ref.offset;
     }
     memcpy(dst, src, size);
-}
-
-// single-threaded, compute offsets
-extern "C" __global__ void compute_offsets(
-    const BinaryView *views,
-    int32_t num_strings,
-    Offsets out_offsets
-) {
-    int32_t offset = 0;
-    out_offsets[0] = 0;
-    for (int i = 0; i < num_strings; i++) {
-        offset += views[i].inlined.size;
-        out_offsets[i + 1] = offset;
-    }
 }
 
 extern "C" __global__ void copy_strings(
