@@ -16,7 +16,7 @@ typedef int32_t* Offsets;
 
 struct InlinedBinaryView {
     int32_t size;
-    uint8_t bytes[12];
+    uint8_t data[12];
 };
 
 struct RefBinaryView {
