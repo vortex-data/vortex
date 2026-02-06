@@ -11,6 +11,7 @@ use crate::arrays::FilterArray;
 use crate::arrays::FilterReduceAdaptor;
 use crate::arrays::FilterVTable;
 use crate::arrays::SliceReduceAdaptor;
+use crate::arrays::TakeReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 
@@ -18,6 +19,7 @@ pub(crate) const PARENT_RULES: ParentRuleSet<ConstantVTable> = ParentRuleSet::ne
     ParentRuleSet::lift(&ConstantFilterRule),
     ParentRuleSet::lift(&FilterReduceAdaptor(ConstantVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(ConstantVTable)),
+    ParentRuleSet::lift(&TakeReduceAdaptor(ConstantVTable)),
 ]);
 
 #[derive(Debug)]

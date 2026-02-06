@@ -11,14 +11,14 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::MaskedArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleSet;
 use crate::validity::Validity;
 
-impl TakeKernel for ConstantVTable {
-    fn take(&self, array: &ConstantArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        match indices.validity_mask()?.bit_buffer() {
+impl TakeReduce for ConstantVTable {
+    fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
+        let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
                 let scalar = Scalar::new(
                     array
@@ -27,9 +27,9 @@ impl TakeKernel for ConstantVTable {
                         .union_nullability(indices.dtype().nullability()),
                     array.scalar().value().clone(),
                 );
-                Ok(ConstantArray::new(scalar, indices.len()).into_array())
+                ConstantArray::new(scalar, indices.len()).into_array()
             }
-            AllOr::None => Ok(ConstantArray::new(
+            AllOr::None => ConstantArray::new(
                 Scalar::null(
                     array
                         .dtype()
@@ -37,21 +37,25 @@ impl TakeKernel for ConstantVTable {
                 ),
                 indices.len(),
             )
-            .into_array()),
+            .into_array(),
             AllOr::Some(v) => {
                 let arr = ConstantArray::new(array.scalar().clone(), indices.len()).into_array();
 
                 if array.scalar().is_null() {
-                    return Ok(arr);
+                    return Ok(Some(arr));
                 }
 
-                Ok(MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array())
+                MaskedArray::try_new(arr, Validity::from(v.clone()))?.into_array()
             }
-        }
+        };
+        Ok(Some(result))
     }
 }
 
-register_kernel!(TakeKernelAdapter(ConstantVTable).lift());
+impl ConstantVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}
 
 #[cfg(test)]
 mod tests {

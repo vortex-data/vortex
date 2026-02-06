@@ -13,10 +13,9 @@ use crate::IntoArray;
 use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::compute;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
 // TODO(connor)[ListView]: Make use of this threshold after we start migrating operators.
@@ -43,8 +42,12 @@ const REBUILD_DENSITY_THRESHOLD: f64 = 0.1;
 ///
 /// The trade-off is that we may keep unreferenced elements in memory, but this is acceptable since
 /// we're optimizing for read performance and the data isn't being copied.
-impl TakeKernel for ListViewVTable {
-    fn take(&self, array: &ListViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for ListViewVTable {
+    fn take(
+        array: &ListViewArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let elements = array.elements();
         let offsets = array.offsets();
         let sizes = array.sizes();
@@ -55,8 +58,8 @@ impl TakeKernel for ListViewVTable {
         // Take the offsets and sizes arrays at the requested indices.
         // Take can reorder offsets, create gaps, and may introduce overlaps if the `indices`
         // contain duplicates.
-        let nullable_new_offsets = compute::take(offsets.as_ref(), indices)?;
-        let nullable_new_sizes = compute::take(sizes.as_ref(), indices)?;
+        let nullable_new_offsets = offsets.take(indices.to_array())?;
+        let nullable_new_sizes = sizes.take(indices.to_array())?;
 
         // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
         // zeros to represent null lists).
@@ -86,10 +89,10 @@ impl TakeKernel for ListViewVTable {
         // compute functions have run, at the "top" of the operator tree. However, we cannot do this
         // right now, so we will just rebuild every time (similar to `ListArray`).
 
-        Ok(new_array
-            .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
-            .into_array())
+        Ok(Some(
+            new_array
+                .rebuild(ListViewRebuildMode::MakeZeroCopyToList)?
+                .into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(ListViewVTable).lift());

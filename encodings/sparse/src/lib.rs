@@ -4,6 +4,7 @@
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use kernel::PARENT_KERNELS;
 use prost::Message as _;
 use vortex_array::Array;
 use vortex_array::ArrayBufferVisitor;
@@ -163,7 +164,7 @@ impl VTable for SparseVTable {
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {

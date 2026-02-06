@@ -17,25 +17,31 @@ use vortex_mask::Mask;
 
 use super::DictArray;
 use super::DictVTable;
+use super::TakeExecute;
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::filter::FilterReduce;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::take;
-use crate::register_kernel;
 
-impl TakeKernel for DictVTable {
-    fn take(&self, array: &DictArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let codes = take(array.codes(), indices)?;
+impl TakeExecute for DictVTable {
+    fn take(
+        array: &DictArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let codes = array
+            .codes()
+            .take(indices.to_array())?
+            .to_canonical()?
+            .into_array();
         // SAFETY: selecting codes doesn't change the invariants of DictArray
         // Preserve all_values_referenced since taking codes doesn't affect which values are referenced
-        Ok(unsafe { DictArray::new_unchecked(codes, array.values().clone()).into_array() })
+        Ok(Some(unsafe {
+            DictArray::new_unchecked(codes, array.values().clone()).into_array()
+        }))
     }
 }
-
-register_kernel!(TakeKernelAdapter(DictVTable).lift());
 
 impl FilterReduce for DictVTable {
     fn filter(array: &DictArray, mask: &Mask) -> VortexResult<Option<ArrayRef>> {

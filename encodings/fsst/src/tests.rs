@@ -8,7 +8,6 @@ use vortex_array::ToCanonical;
 use vortex_array::arrays::builder::VarBinBuilder;
 use vortex_array::assert_arrays_eq;
 use vortex_array::assert_nth_scalar;
-use vortex_array::compute::take;
 use vortex_buffer::buffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -69,8 +68,7 @@ fn test_fsst_array_ops() {
 
     // test take
     let indices = buffer![0, 2].into_array();
-    let fsst_taken = take(&fsst_array, &indices).unwrap();
-    assert!(fsst_taken.is::<FSSTVTable>());
+    let fsst_taken = fsst_array.take(indices).unwrap();
     assert_eq!(fsst_taken.len(), 2);
     assert_nth_scalar!(
         fsst_taken,

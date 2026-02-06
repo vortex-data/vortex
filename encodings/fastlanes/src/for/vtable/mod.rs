@@ -25,9 +25,11 @@ use vortex_session::VortexSession;
 
 use crate::FoRArray;
 use crate::r#for::array::for_decompress::decompress;
+use crate::r#for::vtable::kernels::PARENT_KERNELS;
 use crate::r#for::vtable::rules::PARENT_RULES;
 
 mod array;
+mod kernels;
 mod operations;
 mod rules;
 mod slice;
@@ -114,6 +116,15 @@ impl VTable for FoRVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(decompress(array, ctx)?.into_array())
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

@@ -15,18 +15,20 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
+use crate::arrays::TakeExecute;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::buffer::BufferHandle;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
-/// Take involves creating a new array that references the old array, just with the given set of views.
-impl TakeKernel for VarBinViewVTable {
-    fn take(&self, array: &VarBinViewArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        // Compute the new validity.
+impl TakeExecute for VarBinViewVTable {
+    /// Take involves creating a new array that references the old array, just with the given set of views.
+    fn take(
+        array: &VarBinViewArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let validity = array.validity().take(indices)?;
         let indices = indices.to_primitive();
 
@@ -37,20 +39,20 @@ impl TakeKernel for VarBinViewVTable {
 
         // SAFETY: taking all components at same indices maintains invariants
         unsafe {
-            Ok(VarBinViewArray::new_handle_unchecked(
-                BufferHandle::new_host(views_buffer.into_byte_buffer()),
-                array.buffers().clone(),
-                array
-                    .dtype()
-                    .union_nullability(indices.dtype().nullability()),
-                validity,
-            )
-            .into_array())
+            Ok(Some(
+                VarBinViewArray::new_handle_unchecked(
+                    BufferHandle::new_host(views_buffer.into_byte_buffer()),
+                    array.buffers().clone(),
+                    array
+                        .dtype()
+                        .union_nullability(indices.dtype().nullability()),
+                    validity,
+                )
+                .into_array(),
+            ))
         }
     }
 }
-
-register_kernel!(TakeKernelAdapter(VarBinViewVTable).lift());
 
 fn take_views<I: AsPrimitive<usize>>(
     views_ref: &[BinaryView],

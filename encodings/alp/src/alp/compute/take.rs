@@ -3,19 +3,21 @@
 
 use vortex_array::Array;
 use vortex_array::ArrayRef;
+use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::compute::TakeKernel;
-use vortex_array::compute::TakeKernelAdapter;
-use vortex_array::compute::take;
-use vortex_array::register_kernel;
+use vortex_array::arrays::TakeExecute;
 use vortex_error::VortexResult;
 
 use crate::ALPArray;
 use crate::ALPVTable;
 
-impl TakeKernel for ALPVTable {
-    fn take(&self, array: &ALPArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
-        let taken_encoded = take(array.encoded(), indices)?;
+impl TakeExecute for ALPVTable {
+    fn take(
+        array: &ALPArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        let taken_encoded = array.encoded().take(indices.to_array())?;
         let taken_patches = array
             .patches()
             .map(|p| p.take(indices))
@@ -29,11 +31,11 @@ impl TakeKernel for ALPVTable {
                 )
             })
             .transpose()?;
-        Ok(ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array())
+        Ok(Some(
+            ALPArray::new(taken_encoded, array.exponents(), taken_patches).into_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(ALPVTable).lift());
 
 #[cfg(test)]
 mod test {

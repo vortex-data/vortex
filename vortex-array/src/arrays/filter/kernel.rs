@@ -54,7 +54,7 @@ pub trait FilterKernel: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the filter operation,
 /// or `None` if the filter should proceed normally.
-pub fn precondition<V: VTable>(array: &V::Array, mask: &Mask) -> Option<ArrayRef> {
+fn precondition<V: VTable>(array: &V::Array, mask: &Mask) -> Option<ArrayRef> {
     let true_count = mask.true_count();
 
     // Fast-path for empty mask (all false).

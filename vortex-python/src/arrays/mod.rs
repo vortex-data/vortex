@@ -27,7 +27,6 @@ use vortex::array::ArrayRef;
 use vortex::array::ToCanonical;
 use vortex::array::arrays::ChunkedVTable;
 use vortex::array::arrow::IntoArrowArray;
-use vortex::array::compute::take;
 use vortex::compute::Operator;
 use vortex::compute::compare;
 use vortex::dtype::DType;
@@ -603,7 +602,7 @@ impl PyArray {
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 2])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringArray object at ...>
+    /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
     ///   "c"
@@ -616,7 +615,7 @@ impl PyArray {
     /// >>> a = vx.array(['a', 'b', 'c', 'd'])
     /// >>> indices = vx.array([0, 1, 1, 0])
     /// >>> a.take(indices).to_arrow_array()
-    /// <pyarrow.lib.StringArray object at ...>
+    /// <pyarrow.lib.StringViewArray object at ...>
     /// [
     ///   "a",
     ///   "b",
@@ -629,13 +628,13 @@ impl PyArray {
 
         if !indices.dtype().is_int() {
             return Err(PyValueError::new_err(format!(
-                "indices: expected int or uint array, but found: {}",
+                "indices: expected int or uint arra sy, but found: {}",
                 indices.dtype().python_repr()
             ))
             .into());
         }
 
-        let inner = take(&slf, &*indices)?;
+        let inner = slf.take(indices.clone())?;
 
         Ok(PyArrayRef::from(inner))
     }

@@ -11,13 +11,13 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::register_kernel;
+use crate::arrays::TakeReduce;
+use crate::arrays::TakeReduceAdaptor;
+use crate::optimizer::rules::ParentRuleSet;
 
-impl TakeKernel for NullVTable {
+impl TakeReduce for NullVTable {
     #[allow(clippy::cast_possible_truncation)]
-    fn take(&self, array: &NullArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+    fn take(array: &NullArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let indices = indices.to_primitive();
 
         // Enforce all indices are valid
@@ -29,8 +29,11 @@ impl TakeKernel for NullVTable {
             }
         });
 
-        Ok(NullArray::new(indices.len()).into_array())
+        Ok(Some(NullArray::new(indices.len()).into_array()))
     }
 }
 
-register_kernel!(TakeKernelAdapter(NullVTable).lift());
+impl NullVTable {
+    pub const TAKE_RULES: ParentRuleSet<Self> =
+        ParentRuleSet::new(&[ParentRuleSet::lift(&TakeReduceAdaptor::<Self>(Self))]);
+}

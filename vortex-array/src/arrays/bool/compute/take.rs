@@ -17,22 +17,24 @@ use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
+use crate::arrays::TakeExecute;
 use crate::compute::fill_null;
-use crate::register_kernel;
+use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for BoolVTable {
-    fn take(&self, array: &BoolArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for BoolVTable {
+    fn take(
+        array: &BoolArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let indices_nulls_zeroed = match indices.validity_mask()? {
             Mask::AllTrue(_) => indices.to_array(),
             Mask::AllFalse(_) => {
-                return Ok(ConstantArray::new(
-                    Scalar::null(array.dtype().as_nullable()),
-                    indices.len(),
-                )
-                .into_array());
+                return Ok(Some(
+                    ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                        .into_array(),
+                ));
             }
             Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
         };
@@ -41,11 +43,11 @@ impl TakeKernel for BoolVTable {
             take_valid_indices(&array.to_bit_buffer(), indices_nulls_zeroed.as_slice::<I>())
         });
 
-        Ok(BoolArray::new(buffer, array.validity().take(indices)?).to_array())
+        Ok(Some(
+            BoolArray::new(buffer, array.validity().take(indices)?).to_array(),
+        ))
     }
 }
-
-register_kernel!(TakeKernelAdapter(BoolVTable).lift());
 
 fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     // For boolean arrays that roughly fit into a single page (at least, on Linux), it's worth
@@ -54,7 +56,7 @@ fn take_valid_indices<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -
         let bools = bools.iter().collect_vec();
         take_byte_bool(bools, indices)
     } else {
-        take_bool(bools, indices)
+        take_bool_impl(bools, indices)
     }
 }
 
@@ -64,7 +66,7 @@ fn take_byte_bool<I: AsPrimitive<usize>>(bools: Vec<bool>, indices: &[I]) -> Bit
     })
 }
 
-fn take_bool<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
+fn take_bool_impl<I: AsPrimitive<usize>>(bools: &BitBuffer, indices: &[I]) -> BitBuffer {
     // We dereference to underlying buffer to avoid access cost on every index.
     let buffer = bools.inner().as_ref();
     BitBuffer::collect_bool(indices.len(), |idx| {
@@ -107,7 +109,7 @@ mod test {
             BoolArray::from_iter([Some(false), None, Some(false)]).to_bit_buffer()
         );
 
-        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<u32>, None, None]);
+        let all_invalid_indices = PrimitiveArray::from_option_iter([None::<i32>, None, None]);
         let b = take(reference.as_ref(), all_invalid_indices.as_ref()).unwrap();
         assert_arrays_eq!(b, BoolArray::from_iter([None, None, None]));
     }

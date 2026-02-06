@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use itertools::Itertools;
+use kernel::PARENT_KERNELS;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -24,6 +25,7 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
+mod kernel;
 mod operations;
 mod validity;
 mod visitor;
@@ -143,6 +145,15 @@ impl VTable for StructVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        PARENT_KERNELS.execute(array, parent, child_idx, ctx)
     }
 }
 

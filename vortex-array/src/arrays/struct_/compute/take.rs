@@ -7,18 +7,21 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::compute::TakeKernel;
-use crate::compute::TakeKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::arrays::TakeExecute;
+use crate::compute;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl TakeKernel for StructVTable {
-    fn take(&self, array: &StructArray, indices: &dyn Array) -> VortexResult<ArrayRef> {
+impl TakeExecute for StructVTable {
+    fn take(
+        array: &StructArray,
+        indices: &dyn Array,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // If the struct array is empty then the indices must be all null, otherwise it will access
         // an out of bounds element
         if array.is_empty() {
@@ -28,7 +31,8 @@ impl TakeKernel for StructVTable {
                 indices.len(),
                 Validity::AllInvalid,
             )
-            .map(StructArray::into_array);
+            .map(StructArray::into_array)
+            .map(Some);
         }
         // The validity is applied to the struct validity,
         let inner_indices = &compute::fill_null(
@@ -39,14 +43,13 @@ impl TakeKernel for StructVTable {
             array
                 .unmasked_fields()
                 .iter()
-                .map(|field| compute::take(field, inner_indices))
+                .map(|field| field.take(inner_indices.to_array()))
                 .collect::<Result<Vec<_>, _>>()?,
             array.struct_fields().clone(),
             indices.len(),
             array.validity().take(indices)?,
         )
         .map(|a| a.into_array())
+        .map(Some)
     }
 }
-
-register_kernel!(TakeKernelAdapter(StructVTable).lift());
