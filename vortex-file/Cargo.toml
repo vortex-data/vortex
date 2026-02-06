@@ -33,8 +33,8 @@ tracing = { workspace = true }
 uuid = { workspace = true }                                       # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
-vortex-buffer = { workspace = true }
 vortex-btrblocks = { workspace = true }
+vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 
 vortex-datetime-parts = { workspace = true }
