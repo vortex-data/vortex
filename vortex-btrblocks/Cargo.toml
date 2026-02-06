@@ -18,6 +18,7 @@ enum-iterator = { workspace = true }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+pco = { workspace = true, optional = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
 tracing = { workspace = true }
@@ -31,13 +32,12 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
-pco = { workspace = true, optional = true }
-vortex-pco = { workspace = true, optional = true }
 vortex-zigzag = { workspace = true }
 vortex-zstd = { workspace = true, optional = true }
 

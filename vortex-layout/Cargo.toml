@@ -64,7 +64,6 @@ vortex-utils = { workspace = true, features = ["_test-harness"] }
 _test-harness = []
 tokio = ["dep:tokio", "vortex-error/tokio"]
 
-
 [lints]
 workspace = true
 
