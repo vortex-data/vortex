@@ -54,12 +54,14 @@ impl Gauge {
 
     /// Sets the gauge to a specific value.
     pub fn set(&self, value: f64) {
+        // We use `swap` with `AcqRel` ordering to make sure we get
+        // consistent ordering across operations.
         _ = self.0.swap(value.to_bits(), Ordering::AcqRel);
     }
 
     /// Returns the current value of the gauge.
     pub fn value(&self) -> f64 {
-        let value = self.0.load(Ordering::Relaxed);
+        let value = self.0.load(Ordering::Acquire);
         f64::from_bits(value)
     }
 }
