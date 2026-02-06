@@ -26,10 +26,11 @@ use arrow_array::cast::AsArray;
 use arrow_array::ffi::FFI_ArrowArray;
 use arrow_array::ffi::from_ffi;
 use arrow_array::make_array;
-use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::ffi::FFI_ArrowSchema;
+use arrow_schema::{DataType, Field};
 use futures::executor::block_on;
+use futures::future::err;
 use vortex::array::IntoArray;
 use vortex::array::arrays::DecimalArray;
 use vortex::array::arrays::PrimitiveArray;
@@ -89,10 +90,11 @@ pub unsafe extern "C" fn export_array(
     )
     .into_array();
 
-    let data_type = array
-        .dtype()
-        .to_arrow_dtype()
-        .expect("converting schema to Arrow DataType");
+    let data_type = DataType::Struct(Fields::from_iter([
+        Field::new("prims", DataType::UInt32, false),
+        Field::new("decimals", DataType::Decimal128(38, 2), false),
+        Field::new("strings", DataType::Utf8, false),
+    ]));
 
     *schema_ptr = FFI_ArrowSchema::try_from(data_type).expect("data_type to FFI_ArrowSchema");
 

@@ -83,8 +83,8 @@ pub(crate) async fn copy_varbinview_to_varbin(
     kernel.arg(&last_offset_device_view);
 
     let single_threaded_cfg = LaunchConfig {
-        grid_dim: (1, 0, 0),
-        block_dim: (1, 0, 0),
+        grid_dim: (1, 1, 1),
+        block_dim: (1, 1, 1),
         shared_mem_bytes: 0,
     };
 
@@ -129,8 +129,8 @@ pub(crate) async fn copy_varbinview_to_varbin(
         .try_into()
         .vortex_expect("n_blocks should never overflow u32");
     let fully_parallel_cfg = LaunchConfig {
-        grid_dim: (n_blocks, 0, 0),
-        block_dim: (threads_per_blocks, 0, 0),
+        grid_dim: (n_blocks, 1, 1),
+        block_dim: (threads_per_blocks, 1, 1),
         shared_mem_bytes: 0,
     };
 
