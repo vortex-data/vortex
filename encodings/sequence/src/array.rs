@@ -23,7 +23,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityVTable;
 use vortex_array::vtable::VisitorVTable;
@@ -205,7 +204,6 @@ impl VTable for SequenceVTable {
     type Metadata = ProstMetadata<SequenceMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -315,6 +313,14 @@ impl VTable for SequenceVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
     }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(ScalarValue::from(array.index_value(index)))
+    }
 }
 
 impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
@@ -346,15 +352,6 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
             && array.multiplier == other.multiplier
             && array.dtype == other.dtype
             && array.len == other.len
-    }
-}
-
-impl OperationsVTable<SequenceVTable> for SequenceVTable {
-    fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::new(
-            array.dtype().clone(),
-            ScalarValue::from(array.index_value(index)),
-        ))
     }
 }
 

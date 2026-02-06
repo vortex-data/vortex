@@ -61,7 +61,6 @@ use crate::vtable::ArrayVTableExt;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::ComputeVTable;
 use crate::vtable::DynVTable;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -512,9 +511,9 @@ impl<V: VTable> Array for ArrayAdapter<V> {
         if self.is_invalid(index)? {
             return Ok(Scalar::null(self.dtype().clone()));
         }
-        let scalar = <V::OperationsVTable as OperationsVTable<V>>::scalar_at(&self.0, index)?;
-        vortex_ensure!(self.dtype() == scalar.dtype(), "Scalar dtype mismatch");
-        Ok(scalar)
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        let value = V::execute_scalar(&self.0, index, &mut ctx)?;
+        Ok(Scalar::new(self.dtype().clone(), value))
     }
 
     fn is_valid(&self, index: usize) -> VortexResult<bool> {

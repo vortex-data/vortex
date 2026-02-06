@@ -1,60 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::Array;
-use crate::IntoArray;
-use crate::LEGACY_SESSION;
-use crate::VortexSessionExecute;
-use crate::arrays::ConstantArray;
-use crate::arrays::scalar_fn::array::ScalarFnArray;
-use crate::arrays::scalar_fn::vtable::ScalarFnVTable;
-use crate::columnar::Columnar;
-use crate::expr::ExecutionArgs;
-use crate::vtable::OperationsVTable;
-
-impl OperationsVTable<ScalarFnVTable> for ScalarFnVTable {
-    fn scalar_at(array: &ScalarFnArray, index: usize) -> VortexResult<Scalar> {
-        let inputs: Vec<_> = array
-            .children
-            .iter()
-            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
-            .collect::<VortexResult<_>>()?;
-
-        let mut ctx = LEGACY_SESSION.create_execution_ctx();
-        let args = ExecutionArgs {
-            inputs,
-            row_count: 1,
-            ctx: &mut ctx,
-        };
-        let result = array.scalar_fn.execute(args)?;
-
-        let scalar = match result.execute::<Columnar>(&mut ctx)? {
-            Columnar::Canonical(arr) => {
-                tracing::info!(
-                    "Scalar function {} returned non-constant array from execution over all scalar inputs",
-                    array.scalar_fn,
-                );
-                arr.as_ref().scalar_at(0)?
-            }
-            Columnar::Constant(constant) => constant.scalar().clone(),
-        };
-
-        debug_assert_eq!(
-            scalar.dtype(),
-            &array.dtype,
-            "Scalar function {} returned dtype {:?} but expected {:?}",
-            array.scalar_fn,
-            scalar.dtype(),
-            array.dtype
-        );
-
-        Ok(scalar)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

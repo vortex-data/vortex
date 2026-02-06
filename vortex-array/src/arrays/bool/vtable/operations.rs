@@ -1,28 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::arrays::BoolArray;
-use crate::arrays::BoolVTable;
-use crate::vtable::OperationsVTable;
-
-impl OperationsVTable<BoolVTable> for BoolVTable {
-    fn scalar_at(array: &BoolArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(
-            array.to_bit_buffer().value(index),
-            array.dtype().nullability(),
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::iter;
 
-    use super::*;
     use crate::ToCanonical;
+    use crate::arrays::BoolArray;
     use crate::assert_arrays_eq;
 
     #[test]

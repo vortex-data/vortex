@@ -9,7 +9,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
@@ -24,7 +27,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -38,7 +40,6 @@ impl VTable for StructVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -139,6 +140,19 @@ impl VTable for StructVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let field_scalars: VortexResult<Vec<_>> = array
+            .unmasked_fields()
+            .iter()
+            .map(|field| field.scalar_at(index))
+            .collect();
+        Ok(Scalar::struct_(array.dtype().clone(), field_scalars?).into_value())
     }
 }
 

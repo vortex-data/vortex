@@ -42,7 +42,6 @@ impl VTable for FoRVTable {
     type Metadata = ScalarValueMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -110,6 +109,35 @@ impl VTable for FoRVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(decompress(array, ctx)?.into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        use vortex_dtype::match_each_integer_ptype;
+        use vortex_error::VortexExpect;
+
+        let encoded_pvalue = array.encoded().scalar_at(index)?;
+        let encoded_pvalue = encoded_pvalue.as_primitive();
+        let reference = array.reference_scalar();
+        let reference = reference.as_primitive();
+
+        Ok(match_each_integer_ptype!(array.ptype(), |P| {
+            encoded_pvalue
+                .typed_value::<P>()
+                .map(|v| {
+                    v.wrapping_add(
+                        reference
+                            .typed_value::<P>()
+                            .vortex_expect("FoRArray Reference value cannot be null"),
+                    )
+                })
+                .map(|v| Scalar::primitive::<P>(v, array.reference_scalar().dtype().nullability()))
+                .unwrap_or_else(|| Scalar::null(array.reference_scalar().dtype().clone()))
+        })
+        .into_value())
     }
 }
 

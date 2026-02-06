@@ -26,7 +26,6 @@ use crate::vtable::VTable;
 
 mod array;
 pub(crate) mod canonical;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -45,7 +44,6 @@ impl VTable for ConstantVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     // TODO(ngates): implement a compute kernel for elementwise operations
@@ -102,5 +100,13 @@ impl VTable for ConstantVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(constant_canonicalize(array)?.into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array.scalar.value().clone())
     }
 }

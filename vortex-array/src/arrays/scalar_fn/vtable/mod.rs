@@ -19,16 +19,19 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::ScalarValue;
 
 use crate::AnyColumnar;
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::scalar_fn::array::ScalarFnArray;
 use crate::arrays::scalar_fn::metadata::ScalarFnMetadata;
 use crate::arrays::scalar_fn::rules::PARENT_RULES;
 use crate::arrays::scalar_fn::rules::RULES;
 use crate::buffer::BufferHandle;
+use crate::columnar::Columnar;
 use crate::executor::ExecutionCtx;
 use crate::expr;
 use crate::expr::Arity;
@@ -54,7 +57,6 @@ impl VTable for ScalarFnVTable {
     type Array = ScalarFnArray;
     type Metadata = ScalarFnMetadata;
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -159,6 +161,47 @@ impl VTable for ScalarFnVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let inputs: Vec<_> = array
+            .children
+            .iter()
+            .map(|child| Ok(ConstantArray::new(child.scalar_at(index)?, 1).into_array()))
+            .collect::<VortexResult<_>>()?;
+
+        let args = ExecutionArgs {
+            inputs,
+            row_count: 1,
+            ctx,
+        };
+        let result = array.scalar_fn.execute(args)?;
+
+        let scalar = match result.execute::<Columnar>(ctx)? {
+            Columnar::Canonical(arr) => {
+                tracing::info!(
+                    "Scalar function {} returned non-constant array from execution over all scalar inputs",
+                    array.scalar_fn,
+                );
+                arr.as_ref().scalar_at(0)?
+            }
+            Columnar::Constant(constant) => constant.scalar().clone(),
+        };
+
+        debug_assert_eq!(
+            scalar.dtype(),
+            &array.dtype,
+            "Scalar function {} returned dtype {:?} but expected {:?}",
+            array.scalar_fn,
+            scalar.dtype(),
+            array.dtype
+        );
+
+        Ok(scalar.into_value())
     }
 }
 

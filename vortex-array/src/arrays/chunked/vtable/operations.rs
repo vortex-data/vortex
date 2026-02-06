@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::Array;
-use crate::arrays::ChunkedArray;
-use crate::arrays::ChunkedVTable;
-use crate::vtable::OperationsVTable;
-
-impl OperationsVTable<ChunkedVTable> for ChunkedVTable {
-    fn scalar_at(array: &ChunkedArray, index: usize) -> VortexResult<Scalar> {
-        let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
-        array.chunk(chunk_index).scalar_at(chunk_offset)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::ops::Range;

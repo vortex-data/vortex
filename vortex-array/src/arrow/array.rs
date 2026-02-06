@@ -12,7 +12,6 @@ use vortex_dtype::arrow::FromArrowType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -32,7 +31,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -45,7 +43,6 @@ impl VTable for ArrowVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -142,12 +139,6 @@ impl BaseArrayVTable<ArrowVTable> for ArrowVTable {
 
     fn array_eq(array: &ArrowArray, other: &ArrowArray, _precision: Precision) -> bool {
         array.dtype == other.dtype && std::sync::Arc::ptr_eq(&array.inner, &other.inner)
-    }
-}
-
-impl OperationsVTable<ArrowVTable> for ArrowVTable {
-    fn scalar_at(_array: &ArrowArray, _index: usize) -> VortexResult<Scalar> {
-        vortex_bail!("ArrowArray does not support scalar_at")
     }
 }
 

@@ -1,28 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::BitPackedArray;
-use crate::BitPackedVTable;
-use crate::bitpack_decompress;
-
-impl OperationsVTable<BitPackedVTable> for BitPackedVTable {
-    fn scalar_at(array: &BitPackedArray, index: usize) -> VortexResult<Scalar> {
-        Ok(
-            if let Some(patches) = array.patches()
-                && let Some(patch) = patches.get_patched(index)?
-            {
-                patch
-            } else {
-                bitpack_decompress::unpack_single(array, index)
-            },
-        )
-    }
-}
-
 #[cfg(test)]
 mod test {
     use std::ops::Range;

@@ -9,7 +9,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::Canonical;
 use crate::EmptyMetadata;
@@ -51,7 +53,6 @@ impl VTable for ChunkedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
@@ -196,5 +197,17 @@ impl VTable for ChunkedVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let (chunk_index, chunk_offset) = array.find_chunk_idx(index)?;
+        array
+            .chunk(chunk_index)
+            .scalar_at(chunk_offset)
+            .map(|s| s.into_value())
     }
 }

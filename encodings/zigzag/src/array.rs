@@ -21,7 +21,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityVTableFromChild;
@@ -34,6 +33,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 use zigzag::ZigZag as ExternalZigZag;
 
 use crate::compute::ZigZagEncoded;
@@ -48,7 +48,6 @@ impl VTable for ZigZagVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -107,6 +106,26 @@ impl VTable for ZigZagVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let scalar = array.encoded().scalar_at(index)?;
+        let pscalar = scalar.as_primitive();
+        Ok(match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
+            Scalar::primitive(
+                <<P as ZigZagEncoded>::Int>::decode(
+                    pscalar
+                        .typed_value::<P>()
+                        .vortex_expect("zigzag corruption"),
+                ),
+                array.dtype().nullability(),
+            )
+        })
+        .into_value())
     }
 }
 
@@ -174,27 +193,6 @@ impl BaseArrayVTable<ZigZagVTable> for ZigZagVTable {
 
     fn array_eq(array: &ZigZagArray, other: &ZigZagArray, precision: Precision) -> bool {
         array.dtype == other.dtype && array.encoded.array_eq(&other.encoded, precision)
-    }
-}
-
-impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
-    fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
-        let scalar = array.encoded().scalar_at(index)?;
-        if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype()));
-        }
-
-        let pscalar = scalar.as_primitive();
-        Ok(match_each_unsigned_integer_ptype!(pscalar.ptype(), |P| {
-            Scalar::primitive(
-                <<P as ZigZagEncoded>::Int>::decode(
-                    pscalar
-                        .typed_value::<P>()
-                        .vortex_expect("zigzag corruption"),
-                ),
-                array.dtype().nullability(),
-            )
-        }))
     }
 }
 

@@ -6,7 +6,7 @@
 mod array;
 mod compute;
 mod dyn_;
-mod operations;
+
 mod validity;
 mod visitor;
 
@@ -16,11 +16,11 @@ use std::ops::Deref;
 pub use array::*;
 pub use compute::*;
 pub use dyn_::*;
-pub use operations::*;
 pub use validity::*;
 pub use visitor::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -51,7 +51,6 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     type Metadata: Debug;
 
     type ArrayVTable: BaseArrayVTable<Self>;
-    type OperationsVTable: OperationsVTable<Self>;
     type ValidityVTable: ValidityVTable<Self>;
     type VisitorVTable: VisitorVTable<Self>;
 
@@ -198,6 +197,19 @@ pub trait VTable: 'static + Sized + Send + Sync + Debug {
     ) -> VortexResult<Option<ArrayRef>> {
         _ = (array, parent, child_idx);
         Ok(None)
+    }
+
+    /// Returns the scalar value found at the given index.
+    ///
+    /// The `index` is already checked to be less than the length of the array,
+    /// and the value at the index is guaranteed to be non-null.
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let executed = Self::execute(array, ctx)?;
+        Ok(executed.scalar_at(index)?.into_value())
     }
 }
 

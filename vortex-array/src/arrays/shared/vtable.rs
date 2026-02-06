@@ -6,8 +6,9 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
@@ -24,7 +25,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -45,7 +45,6 @@ impl VTable for SharedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -94,6 +93,17 @@ impl VTable for SharedVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.canonicalize(ctx)?.into_array())
     }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        array
+            .current_array_ref()
+            .scalar_at(index)
+            .map(|s| s.into_value())
+    }
 }
 
 impl BaseArrayVTable<SharedVTable> for SharedVTable {
@@ -119,12 +129,6 @@ impl BaseArrayVTable<SharedVTable> for SharedVTable {
         let current = array.current_array_ref();
         let other_current = other.current_array_ref();
         current.array_eq(&other_current, precision) && array.dtype == other.dtype
-    }
-}
-
-impl OperationsVTable<SharedVTable> for SharedVTable {
-    fn scalar_at(array: &SharedArray, index: usize) -> VortexResult<Scalar> {
-        array.current_array_ref().scalar_at(index)
     }
 }
 

@@ -23,7 +23,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromValidityHelper;
@@ -37,6 +36,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 vtable!(ByteBool);
 
@@ -46,7 +46,6 @@ impl VTable for ByteBoolVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -119,6 +118,18 @@ impl VTable for ByteBoolVTable {
         let boolean_buffer = BitBuffer::from(array.as_slice());
         let validity = array.validity().clone();
         Ok(BoolArray::new(boolean_buffer, validity).into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(Scalar::bool(
+            array.buffer.as_host()[index] == 1,
+            array.dtype().nullability(),
+        )
+        .into_value())
     }
 }
 
@@ -208,15 +219,6 @@ impl BaseArrayVTable<ByteBoolVTable> for ByteBoolVTable {
         array.dtype == other.dtype
             && array.buffer.array_eq(&other.buffer, precision)
             && array.validity.array_eq(&other.validity, precision)
-    }
-}
-
-impl OperationsVTable<ByteBoolVTable> for ByteBoolVTable {
-    fn scalar_at(array: &ByteBoolArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::bool(
-            array.buffer.as_host()[index] == 1,
-            array.dtype().nullability(),
-        ))
     }
 }
 

@@ -1,27 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_decimal_value_type;
-use vortex_error::VortexResult;
-use vortex_scalar::DecimalValue;
-use vortex_scalar::Scalar;
-
-use crate::arrays::DecimalArray;
-use crate::arrays::DecimalVTable;
-use crate::vtable::OperationsVTable;
-
-impl OperationsVTable<DecimalVTable> for DecimalVTable {
-    fn scalar_at(array: &DecimalArray, index: usize) -> VortexResult<Scalar> {
-        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
-            Scalar::decimal(
-                DecimalValue::from(array.buffer::<D>()[index]),
-                array.decimal_dtype(),
-                array.dtype().nullability(),
-            )
-        }))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_buffer::buffer;

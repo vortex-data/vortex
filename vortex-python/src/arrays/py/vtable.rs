@@ -23,7 +23,6 @@ use vortex::array::vtable;
 use vortex::array::vtable::ArrayId;
 use vortex::array::vtable::BaseArrayVTable;
 use vortex::array::vtable::ComputeVTable;
-use vortex::array::vtable::OperationsVTable;
 use vortex::array::vtable::VTable;
 use vortex::array::vtable::ValidityVTable;
 use vortex::array::vtable::VisitorVTable;
@@ -34,7 +33,6 @@ use vortex::dtype::DType;
 use vortex::error::VortexResult;
 use vortex::error::vortex_ensure;
 use vortex::error::vortex_err;
-use vortex::scalar::Scalar;
 
 use crate::arrays::py::PythonArray;
 
@@ -51,7 +49,6 @@ impl VTable for PythonVTable {
     type Metadata = RawMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = Self;
@@ -140,12 +137,6 @@ impl BaseArrayVTable<PythonVTable> for PythonVTable {
             && array.id == other.id
             && array.len == other.len
             && array.dtype == other.dtype
-    }
-}
-
-impl OperationsVTable<PythonVTable> for PythonVTable {
-    fn scalar_at(_array: &PythonArray, _index: usize) -> VortexResult<Scalar> {
-        todo!()
     }
 }
 

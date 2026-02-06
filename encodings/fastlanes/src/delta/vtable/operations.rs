@@ -1,21 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::ToCanonical;
-use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use super::DeltaVTable;
-use crate::DeltaArray;
-
-impl OperationsVTable<DeltaVTable> for DeltaVTable {
-    fn scalar_at(array: &DeltaArray, index: usize) -> VortexResult<Scalar> {
-        let decompressed = array.slice(index..index + 1)?.to_primitive();
-        decompressed.scalar_at(0)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;

@@ -8,7 +8,6 @@ mod array;
 mod canonical;
 mod compress;
 mod compute;
-mod ops;
 mod timestamp;
 
 #[cfg(test)]

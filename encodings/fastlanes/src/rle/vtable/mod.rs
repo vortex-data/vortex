@@ -18,6 +18,7 @@ use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
+use vortex_scalar::ScalarValue;
 
 use crate::RLEArray;
 use crate::rle::array::rle_decompress::rle_decompress;
@@ -52,7 +53,6 @@ impl VTable for RLEVTable {
     type Metadata = ProstMetadata<RLEMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -148,6 +148,32 @@ impl VTable for RLEVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(rle_decompress(array, ctx)?.into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        use vortex_error::VortexExpect;
+        use vortex_scalar::Scalar;
+
+        let offset_in_chunk = array.offset();
+        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
+
+        let chunk_relative_idx = chunk_relative_idx
+            .as_primitive()
+            .as_::<usize>()
+            .vortex_expect("Index must not be null");
+
+        let chunk_id = (offset_in_chunk + index) / crate::FL_CHUNK_SIZE;
+        let value_idx_offset = array.values_idx_offset(chunk_id);
+
+        let scalar = array
+            .values()
+            .scalar_at(value_idx_offset + chunk_relative_idx)?;
+
+        Ok(Scalar::new(array.dtype().clone(), scalar.into_value()).into_value())
     }
 }
 

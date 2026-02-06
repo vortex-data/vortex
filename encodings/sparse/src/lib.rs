@@ -72,7 +72,6 @@ impl VTable for SparseVTable {
     type Metadata = ProstMetadata<SparseMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -164,6 +163,18 @@ impl VTable for SparseVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         execute_sparse(array)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array
+            .patches()
+            .get_patched(index)?
+            .unwrap_or_else(|| array.fill_scalar().clone())
+            .into_value())
     }
 }
 

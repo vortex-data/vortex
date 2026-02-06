@@ -20,6 +20,7 @@ use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::ScalarValue;
 
 use crate::DeltaArray;
 use crate::delta::array::delta_decompress::delta_decompress;
@@ -48,7 +49,6 @@ impl VTable for DeltaVTable {
     type Metadata = ProstMetadata<DeltaMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChildSliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -123,6 +123,16 @@ impl VTable for DeltaVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(delta_decompress(array, ctx)?.into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        use vortex_array::ToCanonical;
+        let decompressed = array.slice(index..index + 1)?.to_primitive();
+        Ok(decompressed.scalar_at(0)?.into_value())
     }
 }
 

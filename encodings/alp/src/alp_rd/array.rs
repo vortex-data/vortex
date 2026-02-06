@@ -43,6 +43,8 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_mask::Mask;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
 use crate::alp_rd_decode;
@@ -69,7 +71,6 @@ impl VTable for ALPRDVTable {
     type Metadata = ProstMetadata<ALPRDMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -267,6 +268,52 @@ impl VTable for ALPRDVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let maybe_patched_value = match array.left_parts_patches() {
+            Some(patches) => patches.get_patched(index)?,
+            None => None,
+        };
+        let left = match maybe_patched_value {
+            Some(patched_value) => patched_value
+                .as_primitive()
+                .as_::<u16>()
+                .vortex_expect("patched values must be non-null"),
+            _ => {
+                let left_code: u16 = array
+                    .left_parts()
+                    .scalar_at(index)?
+                    .as_primitive()
+                    .as_::<u16>()
+                    .vortex_expect("left_code must be non-null");
+                array.left_parts_dictionary()[left_code as usize]
+            }
+        };
+
+        Ok(if array.is_f32() {
+            let right: u32 = array
+                .right_parts()
+                .scalar_at(index)?
+                .as_primitive()
+                .as_::<u32>()
+                .vortex_expect("non-null");
+            let packed = f32::from_bits((left as u32) << array.right_bit_width() | right);
+            Scalar::primitive(packed, array.dtype().nullability()).into_value()
+        } else {
+            let right: u64 = array
+                .right_parts()
+                .scalar_at(index)?
+                .as_primitive()
+                .as_::<u64>()
+                .vortex_expect("non-null");
+            let packed = f64::from_bits(((left as u64) << array.right_bit_width()) | right);
+            Scalar::primitive(packed, array.dtype().nullability()).into_value()
+        })
     }
 }
 

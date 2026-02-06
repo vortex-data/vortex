@@ -3,10 +3,13 @@
 
 use vortex_dtype::DType;
 use vortex_dtype::PType;
+use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::EmptyMetadata;
@@ -21,7 +24,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -38,7 +40,6 @@ impl VTable for PrimitiveVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -133,6 +134,17 @@ impl VTable for PrimitiveVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(match_each_native_ptype!(array.ptype(), |T| {
+            Scalar::primitive(array.as_slice::<T>()[index], array.dtype().nullability())
+        })
+        .into_value())
     }
 }
 

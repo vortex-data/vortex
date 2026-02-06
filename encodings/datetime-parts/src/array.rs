@@ -36,6 +36,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_error::vortex_panic;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::canonical::decode_to_temporal;
 use crate::compute::rules::PARENT_RULES;
@@ -78,7 +81,6 @@ impl VTable for DateTimePartsVTable {
     type Metadata = ProstMetadata<DateTimePartsMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -163,6 +165,62 @@ impl VTable for DateTimePartsVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        use vortex_dtype::datetime::Timestamp;
+
+        use crate::timestamp;
+        use crate::timestamp::TimestampParts;
+
+        let DType::Extension(ext) = array.dtype().clone() else {
+            vortex_panic!(
+                "DateTimePartsArray must have extension dtype, found {}",
+                array.dtype()
+            );
+        };
+
+        let Some(options) = ext.metadata_opt::<Timestamp>() else {
+            vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
+        };
+
+        let days: i64 = array
+            .days()
+            .scalar_at(index)?
+            .as_primitive()
+            .as_::<i64>()
+            .vortex_expect("days fits in i64");
+        let seconds: i64 = array
+            .seconds()
+            .scalar_at(index)?
+            .as_primitive()
+            .as_::<i64>()
+            .vortex_expect("seconds fits in i64");
+        let subseconds: i64 = array
+            .subseconds()
+            .scalar_at(index)?
+            .as_primitive()
+            .as_::<i64>()
+            .vortex_expect("subseconds fits in i64");
+
+        let ts = timestamp::combine(
+            TimestampParts {
+                days,
+                seconds,
+                subseconds,
+            },
+            options.unit,
+        );
+
+        Ok(Scalar::extension::<Timestamp>(
+            options.clone(),
+            Scalar::primitive(ts, ext.storage_dtype().nullability()),
+        )
+        .into_value())
     }
 }
 

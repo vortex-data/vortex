@@ -29,7 +29,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
@@ -45,6 +44,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::decimal_byte_parts::rules::PARENT_RULES;
 
@@ -64,7 +64,6 @@ impl VTable for DecimalBytePartsVTable {
     type Metadata = ProstMetadata<DecimalBytesPartsMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -131,6 +130,17 @@ impl VTable for DecimalBytePartsVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         to_canonical_decimal(array, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let scalar = array.msp.scalar_at(index)?;
+        let primitive_scalar = scalar.as_primitive();
+        let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
+        Ok(Scalar::new(array.dtype.clone(), DecimalValue::I64(value).into()).into_value())
     }
 }
 
@@ -260,22 +270,6 @@ fn to_canonical_decimal(
         }
         .into_array()
     }))
-}
-
-impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
-    fn scalar_at(array: &DecimalBytePartsArray, index: usize) -> VortexResult<Scalar> {
-        // TODO(joe): support parts len != 1
-        let scalar = array.msp.scalar_at(index)?;
-
-        // Note. values in msp, can only be signed integers upto size i64.
-        let primitive_scalar = scalar.as_primitive();
-        // TODO(joe): extend this to support multiple parts.
-        let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
-        Ok(Scalar::new(
-            array.dtype.clone(),
-            DecimalValue::I64(value).into(),
-        ))
-    }
 }
 
 impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {

@@ -5,19 +5,8 @@ use vortex_array::Array;
 use vortex_array::search_sorted::SearchResult;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
-use vortex_array::vtable::OperationsVTable;
 use vortex_error::VortexResult;
 use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
-
-use crate::RunEndArray;
-use crate::RunEndVTable;
-
-impl OperationsVTable<RunEndVTable> for RunEndVTable {
-    fn scalar_at(array: &RunEndArray, index: usize) -> VortexResult<Scalar> {
-        array.values().scalar_at(array.find_physical_index(index)?)
-    }
-}
 
 /// Find the physical offset for and index that would be an end of the slice i.e., one past the last element.
 ///

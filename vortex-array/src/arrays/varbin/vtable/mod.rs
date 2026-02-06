@@ -8,6 +8,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -16,6 +17,7 @@ use crate::IntoArray;
 use crate::ProstMetadata;
 use crate::SerializeMetadata;
 use crate::arrays::varbin::VarBinArray;
+use crate::arrays::varbin_scalar;
 use crate::buffer::BufferHandle;
 use crate::serde::ArrayChildren;
 use crate::validity::Validity;
@@ -28,7 +30,6 @@ use crate::vtable::ValidityVTableFromValidityHelper;
 mod array;
 mod canonical;
 mod kernel;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -50,7 +51,6 @@ impl VTable for VarBinVTable {
     type Metadata = ProstMetadata<VarBinMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -148,6 +148,14 @@ impl VTable for VarBinVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(varbin_to_canonical(array, ctx)?.into_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(varbin_scalar(array.bytes_at(index), array.dtype()).into_value())
     }
 }
 

@@ -11,7 +11,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::Array;
 use crate::ArrayBufferVisitor;
@@ -35,7 +35,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -53,7 +52,6 @@ impl VTable for FilterVTable {
     type Array = FilterArray;
     type Metadata = FilterMetadata;
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -128,6 +126,15 @@ impl VTable for FilterVTable {
     fn reduce(array: &Self::Array) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array)
     }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let rank_idx = array.mask.rank(index);
+        array.child.scalar_at(rank_idx).map(|s| s.into_value())
+    }
 }
 
 impl BaseArrayVTable<FilterVTable> for FilterVTable {
@@ -150,13 +157,6 @@ impl BaseArrayVTable<FilterVTable> for FilterVTable {
 
     fn array_eq(array: &FilterArray, other: &FilterArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.mask.array_eq(&other.mask, precision)
-    }
-}
-
-impl OperationsVTable<FilterVTable> for FilterVTable {
-    fn scalar_at(array: &FilterArray, index: usize) -> VortexResult<Scalar> {
-        let rank_idx = array.mask.rank(index);
-        array.child.scalar_at(rank_idx)
     }
 }
 

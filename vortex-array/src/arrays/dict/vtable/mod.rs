@@ -4,11 +4,13 @@
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use super::DictArray;
 use super::DictMetadata;
@@ -31,7 +33,6 @@ use crate::vtable::NotSupported;
 use crate::vtable::VTable;
 
 mod array;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -50,7 +51,6 @@ impl VTable for DictVTable {
     type Metadata = ProstMetadata<DictMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -153,6 +153,28 @@ impl VTable for DictVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let Some(dict_index) = array
+            .codes()
+            .scalar_at(index)?
+            .as_primitive()
+            .as_::<usize>()
+        else {
+            return Ok(ScalarValue::null());
+        };
+
+        Ok(array
+            .values()
+            .scalar_at(dict_index)?
+            .cast(array.dtype())
+            .vortex_expect("Array dtype will only differ by nullability")
+            .into_value())
     }
 }
 

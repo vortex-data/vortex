@@ -6,6 +6,8 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -46,7 +48,6 @@ impl VTable for BoolVTable {
     type Metadata = ProstMetadata<BoolMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -131,6 +132,18 @@ impl VTable for BoolVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         kernel::PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(Scalar::bool(
+            array.to_bit_buffer().value(index),
+            array.dtype().nullability(),
+        )
+        .into_value())
     }
 }
 

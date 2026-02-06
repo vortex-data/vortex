@@ -37,7 +37,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -55,7 +54,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::PcoChunkInfo;
 use crate::PcoMetadata;
@@ -89,7 +88,6 @@ impl VTable for PcoVTable {
     type Metadata = ProstMetadata<PcoMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -181,6 +179,18 @@ impl VTable for PcoVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array
+            ._slice(index, index + 1)
+            .decompress()?
+            .scalar_at(0)?
+            .into_value())
     }
 }
 
@@ -524,12 +534,6 @@ impl BaseArrayVTable<PcoVTable> for PcoVTable {
             }
         }
         true
-    }
-}
-
-impl OperationsVTable<PcoVTable> for PcoVTable {
-    fn scalar_at(array: &PcoArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }
 

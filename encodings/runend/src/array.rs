@@ -37,6 +37,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_panic;
 use vortex_scalar::PValue;
+use vortex_scalar::ScalarValue;
 
 use crate::compress::runend_decode_bools;
 use crate::compress::runend_decode_primitive;
@@ -62,7 +63,6 @@ impl VTable for RunEndVTable {
     type Metadata = ProstMetadata<RunEndMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -143,6 +143,17 @@ impl VTable for RunEndVTable {
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         run_end_canonicalize(array, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array
+            .values()
+            .scalar_at(array.find_physical_index(index)?)?
+            .into_value())
     }
 }
 

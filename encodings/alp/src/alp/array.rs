@@ -37,11 +37,14 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
+use crate::match_each_alp_float_ptype;
 
 vtable!(ALP);
 
@@ -51,7 +54,6 @@ impl VTable for ALPVTable {
     type Metadata = ProstMetadata<ALPMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -177,6 +179,32 @@ impl VTable for ALPVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        if let Some(patches) = array.patches()
+            && let Some(patch) = patches.get_patched(index)?
+        {
+            return Ok(patch.cast(array.dtype())?.into_value());
+        }
+
+        let encoded_val = array.encoded().scalar_at(index)?;
+
+        Ok(match_each_alp_float_ptype!(array.ptype(), |T| {
+            let encoded_val: <T as ALPFloat>::ALPInt = encoded_val
+                .as_ref()
+                .try_into()
+                .vortex_expect("invalid ALPInt");
+            Scalar::primitive(
+                <T as ALPFloat>::decode_single(encoded_val, array.exponents()),
+                array.dtype().nullability(),
+            )
+            .into_value()
+        }))
     }
 }
 

@@ -50,6 +50,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::ScalarValue;
 
 use crate::canonical::canonicalize_fsst;
 use crate::canonical::fsst_decode_views;
@@ -80,7 +81,6 @@ impl VTable for FSSTVTable {
     type Metadata = ProstMetadata<FSSTMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromChild;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -270,6 +270,23 @@ impl VTable for FSSTVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        use vortex_array::arrays::varbin_scalar;
+        use vortex_buffer::ByteBuffer;
+        use vortex_error::VortexExpect;
+
+        let compressed = array.codes().scalar_at(index)?;
+        let binary_datum = compressed.as_binary().value().vortex_expect("non-null");
+
+        let decoded_buffer =
+            ByteBuffer::from(array.decompressor().decompress(binary_datum.as_slice()));
+        Ok(varbin_scalar(decoded_buffer, array.dtype()).into_value())
     }
 }
 

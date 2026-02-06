@@ -12,7 +12,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::AnyCanonical;
 use crate::Array;
@@ -34,7 +34,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -52,7 +51,6 @@ impl VTable for SliceVTable {
     type Array = SliceArray;
     type Metadata = SliceMetadata;
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -127,6 +125,17 @@ impl VTable for SliceVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
     }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        array
+            .child
+            .scalar_at(array.range.start + index)
+            .map(|s| s.into_value())
+    }
 }
 
 impl BaseArrayVTable<SliceVTable> for SliceVTable {
@@ -150,12 +159,6 @@ impl BaseArrayVTable<SliceVTable> for SliceVTable {
 
     fn array_eq(array: &SliceArray, other: &SliceArray, precision: Precision) -> bool {
         array.child.array_eq(&other.child, precision) && array.range == other.range
-    }
-}
-
-impl OperationsVTable<SliceVTable> for SliceVTable {
-    fn scalar_at(array: &SliceArray, index: usize) -> VortexResult<Scalar> {
-        array.child.scalar_at(array.range.start + index)
     }
 }
 

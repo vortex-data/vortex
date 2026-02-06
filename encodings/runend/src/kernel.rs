@@ -24,8 +24,8 @@ pub(super) const PARENT_KERNELS: ParentKernelSet<RunEndVTable> = ParentKernelSet
 
 /// Kernel to execute slicing on a RunEnd array.
 ///
-/// This directly slices the RunEnd array using OperationsVTable::slice and then
-/// executes the result to get the canonical form.
+/// This directly slices the RunEnd array and then executes the result to get
+/// the canonical form.
 #[derive(Debug)]
 struct RunEndSliceKernel;
 

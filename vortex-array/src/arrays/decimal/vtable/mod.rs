@@ -10,6 +10,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalType;
+use vortex_scalar::DecimalValue;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
@@ -48,7 +51,6 @@ impl VTable for DecimalVTable {
     type Metadata = ProstMetadata<DecimalMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -138,6 +140,21 @@ impl VTable for DecimalVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(match_each_decimal_value_type!(array.values_type(), |D| {
+            Scalar::decimal(
+                DecimalValue::from(array.buffer::<D>()[index]),
+                array.decimal_dtype(),
+                array.dtype().nullability(),
+            )
+        })
+        .into_value())
     }
 }
 

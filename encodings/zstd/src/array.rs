@@ -33,7 +33,6 @@ use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
 use vortex_array::vtable::BaseArrayVTable;
 use vortex_array::vtable::NotSupported;
-use vortex_array::vtable::OperationsVTable;
 use vortex_array::vtable::VTable;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
@@ -54,6 +53,7 @@ use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ZstdFrameMetadata;
 use crate::ZstdMetadata;
@@ -88,7 +88,6 @@ impl VTable for ZstdVTable {
     type Metadata = ProstMetadata<ZstdMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValiditySliceHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -181,6 +180,18 @@ impl VTable for ZstdVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         crate::rules::RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array
+            ._slice(index, index + 1)
+            .decompress()?
+            .scalar_at(0)?
+            .into_value())
     }
 }
 
@@ -888,12 +899,6 @@ impl BaseArrayVTable<ZstdVTable> for ZstdVTable {
             && array.unsliced_n_rows == other.unsliced_n_rows
             && array.slice_start == other.slice_start
             && array.slice_stop == other.slice_stop
-    }
-}
-
-impl OperationsVTable<ZstdVTable> for ZstdVTable {
-    fn scalar_at(array: &ZstdArray, index: usize) -> VortexResult<Scalar> {
-        array._slice(index, index + 1).decompress()?.scalar_at(0)
     }
 }
 

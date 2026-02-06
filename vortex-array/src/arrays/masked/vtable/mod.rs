@@ -3,7 +3,6 @@
 
 mod array;
 mod canonical;
-mod operations;
 mod validity;
 
 use vortex_dtype::DType;
@@ -12,7 +11,9 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
@@ -58,7 +59,6 @@ impl VTable for MaskedVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -156,6 +156,14 @@ impl VTable for MaskedVTable {
         let new_array = MaskedArray::try_new(child, validity)?;
         *array = new_array;
         Ok(())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(array.child.scalar_at(index)?.into_value())
     }
 }
 

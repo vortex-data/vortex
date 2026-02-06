@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::sync::Arc;
+
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
@@ -8,7 +10,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
@@ -26,7 +31,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -55,7 +59,6 @@ impl VTable for ListViewVTable {
     type Metadata = ProstMetadata<ListViewMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -171,5 +174,23 @@ impl VTable for ListViewVTable {
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_RULES.evaluate(array, parent, child_idx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let list = array.list_elements_at(index)?;
+        let children: Vec<Scalar> = (0..list.len())
+            .map(|i| list.scalar_at(i))
+            .collect::<VortexResult<_>>()?;
+
+        Ok(Scalar::list(
+            Arc::new(list.dtype().clone()),
+            children,
+            array.dtype.nullability(),
+        )
+        .into_value())
     }
 }

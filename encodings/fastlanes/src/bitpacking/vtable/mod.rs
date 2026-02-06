@@ -26,10 +26,12 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::ScalarValue;
 
 use crate::BitPackedArray;
 use crate::bitpack_decompress::unpack_array;
 use crate::bitpack_decompress::unpack_into_primitive_builder;
+use crate::bitpack_decompress::unpack_single;
 use crate::bitpacking::vtable::kernels::PARENT_KERNELS;
 mod array;
 mod kernels;
@@ -55,7 +57,6 @@ impl VTable for BitPackedVTable {
     type Metadata = ProstMetadata<BitPackedMetadata>;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -257,6 +258,21 @@ impl VTable for BitPackedVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(if let Some(patches) = array.patches()
+            && let Some(patch) = patches.get_patched(index)?
+        {
+            patch
+        } else {
+            unpack_single(array, index)
+        }
+        .into_value())
     }
 }
 

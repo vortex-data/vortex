@@ -6,7 +6,10 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
+use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
@@ -22,7 +25,6 @@ use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 
 mod array;
-mod operations;
 mod validity;
 mod visitor;
 
@@ -41,7 +43,6 @@ impl VTable for FixedSizeListVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = ValidityVTableFromValidityHelper;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -134,5 +135,25 @@ impl VTable for FixedSizeListVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.to_array())
+    }
+
+    fn execute_scalar(
+        array: &Self::Array,
+        index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        let list = array.fixed_size_list_elements_at(index)?;
+        let children_elements: Vec<Scalar> = (0..list.len())
+            .map(|i| list.scalar_at(i))
+            .collect::<VortexResult<_>>()?;
+
+        debug_assert_eq!(children_elements.len(), array.list_size() as usize);
+
+        Ok(Scalar::fixed_size_list(
+            list.dtype().clone(),
+            children_elements,
+            array.dtype().nullability(),
+        )
+        .into_value())
     }
 }

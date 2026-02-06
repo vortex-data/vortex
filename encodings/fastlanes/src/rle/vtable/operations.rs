@@ -1,36 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use super::RLEVTable;
-use crate::FL_CHUNK_SIZE;
-use crate::RLEArray;
-
-impl OperationsVTable<RLEVTable> for RLEVTable {
-    fn scalar_at(array: &RLEArray, index: usize) -> VortexResult<Scalar> {
-        let offset_in_chunk = array.offset();
-        let chunk_relative_idx = array.indices().scalar_at(offset_in_chunk + index)?;
-
-        let chunk_relative_idx = chunk_relative_idx
-            .as_primitive()
-            .as_::<usize>()
-            .vortex_expect("Index must not be null");
-
-        let chunk_id = (offset_in_chunk + index) / FL_CHUNK_SIZE;
-        let value_idx_offset = array.values_idx_offset(chunk_id);
-
-        let scalar = array
-            .values()
-            .scalar_at(value_idx_offset + chunk_relative_idx)?;
-
-        Ok(Scalar::new(array.dtype().clone(), scalar.into_value()))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use vortex_array::Array;
@@ -42,10 +12,11 @@ mod tests {
     use vortex_buffer::Buffer;
     use vortex_buffer::buffer;
 
-    use super::*;
+    use crate::RLEArray;
 
     mod fixture {
         use super::*;
+        use crate::RLEArray;
 
         pub(super) fn rle_array() -> RLEArray {
             let values = PrimitiveArray::from_iter([10u32, 20u32, 30u32]).into_array();

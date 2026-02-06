@@ -6,7 +6,7 @@ use std::hash::Hash;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
-use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
@@ -24,7 +24,6 @@ use crate::vtable;
 use crate::vtable::ArrayId;
 use crate::vtable::BaseArrayVTable;
 use crate::vtable::NotSupported;
-use crate::vtable::OperationsVTable;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTable;
 use crate::vtable::VisitorVTable;
@@ -39,7 +38,6 @@ impl VTable for NullVTable {
     type Metadata = EmptyMetadata;
 
     type ArrayVTable = Self;
-    type OperationsVTable = Self;
     type ValidityVTable = Self;
     type VisitorVTable = Self;
     type ComputeVTable = NotSupported;
@@ -89,6 +87,14 @@ impl VTable for NullVTable {
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         Ok(array.to_array())
+    }
+
+    fn execute_scalar(
+        _array: &Self::Array,
+        _index: usize,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<ScalarValue> {
+        Ok(ScalarValue::null())
     }
 }
 
@@ -167,12 +173,6 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
-}
-
-impl OperationsVTable<NullVTable> for NullVTable {
-    fn scalar_at(_array: &NullArray, _index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::null(DType::Null))
-    }
 }
 
 impl ValidityVTable<NullVTable> for NullVTable {

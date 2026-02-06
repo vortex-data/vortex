@@ -1,62 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
-use vortex_array::vtable::OperationsVTable;
-use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
-use vortex_scalar::Scalar;
-
-use crate::ALPRDArray;
-use crate::ALPRDVTable;
-
-impl OperationsVTable<ALPRDVTable> for ALPRDVTable {
-    fn scalar_at(array: &ALPRDArray, index: usize) -> VortexResult<Scalar> {
-        // The left value can either be a direct value, or an exception.
-        // The exceptions array represents exception positions with non-null values.
-        let maybe_patched_value = match array.left_parts_patches() {
-            Some(patches) => patches.get_patched(index)?,
-            None => None,
-        };
-        let left = match maybe_patched_value {
-            Some(patched_value) => patched_value
-                .as_primitive()
-                .as_::<u16>()
-                .vortex_expect("patched values must be non-null"),
-            _ => {
-                let left_code: u16 = array
-                    .left_parts()
-                    .scalar_at(index)?
-                    .as_primitive()
-                    .as_::<u16>()
-                    .vortex_expect("left_code must be non-null");
-                array.left_parts_dictionary()[left_code as usize]
-            }
-        };
-
-        // combine left and right values
-        Ok(if array.is_f32() {
-            let right: u32 = array
-                .right_parts()
-                .scalar_at(index)?
-                .as_primitive()
-                .as_::<u32>()
-                .vortex_expect("non-null");
-            let packed = f32::from_bits((left as u32) << array.right_bit_width() | right);
-            Scalar::primitive(packed, array.dtype().nullability())
-        } else {
-            let right: u64 = array
-                .right_parts()
-                .scalar_at(index)?
-                .as_primitive()
-                .as_::<u64>()
-                .vortex_expect("non-null");
-            let packed = f64::from_bits(((left as u64) << array.right_bit_width()) | right);
-            Scalar::primitive(packed, array.dtype().nullability())
-        })
-    }
-}
-
 #[cfg(test)]
 mod test {
     use rstest::rstest;
