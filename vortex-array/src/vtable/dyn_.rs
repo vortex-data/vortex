@@ -34,6 +34,7 @@ pub type ArrayId = ArcRef<str>;
 /// This trait contains the implementation API for Vortex arrays, allowing us to keep the public
 /// [`Array`] trait API to a minimum.
 pub trait DynVTable: 'static + private::Sealed + Send + Sync + Debug {
+    #[allow(clippy::too_many_arguments)]
     fn build(
         &self,
         id: ArrayId,
