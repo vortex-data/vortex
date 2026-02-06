@@ -522,6 +522,8 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: nextest
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
       - name: Rust Tests
         env:
           # Outline flat layouts for cuda scan.

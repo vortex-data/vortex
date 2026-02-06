@@ -17,8 +17,6 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use vortex_cuda_macros::cuda_tests;
-
 /// Raw FFI type definitions and dynamically-loaded function pointers from bindgen.
 #[allow(
     non_upper_case_globals,
@@ -60,7 +58,7 @@ pub fn cub_library() -> Result<&'static sys::CubLibrary, CubError> {
         .map_err(|e| CubError::LibraryLoadError(e.clone()))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use crate::filter;
 

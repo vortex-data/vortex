@@ -63,14 +63,14 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
 vortex-scan = { workspace = true }
 
-[target.'cfg(unix)'.dev-dependencies]
+# NOTE(ngates): do we need to feature gate this on cuda?
 vortex-cuda = { workspace = true }
-vortex-cuda-macros = { workspace = true }
 
 [lints]
 workspace = true
 
 [features]
+cuda = []
 object_store = ["dep:object_store", "vortex-io/object_store", "tokio"]
 tokio = [
     "dep:tokio",

@@ -14,7 +14,6 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
@@ -167,7 +166,7 @@ async fn decode_runend_typed<V: DeviceRepr + NativePType, E: DeviceRepr + Native
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 #[allow(clippy::cast_possible_truncation)]
 mod tests {
     use rstest::rstest;

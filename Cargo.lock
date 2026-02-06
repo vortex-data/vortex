@@ -2527,7 +2527,6 @@ dependencies = [
  "tokio",
  "url",
  "vortex-bench",
- "vortex-cuda",
  "vortex-datafusion",
 ]
 
@@ -10148,7 +10147,6 @@ dependencies = [
  "vortex-bytebool",
  "vortex-compute",
  "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10391,7 +10389,6 @@ dependencies = [
  "bindgen",
  "libloading 0.8.9",
  "paste",
- "vortex-cuda-macros",
  "vortex-dtype",
 ]
 
@@ -10417,7 +10414,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-cub",
  "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10433,15 +10429,6 @@ dependencies = [
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
-]
-
-[[package]]
-name = "vortex-cuda-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.114",
 ]
 
 [[package]]
@@ -10676,7 +10663,6 @@ dependencies = [
  "vortex-buffer",
  "vortex-bytebool",
  "vortex-cuda",
- "vortex-cuda-macros",
  "vortex-datetime-parts",
  "vortex-decimal-byte-parts",
  "vortex-dtype",
@@ -10897,7 +10883,6 @@ dependencies = [
  "liblzma",
  "reqwest",
  "tar",
- "vortex-cuda-macros",
 ]
 
 [[package]]

@@ -23,8 +23,6 @@ use vortex_buffer::Buffer;
 use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
-use vortex_cuda_macros::cuda_available;
-use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_error::VortexExpect;

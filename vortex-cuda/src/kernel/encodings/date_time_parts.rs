@@ -16,7 +16,6 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::TemporalArray;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::validity::Validity;
-use vortex_cuda_macros::cuda_tests;
 use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -217,7 +216,7 @@ where
     ))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;

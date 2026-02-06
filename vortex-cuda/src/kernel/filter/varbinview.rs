@@ -4,7 +4,6 @@
 use vortex_array::Canonical;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewArrayParts;
-use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -41,7 +40,7 @@ pub(super) async fn filter_varbinview(
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::IntoArray;

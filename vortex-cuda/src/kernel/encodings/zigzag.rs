@@ -12,7 +12,6 @@ use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::buffer::BufferHandle;
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_unsigned_integer_ptype;
@@ -106,7 +105,7 @@ where
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;

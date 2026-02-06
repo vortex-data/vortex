@@ -18,6 +18,7 @@ workspace = true
 
 [features]
 default = []
+cuda = []
 _test-harness = []
 
 [dependencies]
@@ -35,7 +36,6 @@ vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-cub = { path = "cub" }
-vortex-cuda-macros = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true, features = ["cudarc"] }
@@ -68,23 +68,29 @@ fastlanes = { workspace = true }
 [[bench]]
 name = "for_cuda"
 harness = false
+required-features = ["cuda"]
 
 [[bench]]
 name = "dict_cuda"
 harness = false
+required-features = ["cuda"]
 
 [[bench]]
 name = "zstd_cuda"
 harness = false
+required-features = ["cuda"]
 
 [[bench]]
 name = "filter_cuda"
 harness = false
+required-features = ["cuda"]
 
 [[bench]]
 name = "runend_cuda"
 harness = false
+required-features = ["cuda"]
 
 [[bench]]
 name = "date_time_parts_cuda"
 harness = false
+required-features = ["cuda"]

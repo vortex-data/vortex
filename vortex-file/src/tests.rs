@@ -51,7 +51,6 @@ use vortex_buffer::Buffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_buffer::buffer;
 #[cfg(unix)]
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::Nullability;
@@ -1637,8 +1636,8 @@ async fn main_test() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(unix)]
-#[cuda_tests]
+#[cfg(feature = "cuda")]
+#[cfg(test)]
 mod cuda_tests {
     use std::sync::Arc;
     use std::sync::LazyLock;

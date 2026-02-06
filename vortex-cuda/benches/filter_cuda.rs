@@ -25,8 +25,6 @@ use vortex_cub::filter::cudaStream_t;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
-use vortex_cuda_macros::cuda_available;
-use vortex_cuda_macros::cuda_not_available;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -226,6 +224,10 @@ fn benchmark_filter(c: &mut Criterion) {
 }
 
 criterion::criterion_group!(benches, benchmark_filter);
+
+const fn is_true() -> bool {
+    true
+}
 
 #[cuda_available]
 criterion::criterion_main!(benches);

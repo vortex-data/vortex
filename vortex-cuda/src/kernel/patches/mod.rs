@@ -7,7 +7,6 @@ use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
@@ -104,7 +103,7 @@ pub(crate) async fn execute_patches<
     Ok(target)
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 

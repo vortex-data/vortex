@@ -10,7 +10,6 @@ use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
-use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_native_ptype;
@@ -85,7 +84,7 @@ async fn execute_typed<T: NativePType + DeviceRepr>(
     )))
 }
 
-#[cuda_tests]
+#[cfg(test)]
 mod tests {
     use futures::executor::block_on;
     use rstest::rstest;

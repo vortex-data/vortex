@@ -27,7 +27,6 @@ vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 vortex-compute = { workspace = true }
 
-vortex-cuda-macros = { workspace = true }
 vortex-datetime-parts = { workspace = true }
 vortex-decimal-byte-parts = { workspace = true }
 vortex-dtype = { workspace = true }
@@ -88,7 +87,7 @@ serde = [
 ]
 # This feature enabled unstable encodings for which we don't guarantee stability.
 unstable_encodings = ["vortex-btrblocks/unstable_encodings"]
-cuda = ["dep:vortex-cuda"]
+cuda = ["dep:vortex-cuda", "vortex-file/cuda"]
 
 [[bench]]
 name = "single_encoding_throughput"
