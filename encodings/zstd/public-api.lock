@@ -1,0 +1,98 @@
+pub mod vortex_zstd
+pub struct vortex_zstd::ZstdArray
+impl vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::decompress(&self) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_zstd::ZstdArray::from_array(array: vortex_array::array::ArrayRef, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArray::from_canonical(canonical: &vortex_array::canonical::Canonical, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<core::option::Option<Self>>
+pub fn vortex_zstd::ZstdArray::from_primitive(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArray::from_primitive_without_dict(parray: &vortex_array::arrays::primitive::array::PrimitiveArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArray::from_var_bin_view(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArray::from_var_bin_view_without_dict(vbv: &vortex_array::arrays::varbinview::array::VarBinViewArray, level: i32, values_per_frame: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_zstd::ZstdArray::into_parts(self) -> vortex_zstd::ZstdArrayParts
+pub fn vortex_zstd::ZstdArray::new(dictionary: core::option::Option<vortex_buffer::ByteBuffer>, frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>, dtype: vortex_dtype::dtype::DType, metadata: vortex_zstd::ZstdMetadata, n_rows: usize, validity: vortex_array::validity::Validity) -> Self
+impl core::clone::Clone for vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::clone(&self) -> vortex_zstd::ZstdArray
+impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::as_ref(&self) -> &dyn vortex_array::array::Array
+impl core::convert::From<vortex_zstd::ZstdArray> for vortex_array::array::ArrayRef
+pub fn vortex_array::array::ArrayRef::from(value: vortex_zstd::ZstdArray) -> vortex_array::array::ArrayRef
+impl core::fmt::Debug for vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::deref::Deref for vortex_zstd::ZstdArray
+pub type vortex_zstd::ZstdArray::Target = dyn vortex_array::array::Array
+pub fn vortex_zstd::ZstdArray::deref(&self) -> &Self::Target
+impl vortex_array::array::IntoArray for vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::into_array(self) -> vortex_array::array::ArrayRef
+impl vortex_array::vtable::validity::ValiditySliceHelper for vortex_zstd::ZstdArray
+pub fn vortex_zstd::ZstdArray::unsliced_validity_and_slice(&self) -> (&vortex_array::validity::Validity, usize, usize)
+pub struct vortex_zstd::ZstdArrayParts
+pub vortex_zstd::ZstdArrayParts::dictionary: core::option::Option<vortex_buffer::ByteBuffer>
+pub vortex_zstd::ZstdArrayParts::dtype: vortex_dtype::dtype::DType
+pub vortex_zstd::ZstdArrayParts::frames: alloc::vec::Vec<vortex_buffer::ByteBuffer>
+pub vortex_zstd::ZstdArrayParts::metadata: vortex_zstd::ZstdMetadata
+pub vortex_zstd::ZstdArrayParts::n_rows: usize
+pub vortex_zstd::ZstdArrayParts::slice_start: usize
+pub vortex_zstd::ZstdArrayParts::slice_stop: usize
+pub vortex_zstd::ZstdArrayParts::validity: vortex_array::validity::Validity
+impl core::fmt::Debug for vortex_zstd::ZstdArrayParts
+pub fn vortex_zstd::ZstdArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct vortex_zstd::ZstdFrameMetadata
+pub vortex_zstd::ZstdFrameMetadata::n_values: u64
+pub vortex_zstd::ZstdFrameMetadata::uncompressed_size: u64
+impl core::clone::Clone for vortex_zstd::ZstdFrameMetadata
+pub fn vortex_zstd::ZstdFrameMetadata::clone(&self) -> vortex_zstd::ZstdFrameMetadata
+impl core::default::Default for vortex_zstd::ZstdFrameMetadata
+pub fn vortex_zstd::ZstdFrameMetadata::default() -> Self
+impl core::fmt::Debug for vortex_zstd::ZstdFrameMetadata
+pub fn vortex_zstd::ZstdFrameMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl prost::message::Message for vortex_zstd::ZstdFrameMetadata
+pub fn vortex_zstd::ZstdFrameMetadata::clear(&mut self)
+pub fn vortex_zstd::ZstdFrameMetadata::encoded_len(&self) -> usize
+pub struct vortex_zstd::ZstdMetadata
+pub vortex_zstd::ZstdMetadata::dictionary_size: u32
+pub vortex_zstd::ZstdMetadata::frames: alloc::vec::Vec<vortex_zstd::ZstdFrameMetadata>
+impl core::clone::Clone for vortex_zstd::ZstdMetadata
+pub fn vortex_zstd::ZstdMetadata::clone(&self) -> vortex_zstd::ZstdMetadata
+impl core::default::Default for vortex_zstd::ZstdMetadata
+pub fn vortex_zstd::ZstdMetadata::default() -> Self
+impl core::fmt::Debug for vortex_zstd::ZstdMetadata
+pub fn vortex_zstd::ZstdMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl prost::message::Message for vortex_zstd::ZstdMetadata
+pub fn vortex_zstd::ZstdMetadata::clear(&mut self)
+pub fn vortex_zstd::ZstdMetadata::encoded_len(&self) -> usize
+pub struct vortex_zstd::ZstdVTable
+impl vortex_zstd::ZstdVTable
+pub const vortex_zstd::ZstdVTable::ID: vortex_array::vtable::dyn_::ArrayId
+impl core::fmt::Debug for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_array::arrays::slice::SliceReduce for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::compute::cast::CastKernel for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::cast(&self, array: &vortex_zstd::ZstdArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::vtable::VTable for vortex_zstd::ZstdVTable
+pub type vortex_zstd::ZstdVTable::Array = vortex_zstd::ZstdArray
+pub type vortex_zstd::ZstdVTable::ArrayVTable = vortex_zstd::ZstdVTable
+pub type vortex_zstd::ZstdVTable::Metadata = vortex_array::metadata::ProstMetadata<vortex_zstd::ZstdMetadata>
+pub type vortex_zstd::ZstdVTable::OperationsVTable = vortex_zstd::ZstdVTable
+pub type vortex_zstd::ZstdVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValiditySliceHelper
+pub type vortex_zstd::ZstdVTable::VisitorVTable = vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
+pub fn vortex_zstd::ZstdVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_zstd::ZstdVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_zstd::ZstdVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
+pub fn vortex_zstd::ZstdVTable::metadata(array: &vortex_zstd::ZstdArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_zstd::ZstdVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_zstd::ZstdVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_zstd::ZstdVTable::with_children(array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::array::ArrayRef>) -> vortex_error::VortexResult<()>
+impl vortex_array::vtable::array::BaseArrayVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::array_eq(array: &vortex_zstd::ZstdArray, other: &vortex_zstd::ZstdArray, precision: vortex_array::hash::Precision) -> bool
+pub fn vortex_zstd::ZstdVTable::array_hash<H: core::hash::Hasher>(array: &vortex_zstd::ZstdArray, state: &mut H, precision: vortex_array::hash::Precision)
+pub fn vortex_zstd::ZstdVTable::dtype(array: &vortex_zstd::ZstdArray) -> &vortex_dtype::dtype::DType
+pub fn vortex_zstd::ZstdVTable::len(array: &vortex_zstd::ZstdArray) -> usize
+pub fn vortex_zstd::ZstdVTable::stats(array: &vortex_zstd::ZstdArray) -> vortex_array::stats::array::StatsSetRef<'_>
+impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::scalar_at(array: &vortex_zstd::ZstdArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
+impl vortex_array::vtable::visitor::VisitorVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::visit_buffers(array: &vortex_zstd::ZstdArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
+pub fn vortex_zstd::ZstdVTable::visit_children(array: &vortex_zstd::ZstdArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
+pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer) -> vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>
