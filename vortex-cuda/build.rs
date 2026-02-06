@@ -12,7 +12,6 @@ use std::path::Path;
 use std::process::Command;
 
 use fastlanes::FastLanes;
-use walkdir::WalkDir;
 
 use crate::cuda_kernel_generator::IndentedWriter;
 use crate::cuda_kernel_generator::generate_cuda_unpack_for_width;
@@ -59,29 +58,30 @@ fn main() {
     }
 
     // Watch and compile .cu and .cuh files from kernels/src to PTX in kernels/gen
-    for entry in WalkDir::new(&kernels_src) {
-        let entry = entry.expect("directory listing");
-        let path = entry.path();
+    if let Ok(entries) = std::fs::read_dir(&kernels_src) {
+        for path in entries.flatten().map(|entry| entry.path()) {
+            let is_generated = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("bit_unpack_"));
 
-        let is_generated = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.starts_with("bit_unpack_"));
-
-        match path.extension().and_then(|e| e.to_str()) {
-            Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
-            Some("cu") => {
-                // Only watch hand-written .cu files, not generated ones
-                // (generated files are rebuilt when cuda_kernel_generator changes)
-                if !is_generated {
-                    println!("cargo:rerun-if-changed={}", path.display());
+            match path.extension().and_then(|e| e.to_str()) {
+                Some("cuh") => println!("cargo:rerun-if-changed={}", path.display()),
+                Some("cu") => {
+                    // Only watch hand-written .cu files, not generated ones
+                    // (generated files are rebuilt when cuda_kernel_generator changes)
+                    if !is_generated {
+                        println!("cargo:rerun-if-changed={}", path.display());
+                    }
+                    // Compile all .cu files to PTX in gen directory
+                    nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
+                        .map_err(|e| {
+                            format!("Failed to compile CUDA kernel {}: {}", path.display(), e)
+                        })
+                        .unwrap();
                 }
-                // Compile all .cu files to PTX in gen directory
-                nvcc_compile_ptx(&kernels_src, &kernels_gen, &path, &profile)
-                    .map_err(|e| format!("Failed to compile CUDA kernel {}: {}", path.display(), e))
-                    .unwrap();
+                _ => {}
             }
-            _ => {}
         }
     }
 }

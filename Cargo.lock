@@ -10453,7 +10453,6 @@ dependencies = [
  "vortex-utils",
  "vortex-zigzag",
  "vortex-zstd",
- "walkdir",
 ]
 
 [[package]]
