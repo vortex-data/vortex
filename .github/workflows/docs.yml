@@ -10,7 +10,9 @@ on:
   workflow_dispatch: { }
 
 permissions:
-  contents: read
+  # Weirdly, we need write permissions to see draft releases.
+  # See https://github.com/cli/cli/issues/3037
+  contents: write
 
 jobs:
   build:
