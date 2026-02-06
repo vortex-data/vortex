@@ -4,8 +4,11 @@
 //! Compressor traits for type-specific compression.
 
 use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::ConstantArray;
 use vortex_array::vtable::VTable;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::BtrBlocksCompressor;
 use crate::CompressorContext;
@@ -136,6 +139,13 @@ where
         // Avoid compressing empty arrays.
         if array.is_empty() {
             return Ok(array.to_array());
+        }
+
+        // Avoid compressing all-null arrays.
+        if array.all_invalid()? {
+            return Ok(
+                ConstantArray::new(Scalar::null(array.dtype().clone()), array.len()).into_array(),
+            );
         }
 
         // Generate stats on the array directly.
