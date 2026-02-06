@@ -527,13 +527,10 @@ impl Scheme for ZstdScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
-        let zstd = vortex_zstd::ZstdArray::from_var_bin_view_without_dict(stats.source(), 3, 8192)?
-            .into_array();
-        if zstd.nbytes() < stats.source().nbytes() {
-            Ok(zstd)
-        } else {
-            Ok(stats.source().to_array())
-        }
+        Ok(
+            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(stats.source(), 3, 8192)?
+                .into_array(),
+        )
     }
 }
 
