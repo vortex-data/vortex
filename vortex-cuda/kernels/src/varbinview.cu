@@ -40,8 +40,8 @@ extern "C" __global__ void copy_strings(
     int64_t len,
     BinaryView* views,
     Buffer* buffers,
-    Buffer *dst_buffer,
-    Offsets *dst_offsets
+    Buffer dst_buffer,
+    Offsets dst_offsets
 ) {
     const int64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
 
