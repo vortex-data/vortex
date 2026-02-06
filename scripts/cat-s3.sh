@@ -11,7 +11,7 @@ local_copy=$(mktemp)
 local_concatenated=$(mktemp)
 n_failures=0
 
-while (( n_failures < 5 )); do
+while (( n_failures < 100 )); do
     current_etag=$(aws s3api head-object --bucket "$bucket" --key "$key" --query ETag --output text)
     if [[ "$current_etag" == "null" ]]; then
         echo "Failed to retrieve ETag. Exiting."
