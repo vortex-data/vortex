@@ -83,6 +83,24 @@ impl VTable for VarBinViewVTable {
         if buffers.is_empty() {
             vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
         }
+
+        let validity = if children.is_empty() {
+            Validity::from(dtype.nullability())
+        } else if children.len() == 1 {
+            let validity = children.get(0, &Validity::DTYPE, len)?;
+            Validity::Array(validity)
+        } else {
+            vortex_bail!("Expected 0 or 1 children, got {}", children.len());
+        };
+
+        // If any buffer is on device, skip host validation and use try_new_handle.
+        if buffers.iter().any(|b| b.is_on_device()) {
+            let data_buffers: Arc<[BufferHandle]> =
+                Arc::from(buffers[..buffers.len() - 1].to_vec());
+            let views = buffers[buffers.len() - 1].clone();
+            return VarBinViewArray::try_new_handle(views, data_buffers, dtype.clone(), validity);
+        }
+
         let mut buffers: Vec<ByteBuffer> = buffers
             .iter()
             .map(|b| b.clone().try_to_host_sync())
@@ -94,15 +112,6 @@ impl VTable for VarBinViewVTable {
         if views.len() != len {
             vortex_bail!("Expected {} views, got {}", len, views.len());
         }
-
-        let validity = if children.is_empty() {
-            Validity::from(dtype.nullability())
-        } else if children.len() == 1 {
-            let validity = children.get(0, &Validity::DTYPE, len)?;
-            Validity::Array(validity)
-        } else {
-            vortex_bail!("Expected 0 or 1 children, got {}", children.len());
-        };
 
         VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
     }
