@@ -229,3 +229,6 @@ sweep.timestamp
 
 # CUDA
 *.ptx
+
+# Perfetto
+trace.json
