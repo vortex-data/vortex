@@ -297,10 +297,10 @@ impl PcoArray {
         let mut chunk_infos = vec![]; // the Vortex metadata
         let mut page_buffers = vec![];
         for chunk_start in (0..n_values).step_by(values_per_chunk) {
+            let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
             let mut cc = match_number_enum!(
                 number_type,
                 NumberType<T> => {
-                    let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
                     let values = values.to_buffer::<T>();
                     let chunk = &values.as_slice()[chunk_start..chunk_end];
                     fc
