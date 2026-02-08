@@ -527,8 +527,9 @@ impl Scheme for ZstdScheme {
         _ctx: CompressorContext,
         _excludes: &[StringCode],
     ) -> VortexResult<ArrayRef> {
+        let compacted = stats.source().compact_buffers()?;
         Ok(
-            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(stats.source(), 3, 8192)?
+            vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
                 .into_array(),
         )
     }
