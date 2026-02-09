@@ -6,7 +6,6 @@ use std::fmt::Debug;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -25,7 +24,6 @@ use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA decoder for ZigZag decoding.
 #[derive(Debug)]
@@ -39,6 +37,10 @@ impl ZigZagExecutor {
 
 #[async_trait]
 impl CudaExecute for ZigZagExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -82,17 +84,11 @@ where
     let array_len_u64 = array_len as u64;
 
     // Load kernel function
-    let kernel_ptypes = [U::PTYPE];
-    let cuda_function = ctx.load_function_ptype("zigzag", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let cuda_function = ctx.load_function_ptype("zigzag", &[U::PTYPE])?;
 
-    // Build launch args: buffer, length
-    launch_builder.arg(&cuda_view);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&cuda_view).arg(&array_len_u64);
+    })?;
 
     // Build result - in-place, reinterpret as signed
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(

@@ -20,10 +20,15 @@ use crate::executor::CudaExecute;
 
 // See `DecimalBytePartsArray`
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct DecimalBytePartsExecutor;
 
 #[async_trait]
 impl CudaExecute for DecimalBytePartsExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,

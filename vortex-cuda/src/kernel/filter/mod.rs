@@ -42,6 +42,10 @@ pub struct FilterExecutor;
 
 #[async_trait]
 impl CudaExecute for FilterExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,

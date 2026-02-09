@@ -14,10 +14,15 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for SharedArray.
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct SharedExecutor;
 
 #[async_trait]
 impl CudaExecute for SharedExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,

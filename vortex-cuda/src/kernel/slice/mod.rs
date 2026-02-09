@@ -19,6 +19,10 @@ pub struct SliceExecutor;
 
 #[async_trait]
 impl CudaExecute for SliceExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,

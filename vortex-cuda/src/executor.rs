@@ -12,6 +12,7 @@ use cudarc::driver::CudaSlice;
 use cudarc::driver::CudaStream;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchArgs;
+use cudarc::driver::LaunchConfig;
 use futures::future::BoxFuture;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
@@ -28,8 +29,14 @@ use vortex_error::vortex_err;
 
 use crate::CudaSession;
 use crate::ExportDeviceArray;
+use crate::debug;
+use crate::kernel::DefaultLaunchStrategy;
+use crate::kernel::LaunchStrategy;
+use crate::kernel::launch_cuda_kernel_impl;
+use crate::kernel::launch_cuda_kernel_with_config;
 use crate::session::CudaSessionExt;
 use crate::stream::VortexCudaStream;
+use crate::trace;
 
 /// CUDA kernel events recorded before and after kernel launch.
 #[derive(Debug)]
@@ -57,6 +64,7 @@ pub struct CudaExecutionCtx {
     stream: VortexCudaStream,
     ctx: ExecutionCtx,
     cuda_session: CudaSession,
+    strategy: Arc<dyn LaunchStrategy>,
 }
 
 impl CudaExecutionCtx {
@@ -67,7 +75,66 @@ impl CudaExecutionCtx {
             stream,
             ctx,
             cuda_session,
+            strategy: Arc::new(DefaultLaunchStrategy),
         }
+    }
+
+    /// Set the launch strategy for the execution context.
+    ///
+    /// This can only be set on setup (an "owned" context) and not from within
+    /// a kernel execution.
+    pub fn with_launch_strategy(mut self, launch_strategy: Arc<dyn LaunchStrategy>) -> Self {
+        self.strategy = launch_strategy;
+        self
+    }
+
+    /// Launch a Kernel function with args setup done by the provided `build_args` closure.
+    ///
+    /// Kernels launched this way will use the default launch configuration, which provides no
+    /// shared memory bytes, and uses grid parameters based on the ideal thread block size for
+    /// the given `len`.
+    pub fn launch_kernel<'a, F>(
+        &'a mut self,
+        function: &'a CudaFunction,
+        len: usize,
+        build_args: F,
+    ) -> VortexResult<()>
+    where
+        F: FnOnce(&mut LaunchArgs<'a>),
+    {
+        let mut launcher = self.launch_builder(function);
+        build_args(&mut launcher);
+
+        let events = launch_cuda_kernel_impl(&mut launcher, self.strategy.event_flags(), len)?;
+        self.strategy.on_complete(&events, len)?;
+
+        drop(events);
+
+        Ok(())
+    }
+
+    /// Launch a function with args provided by the `build_args` closure, with an explicit
+    /// [`LaunchConfig`], for kernels which need specific grid and shared memory configuration.
+    pub fn launch_kernel_config<'a, F>(
+        &'a mut self,
+        function: &'a CudaFunction,
+        cfg: LaunchConfig,
+        len: usize,
+        build_args: F,
+    ) -> VortexResult<()>
+    where
+        F: FnOnce(&mut LaunchArgs<'a>),
+    {
+        let mut launcher = self.launch_builder(function);
+        build_args(&mut launcher);
+
+        let events =
+            launch_cuda_kernel_with_config(&mut launcher, cfg, self.strategy.event_flags())?;
+        self.strategy.on_complete(&events, len)?;
+
+        drop(events);
+
+        Ok(())
     }
 
     /// Loads a CUDA kernel function by module name and ptype(s).
@@ -235,18 +302,19 @@ impl CudaArrayExt for ArrayRef {
         }
 
         if self.is_canonical() || self.is_empty() {
+            trace!(encoding = ?self.encoding_id(), "skipping canonical");
             return self.execute(&mut ctx.ctx);
         }
 
         let Some(support) = ctx.cuda_session.kernel(&self.encoding_id()) else {
-            tracing::debug!(
+            debug!(
                 encoding = %self.encoding_id(),
                 "No CUDA support registered for encoding, falling back to CPU execution"
             );
             return self.execute(&mut ctx.ctx);
         };
 
-        tracing::debug!(
+        debug!(
             encoding = %self.encoding_id(),
             "Executing array on CUDA device"
         );

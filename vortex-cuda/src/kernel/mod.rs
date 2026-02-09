@@ -34,49 +34,54 @@ pub use filter::FilterExecutor;
 pub use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;
+#[cfg(feature = "tracing")]
+use crate::trace;
 
-/// Convenience macro to launch a CUDA kernel.
+/// Trait for customizing kernel launch behavior.
 ///
-/// The kernel gets launched on the stream of the execution context.
-///
-/// The kernel launch config:
-/// LaunchConfig {
-///     grid_dim: (array.len() / 2048, 1, 1),
-///     block_dim: (64, 1, 1),
-///     shared_mem_bytes: 0,
-/// };
-/// 64 threads are used per block which corresponds to 2 warps.
-/// Each block handles 2048 elements. Each thread handles 32 elements.
-/// The last block and thread are allowed to have less elements.
-///
-/// Note: A macro is necessary to unroll the launch builder arguments.
-///
-/// # Returns
-///
-/// A pair of CUDA events submitted before and after the kernel.
-/// Depending on `CUevent_flags` these events can contain timestamps. Use
-/// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
-/// enable timestamps.
-#[macro_export]
-macro_rules! launch_cuda_kernel {
-    (
-        execution_ctx: $ctx:expr,
-        module: $module:expr,
-        ptypes: $ptypes:expr,
-        launch_args: [$($arg:expr),* $(,)?],
-        event_recording: $event_recording:expr,
-        array_len: $len:expr
-    ) => {{
-        use ::cudarc::driver::PushKernelArg as _;
-        let cuda_function = $ctx.load_function_ptype($module, $ptypes)?;
-        let mut launch_builder = $ctx.launch_builder(&cuda_function);
+/// Implementations can add tracing, async callbacks, or other behavior
+/// around kernel launches.
+pub trait LaunchStrategy: Debug + Send + Sync + 'static {
+    /// Returns the event flags to use for this launch.
+    fn event_flags(&self) -> CUevent_flags;
 
-        $(
-            launch_builder.arg(&$arg);
-        )*
+    /// Called after the kernel launch completes with the recorded events.
+    fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()>;
+}
 
-        $crate::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
-    }};
+/// Default launch strategy with no tracing overhead.
+#[derive(Debug)]
+pub struct DefaultLaunchStrategy;
+
+impl LaunchStrategy for DefaultLaunchStrategy {
+    fn event_flags(&self) -> CUevent_flags {
+        CUevent_flags::CU_EVENT_DISABLE_TIMING
+    }
+
+    fn on_complete(&self, _events: &CudaKernelEvents, _len: usize) -> VortexResult<()> {
+        Ok(())
+    }
+}
+
+/// Launch strategy that records timing and emits trace events.
+#[cfg(feature = "tracing")]
+#[derive(Debug)]
+pub struct TracingLaunchStrategy;
+
+#[cfg(feature = "tracing")]
+impl LaunchStrategy for TracingLaunchStrategy {
+    fn event_flags(&self) -> CUevent_flags {
+        CUevent_flags::CU_EVENT_DEFAULT
+    }
+
+    fn on_complete(&self, events: &CudaKernelEvents, len: usize) -> VortexResult<()> {
+        let duration = events.duration()?;
+        trace!(
+            execution_nanos = duration.as_nanos(),
+            len, "execution completed"
+        );
+        Ok(())
+    }
 }
 
 /// Launches a CUDA kernel with the passed launch builder.
@@ -92,7 +97,7 @@ macro_rules! launch_cuda_kernel {
 /// Depending on `CUevent_flags` these events can contain timestamps. Use
 /// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
 /// enable timestamps.
-pub fn launch_cuda_kernel_impl(
+pub(crate) fn launch_cuda_kernel_impl(
     launch_builder: &mut LaunchArgs,
     event_flags: CUevent_flags,
     array_len: usize,
@@ -127,7 +132,7 @@ pub fn launch_cuda_kernel_impl(
 /// Depending on `CUevent_flags` these events can contain timestamps. Use
 /// `CU_EVENT_DISABLE_TIMING` for minimal overhead and `CU_EVENT_DEFAULT` to
 /// enable timestamps.
-pub fn launch_cuda_kernel_with_config(
+pub(crate) fn launch_cuda_kernel_with_config(
     launch_builder: &mut LaunchArgs,
     config: LaunchConfig,
     event_flags: CUevent_flags,
@@ -153,7 +158,7 @@ pub fn launch_cuda_kernel_with_config(
 ///
 /// Handles loading PTX files, compiling modules, and loading functions.
 #[derive(Debug)]
-pub struct KernelLoader {
+pub(crate) struct KernelLoader {
     /// Cache of loaded CUDA modules, keyed by module name
     modules: DashMap<String, Arc<CudaModule>>,
 }
