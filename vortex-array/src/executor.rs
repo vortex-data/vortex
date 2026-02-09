@@ -116,9 +116,20 @@ impl Display for ExecutionCtx {
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
         if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
-            // tracing subscribers with multiple layers format each field per layer
-            let trace = self.ops.join("\n");
-            tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
+            // Unlike itertools `.format()` (panics in 0.14 on second format)
+            struct FmtOps<'a>(&'a [String]);
+            impl Display for FmtOps<'_> {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    for (i, op) in self.0.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str("\n")?;
+                        }
+                        f.write_str(op)?;
+                    }
+                    Ok(())
+                }
+            }
+            tracing::debug!("exec[{}] trace:\n{}", self.id, FmtOps(&self.ops));
         }
     }
 }
