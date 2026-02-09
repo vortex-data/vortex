@@ -70,19 +70,21 @@ mod tests {
         let taken = struct_arr
             .take(indices.to_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx());
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(taken.len(), 1);
-        assert!(taken.all_invalid().unwrap());
+        assert!(taken.into_array().all_invalid().unwrap());
     }
 
     #[test]
     fn take_empty_primitive_with_nullable_indices() {
         let arr = PrimitiveArray::from_iter(Vec::<u64>::new());
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
-        let taken = struct_arr
+        let taken = arr
             .take(indices.to_array())
             .unwrap()
-            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx());
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         assert_eq!(taken.len(), 1);
     }
 
