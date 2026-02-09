@@ -116,8 +116,10 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty() {
-            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.iter().format("\n"));
+        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
+            // tracing subscribers with multiple layers format each field per layer
+            let trace = self.ops.join("\n");
+            tracing::debug!("exec[{}] trace:\n{}", self.id, trace);
         }
     }
 }
