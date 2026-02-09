@@ -21,7 +21,6 @@ use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
-use crate::compute::take;
 use crate::validity::Validity;
 
 // Conformance tests for common take scenarios.
@@ -43,7 +42,7 @@ fn test_take_basic_smoke_test() {
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let indices = buffer![2u32, 0, 1].into_array();
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
+    let result = fsl.take(indices.to_array()).unwrap();
 
     // Expected: [[5,6], [1,2], [3,4]]
     let expected = FixedSizeListArray::new(
@@ -90,7 +89,7 @@ fn test_take_degenerate_lists(
 
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);
-    let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
+    let result = fsl.take(indices_array.to_array()).unwrap();
 
     assert_eq!(result.len(), expected_len);
     for (i, expected_null) in expected_nulls.iter().enumerate() {
@@ -104,7 +103,7 @@ fn test_take_large_list_size() {
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
     let indices = buffer![2u16, 0].into_array();
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
+    let result = fsl.take(indices.to_array()).unwrap();
 
     // Expected: [[200..300], [0..100]]
     let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();
@@ -119,7 +118,7 @@ fn test_take_fsl_with_null_indices_preserves_elements() {
 
     // Indices with nulls: [1, null, 0].
     let indices = PrimitiveArray::from_option_iter([Some(1u32), None, Some(0)]);
-    let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
+    let result = fsl.take(indices.to_array()).unwrap();
 
     // Expected: [[3,4], null, [1,2]]
     let expected = FixedSizeListArray::new(
@@ -185,7 +184,7 @@ fn test_take_nullable_arrays_fsl_specific(
 
     // Create indices (with possible nulls).
     let indices_array = PrimitiveArray::from_option_iter(indices.clone());
-    let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
+    let result = fsl.take(indices_array.to_array()).unwrap();
 
     assert_eq!(result.len(), indices.len());
     for (i, expected_null) in expected_nulls.iter().enumerate() {

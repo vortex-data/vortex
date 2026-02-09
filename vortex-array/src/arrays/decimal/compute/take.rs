@@ -59,7 +59,6 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -72,7 +71,7 @@ mod tests {
         );
 
         let indices = buffer![0, 2, 3].into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+        let taken = array.take(indices.to_array()).unwrap();
 
         let expected = DecimalArray::from_iter([10i128, 12, 13], ddtype);
         assert_arrays_eq!(expected, taken);
@@ -88,7 +87,7 @@ mod tests {
         );
 
         let indices = PrimitiveArray::from_option_iter([None, Some(2), Some(3)]).into_array();
-        let taken = take(array.as_ref(), indices.as_ref()).unwrap();
+        let taken = array.take(indices.to_array()).unwrap();
 
         let expected = DecimalArray::from_option_iter([None, Some(12i128), Some(13)], ddtype);
         assert_arrays_eq!(expected, taken);

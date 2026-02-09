@@ -99,7 +99,6 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
     use vortex_buffer::buffer;
 
     use crate::RunEndArray;
@@ -110,18 +109,14 @@ mod test {
 
     #[test]
     fn ree_take() {
-        let taken = take(
-            ree_array().as_ref(),
-            buffer![9, 8, 1, 3].into_array().as_ref(),
-        )
-        .unwrap();
+        let taken = ree_array().take(buffer![9, 8, 1, 3].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32, 5, 1, 4]).into_array();
         assert_arrays_eq!(taken, expected);
     }
 
     #[test]
     fn ree_take_end() {
-        let taken = take(ree_array().as_ref(), buffer![11].into_array().as_ref()).unwrap();
+        let taken = ree_array().take(buffer![11].into_array()).unwrap();
         let expected = PrimitiveArray::from_iter(vec![5i32]).into_array();
         assert_arrays_eq!(taken, expected);
     }
@@ -129,7 +124,8 @@ mod test {
     #[test]
     #[should_panic]
     fn ree_take_out_of_bounds() {
-        let _array = take(ree_array().as_ref(), buffer![12].into_array().as_ref())
+        let _array = ree_array()
+            .take(buffer![12].into_array())
             .unwrap()
             .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -138,7 +134,7 @@ mod test {
     #[test]
     fn sliced_take() {
         let sliced = ree_array().slice(4..9).unwrap();
-        let taken = take(sliced.as_ref(), buffer![1, 3, 4].into_array().as_ref()).unwrap();
+        let taken = sliced.take(buffer![1, 3, 4].into_array()).unwrap();
 
         let expected = PrimitiveArray::from_iter(vec![4i32, 2, 5]).into_array();
         assert_arrays_eq!(taken, expected);
@@ -146,11 +142,9 @@ mod test {
 
     #[test]
     fn ree_take_nullable() {
-        let taken = take(
-            ree_array().as_ref(),
-            PrimitiveArray::from_option_iter([Some(1), None]).as_ref(),
-        )
-        .unwrap();
+        let taken = ree_array()
+            .take(PrimitiveArray::from_option_iter([Some(1), None]).to_array())
+            .unwrap();
 
         let expected = PrimitiveArray::from_option_iter([Some(1i32), None]);
         assert_arrays_eq!(taken, expected.to_array());
