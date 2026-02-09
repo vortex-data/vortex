@@ -30,11 +30,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
-
-      - name: Install llvm
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
+          components: clippy, rustfmt, llvm-tools
 
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
@@ -68,8 +64,8 @@ jobs:
         run: |
           COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
 
-          llvm-profdata merge -sparse "$COVERAGE_DIR"/raw/*.profraw \
-            -o "$COVERAGE_DIR/coverage.profdata"
+          # llvm tools are installed via rustup's llvm-tools component
+          LLVM_TOOLS_BIN="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin"
 
           FUZZ_BIN=$(find fuzz/target -name "${{ matrix.fuzz_target }}" -type f -executable -path "*/release/*" | grep -v deps | head -1)
 
@@ -81,14 +77,14 @@ jobs:
           echo "Using fuzz binary: $FUZZ_BIN"
 
           # HTML report for download
-          llvm-cov show "$FUZZ_BIN" \
+          "$LLVM_TOOLS_BIN/llvm-cov" show "$FUZZ_BIN" \
             --format=html \
             --instr-profile="$COVERAGE_DIR/coverage.profdata" \
             --ignore-filename-regex='(\.cargo|rustc|registry)' \
             --output-dir=coverage_html/
 
           # Text summary to job log
-          llvm-cov report "$FUZZ_BIN" \
+          "$LLVM_TOOLS_BIN/llvm-cov" report "$FUZZ_BIN" \
             --instr-profile="$COVERAGE_DIR/coverage.profdata" \
             --ignore-filename-regex='(\.cargo|rustc|registry)'
 
