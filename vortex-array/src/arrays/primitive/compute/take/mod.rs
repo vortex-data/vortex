@@ -126,7 +126,6 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::primitive::compute::take::take_primitive_scalar;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -146,7 +145,7 @@ mod test {
             buffer![0, 3, 4],
             Validity::Array(BoolArray::from_iter([true, true, false]).into_array()),
         );
-        let actual = take(values.as_ref(), indices.as_ref()).unwrap();
+        let actual = values.take(indices.to_array()).unwrap();
         assert_eq!(
             actual.scalar_at(0).vortex_expect("no fail"),
             Scalar::from(Some(1))

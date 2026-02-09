@@ -8,9 +8,9 @@ use rand::Rng;
 use rand::SeedableRng;
 use rand::distr::Uniform;
 use rand::rngs::StdRng;
+use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::arrays::StructArray;
-use vortex_array::compute::take;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_dtype::FieldNames;
@@ -48,7 +48,7 @@ fn take_struct_simple(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
 }
 
 #[divan::bench(args = [8])]
@@ -79,7 +79,7 @@ fn take_struct_wide(bencher: Bencher, width: usize) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
 }
 
 #[divan::bench]
@@ -107,5 +107,5 @@ fn take_struct_sequential_indices(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&struct_array, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
 }

@@ -196,7 +196,6 @@ mod test {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::list::ListArray;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -212,7 +211,7 @@ mod test {
         let idx =
             PrimitiveArray::from_option_iter(vec![Some(0), None, Some(1), Some(3)]).to_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -270,7 +269,7 @@ mod test {
         let idx = PrimitiveArray::from_option_iter(vec![Some(0), Some(1), None]).to_array();
         // since idx is nullable, the final list will also be nullable
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -292,7 +291,7 @@ mod test {
 
         let idx = buffer![1, 0, 2].into_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(
             result.dtype(),
@@ -347,7 +346,7 @@ mod test {
 
         let idx = PrimitiveArray::empty::<i32>(Nullability::Nullable).to_array();
 
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(
             result.dtype(),
             &DType::List(
@@ -410,7 +409,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = buffer![0u8, 0].into_array();
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(result.len(), 2);
 
@@ -431,7 +430,7 @@ mod test {
 
         // Take the same large list twice - would overflow u8 but works with u64.
         let idx = PrimitiveArray::from_option_iter(vec![Some(0u8), None, Some(0u8)]).to_array();
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
 
         assert_eq!(result.len(), 3);
 
@@ -461,7 +460,7 @@ mod test {
         let idx = buffer![0u32, 1, 0, 1].into_array();
 
         // This should not panic - result should have length 4.
-        let result = take(&list, &idx).unwrap();
+        let result = list.take(idx.to_array()).unwrap();
         assert_eq!(result.len(), 4);
     }
 }

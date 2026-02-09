@@ -194,8 +194,6 @@ mod tests {
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
     use crate::assert_arrays_eq;
-    use crate::compute::take;
-
     #[test]
     fn test_optimize_compacts_buffers() {
         // Create a VarBinViewArray with some long strings that will create multiple buffers
@@ -213,7 +211,7 @@ mod tests {
 
         // Take only the first and last elements (indices 0 and 4)
         let indices = buffer![0u32, 4u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken = original.take(indices.to_array()).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -252,7 +250,7 @@ mod tests {
 
         // Take only the first and third long strings (indices 0 and 2)
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken = original.take(indices.to_array()).unwrap();
         let taken_array = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -318,7 +316,7 @@ mod tests {
 
         // Take only first element
         let indices = buffer![0u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken = original.take(indices.to_array()).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -343,7 +341,7 @@ mod tests {
 
         // Take only first and last elements
         let indices = buffer![0u32, 2u32].into_array();
-        let taken = take(original.as_ref(), &indices).unwrap();
+        let taken = original.take(indices.to_array()).unwrap();
         let taken = taken
             .clone()
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
@@ -399,7 +397,7 @@ mod tests {
 
         // Take every other element to create mixed utilization
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
-        let taken = take(original.as_ref(), &indices_array).unwrap();
+        let taken = original.take(indices_array.to_array()).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();
@@ -425,7 +423,7 @@ mod tests {
 
         // Take only the first 5 elements - they should be in a contiguous range at the start
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
-        let taken = take(original.as_ref(), &indices_array).unwrap();
+        let taken = original.take(indices_array.to_array()).unwrap();
         let taken = taken
             .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
             .unwrap();

@@ -36,7 +36,6 @@ mod tests {
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::is_constant;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -44,7 +43,7 @@ mod tests {
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr.take(indices.to_array()).unwrap();
 
         assert_arrays_eq!(
             taken,
@@ -84,7 +83,7 @@ mod tests {
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
                 .unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             taken,
             StructArray::try_from_iter_with_validity(

@@ -557,8 +557,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
-    use vortex_array::compute::take;
-
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
@@ -581,7 +579,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 if indices.is_empty() {
                     return Ok(false); // Reject
                 }
-                current_array = take(&current_array, &indices)
+                current_array = current_array
+                    .take(indices)
                     .vortex_expect("take operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

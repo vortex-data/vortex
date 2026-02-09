@@ -55,11 +55,11 @@ impl TakeExecute for FSSTVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
@@ -76,14 +76,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            take(fsst.as_ref(), idx1.as_ref()).unwrap().dtype(),
+            fsst.take(idx1.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            take(fsst.as_ref(), idx2.as_ref()).unwrap().dtype(),
+            fsst.take(idx2.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }
