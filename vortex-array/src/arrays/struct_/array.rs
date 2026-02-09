@@ -8,7 +8,6 @@ use std::sync::Arc;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
-use vortex_dtype::Nullability;
 use vortex_dtype::StructFields;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -151,7 +150,6 @@ pub struct StructArray {
 
 pub struct StructArrayParts {
     pub struct_fields: StructFields,
-    pub nullability: Nullability,
     pub fields: Arc<[ArrayRef]>,
     pub validity: Validity,
 }
@@ -356,11 +354,9 @@ impl StructArray {
     }
 
     pub fn into_parts(self) -> StructArrayParts {
-        let nullability = self.dtype.nullability();
         let struct_fields = self.dtype.into_struct_fields();
         StructArrayParts {
             struct_fields,
-            nullability,
             fields: self.fields,
             validity: self.validity,
         }

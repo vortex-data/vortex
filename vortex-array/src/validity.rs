@@ -22,6 +22,8 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -43,6 +45,16 @@ pub enum Validity {
     ///
     /// True values are valid, false values are invalid ("null").
     Array(ArrayRef),
+}
+
+impl Validity {
+    /// Make a step towards canonicalising validity if necessary
+    pub fn execute(self, ctx: &mut ExecutionCtx) -> VortexResult<Validity> {
+        match self {
+            v @ Validity::NonNullable | v @ Validity::AllValid | v @ Validity::AllInvalid => Ok(v),
+            Validity::Array(a) => Ok(Validity::Array(a.execute::<Canonical>(ctx)?.into_array())),
+        }
+    }
 }
 
 impl Validity {
