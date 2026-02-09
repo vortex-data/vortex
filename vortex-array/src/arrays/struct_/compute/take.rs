@@ -9,6 +9,7 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecute;
@@ -25,8 +26,19 @@ impl TakeExecute for StructVTable {
         // If the struct array is empty then the indices must be all null, otherwise it will access
         // an out of bounds element
         if array.is_empty() {
+            let null_fields: Vec<ArrayRef> = array
+                .unmasked_fields()
+                .iter()
+                .map(|field| {
+                    ConstantArray::new(
+                        Scalar::default_value(field.dtype().clone()),
+                        indices.len(),
+                    )
+                        .into_array()
+                })
+                .collect();
             return StructArray::try_new_with_dtype(
-                array.unmasked_fields().clone(),
+                null_fields,
                 array.struct_fields().clone(),
                 indices.len(),
                 Validity::AllInvalid,

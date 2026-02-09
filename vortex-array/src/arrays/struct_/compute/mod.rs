@@ -67,6 +67,7 @@ mod tests {
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
         let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
         assert_eq!(taken.len(), 1);
+        assert!(taken.all_invalid().unwrap());
     }
 
     #[test]
