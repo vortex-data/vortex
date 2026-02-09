@@ -515,15 +515,22 @@ fn random_action_from_list(
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
-    use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::FloatCode;
+    use vortex_btrblocks::IntCode;
+    use vortex_btrblocks::StringCode;
 
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => CompactCompressor::default()
+        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
+            .include_int([IntCode::Pco])
+            .include_float([FloatCode::Pco])
+            .build()
             .compress(array)
-            .vortex_expect("CompactCompressor compress should succeed in fuzz test"),
+            .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
 

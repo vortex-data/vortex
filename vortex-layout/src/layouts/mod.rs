@@ -11,8 +11,6 @@ use vortex_error::SharedVortexResult;
 pub mod buffered;
 pub mod chunked;
 pub mod collect;
-#[cfg(feature = "zstd")]
-pub mod compact;
 pub mod compressed;
 pub mod dict;
 pub mod file_stats;
