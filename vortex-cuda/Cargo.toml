@@ -27,6 +27,7 @@ arc-swap = { workspace = true }
 arrow-data = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
