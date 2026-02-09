@@ -258,7 +258,8 @@ mod tests {
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::VarBinArray;
-    use crate::arrays::VarBinViewVTable;
+    use crate::arrays::VarBinViewArray;
+    use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::take;
     use crate::validity::Validity;
@@ -313,13 +314,13 @@ mod tests {
             Validity::NonNullable,
         );
 
-        let indices = buffer![0u32, 0u32, 0u32].into_array();
+        let indices = buffer![0u32; 3].into_array();
         let taken = take(array.as_ref(), indices.as_ref()).unwrap();
 
-        let taken_view = taken.as_::<VarBinViewVTable>();
-        assert_eq!(taken_view.len(), 3);
-        assert_eq!(taken_view.bytes_at(0).as_slice(), scream.as_bytes());
-        assert_eq!(taken_view.bytes_at(1).as_slice(), scream.as_bytes());
-        assert_eq!(taken_view.bytes_at(2).as_slice(), scream.as_bytes());
+        let expected = VarBinViewArray::from_iter(
+            [Some(scream.clone()), Some(scream.clone()), Some(scream)],
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(expected, taken);
     }
 }

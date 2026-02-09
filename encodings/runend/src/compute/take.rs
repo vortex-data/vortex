@@ -92,7 +92,10 @@ mod test {
     use rstest::rstest;
     use vortex_array::Array;
     use vortex_array::ArrayRef;
+    use vortex_array::Canonical;
     use vortex_array::IntoArray;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
@@ -126,7 +129,10 @@ mod test {
     #[test]
     #[should_panic]
     fn ree_take_out_of_bounds() {
-        take(ree_array().as_ref(), buffer![12].into_array().as_ref()).unwrap();
+        let _array = take(ree_array().as_ref(), buffer![12].into_array().as_ref())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 
     #[test]

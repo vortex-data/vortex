@@ -15,7 +15,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::cast;
-use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
@@ -47,10 +46,11 @@ fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<Array
                 indices_in_chunk.clone().freeze(),
                 Validity::from_mask(indices_mask.slice(start..stop), nullability),
             );
-            chunks.push(take(
-                array.chunk(prev_chunk_idx),
-                indices_in_chunk_array.as_ref(),
-            )?);
+            chunks.push(
+                array
+                    .chunk(prev_chunk_idx)
+                    .take(indices_in_chunk_array.into_array())?,
+            );
             indices_in_chunk.clear();
             start = stop;
         }
@@ -65,10 +65,11 @@ fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<Array
             indices_in_chunk.freeze(),
             Validity::from_mask(indices_mask.slice(start..stop), nullability),
         );
-        chunks.push(take(
-            array.chunk(prev_chunk_idx),
-            indices_in_chunk_array.as_ref(),
-        )?);
+        chunks.push(
+            array
+                .chunk(prev_chunk_idx)
+                .take(indices_in_chunk_array.into_array())?,
+        );
     }
 
     // SAFETY: take on chunks that all have same DType retains same DType

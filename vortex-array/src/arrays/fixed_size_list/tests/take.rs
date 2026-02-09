@@ -16,8 +16,8 @@ use super::common::create_single_element_fsl;
 use crate::Array;
 use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
-use crate::arrays::FixedSizeListVTable;
 use crate::arrays::PrimitiveArray;
+use crate::assert_arrays_eq;
 use crate::builders::ArrayBuilder;
 use crate::builders::FixedSizeListBuilder;
 use crate::compute::conformance::take::test_take_conformance;
@@ -39,39 +39,20 @@ fn test_take_fsl_conformance(#[case] fsl: FixedSizeListArray) {
 
 #[test]
 fn test_take_basic_smoke_test() {
-    // Basic smoke test to ensure take works for FSL and preserves structure.
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
     let indices = buffer![2u32, 0, 1].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 3, "Wrong number of lists after take");
-    assert_eq!(result_fsl.list_size(), 2, "list_size should be preserved");
-
-    // First list should be the original third list [5, 6].
-    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
-    assert_eq!(
-        first.scalar_at(0).unwrap(),
-        5i32.into(),
-        "Wrong value at [2][0] after take"
+    // Expected: [[5,6], [1,2], [3,4]]
+    let expected = FixedSizeListArray::new(
+        buffer![5i32, 6, 1, 2, 3, 4].into_array(),
+        2,
+        Validity::NonNullable,
+        3,
     );
-    assert_eq!(
-        first.scalar_at(1).unwrap(),
-        6i32.into(),
-        "Wrong value at [2][1] after take"
-    );
-
-    // Second list should be the original first list [1, 2].
-    let second = result_fsl.fixed_size_list_elements_at(1).unwrap();
-    assert_eq!(second.scalar_at(0).unwrap(), 1i32.into());
-    assert_eq!(second.scalar_at(1).unwrap(), 2i32.into());
-
-    // Third list should be the original second list [3, 4].
-    let third = result_fsl.fixed_size_list_elements_at(2).unwrap();
-    assert_eq!(third.scalar_at(0).unwrap(), 3i32.into());
-    assert_eq!(third.scalar_at(1).unwrap(), 4i32.into());
+    assert_arrays_eq!(expected, result);
 }
 
 // Parameterized test for FSL-specific degenerate (list_size=0) cases.
@@ -110,73 +91,44 @@ fn test_take_degenerate_lists(
     // Also test the specific behavior.
     let indices_array = PrimitiveArray::from_option_iter(indices);
     let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), expected_len);
-    assert_eq!(result_fsl.list_size(), 0);
-    assert_eq!(result_fsl.elements().len(), 0);
-
-    // Check nullability of results.
+    assert_eq!(result.len(), expected_len);
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result_fsl.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
     }
 }
 
 #[test]
 fn test_take_large_list_size() {
-    // Test FSL-specific behavior with large list sizes.
-    // This tests the performance characteristics specific to FSL's element expansion.
     let elements = buffer![0i32..300].into_array();
     let fsl = FixedSizeListArray::new(elements, 100, Validity::NonNullable, 3);
 
     let indices = buffer![2u16, 0].into_array();
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 2);
-    assert_eq!(result_fsl.list_size(), 100);
-
-    // First list should be [200..300].
-    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
-    for i in 0..100i32 {
-        assert_eq!(first.scalar_at(i as usize).unwrap(), (200 + i).into());
-    }
-
-    // Second list should be [0..100].
-    let second = result_fsl.fixed_size_list_elements_at(1).unwrap();
-    for i in 0..100i32 {
-        assert_eq!(second.scalar_at(i as usize).unwrap(), i.into());
-    }
+    // Expected: [[200..300], [0..100]]
+    let expected_elems = PrimitiveArray::from_iter((200i32..300).chain(0..100)).into_array();
+    let expected = FixedSizeListArray::new(expected_elems, 100, Validity::NonNullable, 2);
+    assert_arrays_eq!(expected, result);
 }
 
 #[test]
 fn test_take_fsl_with_null_indices_preserves_elements() {
-    // FSL-specific test: verify that null indices don't affect element array indexing.
     let elements = buffer![1i32, 2, 3, 4, 5, 6].into_array();
     let fsl = FixedSizeListArray::new(elements.into_array(), 2, Validity::NonNullable, 3);
 
-    // Create indices with nulls: [1, null, 0].
+    // Indices with nulls: [1, null, 0].
     let indices = PrimitiveArray::from_option_iter([Some(1u32), None, Some(0)]);
     let result = take(fsl.as_ref(), indices.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), 3);
-    assert_eq!(result_fsl.list_size(), 2);
-
-    // First list should be [3, 4].
-    assert!(!result_fsl.scalar_at(0).unwrap().is_null());
-    let first = result_fsl.fixed_size_list_elements_at(0).unwrap();
-    assert_eq!(first.scalar_at(0).unwrap(), 3i32.into());
-    assert_eq!(first.scalar_at(1).unwrap(), 4i32.into());
-
-    // Second list should be null.
-    assert!(result_fsl.scalar_at(1).unwrap().is_null());
-
-    // Third list should be [1, 2].
-    assert!(!result_fsl.scalar_at(2).unwrap().is_null());
-    let third = result_fsl.fixed_size_list_elements_at(2).unwrap();
-    assert_eq!(third.scalar_at(0).unwrap(), 1i32.into());
-    assert_eq!(third.scalar_at(1).unwrap(), 2i32.into());
+    // Expected: [[3,4], null, [1,2]]
+    let expected = FixedSizeListArray::new(
+        buffer![3i32, 4, 0, 0, 1, 2].into_array(),
+        2,
+        Validity::from_iter([true, false, true]),
+        3,
+    );
+    assert_arrays_eq!(expected, result);
 }
 
 // Parameterized test for nullable array scenarios that are specific to FSL's implementation.
@@ -234,12 +186,9 @@ fn test_take_nullable_arrays_fsl_specific(
     // Create indices (with possible nulls).
     let indices_array = PrimitiveArray::from_option_iter(indices.clone());
     let result = take(fsl.as_ref(), indices_array.as_ref()).unwrap();
-    let result_fsl = result.as_::<FixedSizeListVTable>();
 
-    assert_eq!(result_fsl.len(), indices.len());
-
-    // Check nullability of results.
+    assert_eq!(result.len(), indices.len());
     for (i, expected_null) in expected_nulls.iter().enumerate() {
-        assert_eq!(result_fsl.scalar_at(i).unwrap().is_null(), *expected_null);
+        assert_eq!(result.scalar_at(i).unwrap().is_null(), *expected_null);
     }
 }

@@ -185,11 +185,14 @@ impl BufferUtilization {
 mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
+    use vortex_dtype::DType;
+    use vortex_dtype::Nullability;
 
     use crate::IntoArray;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::VarBinArray;
     use crate::arrays::VarBinViewArray;
-    use crate::arrays::VarBinViewVTable;
     use crate::assert_arrays_eq;
     use crate::compute::take;
 
@@ -211,13 +214,14 @@ mod tests {
         // Take only the first and last elements (indices 0 and 4)
         let indices = buffer![0u32, 4u32].into_array();
         let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // The taken array should still have the same number of buffers
-        assert_eq!(taken_array.nbuffers(), original_buffers);
+        assert_eq!(taken.nbuffers(), original_buffers);
 
         // Now optimize the taken array
-        let optimized_array = taken_array.compact_buffers().unwrap();
+        let optimized_array = taken.compact_buffers().unwrap();
 
         // The optimized array should have compacted buffers
         // Since both remaining strings are short, they should be inlined
@@ -249,7 +253,9 @@ mod tests {
         // Take only the first and third long strings (indices 0 and 2)
         let indices = buffer![0u32, 2u32].into_array();
         let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken_array = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Optimize the taken array
         let optimized_array = taken_array.compact_buffers().unwrap();
@@ -313,13 +319,14 @@ mod tests {
         // Take only first element
         let indices = buffer![0u32].into_array();
         let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Compact with threshold=0 (should not compact)
-        let compacted = taken_array.compact_with_threshold(0.0).unwrap();
+        let compacted = taken.compact_with_threshold(0.0).unwrap();
 
         // Should still have the same number of buffers as the taken array
-        assert_eq!(compacted.nbuffers(), taken_array.nbuffers());
+        assert_eq!(compacted.nbuffers(), taken.nbuffers());
 
         // Verify correctness
         assert_arrays_eq!(compacted, taken);
@@ -337,12 +344,15 @@ mod tests {
         // Take only first and last elements
         let indices = buffer![0u32, 2u32].into_array();
         let taken = take(original.as_ref(), &indices).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken = taken
+            .clone()
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
-        let original_buffers = taken_array.nbuffers();
+        let original_buffers = taken.nbuffers();
 
         // Compact with threshold=1.0 (aggressive compaction)
-        let compacted = taken_array.compact_with_threshold(1.0).unwrap();
+        let compacted = taken.compact_with_threshold(1.0).unwrap();
 
         // Should have compacted buffers
         assert!(compacted.nbuffers() <= original_buffers);
@@ -390,13 +400,18 @@ mod tests {
         // Take every other element to create mixed utilization
         let indices_array = buffer![0u32, 2u32, 4u32, 6u32, 8u32].into_array();
         let taken = take(original.as_ref(), &indices_array).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
 
         // Compact with moderate threshold
-        let compacted = taken_array.compact_with_threshold(0.7).unwrap();
+        let compacted = taken.compact_with_threshold(0.7).unwrap();
 
-        // Verify correctness
-        assert_arrays_eq!(compacted, taken);
+        let expected = VarBinViewArray::from_iter(
+            [0, 2, 4, 6, 8].map(|i| Some(strings[i].as_str())),
+            DType::Utf8(Nullability::NonNullable),
+        );
+        assert_arrays_eq!(expected, compacted);
     }
 
     #[test]
@@ -411,15 +426,16 @@ mod tests {
         // Take only the first 5 elements - they should be in a contiguous range at the start
         let indices_array = buffer![0u32, 1u32, 2u32, 3u32, 4u32].into_array();
         let taken = take(original.as_ref(), &indices_array).unwrap();
-        let taken_array = taken.as_::<VarBinViewVTable>();
-
+        let taken = taken
+            .execute::<VarBinViewArray>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
         // Get buffer stats before compaction
-        let utils_before = taken_array.buffer_utilizations().unwrap();
-        let original_buffer_count = taken_array.nbuffers();
+        let utils_before = taken.buffer_utilizations().unwrap();
+        let original_buffer_count = taken.nbuffers();
 
         // Compact with a threshold that should trigger slicing
         // The range utilization should be high even if overall utilization is low
-        let compacted = taken_array.compact_with_threshold(0.8).unwrap();
+        let compacted = taken.compact_with_threshold(0.8).unwrap();
 
         // After compaction, we should still have buffers (sliced, not rewritten)
         assert!(

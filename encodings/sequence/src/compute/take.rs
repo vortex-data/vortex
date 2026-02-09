@@ -104,6 +104,9 @@ impl TakeExecute for SequenceVTable {
 #[cfg(test)]
 mod test {
     use rstest::rstest;
+    use vortex_array::Canonical;
+    use vortex_array::LEGACY_SESSION;
+    use vortex_array::VortexSessionExecute;
     use vortex_array::compute::take;
     use vortex_dtype::Nullability;
 
@@ -168,6 +171,9 @@ mod test {
     fn test_bounds_check() {
         let array = SequenceArray::typed_new(0i32, 1i32, Nullability::NonNullable, 10).unwrap();
         let indices = vortex_array::arrays::PrimitiveArray::from_iter([0i32, 20]);
-        let _array = take(array.as_ref(), indices.as_ref()).unwrap();
+        let _array = take(array.as_ref(), indices.as_ref())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
     }
 }
