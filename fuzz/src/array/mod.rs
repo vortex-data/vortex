@@ -370,21 +370,19 @@ impl<'a> Arbitrary<'a> for FuzzArrayAction {
                     let mask = (0..current_array.len())
                         .map(|_| bool::arbitrary(u))
                         .collect::<arbitrary::Result<Vec<_>>>()?;
+                    let mask = Mask::from_iter(mask);
 
                     // Compute expected result on canonical form
                     let expected_result = mask_canonical_array(
                         current_array
                             .to_canonical()
                             .vortex_expect("to_canonical should succeed in fuzz test"),
-                        &Mask::from_iter(mask.iter().copied()),
+                        &mask,
                     )
                     .vortex_expect("mask_canonical_array should succeed in fuzz test");
                     // Update current_array to the result for chaining
                     current_array = expected_result.clone();
-                    (
-                        Action::Mask(Mask::from_iter(mask)),
-                        ExpectedValue::Array(expected_result),
-                    )
+                    (Action::Mask(mask), ExpectedValue::Array(expected_result))
                 }
                 ActionType::ScalarAt => {
                     if current_array.is_empty() {

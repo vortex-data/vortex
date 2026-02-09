@@ -167,8 +167,13 @@ fn create_from_fields(
             let arrow_fields: Fields = names
                 .iter()
                 .zip_eq(arrow_arrays.iter())
-                .map(|(name, arr)| {
-                    Arc::new(Field::new(name.as_ref(), arr.data_type().clone(), true))
+                .zip_eq(vortex_fields.iter().map(|f| f.dtype()))
+                .map(|((name, arr), vx_dtype)| {
+                    Arc::new(Field::new(
+                        name.as_ref(),
+                        arr.data_type().clone(),
+                        vx_dtype.is_nullable(),
+                    ))
                 })
                 .collect();
 

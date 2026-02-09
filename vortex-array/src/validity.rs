@@ -215,12 +215,15 @@ impl Validity {
             AllOr::None => self.clone().into_nullable(),
             AllOr::Some(make_invalid) => match self {
                 Validity::NonNullable | Validity::AllValid => {
-                    Validity::Array(BoolArray::from(!make_invalid).into_array())
+                    Validity::from_bit_buffer(!make_invalid, Nullability::Nullable)
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
-                    Validity::from(is_valid.to_bit_buffer() & !make_invalid)
+                    Validity::from_bit_buffer(
+                        is_valid.to_bit_buffer() & !make_invalid,
+                        Nullability::Nullable,
+                    )
                 }
             },
         }
