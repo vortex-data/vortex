@@ -218,9 +218,9 @@ fn preferred_arrow_type(array: &ArrayRef) -> VortexResult<DataType> {
         ));
 
         return Ok(if use_large {
-            DataType::LargeList(field)
+            DataType::LargeListView(field)
         } else {
-            DataType::List(field)
+            DataType::ListView(field)
         });
     }
 
