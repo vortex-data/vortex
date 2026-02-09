@@ -39,11 +39,9 @@ use futures::FutureExt;
 use futures::StreamExt as _;
 use futures::TryStreamExt as _;
 use futures::stream;
-use itertools::Itertools;
 use object_store::ObjectMeta;
 use object_store::ObjectStore;
 use vortex::VortexSessionDefault;
-use vortex::array::stats::StatsSet;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::PType;
@@ -373,81 +371,86 @@ impl FileFormat for VortexFormat {
                 });
             };
 
-            let stats = table_schema
-                .fields()
-                .iter()
-                .map(|field| struct_dtype.find(field.name()))
-                .map(|idx| match idx {
-                    None => StatsSet::default(),
-                    Some(id) => file_stats[id].clone(),
-                })
-                .collect_vec();
+            let mut sum_of_column_byte_sizes = stats::Precision::exact(0_usize);
+            let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
 
-            let total_byte_size = stats
-                .iter()
-                .map(|stats_set| {
-                    stats_set
-                        .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
-                        .unwrap_or_else(|| stats::Precision::inexact(0_usize))
-                })
-                .fold(stats::Precision::exact(0_usize), |acc, stats_set| {
-                    acc.zip(stats_set).map(|(acc, stats_set)| acc + stats_set)
+            for field in table_schema.fields().iter() {
+                // TODO(connor): Is this actually true?
+                // If the column does not exist, continue. This can happen if the schema has evolved
+                // but we have not yet updated the Vortex file.
+                let Some(col_idx) = struct_dtype.find(field.name()) else {
+                    // The default sets all statistics to `Precision<Absent>`.
+                    column_statistics.push(ColumnStatistics::default());
+                    continue;
+                };
+                let (stats_set, stats_dtype) = file_stats.get(col_idx);
+
+                // Update the total size in bytes.
+                let column_size = stats_set
+                    .get_as::<usize>(Stat::UncompressedSizeInBytes, &PType::U64.into())
+                    .unwrap_or_else(|| stats::Precision::inexact(0_usize));
+                sum_of_column_byte_sizes = sum_of_column_byte_sizes
+                    .zip(column_size)
+                    .map(|(acc, size)| acc + size);
+
+                // Find the min statistic.
+                let min = stats_set.get(Stat::Min).and_then(|pstat_val| {
+                    pstat_val
+                        .map(|stat_val| {
+                            // Because of DataFusion's Schema evolution, it is possible that the
+                            // type of the min/max stat has changed. Thus we construct the stat as
+                            // the file datatype first and only then do we cast accordingly.
+                            Scalar::try_new(
+                                Stat::Min
+                                    .dtype(stats_dtype)
+                                    .vortex_expect("must have a valid dtype"),
+                                Some(stat_val),
+                            )
+                            .vortex_expect("`Stat::Min` somehow had an incompatible `DType`")
+                            .cast(&DType::from_arrow(field.as_ref()))
+                            .vortex_expect("Unable to cast to target type that DataFusion wants")
+                            .try_to_df()
+                            .ok()
+                        })
+                        .transpose()
                 });
 
-            // Sum up the total byte size across all the columns.
-            let total_byte_size = total_byte_size.to_df();
-
-            let column_statistics = stats
-                .into_iter()
-                .zip(table_schema.fields().iter())
-                .map(|(stats_set, field)| {
-                    let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
-                    let min = stats_set.get(Stat::Min).and_then(|n| {
-                        n.map(|n| {
-                            Scalar::new(
-                                Stat::Min
-                                    .dtype(&DType::from_arrow(field.as_ref()))
-                                    .vortex_expect("must have a valid dtype"),
-                                n,
-                            )
-                            .try_to_df()
-                            .ok()
-                        })
-                        .transpose()
-                    });
-
-                    let max = stats_set.get(Stat::Max).and_then(|n| {
-                        n.map(|n| {
-                            Scalar::new(
+                // Find the max statistic.
+                let max = stats_set.get(Stat::Max).and_then(|pstat_val| {
+                    pstat_val
+                        .map(|stat_val| {
+                            Scalar::try_new(
                                 Stat::Max
-                                    .dtype(&DType::from_arrow(field.as_ref()))
+                                    .dtype(stats_dtype)
                                     .vortex_expect("must have a valid dtype"),
-                                n,
+                                Some(stat_val),
                             )
+                            .vortex_expect("`Stat::Max` somehow had an incompatible `DType`")
+                            .cast(&DType::from_arrow(field.as_ref()))
+                            .vortex_expect("Unable to cast to target type that DataFusion wants")
                             .try_to_df()
                             .ok()
                         })
                         .transpose()
-                    });
+                });
 
-                    ColumnStatistics {
-                        null_count: null_count.to_df(),
-                        max_value: max.to_df(),
-                        min_value: min.to_df(),
-                        sum_value: Precision::Absent,
-                        distinct_count: stats_set
-                            .get_as::<bool>(
-                                Stat::IsConstant,
-                                &DType::Bool(Nullability::NonNullable),
-                            )
-                            .and_then(|is_constant| {
-                                is_constant.as_exact().map(|_| Precision::Exact(1))
-                            })
-                            .unwrap_or(Precision::Absent),
-                        byte_size: Precision::Absent,
-                    }
+                let null_count = stats_set.get_as::<usize>(Stat::NullCount, &PType::U64.into());
+
+                column_statistics.push(ColumnStatistics {
+                    null_count: null_count.to_df(),
+                    min_value: min.to_df(),
+                    max_value: max.to_df(),
+                    sum_value: Precision::Absent,
+                    distinct_count: stats_set
+                        .get_as::<bool>(Stat::IsConstant, &DType::Bool(Nullability::NonNullable))
+                        .and_then(|is_constant| is_constant.as_exact().map(|_| Precision::Exact(1)))
+                        .unwrap_or(Precision::Absent),
+                    // TODO(connor): Is this correct?
+                    byte_size: column_size.to_df(),
                 })
-                .collect::<Vec<_>>();
+            }
+
+            let total_byte_size = sum_of_column_byte_sizes.to_df();
 
             Ok(Statistics {
                 num_rows: Precision::Exact(

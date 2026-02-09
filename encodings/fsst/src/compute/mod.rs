@@ -16,7 +16,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -41,10 +40,7 @@ impl TakeExecute for FSSTVTable {
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
                 fill_null(
                     &array.uncompressed_lengths().take(indices.to_array())?,
-                    &Scalar::new(
-                        array.uncompressed_lengths_dtype().clone(),
-                        ScalarValue::from(0),
-                    ),
+                    &Scalar::zero_value(&array.uncompressed_lengths_dtype().clone()),
                 )?,
             )?
             .into_array(),

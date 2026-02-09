@@ -128,10 +128,7 @@ impl VTable for SparseVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::new(
-            dtype.clone(),
-            ScalarValue::from_protobytes(&buffers[0].clone().try_to_host_sync()?)?,
-        );
+        let fill_value = Scalar::from_proto_bytes(&buffers[0].clone().try_to_host_sync()?, dtype)?;
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }
@@ -418,11 +415,8 @@ impl ValidityVTable<SparseVTable> for SparseVTable {
 
 impl VisitorVTable<SparseVTable> for SparseVTable {
     fn visit_buffers(array: &SparseArray, visitor: &mut dyn ArrayBufferVisitor) {
-        let fill_value_buffer = array
-            .fill_value
-            .value()
-            .to_protobytes::<ByteBufferMut>()
-            .freeze();
+        let fill_value_buffer =
+            ScalarValue::to_proto_bytes::<ByteBufferMut>(array.fill_value.value()).freeze();
         visitor.visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer));
     }
 
@@ -445,7 +439,6 @@ mod test {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_error::VortexExpect;
-    use vortex_scalar::PrimitiveScalar;
     use vortex_scalar::Scalar;
 
     use super::*;
@@ -495,8 +488,9 @@ mod test {
         .unwrap();
 
         assert_eq!(
-            PrimitiveScalar::try_from(&arr.scalar_at(10).unwrap())
+            arr.scalar_at(10)
                 .unwrap()
+                .as_primitive()
                 .typed_value::<u32>(),
             Some(1234)
         );
@@ -619,7 +613,8 @@ mod test {
         let indices = buffer![0u8, 2, 4, 6, 8].into_array();
         let values = PrimitiveArray::from_option_iter([Some(0i16), Some(1), None, None, Some(4)])
             .into_array();
-        let array = SparseArray::try_new(indices, values, 10, Scalar::null_typed::<i16>()).unwrap();
+        let array =
+            SparseArray::try_new(indices, values, 10, Scalar::null_native::<i16>()).unwrap();
         let actual = array.validity_mask().unwrap();
         let expected = Mask::from_iter([
             true, false, true, false, false, false, false, false, true, false,

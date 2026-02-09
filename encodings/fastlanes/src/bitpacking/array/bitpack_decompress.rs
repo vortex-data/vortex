@@ -262,7 +262,7 @@ mod tests {
             .iter()
             .enumerate()
             .for_each(|(i, v)| {
-                let scalar: u16 = unpack_single(&compressed, i).try_into().unwrap();
+                let scalar: u16 = (&unpack_single(&compressed, i)).try_into().unwrap();
                 assert_eq!(scalar, *v);
             });
     }

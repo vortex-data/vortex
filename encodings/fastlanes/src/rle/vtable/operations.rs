@@ -27,7 +27,7 @@ impl OperationsVTable<RLEVTable> for RLEVTable {
             .values()
             .scalar_at(value_idx_offset + chunk_relative_idx)?;
 
-        Ok(Scalar::new(array.dtype().clone(), scalar.into_value()))
+        Scalar::try_new(array.dtype().clone(), scalar.into_value())
     }
 }
 

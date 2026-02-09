@@ -10575,6 +10575,7 @@ dependencies = [
 name = "vortex-error"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "arrow-schema",
  "flatbuffers",
  "jiff",

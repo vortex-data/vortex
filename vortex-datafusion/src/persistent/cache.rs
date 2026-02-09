@@ -58,6 +58,7 @@ fn estimate_footer_size(footer: &Footer) -> usize {
         .statistics()
         .map(|stats| {
             stats
+                .stats()
                 .iter()
                 .map(|s| {
                     s.iter().count() * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>())

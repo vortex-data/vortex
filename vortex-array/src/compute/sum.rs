@@ -66,7 +66,7 @@ pub fn sum(array: &dyn Array) -> VortexResult<Scalar> {
     let sum_dtype = Stat::Sum
         .dtype(array.dtype())
         .ok_or_else(|| vortex_err!("Sum not supported for dtype: {}", array.dtype()))?;
-    let zero = Scalar::zero_value(sum_dtype);
+    let zero = Scalar::zero_value(&sum_dtype);
     sum_with_accumulator(array, &zero)
 }
 
@@ -113,16 +113,17 @@ impl ComputeFnVTable for Sum {
         );
 
         // Short-circuit using array statistics.
-        if let Some(Precision::Exact(sum)) = array.statistics().get(Stat::Sum) {
-            // For floats only use stats if accumulator is zero. otherwise we might have numerical stability issues.
-            match sum_dtype {
+        if let Some(Precision::Exact(sum_scalar)) = array.statistics().get(Stat::Sum) {
+            // For floats only use stats if accumulator is zero. otherwise we might have numerical
+            // stability issues.
+            match &sum_dtype {
                 DType::Primitive(p, _) => {
-                    if p.is_float() && accumulator.is_zero() {
-                        return Ok(sum.into());
+                    if p.is_float() && accumulator.is_null() {
+                        return Ok(sum_scalar.into());
                     } else if p.is_int() {
                         let sum_from_stat = accumulator
                             .as_primitive()
-                            .checked_add(&sum.as_primitive())
+                            .checked_add(&sum_scalar.as_primitive())
                             .map(Scalar::from);
                         return Ok(sum_from_stat
                             .unwrap_or_else(|| Scalar::null(sum_dtype))
@@ -132,7 +133,7 @@ impl ComputeFnVTable for Sum {
                 DType::Decimal(..) => {
                     let sum_from_stat = accumulator
                         .as_decimal()
-                        .checked_binary_numeric(&sum.as_decimal(), NumericOperator::Add)
+                        .checked_binary_numeric(&sum_scalar.as_decimal(), NumericOperator::Add)
                         .map(Scalar::from);
                     return Ok(sum_from_stat
                         .unwrap_or_else(|| Scalar::null(sum_dtype))
@@ -147,30 +148,29 @@ impl ComputeFnVTable for Sum {
         // Update the statistics with the computed sum. Stored statistic shouldn't include the accumulator.
         match sum_dtype {
             DType::Primitive(p, _) => {
-                if p.is_float() && accumulator.is_zero() {
+                if p.is_float()
+                    && accumulator.value().is_some_and(|value| value.is_zero())
+                    && let Some(sum_value) = sum_scalar.value().cloned()
+                {
                     array
                         .statistics()
-                        .set(Stat::Sum, Precision::Exact(sum_scalar.value().clone()));
+                        .set(Stat::Sum, Precision::Exact(sum_value));
                 } else if p.is_int()
                     && let Some(less_accumulator) = sum_scalar
                         .as_primitive()
                         .checked_sub(&accumulator.as_primitive())
+                    && let Some(val) = Scalar::from(less_accumulator).into_value()
                 {
-                    array.statistics().set(
-                        Stat::Sum,
-                        Precision::Exact(Scalar::from(less_accumulator).value().clone()),
-                    );
+                    array.statistics().set(Stat::Sum, Precision::Exact(val));
                 }
             }
             DType::Decimal(..) => {
                 if let Some(less_accumulator) = sum_scalar
                     .as_decimal()
                     .checked_binary_numeric(&accumulator.as_decimal(), NumericOperator::Sub)
+                    && let Some(val) = Scalar::from(less_accumulator).into_value()
                 {
-                    array.statistics().set(
-                        Stat::Sum,
-                        Precision::Exact(Scalar::from(less_accumulator).value().clone()),
-                    )
+                    array.statistics().set(Stat::Sum, Precision::Exact(val));
                 }
             }
             _ => unreachable!("Sum will always be a decimal or a primitive dtype"),

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -21,8 +22,8 @@ use crate::register_kernel;
 
 impl FillNullKernel for DictVTable {
     fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        // If the fill value exists in the dictionary, we can simply rewrite the null codes to
-        // point to the value.
+        // If the fill value already exists in the dictionary, we can simply rewrite the null codes
+        // to point to the value.
         let found_fill_values = compare(
             array.values(),
             ConstantArray::new(fill_value.clone(), array.values().len()).as_ref(),
@@ -30,7 +31,10 @@ impl FillNullKernel for DictVTable {
         )?
         .to_bool();
 
-        let Some(first_fill_value) = found_fill_values.to_bit_buffer().set_indices().next() else {
+        // We found the fill value already in the values at this given index.
+        let Some(existing_fill_value_index) =
+            found_fill_values.to_bit_buffer().set_indices().next()
+        else {
             // No fill values found, so we must canonicalize and fill_null.
             // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
             //  fall back.
@@ -38,20 +42,27 @@ impl FillNullKernel for DictVTable {
         };
 
         // Now we rewrite the nullable codes to point at the fill value.
+        let codes = array.codes();
+
+        // Cast the index to the correct unsigned integer type matching the codes' ptype.
+        let codes_ptype = codes.dtype().as_ptype();
+
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "The existing index must be representable by the existing ptype"
+        )]
+        let fill_scalar_value = match_each_unsigned_integer_ptype!(codes_ptype, |P| {
+            ScalarValue::from(existing_fill_value_index as P)
+        });
+
+        // Fill nulls in both the codes and the values.
         let codes = fill_null(
-            array.codes(),
-            &Scalar::new(
-                array
-                    .codes()
-                    .dtype()
-                    .with_nullability(fill_value.dtype().nullability()),
-                ScalarValue::from(first_fill_value),
-            ),
+            codes,
+            &Scalar::try_new(codes.dtype().as_nonnullable(), Some(fill_scalar_value))?,
         )?;
-        // And fill nulls in the values
         let values = fill_null(array.values(), fill_value)?;
 
-        // SAFETY: invariants are still satisfied after patching nulls
+        // SAFETY: invariants are still satisfied after patching nulls.
         unsafe {
             Ok(DictArray::new_unchecked(codes, values)
                 .set_all_values_referenced(array.has_all_values_referenced())

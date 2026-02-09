@@ -15,6 +15,7 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_scalar::BinaryScalar;
 use vortex_scalar::Scalar;
 use vortex_scalar::Utf8Scalar;
@@ -179,14 +180,16 @@ pub trait ScalarTruncation: Send + Sized {
 
     fn into_scalar(self) -> Scalar;
 
-    fn upper_bound(self, max_length: usize) -> Option<Self>;
+    fn upper_bound(self, max_length: usize) -> Option<Scalar>;
 
-    fn lower_bound(self, max_length: usize) -> Self;
+    fn lower_bound(self, max_length: usize) -> Scalar;
 }
 
 impl ScalarTruncation for BinaryScalar<'_> {
     fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
-        BinaryScalar::try_from(value)
+        value
+            .as_binary_opt()
+            .ok_or_else(|| vortex_err!("Expected binary scalar, found {}", value.dtype()))
     }
 
     fn len(&self) -> Option<usize> {
@@ -195,22 +198,25 @@ impl ScalarTruncation for BinaryScalar<'_> {
 
     fn into_scalar(self) -> Scalar {
         self.value()
+            .cloned()
             .map(|b| Scalar::binary(b, self.dtype().nullability()))
             .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
     }
 
-    fn upper_bound(self, max_length: usize) -> Option<Self> {
-        self.upper_bound(max_length)
+    fn upper_bound(self, max_length: usize) -> Option<Scalar> {
+        BinaryScalar::upper_bound(&self, max_length)
     }
 
-    fn lower_bound(self, max_length: usize) -> Self {
-        self.lower_bound(max_length)
+    fn lower_bound(self, max_length: usize) -> Scalar {
+        BinaryScalar::lower_bound(&self, max_length)
     }
 }
 
 impl ScalarTruncation for Utf8Scalar<'_> {
     fn from_scalar(value: &Scalar) -> VortexResult<impl ScalarTruncation> {
-        Utf8Scalar::try_from(value)
+        value
+            .as_utf8_opt()
+            .ok_or_else(|| vortex_err!("Expected utf8 scalar, found {}", value.dtype()))
     }
 
     fn len(&self) -> Option<usize> {
@@ -219,16 +225,17 @@ impl ScalarTruncation for Utf8Scalar<'_> {
 
     fn into_scalar(self) -> Scalar {
         self.value()
+            .cloned()
             .map(|b| Scalar::utf8(b, self.dtype().nullability()))
             .unwrap_or_else(|| Scalar::null(self.dtype().clone()))
     }
 
-    fn upper_bound(self, max_length: usize) -> Option<Self> {
-        self.upper_bound(max_length)
+    fn upper_bound(self, max_length: usize) -> Option<Scalar> {
+        Utf8Scalar::upper_bound(&self, max_length)
     }
 
-    fn lower_bound(self, max_length: usize) -> Self {
-        self.lower_bound(max_length)
+    fn lower_bound(self, max_length: usize) -> Scalar {
+        Utf8Scalar::lower_bound(&self, max_length)
     }
 }
 
@@ -295,7 +302,7 @@ impl<T: ScalarTruncation> StatsArrayBuilder for TruncatedMinBinaryStatsBuilder<T
 
 pub fn lower_bound(value: impl ScalarTruncation, max_length: usize) -> (Scalar, bool) {
     if value.len().unwrap_or(0) > max_length {
-        (value.lower_bound(max_length).into_scalar(), true)
+        (value.lower_bound(max_length), true)
     } else {
         (value.into_scalar(), false)
     }
@@ -303,7 +310,7 @@ pub fn lower_bound(value: impl ScalarTruncation, max_length: usize) -> (Scalar, 
 
 pub fn upper_bound(value: impl ScalarTruncation, max_length: usize) -> (Option<Scalar>, bool) {
     if value.len().unwrap_or(0) > max_length {
-        (value.upper_bound(max_length).map(|v| v.into_scalar()), true)
+        (value.upper_bound(max_length), true)
     } else {
         (Some(value.into_scalar()), false)
     }

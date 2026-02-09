@@ -72,7 +72,7 @@ mod test {
 
     fn test_array_fill_value() -> Scalar {
         // making this const is annoying
-        Scalar::null_typed::<f64>()
+        Scalar::null_native::<f64>()
     }
 
     fn sparse_array() -> ArrayRef {
@@ -174,7 +174,7 @@ mod test {
         buffer![0u64, 37, 47, 99].into_array(),
         PrimitiveArray::new(buffer![1.23f64, 0.47, 9.99, 3.5], Validity::AllValid).into_array(),
         100,
-        Scalar::null_typed::<f64>(),
+        Scalar::null_native::<f64>(),
     ).unwrap())]
     #[case(SparseArray::try_new(
         buffer![1u32, 3, 7, 8, 9].into_array(),
@@ -188,7 +188,7 @@ mod test {
             buffer![2u64, 4, 6].into_array(),
             nullable_values.into_array(),
             10,
-            Scalar::null_typed::<i64>(),
+            Scalar::null_native::<i64>(),
         ).unwrap()
     })]
     #[case(SparseArray::try_new(

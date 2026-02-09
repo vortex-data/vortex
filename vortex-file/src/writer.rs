@@ -206,7 +206,10 @@ impl VortexWriteOptions {
             if self.file_statistics.is_empty() {
                 None
             } else {
-                Some(FileStatistics(file_stats.stats_sets().into()))
+                Some(FileStatistics::new_with_dtype(
+                    file_stats.stats_sets().into(),
+                    &dtype,
+                ))
             },
             ctx,
         );

@@ -13,7 +13,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_scalar::DecimalScalar;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
@@ -38,8 +37,8 @@ impl SumKernel for DecimalVTable {
             .vortex_expect("must be decimal");
 
         // Extract the initial value as a DecimalValue
-        let initial_decimal = DecimalScalar::try_from(accumulator)
-            .vortex_expect("must be a decimal")
+        let initial_decimal = accumulator
+            .as_decimal()
             .decimal_value()
             .vortex_expect("cannot be null");
 
@@ -129,11 +128,11 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
+    use vortex_dtype::i256;
     use vortex_error::VortexExpect;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
-    use vortex_scalar::i256;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
@@ -149,10 +148,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(600i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(600i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -167,10 +167,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
-            ScalarValue::from(DecimalValue::from(800i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(800i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -185,10 +186,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(150i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(150i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -207,10 +209,11 @@ mod tests {
 
         // Should use i64 for accumulation since precision increases
         let expected_sum = near_max as i64 + 500 + 400;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(20, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -228,17 +231,18 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         let expected_sum = (large_val as i128) * 4 + 1;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_sum_overflow_detection() {
-        use vortex_scalar::i256;
+        use vortex_dtype::i256;
 
         // Create values that will overflow when summed
         // Use maximum i128 values that will overflow when added
@@ -254,10 +258,11 @@ mod tests {
         // Should use i256 for accumulation
         let expected_sum =
             i256::from_i128(max_val) + i256::from_i128(max_val) + i256::from_i128(max_val);
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(48, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -276,10 +281,11 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         let expected_sum = (large_pos as i128) + (large_neg as i128) + (large_pos as i128) + 1000;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 3), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -295,10 +301,11 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         // Scale should be preserved, precision increased by 10
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(16, 4), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(91346i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(91346i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -310,10 +317,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(13, 1), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(42i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(42i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -328,10 +336,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
-            ScalarValue::from(DecimalValue::from(300i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(300i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -353,10 +362,11 @@ mod tests {
 
         // Should use i256 for accumulation since 9 * (i128::MAX / 10) fits in i128 but we increase precision
         let expected_sum = i256::from_i128(large_i128).wrapping_pow(1) * i256::from_i128(9);
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(48, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }

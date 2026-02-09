@@ -16,7 +16,6 @@ use crate::Footer;
 use crate::MAGIC_BYTES;
 use crate::MAX_POSTSCRIPT_SIZE;
 use crate::VERSION;
-use crate::footer::FileStatistics;
 use crate::footer::file_layout::FooterFlatBufferWriter;
 use crate::footer::postscript::Postscript;
 use crate::footer::postscript::PostscriptSegment;
@@ -84,10 +83,9 @@ impl FooterSerializer {
 
         let statistics_segment = match self.footer.statistics() {
             None => None,
-            Some(stats) if stats.is_empty() => None,
+            Some(stats) if stats.stats().is_empty() => None,
             Some(stats) => {
-                let stats = FileStatistics(stats.clone());
-                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, &stats)?;
+                let (buffer, stats_segment) = write_flatbuffer(&mut self.offset, stats)?;
                 buffers.push(buffer);
                 Some(stats_segment)
             }

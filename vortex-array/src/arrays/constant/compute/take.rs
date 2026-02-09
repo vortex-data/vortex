@@ -20,13 +20,13 @@ impl TakeReduce for ConstantVTable {
     fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
+                let scalar = Scalar::try_new(
                     array
                         .scalar()
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
-                    array.scalar().value().clone(),
-                );
+                    array.scalar().value().cloned(),
+                )?;
                 ConstantArray::new(scalar, indices.len()).into_array()
             }
             AllOr::None => ConstantArray::new(
@@ -125,7 +125,7 @@ mod tests {
     #[case(ConstantArray::new(42i32, 5))]
     #[case(ConstantArray::new(std::f64::consts::PI, 10))]
     #[case(ConstantArray::new(Scalar::from("hello"), 3))]
-    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
         test_take_conformance(array.as_ref());

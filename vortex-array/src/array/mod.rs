@@ -452,7 +452,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::new(DType::Bool(Nullability::NonNullable), v.clone())
+                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
+                            .vortex_expect("A stat that was expected to be a boolean stat was not")
                             .as_bool()
                             .value()
                             .unwrap_or_default()

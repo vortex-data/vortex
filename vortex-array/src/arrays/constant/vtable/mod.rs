@@ -8,7 +8,6 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
@@ -61,7 +60,7 @@ impl VTable for ConstantVTable {
     }
 
     fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
-        let proto_bytes: Vec<u8> = array.scalar().value().to_protobytes();
+        let proto_bytes: Vec<u8> = array.scalar().to_proto_bytes();
         let scalar_value = (proto_bytes.len() <= CONSTANT_INLINE_THRESHOLD).then_some(proto_bytes);
         Ok(ProstMetadata(ConstantMetadata { scalar_value }))
     }
@@ -92,16 +91,16 @@ impl VTable for ConstantVTable {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
         // Prefer reading the scalar from inlined metadata to avoid device-to-host copies.
-        let sv = if let Some(ref proto_bytes) = metadata.scalar_value {
-            ScalarValue::from_protobytes(proto_bytes)?
+        let scalar = if let Some(proto_bytes) = &metadata.scalar_value {
+            Scalar::from_proto_bytes(proto_bytes, dtype)?
         } else {
             if buffers.len() != 1 {
                 vortex_bail!("Expected 1 buffer, got {}", buffers.len());
             }
             let buffer = buffers[0].clone().try_to_host_sync()?;
-            ScalarValue::from_protobytes(&buffer)?
+            Scalar::from_proto_bytes(buffer.as_ref(), dtype)?
         };
-        let scalar = Scalar::new(dtype.clone(), sv);
+
         Ok(ConstantArray::new(scalar, len))
     }
 
