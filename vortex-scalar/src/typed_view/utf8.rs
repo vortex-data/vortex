@@ -1,24 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`Utf8Scalar`] typed view implementation.
+
 use std::cmp;
 use std::fmt;
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_dtype::Nullability::NonNullable;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_utils::aliases::StringEscape;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -30,14 +27,19 @@ pub trait StringLike: private::Sealed + Sized {
     ///
     /// If incrementing the last char fails, or if the string is empty,
     /// we return an Err with the original unmodified string.
+    /// # Errors
+    ///
+    /// Returns `Err(self)` if the string is empty or if incrementing the last char overflows.
     fn increment(self) -> Result<Self, Self>;
 }
 
+/// Sealed trait implementation module for [`StringLike`].
 mod private {
     use vortex_buffer::BufferString;
 
     use crate::StringLike;
 
+    /// Prevents external implementations of [`StringLike`].
     pub trait Sealed {}
 
     impl Sealed for String {}
@@ -94,8 +96,10 @@ mod private {
 /// a valid UTF-8 string or null.
 #[derive(Debug, Clone, Hash, Eq)]
 pub struct Utf8Scalar<'a> {
+    /// The data type of this scalar.
     dtype: &'a DType,
-    value: Option<Arc<BufferString>>,
+    /// The string value, or [`None`] if null.
+    value: Option<&'a BufferString>,
 }
 
 impl Display for Utf8Scalar<'_> {
@@ -131,13 +135,14 @@ impl<'a> Utf8Scalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the data type is not a UTF-8 type.
-    pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Utf8(..)) {
             vortex_bail!("Can only construct utf8 scalar from utf8 dtype, found {dtype}")
         }
+
         Ok(Self {
             dtype,
-            value: value.as_buffer_string()?,
+            value: value.map(|value| value.as_utf8()),
         })
     }
 
@@ -147,90 +152,64 @@ impl<'a> Utf8Scalar<'a> {
         self.dtype
     }
 
-    /// Returns the string value, or None if null.
-    pub fn value(&self) -> Option<BufferString> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
-    }
-
     /// Returns a reference to the string value, or None if null.
     /// This avoids cloning the underlying BufferString.
-    pub fn value_ref(&self) -> Option<&BufferString> {
-        self.value.as_ref().map(|v| v.as_ref())
+    pub fn value(&self) -> Option<&'a BufferString> {
+        self.value
     }
 
-    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
-    /// this.
+    /// Constructs the next [`Scalar`] at most `max_length` bytes that's lexicographically greater
+    /// than this.
     ///
-    /// Returns None if constructing a greater value would overflow.
-    pub fn upper_bound(self, max_length: usize) -> Option<Self> {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
+    /// Returns `None` if the value is null or if constructing a greater value would overflow.
+    pub fn upper_bound(&self, max_length: usize) -> Option<Scalar> {
+        let value = self.value()?;
+        let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
+            .rfind(|p| value.is_char_boundary(*p))
+            .vortex_expect("Failed to find utf8 character boundary");
+
+        // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
+        let sliced = unsafe { BufferString::new_unchecked(value.inner().slice(..utf8_split_pos)) };
+        let incremented = sliced.increment().ok()?;
+        Some(Scalar::utf8(incremented, self.dtype().nullability()))
+    }
+
+    /// Construct a [`Scalar`] at most `max_length` in size that's less than or equal to
+    /// ourselves.
+    ///
+    /// Returns a null [`Scalar`] if the value is null.
+    pub fn lower_bound(&self, max_length: usize) -> Scalar {
+        match self.value() {
+            Some(value) => {
+                // UTF-8 characters are at most 4 bytes. Since we know that `BufferString` is
+                // valid UTF-8, we must have a valid character boundary.
                 let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
                     .rfind(|p| value.is_char_boundary(*p))
                     .vortex_expect("Failed to find utf8 character boundary");
 
-                let sliced = value.inner().slice(..utf8_split_pos);
-                drop(value);
-
-                // SAFETY: we slice to a char boundary so the sliced range contains valid UTF-8.
-                let sliced_buf = unsafe { BufferString::new_unchecked(sliced) };
-                let incremented = sliced_buf.increment().ok()?;
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(incremented)),
-                })
-            } else {
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                })
+                let sliced =
+                    unsafe { BufferString::new_unchecked(value.inner().slice(0..utf8_split_pos)) };
+                Scalar::utf8(sliced, self.dtype().nullability())
             }
-        } else {
-            Some(self)
+            None => Scalar::null(self.dtype().clone()),
         }
     }
 
-    /// Construct a value at most `max_length` in size that's less than ourselves.
-    pub fn lower_bound(self, max_length: usize) -> Self {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                // UTF8 characters are at most 4 bytes, since we know that BufferString is UTF8 we must have a valid character boundary
-                let utf8_split_pos = (max_length.saturating_sub(3)..=max_length)
-                    .rfind(|p| value.is_char_boundary(*p))
-                    .vortex_expect("Failed to find utf8 character boundary");
-
-                Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(unsafe {
-                        BufferString::new_unchecked(value.inner().slice(0..utf8_split_pos))
-                    })),
-                }
-            } else {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                }
-            }
-        } else {
-            self
-        }
-    }
-
+    /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Utf8(..)) {
             vortex_bail!(
                 "Cannot cast utf8 to {dtype}: UTF-8 scalars can only be cast to UTF-8 types with different nullability"
             )
         }
-        Ok(Scalar::new(
+        Scalar::try_new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::BufferString(
-                self.value
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .clone(),
+            Some(ScalarValue::Utf8(
+                self.value()
+                    .cloned()
+                    .vortex_expect("nullness handled in Scalar::cast"),
             )),
-        ))
+        )
     }
 
     /// Length of the scalar value or None if value is null
@@ -269,131 +248,11 @@ impl Scalar {
     where
         B: TryInto<BufferString>,
     {
-        Ok(Self::new(
+        Ok(Self::try_new(
             DType::Utf8(nullability),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(str.try_into()?))),
-        ))
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Utf8Scalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Utf8(_)) {
-            vortex_bail!("Expected utf8 scalar, found {}", value.dtype())
-        }
-        Ok(Self {
-            dtype: value.dtype(),
-            value: value.value().as_buffer_string()?,
-        })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for String {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Ok(BufferString::try_from(value)?.to_string())
-    }
-}
-
-impl TryFrom<Scalar> for String {
-    type Error = VortexError;
-
-    fn try_from(value: Scalar) -> Result<Self, Self::Error> {
-        Ok(BufferString::try_from(value)?.to_string())
-    }
-}
-
-impl From<&str> for Scalar {
-    fn from(value: &str) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(
-                value.to_string().into(),
-            ))),
+            Some(ScalarValue::Utf8(str.try_into()?)),
         )
-    }
-}
-
-impl From<String> for Scalar {
-    fn from(value: String) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into()))),
-        )
-    }
-}
-
-impl From<BufferString> for Scalar {
-    fn from(value: BufferString) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(Arc::new(value))),
-        )
-    }
-}
-
-impl From<Arc<BufferString>> for Scalar {
-    fn from(value: Arc<BufferString>) -> Self {
-        Self::new(
-            DType::Utf8(NonNullable),
-            ScalarValue(InnerScalarValue::BufferString(value)),
-        )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for BufferString {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        <Option<BufferString>>::try_from(scalar)?
-            .ok_or_else(|| vortex_err!("Can't extract present value from null scalar"))
-    }
-}
-
-impl TryFrom<Scalar> for BufferString {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        Ok(Utf8Scalar::try_from(scalar)?.value())
-    }
-}
-
-impl TryFrom<Scalar> for Option<BufferString> {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> Result<Self, Self::Error> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl From<&str> for ScalarValue {
-    fn from(value: &str) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(
-            value.to_string().into(),
-        )))
-    }
-}
-
-impl From<String> for ScalarValue {
-    fn from(value: String) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value.into())))
-    }
-}
-
-impl From<BufferString> for ScalarValue {
-    fn from(value: BufferString) -> Self {
-        ScalarValue(InnerScalarValue::BufferString(Arc::new(value)))
+        .vortex_expect("unable to construct a UTF-8 `Scalar`"))
     }
 }
 
@@ -403,7 +262,6 @@ mod tests {
 
     use rstest::rstest;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
 
     use crate::Scalar;
     use crate::Utf8Scalar;
@@ -412,37 +270,20 @@ mod tests {
     fn lower_bound() {
         let utf8 = Scalar::utf8("snowman⛄️snowman", Nullability::NonNullable);
         let expected = Scalar::utf8("snowman", Nullability::NonNullable);
-        assert_eq!(
-            Utf8Scalar::try_from(&utf8)
-                .vortex_expect("utf8 scalar conversion should succeed")
-                .lower_bound(9),
-            Utf8Scalar::try_from(&expected).vortex_expect("utf8 scalar conversion should succeed")
-        );
+        assert_eq!(utf8.as_utf8().lower_bound(9), expected,);
     }
 
     #[test]
     fn upper_bound() {
         let utf8 = Scalar::utf8("char🪩", Nullability::NonNullable);
         let expected = Scalar::utf8("chas", Nullability::NonNullable);
-        assert_eq!(
-            Utf8Scalar::try_from(&utf8)
-                .vortex_expect("utf8 scalar conversion should succeed")
-                .upper_bound(5)
-                .vortex_expect("must have upper bound"),
-            Utf8Scalar::try_from(&expected).vortex_expect("utf8 scalar conversion should succeed")
-        );
+        assert_eq!(utf8.as_utf8().upper_bound(5).unwrap(), expected,);
     }
 
     #[test]
     fn upper_bound_overflow() {
         let utf8 = Scalar::utf8("🂑🂒🂓", Nullability::NonNullable);
-
-        assert!(
-            Utf8Scalar::try_from(&utf8)
-                .vortex_expect("utf8 scalar conversion should succeed")
-                .upper_bound(2)
-                .is_none()
-        );
+        assert!(utf8.as_utf8().upper_bound(2).is_none());
     }
 
     #[rstest]
@@ -454,8 +295,8 @@ mod tests {
         let scalar1 = Scalar::utf8(str1, Nullability::NonNullable);
         let scalar2 = Scalar::utf8(str2, Nullability::NonNullable);
 
-        let utf8_scalar1 = Utf8Scalar::try_from(&scalar1).unwrap();
-        let utf8_scalar2 = Utf8Scalar::try_from(&scalar2).unwrap();
+        let utf8_scalar1 = scalar1.as_utf8();
+        let utf8_scalar2 = scalar2.as_utf8();
 
         assert_eq!(utf8_scalar1 == utf8_scalar2, expected);
     }
@@ -474,8 +315,8 @@ mod tests {
         let scalar1 = Scalar::utf8(str1, Nullability::NonNullable);
         let scalar2 = Scalar::utf8(str2, Nullability::NonNullable);
 
-        let utf8_scalar1 = Utf8Scalar::try_from(&scalar1).unwrap();
-        let utf8_scalar2 = Utf8Scalar::try_from(&scalar2).unwrap();
+        let utf8_scalar1 = scalar1.as_utf8();
+        let utf8_scalar2 = scalar2.as_utf8();
 
         assert_eq!(utf8_scalar1.partial_cmp(&utf8_scalar2), Some(expected));
     }
@@ -483,10 +324,10 @@ mod tests {
     #[test]
     fn test_utf8_null_value() {
         let null_utf8 = Scalar::null(vortex_dtype::DType::Utf8(Nullability::Nullable));
-        let scalar = Utf8Scalar::try_from(&null_utf8).unwrap();
+        let scalar = null_utf8.as_utf8();
 
         assert!(scalar.value().is_none());
-        assert!(scalar.value_ref().is_none());
+        assert!(scalar.value().is_none());
         assert!(scalar.len().is_none());
         assert!(scalar.is_empty().is_none());
     }
@@ -496,11 +337,11 @@ mod tests {
         let empty = Scalar::utf8("", Nullability::NonNullable);
         let non_empty = Scalar::utf8("hello", Nullability::NonNullable);
 
-        let empty_scalar = Utf8Scalar::try_from(&empty).unwrap();
+        let empty_scalar = empty.as_utf8();
         assert_eq!(empty_scalar.len(), Some(0));
         assert_eq!(empty_scalar.is_empty(), Some(true));
 
-        let non_empty_scalar = Utf8Scalar::try_from(&non_empty).unwrap();
+        let non_empty_scalar = non_empty.as_utf8();
         assert_eq!(non_empty_scalar.len(), Some(5));
         assert_eq!(non_empty_scalar.is_empty(), Some(false));
     }
@@ -509,10 +350,10 @@ mod tests {
     fn test_utf8_value_ref() {
         let data = "test string";
         let utf8 = Scalar::utf8(data, Nullability::NonNullable);
-        let scalar = Utf8Scalar::try_from(&utf8).unwrap();
+        let scalar = utf8.as_utf8();
 
         // value_ref should not clone
-        let value_ref = scalar.value_ref().unwrap();
+        let value_ref = scalar.value().unwrap();
         assert_eq!(value_ref.as_str(), data);
 
         // value should clone
@@ -526,13 +367,13 @@ mod tests {
         use vortex_dtype::Nullability;
 
         let utf8 = Scalar::utf8("test", Nullability::NonNullable);
-        let scalar = Utf8Scalar::try_from(&utf8).unwrap();
+        let scalar = utf8.as_utf8();
 
         // Cast to nullable utf8
         let result = scalar.cast(&DType::Utf8(Nullability::Nullable)).unwrap();
         assert_eq!(result.dtype(), &DType::Utf8(Nullability::Nullable));
 
-        let casted = Utf8Scalar::try_from(&result).unwrap();
+        let casted = result.as_utf8();
         assert_eq!(casted.value().unwrap().as_str(), "test");
     }
 
@@ -543,22 +384,22 @@ mod tests {
         use vortex_dtype::PType;
 
         let utf8 = Scalar::utf8("test", Nullability::NonNullable);
-        let scalar = Utf8Scalar::try_from(&utf8).unwrap();
+        let scalar = utf8.as_utf8();
 
         let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_from_scalar_value_non_utf8_dtype() {
+    fn test_try_new_non_utf8_dtype() {
         use vortex_dtype::DType;
         use vortex_dtype::Nullability;
         use vortex_dtype::PType;
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let value = crate::ScalarValue(crate::InnerScalarValue::Primitive(crate::PValue::I32(42)));
+        let value = crate::ScalarValue::Primitive(crate::PValue::I32(42));
 
-        let result = Utf8Scalar::from_scalar_value(&dtype, value);
+        let result = Utf8Scalar::try_new(&dtype, Some(&value));
         assert!(result.is_err());
     }
 
@@ -567,47 +408,21 @@ mod tests {
         use vortex_dtype::Nullability;
 
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let result = Utf8Scalar::try_from(&scalar);
-        assert!(result.is_err());
+        assert!(scalar.as_utf8_opt().is_none());
     }
 
     #[test]
     fn test_upper_bound_null() {
         let null_utf8 = Scalar::null(vortex_dtype::DType::Utf8(Nullability::Nullable));
-        let scalar = Utf8Scalar::try_from(&null_utf8).unwrap();
-
-        let result = scalar.upper_bound(10);
-        assert!(result.is_some());
-        assert!(result.unwrap().value().is_none());
+        let scalar = null_utf8.as_utf8();
+        assert!(scalar.upper_bound(10).is_none());
     }
 
     #[test]
     fn test_lower_bound_null() {
         let null_utf8 = Scalar::null(vortex_dtype::DType::Utf8(Nullability::Nullable));
-        let scalar = Utf8Scalar::try_from(&null_utf8).unwrap();
-
-        let result = scalar.lower_bound(10);
-        assert!(result.value().is_none());
-    }
-
-    #[test]
-    fn test_upper_bound_exact_length() {
-        let utf8 = Scalar::utf8("abc", Nullability::NonNullable);
-        let scalar = Utf8Scalar::try_from(&utf8).unwrap();
-
-        let result = scalar.upper_bound(3);
-        assert!(result.is_some());
-        let upper = result.unwrap();
-        assert_eq!(upper.value().unwrap().as_str(), "abc");
-    }
-
-    #[test]
-    fn test_lower_bound_exact_length() {
-        let utf8 = Scalar::utf8("abc", Nullability::NonNullable);
-        let scalar = Utf8Scalar::try_from(&utf8).unwrap();
-
-        let result = scalar.lower_bound(3);
-        assert_eq!(result.value().unwrap().as_str(), "abc");
+        let scalar = null_utf8.as_utf8();
+        assert!(scalar.lower_bound(10).is_null());
     }
 
     #[test]
@@ -619,7 +434,7 @@ mod tests {
             scalar.dtype(),
             &vortex_dtype::DType::Utf8(Nullability::NonNullable)
         );
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), data);
     }
 
@@ -632,7 +447,7 @@ mod tests {
             scalar.dtype(),
             &vortex_dtype::DType::Utf8(Nullability::NonNullable)
         );
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), "hello world");
     }
 
@@ -647,24 +462,7 @@ mod tests {
             scalar.dtype(),
             &vortex_dtype::DType::Utf8(Nullability::NonNullable)
         );
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
-        assert_eq!(utf8.value().unwrap().as_str(), "test");
-    }
-
-    #[test]
-    fn test_from_arc_buffer_string() {
-        use std::sync::Arc;
-
-        use vortex_buffer::BufferString;
-
-        let data = Arc::new(BufferString::from("test"));
-        let scalar: Scalar = data.into();
-
-        assert_eq!(
-            scalar.dtype(),
-            &vortex_dtype::DType::Utf8(Nullability::NonNullable)
-        );
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), "test");
     }
 
@@ -730,8 +528,11 @@ mod tests {
         let data = "test";
         let value: crate::ScalarValue = data.into();
 
-        let scalar = Scalar::new(vortex_dtype::DType::Utf8(Nullability::NonNullable), value);
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let scalar = Scalar::new(
+            vortex_dtype::DType::Utf8(Nullability::NonNullable),
+            Some(value),
+        );
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), data);
     }
 
@@ -740,8 +541,11 @@ mod tests {
         let data = String::from("test");
         let value: crate::ScalarValue = data.clone().into();
 
-        let scalar = Scalar::new(vortex_dtype::DType::Utf8(Nullability::NonNullable), value);
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let scalar = Scalar::new(
+            vortex_dtype::DType::Utf8(Nullability::NonNullable),
+            Some(value),
+        );
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), &data);
     }
 
@@ -752,8 +556,11 @@ mod tests {
         let data = BufferString::from("test");
         let value: crate::ScalarValue = data.into();
 
-        let scalar = Scalar::new(vortex_dtype::DType::Utf8(Nullability::NonNullable), value);
-        let utf8 = Utf8Scalar::try_from(&scalar).unwrap();
+        let scalar = Scalar::new(
+            vortex_dtype::DType::Utf8(Nullability::NonNullable),
+            Some(value),
+        );
+        let utf8 = scalar.as_utf8();
         assert_eq!(utf8.value().unwrap().as_str(), "test");
     }
 
@@ -761,7 +568,7 @@ mod tests {
     fn test_utf8_with_emoji() {
         let emoji_str = "Hello 👋 World 🌍!";
         let scalar = Scalar::utf8(emoji_str, Nullability::NonNullable);
-        let utf8_scalar = Utf8Scalar::try_from(&scalar).unwrap();
+        let utf8_scalar = scalar.as_utf8();
 
         assert_eq!(utf8_scalar.value().unwrap().as_str(), emoji_str);
         assert!(utf8_scalar.len().unwrap() > emoji_str.chars().count()); // Byte length > char count
@@ -772,8 +579,8 @@ mod tests {
         let null_scalar = Scalar::null(vortex_dtype::DType::Utf8(Nullability::Nullable));
         let non_null_scalar = Scalar::utf8("test", Nullability::Nullable);
 
-        let null = Utf8Scalar::try_from(&null_scalar).unwrap();
-        let non_null = Utf8Scalar::try_from(&non_null_scalar).unwrap();
+        let null = null_scalar.as_utf8();
+        let non_null = non_null_scalar.as_utf8();
 
         // Null < Some("test")
         assert!(null < non_null);

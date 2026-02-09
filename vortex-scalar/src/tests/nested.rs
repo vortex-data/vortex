@@ -11,12 +11,9 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
 
-    use crate::InnerScalarValue;
-    use crate::ListScalar;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
-    use crate::StructScalar;
 
     #[test]
     fn test_fixed_size_list_of_fixed_size_list() {
@@ -217,7 +214,7 @@ mod tests {
 
         // Access struct fields through the list.
         let first_struct = list.element(0).unwrap();
-        let first = StructScalar::try_from(&first_struct).unwrap();
+        let first = first_struct.as_struct();
         assert_eq!(
             first
                 .field("a")
@@ -227,7 +224,13 @@ mod tests {
             Some(100)
         );
         assert_eq!(
-            first.field("b").unwrap().as_utf8().value().unwrap(),
+            first
+                .field("b")
+                .unwrap()
+                .as_utf8()
+                .value()
+                .cloned()
+                .unwrap(),
             "first".into()
         );
     }
@@ -309,10 +312,10 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(100))),
-            ]))),
+            Some(ScalarValue::List(vec![
+                Some(ScalarValue::Primitive(PValue::U16(6))),
+                Some(ScalarValue::Primitive(PValue::U16(100))),
+            ])),
         );
 
         // Cast U16 -> U32.
@@ -348,11 +351,11 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(100))),
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(256))), // Too large for U8
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(1000))), // Too large for U8
-            ]))),
+            Some(ScalarValue::List(vec![
+                Some(ScalarValue::Primitive(PValue::U16(100))),
+                Some(ScalarValue::Primitive(PValue::U16(256))), // Too large for U8
+                Some(ScalarValue::Primitive(PValue::U16(1000))), // Too large for U8
+            ])),
         );
 
         let target_u8 = DType::List(
@@ -901,7 +904,7 @@ mod tests {
 
         assert!(matches!(fixed_list.dtype(), DType::FixedSizeList(_, 3, _)));
 
-        let list = ListScalar::try_from(&fixed_list).unwrap();
+        let list = fixed_list.as_list();
         assert_eq!(list.len(), 3);
         assert!(!list.is_null());
 
@@ -932,7 +935,7 @@ mod tests {
             DType::FixedSizeList(_, 0, _)
         ));
 
-        let list = ListScalar::try_from(&empty_fixed_list).unwrap();
+        let list = empty_fixed_list.as_list();
         assert_eq!(list.len(), 0);
         assert!(list.is_empty());
         assert!(!list.is_null());

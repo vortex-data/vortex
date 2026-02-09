@@ -1,27 +1,25 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`StructScalar`] typed view implementation.
+
 use std::cmp::Ordering;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::hash::Hasher;
-use std::ops::Deref;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_dtype::FieldNames;
 use vortex_dtype::StructFields;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -31,8 +29,10 @@ use crate::ScalarValue;
 /// named fields with different types, or be null.
 #[derive(Debug, Clone)]
 pub struct StructScalar<'a> {
+    /// The data type of this scalar.
     dtype: &'a DType,
-    fields: Option<&'a Arc<[ScalarValue]>>,
+    /// The field values, or [`None`] if the entire struct is null.
+    pub(crate) fields: Option<&'a [Option<ScalarValue>]>,
 }
 
 impl Display for StructScalar<'_> {
@@ -47,7 +47,8 @@ impl Display for StructScalar<'_> {
                     .zip_eq(self.struct_fields().fields())
                     .zip_eq(fields.iter())
                     .map(|((name, dtype), value)| {
-                        let val = Scalar::new(dtype, value.clone());
+                        let val = Scalar::try_new(dtype, value.clone())
+                            .vortex_expect("unable to construct a struct `Scalar`");
                         format!("{name}: {val}")
                     })
                     .format(", ");
@@ -64,7 +65,7 @@ impl PartialEq for StructScalar<'_> {
             return false;
         }
 
-        match (self.fields(), other.fields()) {
+        match (self.fields_iter(), other.fields_iter()) {
             (Some(lhs), Some(rhs)) => lhs.zip(rhs).all(|(l_s, r_s)| l_s == r_s),
             (None, None) => true,
             (Some(_), None) | (None, Some(_)) => false,
@@ -81,7 +82,7 @@ impl PartialOrd for StructScalar<'_> {
             return None;
         }
 
-        match (self.fields(), other.fields()) {
+        match (self.fields_iter(), other.fields_iter()) {
             (Some(lhs), Some(rhs)) => {
                 for (l_s, r_s) in lhs.zip(rhs) {
                     match l_s.partial_cmp(&r_s)? {
@@ -103,7 +104,7 @@ impl PartialOrd for StructScalar<'_> {
 impl Hash for StructScalar<'_> {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.dtype.hash(state);
-        if let Some(fields) = self.fields() {
+        if let Some(fields) = self.fields_iter() {
             for f in fields {
                 f.hash(state);
             }
@@ -112,15 +113,16 @@ impl Hash for StructScalar<'_> {
 }
 
 impl<'a> StructScalar<'a> {
+    /// Creates a new [`StructScalar`] from a [`DType`] and optional [`ScalarValue`].
     #[inline]
-    pub(crate) fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
+    pub(crate) fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Struct(..)) {
             vortex_bail!("Expected struct scalar, found {}", dtype)
         }
 
         Ok(Self {
             dtype,
-            fields: value.as_list()?,
+            fields: value.map(|value| value.as_list()),
         })
     }
 
@@ -167,25 +169,30 @@ impl<'a> StructScalar<'a> {
         let fields = self
             .fields
             .vortex_expect("Can't take field out of null struct scalar");
-        Some(Scalar::new(
-            self.struct_fields().field_by_index(idx)?,
-            fields[idx].clone(),
-        ))
+        Some(
+            // SAFETY: We assume that the struct `DType` correctly describes the struct values.
+            unsafe {
+                Scalar::new_unchecked(
+                    self.struct_fields().field_by_index(idx)?,
+                    fields[idx].clone(),
+                )
+            },
+        )
     }
 
     /// Returns the fields of the struct scalar, or None if the scalar is null.
-    pub fn fields(&self) -> Option<impl ExactSizeIterator<Item = Scalar>> {
+    pub fn fields_iter(&self) -> Option<impl ExactSizeIterator<Item = Scalar>> {
         let fields = self.fields?;
         Some(
             fields
                 .iter()
                 .zip(self.struct_fields().fields())
-                .map(|(v, dtype)| Scalar::new(dtype, v.clone())),
+                .map(|(v, dtype)| {
+                    // SAFETY: We assume that the struct `DType` correctly describes the struct
+                    // values.
+                    unsafe { Scalar::new_unchecked(dtype, v.clone()) }
+                }),
         )
-    }
-
-    pub(crate) fn field_values(&self) -> Option<&[ScalarValue]> {
-        self.fields.map(Arc::deref)
     }
 
     /// Casts this struct scalar to another struct type.
@@ -210,17 +217,17 @@ impl<'a> StructScalar<'a> {
             );
         }
 
-        if let Some(fs) = self.field_values() {
+        if let Some(fs) = self.fields {
             let fields = fs
                 .iter()
                 .enumerate()
                 .map(|(i, f)| {
-                    Scalar::new(
+                    Scalar::try_new(
                         own_st
                             .field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
                         f.clone(),
-                    )
+                    )?
                     .cast(
                         &st.field_by_index(i)
                             .vortex_expect("Iterating over scalar fields"),
@@ -228,10 +235,7 @@ impl<'a> StructScalar<'a> {
                     .map(|s| s.into_value())
                 })
                 .collect::<VortexResult<Vec<_>>>()?;
-            Ok(Scalar::new(
-                dtype.clone(),
-                ScalarValue(InnerScalarValue::List(fields.into())),
-            ))
+            Scalar::try_new(dtype.clone(), Some(ScalarValue::List(fields)))
         } else {
             Ok(Scalar::null(dtype.clone()))
         }
@@ -247,26 +251,28 @@ impl<'a> StructScalar<'a> {
             .dtype
             .as_struct_fields_opt()
             .ok_or_else(|| vortex_err!("Not a struct dtype"))?;
-        let projected_dtype = struct_dtype.project(projection)?;
-        let new_fields = if let Some(fs) = self.field_values() {
-            ScalarValue(InnerScalarValue::List(
-                projection
-                    .iter()
-                    .map(|name| {
-                        struct_dtype
-                            .find(name)
-                            .vortex_expect("DType has been successfully projected already")
-                    })
-                    .map(|i| fs[i].clone())
-                    .collect(),
-            ))
-        } else {
-            ScalarValue(InnerScalarValue::Null)
+        let projected_dtype = DType::Struct(
+            struct_dtype.project(projection)?,
+            self.dtype().nullability(),
+        );
+
+        let Some(fs) = self.fields else {
+            return Ok(Scalar::null(projected_dtype));
         };
-        Ok(Scalar::new(
-            DType::Struct(projected_dtype, self.dtype().nullability()),
-            new_fields,
-        ))
+
+        let new_fields = ScalarValue::List(
+            projection
+                .iter()
+                .map(|name| {
+                    struct_dtype
+                        .find(name)
+                        .vortex_expect("DType has been successfully projected already")
+                })
+                .map(|i| fs[i].clone())
+                .collect(),
+        );
+
+        Scalar::try_new(projected_dtype, Some(new_fields))
     }
 }
 
@@ -300,18 +306,8 @@ impl Scalar {
         let mut value_children = Vec::with_capacity(children.len());
         value_children.extend(children.into_iter().map(|x| x.into_value()));
 
-        Self::new(
-            dtype,
-            ScalarValue(InnerScalarValue::List(value_children.into())),
-        )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for StructScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        Self::try_new(value.dtype(), value.value())
+        Self::try_new(dtype, Some(ScalarValue::List(value_children)))
+            .vortex_expect("unable to construct a struct `Scalar`")
     }
 }
 
@@ -323,6 +319,7 @@ mod tests {
     use vortex_dtype::StructFields;
 
     use super::*;
+    use crate::PValue;
 
     fn setup_types() -> (DType, DType, DType) {
         let f0_dt = DType::Primitive(I32, Nullability::NonNullable);
@@ -361,13 +358,13 @@ mod tests {
         let scalar_f0 = scalar.as_struct().field_by_idx(0);
         assert!(scalar_f0.is_some());
         let scalar_f0 = scalar_f0.unwrap();
-        assert_eq!(scalar_f0, f0_val_null);
+        assert_eq!(scalar_f0.value(), f0_val_null.value());
         assert_eq!(scalar_f0.dtype(), &f0_dt);
 
         let scalar_f1 = scalar.as_struct().field_by_idx(1);
         assert!(scalar_f1.is_some());
         let scalar_f1 = scalar_f1.unwrap();
-        assert_eq!(scalar_f1, f1_val_null);
+        assert_eq!(scalar_f1.value(), f1_val_null.value());
         assert_eq!(scalar_f1.dtype(), &f1_dt);
     }
 
@@ -421,7 +418,10 @@ mod tests {
 
         let field_b = scalar.as_struct().field("b");
         assert!(field_b.is_some());
-        assert_eq!(field_b.unwrap().as_utf8().value().unwrap(), "world".into());
+        assert_eq!(
+            field_b.unwrap().as_utf8().value().cloned().unwrap(),
+            "world".into()
+        );
 
         // Non-existent field
         let field_c = scalar.as_struct().field("c");
@@ -436,10 +436,14 @@ mod tests {
 
         let scalar = Scalar::struct_(dtype, vec![f0_val, f1_val]);
 
-        let fields = scalar.as_struct().fields().unwrap().collect::<Vec<_>>();
+        let fields = scalar
+            .as_struct()
+            .fields_iter()
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(fields.len(), 2);
         assert_eq!(fields[0].as_primitive().typed_value::<i32>().unwrap(), 100);
-        assert_eq!(fields[1].as_utf8().value().unwrap(), "test".into());
+        assert_eq!(fields[1].as_utf8().value().cloned().unwrap(), "test".into());
     }
 
     #[test]
@@ -448,8 +452,8 @@ mod tests {
         let null_scalar = Scalar::null(dtype);
 
         assert!(null_scalar.as_struct().is_null());
-        assert!(null_scalar.as_struct().fields().is_none());
-        assert!(null_scalar.as_struct().field_values().is_none());
+        assert!(null_scalar.as_struct().fields_iter().is_none());
+        assert!(null_scalar.as_struct().fields.is_none());
     }
 
     #[test]
@@ -482,7 +486,11 @@ mod tests {
         let result = source_scalar.as_struct().cast(&target_dtype).unwrap();
         assert_eq!(result.dtype(), &target_dtype);
 
-        let fields = result.as_struct().fields().unwrap().collect::<Vec<_>>();
+        let fields = result
+            .as_struct()
+            .fields_iter()
+            .unwrap()
+            .collect::<Vec<_>>();
         assert_eq!(fields[0].as_primitive().typed_value::<i64>().unwrap(), 42);
         assert_eq!(fields[1].as_primitive().typed_value::<i64>().unwrap(), 123);
     }
@@ -545,7 +553,7 @@ mod tests {
         assert_eq!(projected_struct.names().len(), 1);
         assert_eq!(projected_struct.names()[0].as_ref(), "b");
 
-        let fields = projected_struct.fields().unwrap().collect::<Vec<_>>();
+        let fields = projected_struct.fields_iter().unwrap().collect::<Vec<_>>();
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].as_utf8().value().unwrap().as_str(), "hello");
     }
@@ -668,9 +676,9 @@ mod tests {
     #[test]
     fn test_struct_try_new_non_struct_dtype() {
         let dtype = DType::Primitive(I32, Nullability::NonNullable);
-        let value = ScalarValue(InnerScalarValue::Primitive(crate::PValue::I32(42)));
+        let value = ScalarValue::Primitive(PValue::I32(42));
 
-        let result = StructScalar::try_new(&dtype, &value);
+        let result = StructScalar::try_new(&dtype, Some(&value));
         assert!(result.is_err());
     }
 

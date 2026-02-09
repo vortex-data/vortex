@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`DecimalScalar`] typed view implementation.
+
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -9,14 +11,12 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::NumericOperator;
 use crate::Scalar;
 use crate::ScalarValue;
@@ -24,9 +24,12 @@ use crate::ScalarValue;
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
-    pub(super) dtype: &'a DType,
-    pub(super) decimal_type: DecimalDType,
-    pub(super) value: Option<DecimalValue>,
+    /// The data type of this scalar.
+    pub(crate) dtype: &'a DType,
+    /// The decimal type (precision and scale).
+    pub(crate) decimal_type: DecimalDType,
+    /// The decimal value, or [`None`] if null.
+    pub(crate) value: Option<DecimalValue>,
 }
 
 impl<'a> DecimalScalar<'a> {
@@ -35,9 +38,9 @@ impl<'a> DecimalScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the data type is not a decimal type.
-    pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a DType, value: Option<&ScalarValue>) -> VortexResult<Self> {
         let decimal_type = DecimalDType::try_from(dtype)?;
-        let value = value.as_decimal()?;
+        let value = value.map(|v| *v.as_decimal());
 
         Ok(Self {
             dtype,
@@ -57,19 +60,14 @@ impl<'a> DecimalScalar<'a> {
         self.value
     }
 
-    /// Cast decimal scalar to another data type.
+    /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         match dtype {
             DType::Decimal(target_dtype, target_nullability) => {
                 // Cast between decimal types
                 if self.decimal_type == *target_dtype {
                     // Same decimal type, just change nullability if needed
-                    return Ok(Scalar::new(
-                        dtype.clone(),
-                        ScalarValue(InnerScalarValue::Decimal(
-                            self.value.unwrap_or(DecimalValue::I128(0)),
-                        )),
-                    ));
+                    return Scalar::try_new(dtype.clone(), self.value.map(ScalarValue::Decimal));
                 }
 
                 // Different precision/scale - need to implement scaling logic
@@ -225,7 +223,7 @@ impl<'a> DecimalScalar<'a> {
                 }?;
 
                 // Check if the result fits within the precision constraints
-                if operation_result.fits_in_precision(self.decimal_type)? {
+                if operation_result.fits_in_precision(self.decimal_type) {
                     Some(operation_result)
                 } else {
                     // Result exceeds precision, return None (overflow)
@@ -239,14 +237,6 @@ impl<'a> DecimalScalar<'a> {
             decimal_type: self.decimal_type,
             value: result_value,
         })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        DecimalScalar::try_new(scalar.dtype(), scalar.value())
     }
 }
 

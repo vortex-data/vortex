@@ -5,39 +5,30 @@
 //!
 //! This crate provides scalar types and values that can be used to represent individual data
 //! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type
-//! ([`DType`](vortex_dtype::DType)) and a value ([`ScalarValue`]).
+//! ([`DType`](vortex_dtype::DType)) and an optional (encoding nullablity) value ([`ScalarValue`]).
 
 #![deny(missing_docs)]
+#![warn(clippy::missing_docs_in_private_items)]
+#![warn(clippy::missing_errors_doc)]
+#![warn(clippy::missing_panics_doc)]
+#![warn(clippy::missing_safety_doc)]
 
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
-mod binary;
-mod bool;
-mod decimal;
+
+mod cast;
+mod convert;
 mod display;
-mod extension;
-mod list;
-mod null;
-mod primitive;
 mod proto;
-mod pvalue;
+
 mod scalar;
 mod scalar_value;
-mod struct_;
-mod utf8;
+pub mod typed_view;
 
-pub use binary::*;
-pub use bool::*;
-pub use decimal::*;
-pub use extension::*;
-pub use list::*;
-pub use primitive::*;
-pub use pvalue::*;
 pub use scalar::*;
 pub use scalar_value::*;
-pub use struct_::*;
-pub use utf8::*;
+pub use typed_view::*;
 
 #[cfg(test)]
 mod tests;

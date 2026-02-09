@@ -1,21 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`BinaryScalar`] typed view implementation.
+
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::sync::Arc;
 
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -25,8 +23,10 @@ use crate::ScalarValue;
 /// a valid byte buffer or null.
 #[derive(Debug, Clone, Hash)]
 pub struct BinaryScalar<'a> {
+    /// The data type of this scalar.
     dtype: &'a DType,
-    value: Option<Arc<ByteBuffer>>,
+    /// The binary value, or [`None`] if null.
+    value: Option<&'a ByteBuffer>,
 }
 
 impl Display for BinaryScalar<'_> {
@@ -68,13 +68,14 @@ impl<'a> BinaryScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the data type is not a binary type.
-    pub fn from_scalar_value(dtype: &'a DType, value: ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         if !matches!(dtype, DType::Binary(..)) {
             vortex_bail!("Can only construct binary scalar from binary dtype, found {dtype}")
         }
+
         Ok(Self {
             dtype,
-            value: value.as_buffer()?,
+            value: value.map(|value| value.as_binary()),
         })
     }
 
@@ -84,83 +85,59 @@ impl<'a> BinaryScalar<'a> {
         self.dtype
     }
 
-    /// Returns the binary value as a byte buffer, or None if null.
-    pub fn value(&self) -> Option<ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref().clone())
-    }
-
     /// Returns a reference to the binary value, or None if null.
     /// This avoids cloning the underlying ByteBuffer.
-    pub fn value_ref(&self) -> Option<&ByteBuffer> {
-        self.value.as_ref().map(|v| v.as_ref())
+    pub fn value(&self) -> Option<&'a ByteBuffer> {
+        self.value
     }
 
-    /// Constructs the next scalar at most `max_length` bytes that's lexicographically greater than
-    /// this.
+    /// Constructs the next [`Scalar`] at most `max_length` bytes that's lexicographically greater
+    /// than this.
     ///
-    /// Returns None if constructing a greater value would overflow.
-    pub fn upper_bound(self, max_length: usize) -> Option<Self> {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                let sliced = value.slice(0..max_length);
-                drop(value);
-                let mut sliced_mut = sliced.into_mut();
-                for b in sliced_mut.iter_mut().rev() {
-                    let (incr, overflow) = b.overflowing_add(1);
-                    *b = incr;
-                    if !overflow {
-                        return Some(Self {
-                            dtype: self.dtype,
-                            value: Some(Arc::new(sliced_mut.freeze())),
-                        });
-                    }
-                }
-                None
-            } else {
-                Some(Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                })
+    /// Returns `None` if the value is null or if constructing a greater value would overflow.
+    pub fn upper_bound(&self, max_length: usize) -> Option<Scalar> {
+        let value = self.value()?;
+        let sliced = value.slice(0..max_length);
+        let mut sliced_mut = sliced.into_mut();
+        for b in sliced_mut.iter_mut().rev() {
+            let (incr, overflow) = b.overflowing_add(1);
+            *b = incr;
+            if !overflow {
+                return Some(Scalar::binary(
+                    sliced_mut.freeze(),
+                    self.dtype().nullability(),
+                ));
             }
-        } else {
-            Some(self)
+        }
+        None
+    }
+
+    /// Construct a [`Scalar`] at most `max_length` in size that's less than or equal to
+    /// ourselves.
+    ///
+    /// Returns a null [`Scalar`] if the value is null.
+    pub fn lower_bound(&self, max_length: usize) -> Scalar {
+        match self.value() {
+            Some(value) => Scalar::binary(value.slice(0..max_length), self.dtype().nullability()),
+            None => Scalar::null(self.dtype().clone()),
         }
     }
 
-    /// Construct a value at most `max_length` in size that's less than ourselves.
-    pub fn lower_bound(self, max_length: usize) -> Self {
-        if let Some(value) = self.value {
-            if value.len() > max_length {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(Arc::new(value.slice(0..max_length))),
-                }
-            } else {
-                Self {
-                    dtype: self.dtype,
-                    value: Some(value),
-                }
-            }
-        } else {
-            self
-        }
-    }
-
+    /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         if !matches!(dtype, DType::Binary(..)) {
             vortex_bail!(
                 "Cannot cast binary to {dtype}: binary scalars can only be cast to binary types with different nullability"
             )
         }
-        Ok(Scalar::new(
+        Scalar::try_new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::Buffer(
-                self.value
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
-                    .clone(),
+            Some(ScalarValue::Binary(
+                self.value()
+                    .cloned()
+                    .vortex_expect("nullness handled in Scalar::cast"),
             )),
-        ))
+        )
     }
 
     /// Length of the scalar value or None if value is null
@@ -177,98 +154,11 @@ impl<'a> BinaryScalar<'a> {
 impl Scalar {
     /// Creates a new binary scalar from a byte buffer.
     pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
-        Self::new(
+        Self::try_new(
             DType::Binary(nullability),
-            ScalarValue(InnerScalarValue::Buffer(Arc::new(buffer.into()))),
+            Some(ScalarValue::Binary(buffer.into())),
         )
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for BinaryScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        if !matches!(value.dtype(), DType::Binary(_)) {
-            vortex_bail!("Expected binary scalar, found {}", value.dtype())
-        }
-        Ok(Self {
-            dtype: value.dtype(),
-            value: value.value().as_buffer()?,
-        })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ByteBuffer {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        let binary = scalar
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?;
-
-        binary
-            .value()
-            .ok_or_else(|| vortex_err!("Cannot extract present value from null scalar"))
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for Option<ByteBuffer> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> VortexResult<Self> {
-        Ok(scalar
-            .as_binary_opt()
-            .ok_or_else(|| vortex_err!("Cannot extract buffer from non-buffer scalar"))?
-            .value())
-    }
-}
-
-impl TryFrom<Scalar> for ByteBuffer {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> VortexResult<Self> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl TryFrom<Scalar> for Option<ByteBuffer> {
-    type Error = VortexError;
-
-    fn try_from(scalar: Scalar) -> VortexResult<Self> {
-        Self::try_from(&scalar)
-    }
-}
-
-impl From<&[u8]> for Scalar {
-    fn from(value: &[u8]) -> Self {
-        Scalar::from(ByteBuffer::from(value.to_vec()))
-    }
-}
-
-impl From<ByteBuffer> for Scalar {
-    fn from(value: ByteBuffer) -> Self {
-        Self::new(DType::Binary(Nullability::NonNullable), value.into())
-    }
-}
-
-impl From<Arc<ByteBuffer>> for Scalar {
-    fn from(value: Arc<ByteBuffer>) -> Self {
-        Self::new(
-            DType::Binary(Nullability::NonNullable),
-            ScalarValue(InnerScalarValue::Buffer(value)),
-        )
-    }
-}
-
-impl From<&[u8]> for ScalarValue {
-    fn from(value: &[u8]) -> Self {
-        ScalarValue::from(ByteBuffer::from(value.to_vec()))
-    }
-}
-
-impl From<ByteBuffer> for ScalarValue {
-    fn from(value: ByteBuffer) -> Self {
-        ScalarValue(InnerScalarValue::Buffer(Arc::new(value)))
+        .vortex_expect("unable to construct a binary `Scalar`")
     }
 }
 
@@ -279,47 +169,30 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_error::VortexExpect;
 
     use crate::BinaryScalar;
+    use crate::PValue;
     use crate::Scalar;
+    use crate::ScalarValue;
 
     #[test]
     fn lower_bound() {
         let binary = Scalar::binary(buffer![0u8, 5, 47, 33, 129], Nullability::NonNullable);
         let expected = Scalar::binary(buffer![0u8, 5], Nullability::NonNullable);
-        assert_eq!(
-            BinaryScalar::try_from(&binary)
-                .vortex_expect("binary scalar conversion should succeed")
-                .lower_bound(2),
-            BinaryScalar::try_from(&expected)
-                .vortex_expect("binary scalar conversion should succeed")
-        );
+        assert_eq!(binary.as_binary().lower_bound(2), expected,);
     }
 
     #[test]
     fn upper_bound() {
         let binary = Scalar::binary(buffer![0u8, 5, 255, 234, 23], Nullability::NonNullable);
         let expected = Scalar::binary(buffer![0u8, 6, 0], Nullability::NonNullable);
-        assert_eq!(
-            BinaryScalar::try_from(&binary)
-                .vortex_expect("binary scalar conversion should succeed")
-                .upper_bound(3)
-                .vortex_expect("must have upper bound"),
-            BinaryScalar::try_from(&expected)
-                .vortex_expect("binary scalar conversion should succeed")
-        );
+        assert_eq!(binary.as_binary().upper_bound(3).unwrap(), expected,);
     }
 
     #[test]
     fn upper_bound_overflow() {
         let binary = Scalar::binary(buffer![255u8, 255, 255], Nullability::NonNullable);
-        assert!(
-            BinaryScalar::try_from(&binary)
-                .vortex_expect("binary scalar conversion should succeed")
-                .upper_bound(2)
-                .is_none()
-        );
+        assert!(binary.as_binary().upper_bound(2).is_none());
     }
 
     #[rstest]
@@ -335,8 +208,8 @@ mod tests {
         let binary1 = Scalar::binary(data1.to_vec(), Nullability::NonNullable);
         let binary2 = Scalar::binary(data2.to_vec(), Nullability::NonNullable);
 
-        let scalar1 = BinaryScalar::try_from(&binary1).unwrap();
-        let scalar2 = BinaryScalar::try_from(&binary2).unwrap();
+        let scalar1 = binary1.as_binary();
+        let scalar2 = binary2.as_binary();
 
         assert_eq!(scalar1 == scalar2, expected);
     }
@@ -355,8 +228,8 @@ mod tests {
         let binary1 = Scalar::binary(data1.to_vec(), Nullability::NonNullable);
         let binary2 = Scalar::binary(data2.to_vec(), Nullability::NonNullable);
 
-        let scalar1 = BinaryScalar::try_from(&binary1).unwrap();
-        let scalar2 = BinaryScalar::try_from(&binary2).unwrap();
+        let scalar1 = binary1.as_binary();
+        let scalar2 = binary2.as_binary();
 
         assert_eq!(scalar1.partial_cmp(&scalar2), Some(expected));
     }
@@ -364,10 +237,10 @@ mod tests {
     #[test]
     fn test_binary_null_value() {
         let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
-        let scalar = BinaryScalar::try_from(&null_binary).unwrap();
+        let scalar = null_binary.as_binary();
 
         assert!(scalar.value().is_none());
-        assert!(scalar.value_ref().is_none());
+        assert!(scalar.value().is_none());
         assert!(scalar.len().is_none());
         assert!(scalar.is_empty().is_none());
     }
@@ -379,11 +252,11 @@ mod tests {
         let empty = Scalar::binary(ByteBuffer::empty(), Nullability::NonNullable);
         let non_empty = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
 
-        let empty_scalar = BinaryScalar::try_from(&empty).unwrap();
+        let empty_scalar = empty.as_binary();
         assert_eq!(empty_scalar.len(), Some(0));
         assert_eq!(empty_scalar.is_empty(), Some(true));
 
-        let non_empty_scalar = BinaryScalar::try_from(&non_empty).unwrap();
+        let non_empty_scalar = non_empty.as_binary();
         assert_eq!(non_empty_scalar.len(), Some(3));
         assert_eq!(non_empty_scalar.is_empty(), Some(false));
     }
@@ -394,13 +267,13 @@ mod tests {
 
         let data = vec![1u8, 2, 3, 4, 5];
         let binary = Scalar::binary(ByteBuffer::from(data.clone()), Nullability::NonNullable);
-        let scalar = BinaryScalar::try_from(&binary).unwrap();
+        let scalar = binary.as_binary();
 
         // value_ref should not clone
-        let value_ref = scalar.value_ref().unwrap();
+        let value_ref = scalar.value().unwrap();
         assert_eq!(value_ref.as_slice(), &data);
 
-        // value should clone
+        // to_value should clone
         let value = scalar.value().unwrap();
         assert_eq!(value.as_slice(), &data);
     }
@@ -411,13 +284,13 @@ mod tests {
         use vortex_dtype::Nullability;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = BinaryScalar::try_from(&binary).unwrap();
+        let scalar = binary.as_binary();
 
         // Cast to nullable binary
         let result = scalar.cast(&DType::Binary(Nullability::Nullable)).unwrap();
         assert_eq!(result.dtype(), &DType::Binary(Nullability::Nullable));
 
-        let casted = BinaryScalar::try_from(&result).unwrap();
+        let casted = result.as_binary();
         assert_eq!(casted.value().unwrap().as_slice(), &[1, 2, 3]);
     }
 
@@ -428,7 +301,7 @@ mod tests {
         use vortex_dtype::PType;
 
         let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = BinaryScalar::try_from(&binary).unwrap();
+        let scalar = binary.as_binary();
 
         let result = scalar.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
         assert!(result.is_err());
@@ -441,9 +314,9 @@ mod tests {
         use vortex_dtype::PType;
 
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let value = crate::ScalarValue(crate::InnerScalarValue::Primitive(crate::PValue::I32(42)));
+        let value = ScalarValue::Primitive(PValue::I32(42));
 
-        let result = BinaryScalar::from_scalar_value(&dtype, value);
+        let result = BinaryScalar::try_new(&dtype, Some(&value));
         assert!(result.is_err());
     }
 
@@ -452,47 +325,21 @@ mod tests {
         use vortex_dtype::Nullability;
 
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let result = BinaryScalar::try_from(&scalar);
-        assert!(result.is_err());
+        assert!(scalar.as_binary_opt().is_none());
     }
 
     #[test]
     fn test_upper_bound_null() {
         let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
-        let scalar = BinaryScalar::try_from(&null_binary).unwrap();
-
-        let result = scalar.upper_bound(10);
-        assert!(result.is_some());
-        assert!(result.unwrap().value().is_none());
+        let scalar = null_binary.as_binary();
+        assert!(scalar.upper_bound(10).is_none());
     }
 
     #[test]
     fn test_lower_bound_null() {
         let null_binary = Scalar::null(vortex_dtype::DType::Binary(Nullability::Nullable));
-        let scalar = BinaryScalar::try_from(&null_binary).unwrap();
-
-        let result = scalar.lower_bound(10);
-        assert!(result.value().is_none());
-    }
-
-    #[test]
-    fn test_upper_bound_exact_length() {
-        let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = BinaryScalar::try_from(&binary).unwrap();
-
-        let result = scalar.upper_bound(3);
-        assert!(result.is_some());
-        let upper = result.unwrap();
-        assert_eq!(upper.value().unwrap().as_slice(), &[1, 2, 3]);
-    }
-
-    #[test]
-    fn test_lower_bound_exact_length() {
-        let binary = Scalar::binary(buffer![1u8, 2, 3], Nullability::NonNullable);
-        let scalar = BinaryScalar::try_from(&binary).unwrap();
-
-        let result = scalar.lower_bound(3);
-        assert_eq!(result.value().unwrap().as_slice(), &[1, 2, 3]);
+        let scalar = null_binary.as_binary();
+        assert!(scalar.lower_bound(10).is_null());
     }
 
     #[test]
@@ -504,7 +351,7 @@ mod tests {
             scalar.dtype(),
             &vortex_dtype::DType::Binary(Nullability::NonNullable)
         );
-        let binary = BinaryScalar::try_from(&scalar).unwrap();
+        let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), data);
     }
 
@@ -558,29 +405,30 @@ mod tests {
 
     #[test]
     fn test_from_arc_bytebuffer() {
-        use std::sync::Arc;
-
         use vortex_buffer::ByteBuffer;
 
         let data = vec![10u8, 20, 30];
-        let buffer = Arc::new(ByteBuffer::from(data.clone()));
+        let buffer = ByteBuffer::from(data.clone());
         let scalar: Scalar = buffer.into();
 
         assert_eq!(
             scalar.dtype(),
             &vortex_dtype::DType::Binary(Nullability::NonNullable)
         );
-        let binary = BinaryScalar::try_from(&scalar).unwrap();
+        let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), &data);
     }
 
     #[test]
     fn test_scalar_value_from_slice() {
         let data: &[u8] = &[100u8, 200];
-        let value: crate::ScalarValue = data.into();
+        let value: ScalarValue = data.into();
 
-        let scalar = Scalar::new(vortex_dtype::DType::Binary(Nullability::NonNullable), value);
-        let binary = BinaryScalar::try_from(&scalar).unwrap();
+        let scalar = Scalar::new(
+            vortex_dtype::DType::Binary(Nullability::NonNullable),
+            Some(value),
+        );
+        let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), data);
     }
 
@@ -590,10 +438,13 @@ mod tests {
 
         let data = vec![111u8, 222];
         let buffer = ByteBuffer::from(data.clone());
-        let value: crate::ScalarValue = buffer.into();
+        let value: ScalarValue = buffer.into();
 
-        let scalar = Scalar::new(vortex_dtype::DType::Binary(Nullability::NonNullable), value);
-        let binary = BinaryScalar::try_from(&scalar).unwrap();
+        let scalar = Scalar::new(
+            vortex_dtype::DType::Binary(Nullability::NonNullable),
+            Some(value),
+        );
+        let binary = scalar.as_binary();
         assert_eq!(binary.value().unwrap().as_slice(), &data);
     }
 }
