@@ -76,6 +76,32 @@ pub trait ExpressionConvertor: Send + Sync {
         input_schema: &Schema,
         output_schema: &Schema,
     ) -> DFResult<ProcessedProjection>;
+
+    /// Create a projection that reads only the required columns without pushing down
+    /// any expressions. All projection logic is applied after the scan.
+    fn no_pushdown_projection(
+        &self,
+        source_projection: ProjectionExprs,
+        input_schema: &Schema,
+    ) -> DFResult<ProcessedProjection> {
+        // Get all unique column indices referenced by the projection
+        let column_indices = source_projection.column_indices();
+
+        // Create scan projection that reads the required columns
+        let scan_columns: Vec<(String, Expression)> = column_indices
+            .into_iter()
+            .map(|idx| {
+                let field = input_schema.field(idx);
+                let name = field.name().clone();
+                (name.clone(), get_item(name, root()))
+            })
+            .collect();
+
+        Ok(ProcessedProjection {
+            scan_projection: pack(scan_columns, Nullability::NonNullable),
+            leftover_projection: source_projection,
+        })
+    }
 }
 
 /// The default [`ExpressionConvertor`].
@@ -444,6 +470,7 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::common_tests::TestSessionContext;
 
     #[rstest::fixture]
     fn test_schema() -> Schema {
@@ -746,5 +773,38 @@ mod tests {
             Arc::new(df_expr::LikeExpr::new(false, false, expr, pattern)) as Arc<dyn PhysicalExpr>;
 
         assert!(!can_be_pushed_down_impl(&like_expr, &test_schema));
+    }
+
+    // https://github.com/vortex-data/vortex/issues/6211
+    #[tokio::test]
+    async fn test_cast_int_to_string() -> anyhow::Result<()> {
+        let ctx = TestSessionContext::default();
+
+        ctx.session
+            .sql(r#"copy (select 1 as id) to 'example.vortex'"#)
+            .await?
+            .show()
+            .await?;
+
+        ctx.session
+            .sql(r#"select cast(id as string) as sid from 'example.vortex' where id > 0"#)
+            .await?
+            .show()
+            .await?;
+
+        ctx.session
+            .sql(r#"select id from 'example.vortex' where cast (id as string) == '1'"#)
+            .await?
+            .show()
+            .await?;
+
+        // This fails as it pushes string cast to the scan
+        ctx.session
+            .sql(r#"select cast(id as string) from 'example.vortex'"#)
+            .await?
+            .collect()
+            .await?;
+
+        Ok(())
     }
 }

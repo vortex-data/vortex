@@ -92,6 +92,8 @@ pub(crate) struct VortexOpener {
 
     pub expression_convertor: Arc<dyn ExpressionConvertor>,
     pub file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    /// Whether to enable expression pushdown into the underlying Vortex scan.
+    pub projection_pushdown: bool,
 }
 
 impl FileOpener for VortexOpener {
@@ -124,6 +126,7 @@ impl FileOpener for VortexOpener {
         let has_output_ordering = self.has_output_ordering;
 
         let expr_convertor = self.expression_convertor.clone();
+        let projection_pushdown = self.projection_pushdown;
 
         // Replace column access for partition columns with literals
         #[allow(clippy::disallowed_types)]
@@ -225,11 +228,17 @@ impl FileOpener for VortexOpener {
             let ProcessedProjection {
                 scan_projection,
                 leftover_projection,
-            } = expr_convertor.split_projection(
-                projection,
-                &this_file_schema,
-                &projected_physical_schema,
-            )?;
+            } = if projection_pushdown {
+                expr_convertor.split_projection(
+                    projection,
+                    &this_file_schema,
+                    &projected_physical_schema,
+                )?
+            } else {
+                // When projection pushdown is disabled, read only the required columns
+                // and apply the full projection after the scan.
+                expr_convertor.no_pushdown_projection(projection, &this_file_schema)?
+            };
 
             // The schema of the stream returned from the vortex scan.
             // We use the physical_file_schema as reference for types that don't roundtrip.
@@ -541,6 +550,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         }
     }
 
@@ -633,6 +643,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         };
 
         let filter = col("a").lt(lit(100_i32));
@@ -717,6 +728,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         };
 
         // The opener should successfully open the file and reorder columns
@@ -870,6 +882,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         };
 
         // This should succeed and return the correctly projected and cast data
@@ -927,6 +940,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         }
     }
 
@@ -1126,6 +1140,7 @@ mod tests {
             has_output_ordering: false,
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         };
 
         let file = PartitionedFile::new(file_path.to_string(), data_size);

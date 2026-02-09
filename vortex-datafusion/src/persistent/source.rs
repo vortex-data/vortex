@@ -64,6 +64,8 @@ pub struct VortexSource {
     pub(crate) vortex_reader_factory: Option<Arc<dyn VortexReaderFactory>>,
     vx_metrics_registry: Arc<dyn MetricsRegistry>,
     file_metadata_cache: Option<Arc<dyn FileMetadataCache>>,
+    /// Whether to enable expression pushdown into the underlying Vortex scan.
+    projection_pushdown: bool,
 }
 
 impl VortexSource {
@@ -85,7 +87,14 @@ impl VortexSource {
             vortex_reader_factory: None,
             vx_metrics_registry: Arc::new(DefaultMetricsRegistry::default()),
             file_metadata_cache: None,
+            projection_pushdown: false,
         }
+    }
+
+    /// Enable or disable expression pushdown into the underlying Vortex scan.
+    pub fn with_projection_pushdown(mut self, enabled: bool) -> Self {
+        self.projection_pushdown = enabled;
+        self
     }
 
     /// Set a [`ExpressionConvertor`] to control how Datafusion expression should be converted and pushed down.
@@ -160,6 +169,7 @@ impl FileSource for VortexSource {
             has_output_ordering: !base_config.output_ordering.is_empty(),
             expression_convertor: Arc::new(DefaultExpressionConvertor::default()),
             file_metadata_cache: self.file_metadata_cache.clone(),
+            projection_pushdown: self.projection_pushdown,
         };
 
         Ok(Arc::new(opener))

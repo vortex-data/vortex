@@ -23,12 +23,16 @@ use datafusion_common::record_batch;
 use datafusion_expr::col;
 use datafusion_expr::lit;
 use datafusion_functions::expr_fn::get_field;
+use rstest::rstest;
 
 use crate::common_tests::TestSessionContext;
 
+#[rstest]
 #[tokio::test]
-async fn test_filter_with_schema_evolution() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
+async fn test_filter_with_schema_evolution(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
 
     // file1 only contains field "a"
     ctx.write_arrow_batch(
@@ -80,9 +84,12 @@ async fn test_filter_with_schema_evolution() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_filter_schema_evolution_order() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
+async fn test_filter_schema_evolution_order(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
 
     // file1 only contains field "a"
     ctx.write_arrow_batch(
@@ -163,9 +170,12 @@ async fn test_filter_schema_evolution_order() -> anyhow::Result<()> {
 /// Test for correct schema evolution behavior in the presence of nested struct fields.
 /// We use a hypothetical schema of some observability data with "wide records", struct columns
 /// with nullable payloads that may or may not be present for every file.
+#[rstest]
 #[tokio::test]
-async fn test_filter_schema_evolution_struct_fields() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
+async fn test_filter_schema_evolution_struct_fields(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
 
     fn make_metrics(
         hostname: &str,
@@ -287,9 +297,12 @@ async fn test_filter_schema_evolution_struct_fields() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
+async fn test_schema_evolution_struct_of_dict(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
 
     // First file
     let struct_fields = Fields::from(vec![
@@ -398,9 +411,12 @@ async fn test_schema_evolution_struct_of_dict() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[rstest]
 #[tokio::test]
-async fn test_schema_evolution_struct_field_order() -> anyhow::Result<()> {
-    let ctx = TestSessionContext::default();
+async fn test_schema_evolution_struct_field_order(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
 
     // File1: labels = {region, service} - service at position 1
     let file1_labels: ArrowArrayRef = Arc::new(StructArray::new(
@@ -476,6 +492,56 @@ async fn test_schema_evolution_struct_field_order() -> anyhow::Result<()> {
             "|         | api     | host-0   | scraper |",
             "|         | api     | host-1   | scraper |",
             "+---------+---------+----------+---------+",
+        ],
+        &result
+    );
+
+    Ok(())
+}
+
+/// Test that complex projection expressions (arithmetic) work correctly
+/// with both projection pushdown enabled and disabled.
+#[rstest]
+#[tokio::test]
+async fn test_projection_expressions(
+    #[values(false, true)] projection_pushdown: bool,
+) -> anyhow::Result<()> {
+    let ctx = TestSessionContext::new(projection_pushdown);
+
+    ctx.write_arrow_batch(
+        "files/data.vortex",
+        &record_batch!(
+            ("a", Int32, vec![Some(1), Some(2), Some(3)]),
+            ("b", Int32, vec![Some(10), Some(20), Some(30)])
+        )?,
+    )
+    .await?;
+
+    ctx.session
+        .sql(
+            "CREATE EXTERNAL TABLE my_tbl \
+                STORED AS vortex  \
+                LOCATION '/files/'",
+        )
+        .await?;
+
+    let table = ctx.session.table("my_tbl").await?;
+
+    // Test arithmetic projection: a + b * 2
+    let result = table
+        .select(vec![(col("a") + col("b") * lit(2)).alias("computed")])?
+        .collect()
+        .await?;
+
+    assert_batches_eq!(
+        &[
+            "+----------+",
+            "| computed |",
+            "+----------+",
+            "| 21       |",
+            "| 42       |",
+            "| 63       |",
+            "+----------+",
         ],
         &result
     );
