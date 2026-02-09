@@ -30,10 +30,7 @@ impl TakeExecute for StructVTable {
                 .unmasked_fields()
                 .iter()
                 .map(|field| {
-                    ConstantArray::new(
-                        Scalar::default_value(field.dtype().clone()),
-                        indices.len(),
-                    )
+                    ConstantArray::new(Scalar::default_value(field.dtype().clone()), indices.len())
                         .into_array()
                 })
                 .collect();
