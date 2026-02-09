@@ -122,11 +122,33 @@ impl ZstdBuffersArray {
             let size = usize::try_from(uncompressed_size)?;
             let alignment = self.buffer_alignments.get(i).copied().unwrap_or(1);
 
-            let decompressed = decompressor.decompress(buf, size)?;
-
             let aligned = Alignment::new(alignment as usize);
             let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
-            output.extend_from_slice(&decompressed);
+            let spare = output.spare_capacity_mut();
+
+            // this is currently guaranteed but still good to check because
+            // of the unsafe calls below
+            if spare.len() < size {
+                return Err(vortex_err!(
+                    "Insufficient output capacity: expected at least {}, got {}",
+                    size,
+                    spare.len()
+                ));
+            }
+            // SAFETY: we only expose the first `size` bytes and mark them initialized via
+            // `set_len(size)` after zstd reports how many bytes were written.
+            let dst =
+                unsafe { std::slice::from_raw_parts_mut(spare.as_mut_ptr().cast::<u8>(), size) };
+            let written = decompressor.decompress_to_buffer(buf.as_slice(), dst)?;
+            if written != size {
+                return Err(vortex_err!(
+                    "Decompressed size mismatch: expected {}, got {}",
+                    size,
+                    written
+                ));
+            }
+            // SAFETY: zstd wrote exactly `size` initialized bytes into `dst`.
+            unsafe { output.set_len(size) };
             result.push(output.freeze());
         }
         Ok(result)
@@ -146,14 +168,14 @@ impl ZstdBuffersArray {
             .find(&self.inner_encoding_id)
             .ok_or_else(|| vortex_err!("Unknown inner encoding: {}", self.inner_encoding_id))?;
 
-        let children_slice = self.children.as_slice();
+        let children = self.children.as_slice();
         inner_vtable.build(
             self.inner_encoding_id.clone(),
             &self.dtype,
             self.len,
             &self.inner_metadata,
             &buffer_handles,
-            &children_slice,
+            &children,
         )
     }
 }
@@ -290,6 +312,9 @@ impl BaseArrayVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
 impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     fn scalar_at(array: &ZstdBuffersArray, index: usize) -> VortexResult<Scalar> {
+        // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
+        // layer here is weird. Valid use of zstd buffers array would be by executing it first into
+        // canonical
         let session = vortex_array::session::ArraySession::default();
         let inner_array = array.rebuild_inner(session.registry())?;
         inner_array.scalar_at(index)
@@ -324,9 +349,6 @@ impl VisitorVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use vortex_array::expr::stats::Precision;
-    use vortex_array::expr::stats::Stat;
-    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
@@ -334,6 +356,9 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProvider;
     use vortex_error::VortexResult;
 
     use super::*;
