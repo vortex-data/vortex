@@ -182,6 +182,11 @@ impl<'a> PrimitiveScalar<'a> {
         self.pvalue.as_ref().is_some_and(|p| p.is_nan())
     }
 
+    /// Returns whether this decimal value is zero, or `None` if null.
+    pub fn is_zero(&self) -> Option<bool> {
+        self.pvalue.map(|v| v.is_zero())
+    }
+
     /// Attempts to extract the primitive value as the given type.
     ///
     /// # Errors

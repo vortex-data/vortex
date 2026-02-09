@@ -483,13 +483,6 @@ impl From<std::array::TryFromSliceError> for VortexError {
     }
 }
 
-// impl From<arbitrary::Error> for VortexError {
-//     fn from(value: arbitrary::Error) -> Self {
-//         // TODO(connor): Should this be it's own variant?
-//         VortexError::InvalidState(value.to_string().into(), Box::new(Backtrace::capture()))
-//     }
-// }
-
 #[cfg(feature = "object_store")]
 impl From<object_store::Error> for VortexError {
     fn from(value: object_store::Error) -> Self {

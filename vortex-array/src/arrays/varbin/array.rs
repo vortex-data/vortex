@@ -355,7 +355,6 @@ impl VarBinArray {
             self.len()
         );
 
-        // TODO(connor): Fix the `TryFrom` implementation here.
         (&self
             .offsets()
             .scalar_at(index)

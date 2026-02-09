@@ -12,7 +12,7 @@ use crate::DecimalValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
-// TODO(connor): Figure out if we can remove this.
+// TODO(connor): Ideally we remove this.
 impl From<DecimalScalar<'_>> for Scalar {
     fn from(ds: DecimalScalar<'_>) -> Self {
         // SAFETY: `DecimalScalar` is already a valid `Scalar`.

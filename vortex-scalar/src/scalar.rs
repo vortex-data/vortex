@@ -67,7 +67,7 @@ impl Scalar {
         Self { dtype, value: None }
     }
 
-    // TODO(connor): Find places to use this instead of `null()`.
+    // TODO(connor): This method arguably shouldn't exist...
     /// Creates a new null [`Scalar`] for the given scalar type.
     ///
     /// The resulting scalar will have a nullable version of the type's data type.
@@ -267,6 +267,14 @@ impl Scalar {
     /// Returns `true` if the [`Scalar`] is null.
     pub fn is_null(&self) -> bool {
         self.value.is_none()
+    }
+
+    /// Returns `true` if the [`Scalar`] has a non-null zero value.
+    ///
+    /// Returns `None` if the scalar is null, otherwise returns `Some(true)` if the value is zero
+    /// and `Some(false)` otherwise.
+    pub fn is_zero(&self) -> Option<bool> {
+        self.value.as_ref().map(|v| v.is_zero())
     }
 
     /// Reinterprets the bytes of this scalar as a different primitive type.

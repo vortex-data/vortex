@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::match_each_unsigned_integer_ptype;
+use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -51,11 +51,12 @@ impl FillNullKernel for DictVTable {
             clippy::cast_possible_truncation,
             reason = "The existing index must be representable by the existing ptype"
         )]
-        let fill_scalar_value = match_each_unsigned_integer_ptype!(codes_ptype, |P| {
+        let fill_scalar_value = match_each_integer_ptype!(codes_ptype, |P| {
             ScalarValue::from(existing_fill_value_index as P)
         });
 
-        // Fill nulls in both the codes and the values.
+        // Fill nulls in both the codes and the values. Note that the precondition of this function
+        // states that the fill value is non-null, so we do not have to worry about the nullability.
         let codes = fill_null(
             codes,
             &Scalar::try_new(codes.dtype().as_nonnullable(), Some(fill_scalar_value))?,

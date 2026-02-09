@@ -10,6 +10,10 @@
 //! [`Scalar`]: crate::Scalar
 //! [`ScalarValue`]: crate::ScalarValue
 
+// TODO(connor): Do we want to have stubs for `TryFrom<Scalar>` that just call into
+// `TryFrom<&Scalar>`? Sometimes it is nice for writing method chains but it can also hide the fact
+// that a clone is happening.
+
 mod decimal;
 mod from_scalar;
 mod into_scalar;

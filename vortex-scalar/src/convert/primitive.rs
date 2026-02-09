@@ -18,7 +18,7 @@ use crate::PrimitiveScalar;
 use crate::Scalar;
 use crate::ScalarValue;
 
-// TODO(connor): Figure out if we can remove this.
+// TODO(connor): Ideally we remove this.
 impl From<PrimitiveScalar<'_>> for Scalar {
     fn from(ps: PrimitiveScalar<'_>) -> Self {
         // SAFETY: `PrimitiveScalar` is already a valid `Scalar`.

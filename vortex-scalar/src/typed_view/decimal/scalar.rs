@@ -60,6 +60,11 @@ impl<'a> DecimalScalar<'a> {
         self.decimal_value
     }
 
+    /// Returns whether this decimal value is zero, or `None` if null.
+    pub fn is_zero(&self) -> Option<bool> {
+        self.decimal_value.map(|v| v.is_zero())
+    }
+
     /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         match dtype {

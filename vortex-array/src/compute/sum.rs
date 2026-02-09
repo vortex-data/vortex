@@ -118,7 +118,7 @@ impl ComputeFnVTable for Sum {
             // stability issues.
             match &sum_dtype {
                 DType::Primitive(p, _) => {
-                    if p.is_float() && accumulator.is_null() {
+                    if p.is_float() && accumulator.is_zero() == Some(true) {
                         return Ok(sum_scalar.into());
                     } else if p.is_int() {
                         let sum_from_stat = accumulator
@@ -149,7 +149,7 @@ impl ComputeFnVTable for Sum {
         match sum_dtype {
             DType::Primitive(p, _) => {
                 if p.is_float()
-                    && accumulator.value().is_some_and(|value| value.is_zero())
+                    && accumulator.is_zero() == Some(true)
                     && let Some(sum_value) = sum_scalar.value().cloned()
                 {
                     array
