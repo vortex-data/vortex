@@ -40,6 +40,7 @@ use vortex_array::vtable::ValidityChild;
 use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValidityVTableFromChild;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::Buffer;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -488,10 +489,19 @@ impl VisitorVTable<FSSTVTable> for FSSTVTable {
         visitor.visit_buffer_handle("compressed_codes", array.codes.bytes_handle())
     }
 
+    fn nbuffers(_array: &FSSTArray) -> usize {
+        3
+    }
+
     fn visit_children(array: &FSSTArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("uncompressed_lengths", array.uncompressed_lengths());
         visitor.visit_child("codes_offsets", array.codes.offsets());
         visitor.visit_validity(array.codes.validity(), array.codes.len());
+    }
+
+    fn nchildren(array: &FSSTArray) -> usize {
+        // uncompressed_lengths + codes_offsets + optional validity
+        2 + validity_nchildren(array.codes.validity())
     }
 }
 

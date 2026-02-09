@@ -16,6 +16,10 @@ impl VisitorVTable<ListViewVTable> for ListViewVTable {
         // ListView has no byte buffers.
     }
 
+    fn nbuffers(_array: &ListViewArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ListViewArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("elements", array.elements());
         visitor.visit_child("offsets", array.offsets());

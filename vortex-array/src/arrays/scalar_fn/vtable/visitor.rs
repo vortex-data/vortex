@@ -12,6 +12,10 @@ use crate::vtable::VisitorVTable;
 impl VisitorVTable<ScalarFnVTable> for ScalarFnVTable {
     fn visit_buffers(_array: &ScalarFnArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ScalarFnArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ScalarFnArray, visitor: &mut dyn ArrayChildVisitor) {
         for (idx, child) in array.children.iter().enumerate() {
             let name = array.scalar_fn.signature().child_name(idx);

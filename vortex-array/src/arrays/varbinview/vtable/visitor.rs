@@ -19,6 +19,10 @@ impl VisitorVTable<VarBinViewVTable> for VarBinViewVTable {
         visitor.visit_buffer_handle("views", array.views_handle());
     }
 
+    fn nbuffers(array: &VarBinViewArray) -> usize {
+        array.buffers().len() + 1
+    }
+
     fn visit_children(array: &VarBinViewArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len())
     }

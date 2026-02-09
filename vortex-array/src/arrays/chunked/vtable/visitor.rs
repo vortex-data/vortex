@@ -11,6 +11,10 @@ use crate::vtable::VisitorVTable;
 impl VisitorVTable<ChunkedVTable> for ChunkedVTable {
     fn visit_buffers(_array: &ChunkedArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ChunkedArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ChunkedArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("chunk_offsets", &array.chunk_offsets.to_array());
 

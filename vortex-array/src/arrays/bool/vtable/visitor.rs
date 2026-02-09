@@ -15,6 +15,10 @@ impl VisitorVTable<BoolVTable> for BoolVTable {
         visitor.visit_buffer_handle("bits", &array.bits);
     }
 
+    fn nbuffers(_array: &BoolArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &BoolArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.validity, array.len());
     }

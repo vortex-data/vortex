@@ -17,6 +17,10 @@ impl VisitorVTable<VarBinVTable> for VarBinVTable {
         visitor.visit_buffer_handle("bytes", array.bytes_handle());
     }
 
+    fn nbuffers(_array: &VarBinArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &VarBinArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("offsets", array.offsets());
         visitor.visit_validity(array.validity(), array.len());

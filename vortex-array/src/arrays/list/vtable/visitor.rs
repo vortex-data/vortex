@@ -14,6 +14,10 @@ use crate::vtable::validity_to_child;
 impl VisitorVTable<ListVTable> for ListVTable {
     fn visit_buffers(_array: &ListArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ListArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ListArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("elements", array.elements());
         visitor.visit_child("offsets", array.offsets());

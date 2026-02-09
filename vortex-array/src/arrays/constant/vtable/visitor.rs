@@ -18,6 +18,10 @@ impl VisitorVTable<ConstantVTable> for ConstantVTable {
         visitor.visit_buffer_handle("scalar", &BufferHandle::new_host(buffer));
     }
 
+    fn nbuffers(_array: &ConstantArray) -> usize {
+        1
+    }
+
     fn visit_children(_array: &ConstantArray, _visitor: &mut dyn ArrayChildVisitor) {}
 
     fn nchildren(_array: &ConstantArray) -> usize {

@@ -16,6 +16,10 @@ impl VisitorVTable<PrimitiveVTable> for PrimitiveVTable {
         visitor.visit_buffer_handle("values", array.buffer_handle());
     }
 
+    fn nbuffers(_array: &PrimitiveArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &PrimitiveArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
     }

@@ -17,6 +17,10 @@ use crate::vtable::validity_to_child;
 impl VisitorVTable<StructVTable> for StructVTable {
     fn visit_buffers(_array: &StructArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &StructArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &StructArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len());
         for (name, field) in array.names().iter().zip_eq(array.unmasked_fields().iter()) {

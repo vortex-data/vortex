@@ -16,6 +16,10 @@ impl VisitorVTable<DecimalVTable> for DecimalVTable {
         visitor.visit_buffer_handle("values", &array.values);
     }
 
+    fn nbuffers(_array: &DecimalArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &DecimalArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(array.validity(), array.len())
     }
