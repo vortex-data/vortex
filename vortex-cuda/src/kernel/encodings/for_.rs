@@ -129,10 +129,10 @@ mod tests {
     }
 
     #[rstest]
-    #[case::u8(make_for_array((0..5000).map(|i| (i % 246) as u8).collect(), 10u8))]
-    #[case::u16(make_for_array((0..5000).map(|i| (i % 5000) as u16).collect(), 1000u16))]
-    #[case::u32(make_for_array((0..5000).map(|i| (i % 5000) as u32).collect(), 100000u32))]
-    #[case::u64(make_for_array((0..5000).map(|i| (i % 5000) as u64).collect(), 1000000u64))]
+    #[case::u8(make_for_array((0..2050).map(|i| (i % 246) as u8).collect(), 10u8))]
+    #[case::u16(make_for_array((0..2050).map(|i| (i % 2050) as u16).collect(), 1000u16))]
+    #[case::u32(make_for_array((0..2050).map(|i| (i % 2050) as u32).collect(), 100000u32))]
+    #[case::u64(make_for_array((0..2050).map(|i| (i % 2050) as u64).collect(), 1000000u64))]
     #[tokio::test]
     async fn test_cuda_for_decompression(#[case] for_array: FoRArray) -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())

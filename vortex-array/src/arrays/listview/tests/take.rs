@@ -17,7 +17,6 @@ use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
 use crate::compute::conformance::take::test_take_conformance;
-use crate::compute::take;
 use crate::validity::Validity;
 
 // Conformance tests for common take scenarios.
@@ -47,7 +46,7 @@ fn test_take_preserves_unreferenced_elements() {
 
     // Take only 2 lists.
     let indices = buffer![1u32, 3].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 2);
@@ -76,7 +75,7 @@ fn test_take_with_gaps() {
         ListViewArray::new(elements.clone(), offsets, sizes, Validity::NonNullable).to_array();
 
     let indices = buffer![1u32, 3, 4, 2].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     // Verify the entire elements array is preserved including gaps.
@@ -111,7 +110,7 @@ fn test_take_constant_arrays() {
     .to_array();
 
     let indices = buffer![3u32, 0, 2].into_array();
-    let result = take(&const_offset_list, &indices).unwrap();
+    let result = const_offset_list.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 3);
@@ -135,7 +134,7 @@ fn test_take_constant_arrays() {
     .to_array();
 
     let indices2 = buffer![2u32, 0].into_array();
-    let result2 = take(&both_const_list, &indices2).unwrap();
+    let result2 = both_const_list.take(indices2.to_array()).unwrap();
     let result2_list = result2.to_listview();
 
     assert_eq!(result2_list.len(), 2);
@@ -161,7 +160,7 @@ fn test_take_extreme_offsets() {
 
     // Take only 2 lists, demonstrating we keep all 10000 elements.
     let indices = buffer![1u32, 4].into_array();
-    let result = take(&listview, &indices).unwrap();
+    let result = listview.take(indices.to_array()).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 2);

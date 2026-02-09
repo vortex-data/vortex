@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::mem::size_of;
 use std::sync::Arc;
 
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Buffer;
-use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -80,20 +79,9 @@ impl VTable for VarBinViewVTable {
         buffers: &[BufferHandle],
         children: &dyn ArrayChildren,
     ) -> VortexResult<VarBinViewArray> {
-        if buffers.is_empty() {
-            vortex_bail!("Expected at least 1 buffer, got {}", buffers.len());
-        }
-        let mut buffers: Vec<ByteBuffer> = buffers
-            .iter()
-            .map(|b| b.clone().try_to_host_sync())
-            .collect::<VortexResult<Vec<_>>>()?;
-        let views = buffers.pop().vortex_expect("buffers non-empty");
-
-        let views = Buffer::<BinaryView>::from_byte_buffer(views);
-
-        if views.len() != len {
-            vortex_bail!("Expected {} views, got {}", len, views.len());
-        }
+        let Some((views_handle, data_handles)) = buffers.split_last() else {
+            vortex_bail!("Expected at least 1 buffer, got 0");
+        };
 
         let validity = if children.is_empty() {
             Validity::from(dtype.nullability())
@@ -104,7 +92,35 @@ impl VTable for VarBinViewVTable {
             vortex_bail!("Expected 0 or 1 children, got {}", children.len());
         };
 
-        VarBinViewArray::try_new(views, Arc::from(buffers), dtype.clone(), validity)
+        let views_nbytes = views_handle.len();
+        let expected_views_nbytes = len
+            .checked_mul(size_of::<BinaryView>())
+            .ok_or_else(|| vortex_err!("views byte length overflow for len={len}"))?;
+        if views_nbytes != expected_views_nbytes {
+            vortex_bail!(
+                "Expected views buffer length {} bytes, got {} bytes",
+                expected_views_nbytes,
+                views_nbytes
+            );
+        }
+
+        // If any buffer is on device, skip host validation and use try_new_handle.
+        if buffers.iter().any(|b| b.is_on_device()) {
+            return VarBinViewArray::try_new_handle(
+                views_handle.clone(),
+                Arc::from(data_handles.to_vec()),
+                dtype.clone(),
+                validity,
+            );
+        }
+
+        let data_buffers = data_handles
+            .iter()
+            .map(|b| b.as_host().clone())
+            .collect::<Vec<_>>();
+        let views = Buffer::<BinaryView>::from_byte_buffer(views_handle.clone().as_host().clone());
+
+        VarBinViewArray::try_new(views, Arc::from(data_buffers), dtype.clone(), validity)
     }
 
     fn with_children(array: &mut Self::Array, children: Vec<ArrayRef>) -> VortexResult<()> {

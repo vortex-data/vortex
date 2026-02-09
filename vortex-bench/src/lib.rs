@@ -30,7 +30,6 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
-use vortex::layout::layouts::compact::CompactCompressor;
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod benchmark;
@@ -215,7 +214,7 @@ impl CompactionStrategy {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_compressor(CompactCompressor::default())
+                    .with_compact_encodings()
                     .build(),
             ),
             CompactionStrategy::Default => options,

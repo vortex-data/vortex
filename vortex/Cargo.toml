@@ -77,7 +77,7 @@ files = ["dep:vortex-file"]
 memmap2 = ["vortex-buffer/memmap2"]
 object_store = ["vortex-file/object_store", "vortex-io/object_store"]
 tokio = ["vortex-file/tokio"]
-zstd = ["dep:vortex-zstd", "vortex-file/zstd", "vortex-layout/zstd"]
+zstd = ["dep:vortex-zstd", "vortex-file/zstd"]
 pretty = ["vortex-array/table-display"]
 serde = [
     "vortex-array/serde",

@@ -51,9 +51,21 @@ pub struct BtrBlocksCompressorBuilder {
 impl Default for BtrBlocksCompressorBuilder {
     fn default() -> Self {
         Self {
-            int_schemes: ALL_INT_SCHEMES.iter().copied().collect(),
-            float_schemes: ALL_FLOAT_SCHEMES.iter().copied().collect(),
-            string_schemes: ALL_STRING_SCHEMES.iter().copied().collect(),
+            int_schemes: ALL_INT_SCHEMES
+                .iter()
+                .copied()
+                .filter(|s| s.code() != IntCode::Pco)
+                .collect(),
+            float_schemes: ALL_FLOAT_SCHEMES
+                .iter()
+                .copied()
+                .filter(|s| s.code() != FloatCode::Pco)
+                .collect(),
+            string_schemes: ALL_STRING_SCHEMES
+                .iter()
+                .copied()
+                .filter(|s| s.code() != StringCode::Zstd)
+                .collect(),
         }
     }
 }

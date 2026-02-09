@@ -62,7 +62,6 @@ mod test {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
 
     use crate::ALPRDFloat;
     use crate::RDEncoder;
@@ -86,7 +85,8 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = take(encoded.as_ref(), buffer![0, 2].into_array().as_ref())
+        let taken = encoded
+            .take(buffer![0, 2].into_array())
             .unwrap()
             .to_primitive();
 
@@ -109,12 +109,10 @@ mod test {
                 .is_unsigned_int()
         );
 
-        let taken = take(
-            encoded.as_ref(),
-            PrimitiveArray::from_option_iter([Some(0), Some(2), None]).as_ref(),
-        )
-        .unwrap()
-        .to_primitive();
+        let taken = encoded
+            .take(PrimitiveArray::from_option_iter([Some(0), Some(2), None]).to_array())
+            .unwrap()
+            .to_primitive();
 
         assert_arrays_eq!(
             taken,

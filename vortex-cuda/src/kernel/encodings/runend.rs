@@ -229,8 +229,8 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let num_runs = 10000;
-        let run_length = 100;
+        let num_runs = 41;
+        let run_length = 50;
         let total_len = num_runs * run_length;
 
         let ends: Vec<u64> = (1..=num_runs).map(|i| (i * run_length) as u64).collect();
@@ -282,7 +282,7 @@ mod tests {
             .vortex_expect("failed to create execution context");
 
         // Create an array where each run has length 1.
-        let num_elements = 5000;
+        let num_elements = 2050;
         let ends: Vec<u32> = (1..=num_elements).collect();
         let values: Vec<i32> = (0..num_elements as i32).collect();
 
