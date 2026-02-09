@@ -67,10 +67,23 @@ jobs:
           # llvm tools are installed via rustup's llvm-tools component
           LLVM_TOOLS_BIN="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin"
 
-          FUZZ_BIN=$(find fuzz/target -name "${{ matrix.fuzz_target }}" -type f -executable -path "*/release/*" | grep -v deps | head -1)
+          TARGET_TRIPLE=$(rustc +nightly -vV | sed -n 's|host: ||p')
+
+          # cargo fuzz may place the binary in fuzz/target or the workspace target dir
+          FUZZ_BIN=""
+          for TARGET_DIR in fuzz/target target; do
+            CANDIDATE="${TARGET_DIR}/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+            if [ -f "$CANDIDATE" ]; then
+              FUZZ_BIN="$CANDIDATE"
+              break
+            fi
+          done
 
           if [ -z "$FUZZ_BIN" ]; then
             echo "ERROR: Could not find fuzz binary for ${{ matrix.fuzz_target }}"
+            echo "Searched:"
+            echo "  fuzz/target/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+            echo "  target/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
             exit 1
           fi
 
