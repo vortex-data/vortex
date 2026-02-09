@@ -164,6 +164,13 @@ impl VarBinViewArray {
         dtype: DType,
         validity: Validity,
     ) -> VortexResult<Self> {
+        let views_nbytes = views.len();
+        vortex_ensure!(
+            views_nbytes.is_multiple_of(size_of::<BinaryView>()),
+            "Expected views buffer length ({views_nbytes}) to be a multiple of {}",
+            size_of::<BinaryView>()
+        );
+
         // TODO(aduffy): device validation.
         if let Some(host) = views.as_host_opt() {
             vortex_ensure!(
@@ -222,14 +229,8 @@ impl VarBinViewArray {
             .collect();
 
         let handles = Arc::from(handles);
-
-        Self {
-            dtype,
-            buffers: handles,
-            views: BufferHandle::new_host(views.into_byte_buffer()),
-            validity,
-            stats_set: Default::default(),
-        }
+        let view_handle = BufferHandle::new_host(views.into_byte_buffer());
+        unsafe { Self::new_handle_unchecked(view_handle, handles, dtype, validity) }
     }
 
     /// Construct a new array from `BufferHandle`s without validation.
