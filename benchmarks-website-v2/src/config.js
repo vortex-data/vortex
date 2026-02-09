@@ -248,6 +248,17 @@ export const BENCHMARK_CONFIGS = [
       'DuckDB:duckdb': 'duckdb:duckdb',
     },
   },
+  {
+    name: 'PolarSignals Profiling',
+    renamedDatasets: {
+      'DataFusion:vortex-file-compressed': 'datafusion:vortex',
+      'DataFusion:parquet': 'datafusion:parquet',
+      'DataFusion:arrow': 'datafusion:in-memory-arrow',
+      'DuckDB:vortex-file-compressed': 'duckdb:vortex',
+      'DuckDB:parquet': 'duckdb:parquet',
+      'DuckDB:duckdb': 'duckdb:duckdb',
+    },
+  },
 ];
 
 // Chart name remapping
@@ -287,6 +298,7 @@ export const CATEGORY_TAGS = {
   'TPC-DS (NVMe) (SF=1)': ['Queries (NVMe)', 'TPC-DS (SF=1)'],
   'TPC-DS (NVMe) (SF=10)': ['Queries (NVMe)', 'TPC-DS (SF=10)'],
   'Statistical and Population Genetics': ['Queries (NVMe)', 'StatPopGen'],
+  'PolarSignals Profiling': ['Queries (NVMe)', 'PolarSignals'],
 };
 
 // Benchmark descriptions
@@ -301,6 +313,8 @@ export const BENCHMARK_DESCRIPTIONS = {
     "ClickHouse's analytical benchmark suite testing real-world query patterns on web analytics data",
   'Statistical and Population Genetics':
     'A suite of Statistical and Population genetics queries using the gnomAD dataset',
+  'PolarSignals Profiling':
+    'Profiling data benchmark modeled on PolarSignals/Parca, exercising scan-layer performance with projection and filter pushdown on deeply nested schemas',
 };
 
 // Scale factor descriptions

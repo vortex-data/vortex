@@ -24,6 +24,7 @@ const GROUPS = [
   'TPC-H (NVMe) (SF=1)', 'TPC-H (S3) (SF=1)', 'TPC-H (NVMe) (SF=10)', 'TPC-H (S3) (SF=10)',
   'TPC-H (NVMe) (SF=100)', 'TPC-H (S3) (SF=100)', 'TPC-H (NVMe) (SF=1000)', 'TPC-H (S3) (SF=1000)',
   'TPC-DS (NVMe) (SF=1)', 'TPC-DS (NVMe) (SF=10)', 'Statistical and Population Genetics',
+  'PolarSignals Profiling',
 ];
 
 // Series renaming (normalized to lowercase keys)
@@ -94,6 +95,11 @@ function getGroup(benchmark) {
     return 'Statistical and Population Genetics';
   }
 
+  // PolarSignals Profiling: "polarsignals_q..." or "polarsignals/..."
+  if (lower.startsWith('polarsignals_q') || lower.startsWith('polarsignals/')) {
+    return 'PolarSignals Profiling';
+  }
+
   // TPC-H: use dataset.tpch.scale_factor and storage fields
   if (lower.startsWith('tpch_q') || lower.startsWith('tpch/')) {
     const rawSf = benchmark.dataset?.tpch?.scale_factor;
@@ -142,6 +148,12 @@ function formatQuery(q) {
   const statpopgenMatch = s.match(/^STATPOPGEN\s*Q(\d+)/i);
   if (statpopgenMatch) {
     return `STATPOPGEN Q${parseInt(statpopgenMatch[1], 10)}`;
+  }
+
+  // Handle polarsignals_q00 -> POLARSIGNALS Q0
+  const polarsignalsMatch = s.match(/^POLARSIGNALS\s*Q(\d+)/i);
+  if (polarsignalsMatch) {
+    return `POLARSIGNALS Q${parseInt(polarsignalsMatch[1], 10)}`;
   }
 
   return s;
@@ -388,7 +400,7 @@ function calcSummary(name, charts) {
       datasetCount: ratios.length, explanation: 'Geomean of Vortex/Parquet size ratios (lower is better)' } : null;
   }
 
-  if (name === 'Clickbench' || name.startsWith('TPC-') || name === 'Statistical and Population Genetics') {
+  if (name === 'Clickbench' || name.startsWith('TPC-') || name === 'Statistical and Population Genetics' || name === 'PolarSignals Profiling') {
     const all = new Map();
     for (const q of charts.values()) for (const n of q.series.keys()) if (!all.has(n)) all.set(n, new Map());
     for (const [qn, qd] of charts) {
