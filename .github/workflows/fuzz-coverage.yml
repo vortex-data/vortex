@@ -3,7 +3,7 @@ name: Fuzz Coverage Report
 on:
   schedule:
     - cron: "0 6 * * *"  # daily at 6am UTC
-  workflow_dispatch: {}
+  workflow_dispatch: { }
 
 jobs:
   coverage:
