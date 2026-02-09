@@ -1,0 +1,100 @@
+name: Fuzz Coverage Report
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # daily at 6am UTC
+  workflow_dispatch: {}
+
+jobs:
+  coverage:
+    name: "Coverage: ${{ matrix.fuzz_target }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        fuzz_target: [array_ops, file_io, compress_roundtrip]
+    timeout-minutes: 60
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m8g.large
+      - image=ubuntu24-full-arm64
+      - disk=large
+      - extras=s3-cache
+    steps:
+      - uses: runs-on/action@v2
+        with:
+          sccache: s3
+
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-rust
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: nightly
+
+      - name: Install llvm
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: llvm
+
+      - name: Install cargo fuzz
+        run: cargo install --locked cargo-fuzz
+
+      - name: Download corpus from R2
+        shell: bash
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_FUZZ_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_FUZZ_SECRET_ACCESS_KEY }}
+          AWS_REGION: "us-east-1"
+          AWS_ENDPOINT_URL: "https://01e9655179bbec953276890b183039bc.r2.cloudflarestorage.com"
+        run: |
+          CORPUS_KEY="${{ matrix.fuzz_target }}_corpus.tar.zst"
+          CORPUS_DIR="fuzz/corpus/${{ matrix.fuzz_target }}"
+
+          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+            echo "Downloaded corpus successfully"
+            tar -xf "$CORPUS_KEY"
+          else
+            echo "No corpus found for ${{ matrix.fuzz_target }}, creating empty directory"
+            mkdir -p "$CORPUS_DIR"
+          fi
+
+      - name: Generate coverage data
+        run: |
+          RUSTFLAGS="--cfg vortex_nightly" \
+            cargo +nightly fuzz coverage --release --debug-assertions \
+            ${{ matrix.fuzz_target }}
+
+      - name: Generate coverage report
+        run: |
+          COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
+
+          llvm-profdata merge -sparse "$COVERAGE_DIR"/raw/*.profraw \
+            -o "$COVERAGE_DIR/coverage.profdata"
+
+          FUZZ_BIN=$(find fuzz/target -name "${{ matrix.fuzz_target }}" -type f -executable -path "*/release/*" | grep -v deps | head -1)
+
+          if [ -z "$FUZZ_BIN" ]; then
+            echo "ERROR: Could not find fuzz binary for ${{ matrix.fuzz_target }}"
+            exit 1
+          fi
+
+          echo "Using fuzz binary: $FUZZ_BIN"
+
+          # HTML report for download
+          llvm-cov show "$FUZZ_BIN" \
+            --format=html \
+            --instr-profile="$COVERAGE_DIR/coverage.profdata" \
+            --ignore-filename-regex='(\.cargo|rustc|registry)' \
+            --output-dir=coverage_html/
+
+          # Text summary to job log
+          llvm-cov report "$FUZZ_BIN" \
+            --instr-profile="$COVERAGE_DIR/coverage.profdata" \
+            --ignore-filename-regex='(\.cargo|rustc|registry)'
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v5
+        with:
+          name: ${{ matrix.fuzz_target }}-coverage
+          path: coverage_html/
+          retention-days: 30
