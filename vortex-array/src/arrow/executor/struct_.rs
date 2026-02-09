@@ -167,12 +167,12 @@ fn create_from_fields(
             let arrow_fields: Fields = names
                 .iter()
                 .zip_eq(arrow_arrays.iter())
-                .zip_eq(vortex_fields.iter().map(|f| f.dtype()))
-                .map(|((name, arr), vx_dtype)| {
+                .zip_eq(vortex_fields.iter().map(|f| f.dtype().is_nullable()))
+                .map(|((name, arr), vx_nullable)| {
                     Arc::new(Field::new(
                         name.as_ref(),
                         arr.data_type().clone(),
-                        vx_dtype.is_nullable(),
+                        vx_nullable,
                     ))
                 })
                 .collect();
