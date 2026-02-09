@@ -36,6 +36,7 @@ members = [
     "vortex-tui",
     "vortex-test/e2e",
     "vortex-test/e2e-cuda",
+    "vortex-test/e2e-cuda-scan",
     "xtask",
     # Encodings
     "encodings/fastlanes",

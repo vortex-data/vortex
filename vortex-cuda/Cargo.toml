@@ -18,6 +18,7 @@ workspace = true
 
 [features]
 default = []
+tracing = ["dep:tracing"]
 _test-harness = []
 unstable_encodings = ["vortex-zstd/unstable_encodings"]
 
@@ -26,12 +27,17 @@ arc-swap = { workspace = true }
 arrow-data = { workspace = true, features = ["ffi"] }
 arrow-schema = { workspace = true, features = ["ffi"] }
 async-trait = { workspace = true }
+bytes = { workspace = true }
 cudarc = { workspace = true, features = ["f16"] }
 fastlanes = { workspace = true }
 futures = { workspace = true, features = ["executor"] }
 kanal = { workspace = true }
 paste = { workspace = true }
-tracing = { workspace = true }
+tokio = { workspace = true, features = ["fs"] }
+tracing = { workspace = true, features = [
+    "std",
+    "attributes",
+], optional = true }
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
 vortex-buffer = { workspace = true }

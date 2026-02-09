@@ -19,6 +19,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
 use crate::CudaDeviceBuffer;
+use crate::warn;
 
 #[derive(Clone)]
 pub struct VortexCudaStream(pub Arc<CudaStream>);
@@ -155,10 +156,11 @@ fn register_stream_callback(stream: &CudaStream) -> VortexResult<kanal::AsyncRec
         let tx = unsafe { Box::from_raw(user_data as *mut Sender<()>) };
 
         // Blocking send as we're in a callback invoked by the CUDA driver.
-        #[expect(clippy::expect_used)]
-        tx.send(())
-            // A send should never fail. Panic otherwise.
-            .expect("CUDA callback receiver dropped unexpectedly");
+        // NOTE: send can fail if the CudaEvent is dropped by the caller, in which case the reeciver
+        //  is closed and sends will fail.
+        if let Err(_e) = tx.send(()) {
+            warn!(error = ?_e, "register_stream_callback send failed due to error");
+        }
     }
 
     // SAFETY:

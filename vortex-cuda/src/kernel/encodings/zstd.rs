@@ -35,6 +35,7 @@ use vortex_zstd::ZstdVTable;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::debug;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
@@ -196,6 +197,10 @@ impl ZstdExecutor {
 
 #[async_trait]
 impl CudaExecute for ZstdExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -205,9 +210,9 @@ impl CudaExecute for ZstdExecutor {
 
         match zstd.as_ref().dtype() {
             DType::Binary(_) | DType::Utf8(_) => decode_zstd(zstd, ctx).await,
-            other => {
-                tracing::debug!(
-                    dtype = %other,
+            _other => {
+                debug!(
+                    dtype = %_other,
                     "Only Binary/Utf8 ZSTD arrays supported on GPU, falling back to CPU"
                 );
                 zstd.decompress()?.to_canonical()
@@ -250,6 +255,49 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     let stream = ctx.stream();
 
+    // NOTE(aduffy): we need to use the explicit tracing/not(tracing) blocks here because we go
+    //  through nvcomp instead of delegating through the LaunchBuilder.
+    //  We should find a way to bridge the two.
+    #[cfg(feature = "tracing")]
+    {
+        let before = stream
+            .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .map_err(|e| vortex_err!("recording event: {e}"))?;
+        unsafe {
+            nvcomp_zstd::decompress_async(
+                exec.frame_ptrs_ptr as _,
+                exec.frame_sizes_ptr as _,
+                exec.output_sizes_ptr as _,
+                exec.device_actual_sizes.device_ptr_mut(stream).0 as _,
+                exec.num_frames,
+                exec.nvcomp_temp_buffer.device_ptr_mut(stream).0 as _,
+                exec.nvcomp_temp_buffer_size,
+                exec.output_ptrs_ptr as _,
+                exec.device_statuses.device_ptr_mut(stream).0 as _,
+                stream.cu_stream().cast(),
+            )
+            .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
+        }
+
+        let after = stream
+            .record_event(Some(cudarc::driver::sys::CUevent_flags::CU_EVENT_DEFAULT))
+            .map_err(|e| vortex_err!("recording event: {e}"))?;
+
+        // measure timing. note: this forces a sync
+        let duration = crate::CudaKernelEvents {
+            before_launch: before,
+            after_launch: after,
+        }
+        .duration()?;
+
+        crate::trace!(
+            execution_nanos = duration.as_nanos(),
+            len = n_rows,
+            "ZSTD execution"
+        );
+    }
+
+    #[cfg(not(feature = "tracing"))]
     unsafe {
         nvcomp_zstd::decompress_async(
             exec.frame_ptrs_ptr as _,

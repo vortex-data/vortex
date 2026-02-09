@@ -7,7 +7,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::ConstantArray;
@@ -31,13 +30,13 @@ use vortex_error::vortex_err;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
 
 /// CUDA executor for constant arrays with numeric types.
 ///
 /// Materializes a constant array by filling a device buffer with the scalar value.
 /// Supports primitive types (integers, floats) and decimal types (i128, i256).
 #[derive(Debug)]
+#[doc(hidden)]
 pub struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
@@ -48,6 +47,10 @@ impl ConstantNumericExecutor {
 
 #[async_trait]
 impl CudaExecute for ConstantNumericExecutor {
+    #[cfg_attr(
+        feature = "tracing",
+        tracing::instrument(level = "trace", skip_all, fields(self))
+    )]
     async fn execute(
         &self,
         array: ArrayRef,
@@ -114,16 +117,12 @@ where
     // Load kernel function
     let kernel_ptypes = [P::PTYPE];
     let cuda_function = ctx.load_function_ptype("constant_numeric", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
@@ -174,16 +173,12 @@ where
 
     // Load kernel function
     let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch_kernel(&cuda_function, array_len, |args| {
+        args.arg(&output_view);
+        args.arg(&value);
+        args.arg(&array_len_u64);
+    })?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
     let device_buffer = CudaDeviceBuffer::new(output_buffer);

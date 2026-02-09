@@ -12,6 +12,7 @@ pub mod dynamic_dispatch;
 pub mod executor;
 mod host_to_device_allocator;
 mod kernel;
+mod macros;
 mod session;
 mod stream;
 mod stream_pool;
@@ -23,25 +24,27 @@ pub use device_buffer::CudaDeviceBuffer;
 pub use executor::CudaExecutionCtx;
 pub use executor::CudaKernelEvents;
 pub use host_to_device_allocator::CopyDeviceReadAt;
-use kernel::ALPExecutor;
-use kernel::BitPackedExecutor;
-use kernel::ConstantNumericExecutor;
-use kernel::DateTimePartsExecutor;
-use kernel::DecimalBytePartsExecutor;
-use kernel::DictExecutor;
-use kernel::FilterExecutor;
-use kernel::FoRExecutor;
-use kernel::RunEndExecutor;
-use kernel::SharedExecutor;
-use kernel::ZigZagExecutor;
+pub use kernel::ALPExecutor;
+pub use kernel::BitPackedExecutor;
+pub use kernel::ConstantNumericExecutor;
+pub use kernel::DateTimePartsExecutor;
+pub use kernel::DecimalBytePartsExecutor;
+pub use kernel::DefaultLaunchStrategy;
+pub use kernel::DictExecutor;
+pub use kernel::FilterExecutor;
+pub use kernel::FoRExecutor;
+pub use kernel::LaunchStrategy;
+pub use kernel::RunEndExecutor;
+pub use kernel::SharedExecutor;
+#[cfg(feature = "tracing")]
+pub use kernel::TracingLaunchStrategy;
+pub use kernel::ZigZagExecutor;
 #[cfg(feature = "unstable_encodings")]
 use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
 pub use kernel::bitpacked_cuda_kernel;
 pub use kernel::bitpacked_cuda_launch_config;
-pub use kernel::launch_cuda_kernel_impl;
-pub use kernel::launch_cuda_kernel_with_config;
 pub use kernel::zstd_kernel_prepare;
 pub use session::CudaSession;
 pub use session::CudaSessionExt;
@@ -64,8 +67,8 @@ use vortex_zigzag::ZigZagVTable;
 use vortex_zstd::ZstdBuffersVTable;
 use vortex_zstd::ZstdVTable;
 
-use crate::kernel::SequenceExecutor;
-use crate::kernel::SliceExecutor;
+pub use crate::kernel::SequenceExecutor;
+pub use crate::kernel::SliceExecutor;
 
 /// Checks if CUDA is available on the system by looking for nvcc.
 pub fn cuda_available() -> bool {
@@ -77,7 +80,7 @@ pub fn cuda_available() -> bool {
 
 /// Registers CUDA kernels.
 pub fn initialize_cuda(session: &CudaSession) {
-    tracing::info!("Registering CUDA kernels");
+    info!("Registering CUDA kernels");
     session.register_kernel(ALPVTable::ID, &ALPExecutor);
     session.register_kernel(BitPackedVTable::ID, &BitPackedExecutor);
     session.register_kernel(ConstantVTable::ID, &ConstantNumericExecutor);
