@@ -7923,6 +7923,8 @@ dependencies = [
  "clap",
  "indicatif",
  "lance-bench",
+ "rand 0.9.2",
+ "rand_distr 0.5.1",
  "tokio",
  "vortex",
  "vortex-bench",

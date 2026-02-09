@@ -97,5 +97,5 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
 
     bencher
         .with_inputs(|| (&source_array, &runend_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.as_ref().take(indices.to_array()).unwrap());
 }

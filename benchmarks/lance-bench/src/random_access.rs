@@ -12,14 +12,18 @@ use lance::dataset::WriteParams;
 use lance_encoding::version::LanceFileVersion;
 use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 use vortex_bench::Format;
+use vortex_bench::datasets::feature_vectors::feature_vectors_parquet;
+use vortex_bench::datasets::nested_lists::nested_lists_parquet;
+use vortex_bench::datasets::nested_structs::nested_structs_parquet;
 use vortex_bench::datasets::taxi_data::taxi_data_parquet;
 use vortex_bench::idempotent_async;
 use vortex_bench::random_access::RandomAccessor;
 
-pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
-    idempotent_async("taxi/taxi.lance", |output_fname| async move {
-        let parquet_path = taxi_data_parquet().await?;
-
+/// Convert a parquet file to lance format.
+///
+/// Uses `idempotent_async` to skip conversion if the output already exists.
+async fn parquet_to_lance_file(parquet_path: PathBuf, lance_path: &str) -> anyhow::Result<PathBuf> {
+    idempotent_async(lance_path, |output_fname| async move {
         let file = File::open(&parquet_path)?;
         let builder = ParquetRecordBatchReaderBuilder::try_new(file)?;
         let reader = builder.build()?;
@@ -39,13 +43,45 @@ pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
     .await
 }
 
+pub async fn taxi_data_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = taxi_data_parquet().await?;
+    parquet_to_lance_file(parquet_path, "taxi/taxi.lance").await
+}
+
+pub async fn feature_vectors_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = feature_vectors_parquet().await?;
+    parquet_to_lance_file(parquet_path, "feature_vectors/feature_vectors.lance").await
+}
+
+pub async fn nested_lists_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = nested_lists_parquet().await?;
+    parquet_to_lance_file(parquet_path, "nested_lists/nested_lists.lance").await
+}
+
+pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
+    let parquet_path = nested_structs_parquet().await?;
+    parquet_to_lance_file(parquet_path, "nested_structs/nested_structs.lance").await
+}
+
 pub struct LanceRandomAccessor {
     path: PathBuf,
+    name: String,
 }
 
 impl LanceRandomAccessor {
     pub fn new(path: PathBuf) -> Self {
-        Self { path }
+        Self {
+            path,
+            name: "random-access/lance-tokio-local-disk".to_string(),
+        }
+    }
+
+    /// Create a new Lance random accessor with a custom name.
+    pub fn with_name(path: PathBuf, name: impl Into<String>) -> Self {
+        Self {
+            path,
+            name: name.into(),
+        }
     }
 }
 
@@ -56,7 +92,7 @@ impl RandomAccessor for LanceRandomAccessor {
     }
 
     fn name(&self) -> &str {
-        "random-access/lance-tokio-local-disk"
+        &self.name
     }
 
     fn path(&self) -> &PathBuf {

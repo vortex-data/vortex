@@ -57,6 +57,15 @@ impl VortexRandomAccessor {
         }
     }
 
+    /// Create a new Vortex random accessor with a custom name and format.
+    pub fn with_name_and_format(path: PathBuf, name: impl Into<String>, format: Format) -> Self {
+        Self {
+            path,
+            name: name.into(),
+            format,
+        }
+    }
+
     /// Create a new Vortex random accessor for compact format.
     pub fn compact(path: PathBuf) -> Self {
         Self {
@@ -182,14 +191,14 @@ pub async fn take_parquet(path: &Path, indices: Vec<u64>) -> anyhow::Result<Reco
             .or_insert_with(Vec::new)
             .push((idx as i64) - row_group_offsets[row_group_idx]);
     }
-    let row_group_indices = row_groups
-        .keys()
-        .sorted()
+    let sorted_row_group_keys = row_groups.keys().copied().sorted().collect_vec();
+    let row_group_indices = sorted_row_group_keys
+        .iter()
         .map(|i| row_groups[i].clone())
         .collect_vec();
 
     let reader = builder
-        .with_row_groups(row_groups.keys().copied().collect_vec())
+        .with_row_groups(sorted_row_group_keys)
         // FIXME(ngates): our indices code assumes the batch size == the row group sizes
         .with_batch_size(10_000_000)
         .build()?;
