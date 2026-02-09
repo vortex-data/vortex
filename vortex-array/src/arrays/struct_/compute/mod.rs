@@ -25,7 +25,10 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::Array;
+    use crate::Canonical;
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -64,7 +67,10 @@ mod tests {
         )
         .unwrap();
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
-        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx());
         assert_eq!(taken.len(), 1);
         assert!(taken.all_invalid().unwrap());
     }
@@ -73,7 +79,10 @@ mod tests {
     fn take_empty_primitive_with_nullable_indices() {
         let arr = PrimitiveArray::from_iter(Vec::<u64>::new());
         let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
-        let taken = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx());
         assert_eq!(taken.len(), 1);
     }
 
