@@ -58,6 +58,18 @@ mod tests {
     }
 
     #[test]
+    fn take_empty_struct_with_nullable_indices() {
+        let struct_arr = StructArray::try_from_iter_with_validity(
+            [("a", BoolArray::from_iter(Vec::<bool>::new()).into_array())],
+            Validity::AllValid,
+        )
+        .unwrap();
+        let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
+        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        assert_eq!(taken.len(), 1);
+    }
+
+    #[test]
     fn take_field_struct() {
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
