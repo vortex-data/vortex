@@ -33,6 +33,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::ZstdBuffersMetadata;
 
@@ -157,6 +158,7 @@ impl ZstdBuffersArray {
     fn rebuild_inner(
         &self,
         registry: &vortex_array::session::ArrayRegistry,
+        session: &VortexSession,
     ) -> VortexResult<ArrayRef> {
         let decompressed_buffers = self.decompress_buffers()?;
         let buffer_handles: Vec<BufferHandle> = decompressed_buffers
@@ -176,6 +178,7 @@ impl ZstdBuffersArray {
             &self.inner_metadata,
             &buffer_handles,
             &children,
+            session,
         )
     }
 }
@@ -211,8 +214,13 @@ impl VTable for ZstdBuffersVTable {
         Ok(Some(metadata.0.encode_to_vec()))
     }
 
-    fn deserialize(buffer: &[u8]) -> VortexResult<Self::Metadata> {
-        Ok(ProstMetadata(ZstdBuffersMetadata::decode(buffer)?))
+    fn deserialize(
+        bytes: &[u8],
+        _dtype: &DType,
+        _len: usize,
+        _session: &VortexSession,
+    ) -> VortexResult<Self::Metadata> {
+        Ok(ProstMetadata(ZstdBuffersMetadata::decode(bytes)?))
     }
 
     fn build(
@@ -250,8 +258,9 @@ impl VTable for ZstdBuffersVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        let registry = ctx.session().arrays().registry().clone();
-        let inner_array = array.rebuild_inner(&registry)?;
+        let session = ctx.session();
+        let registry = session.arrays().registry().clone();
+        let inner_array = array.rebuild_inner(&registry, session)?;
         inner_array.execute::<ArrayRef>(ctx)
     }
 }
@@ -315,8 +324,8 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
         // TODO(os): maybe we should not support scalar_at, it is really slow, and adding a cache
         // layer here is weird. Valid use of zstd buffers array would be by executing it first into
         // canonical
-        let session = vortex_array::session::ArraySession::default();
-        let inner_array = array.rebuild_inner(session.registry())?;
+        let registry = vortex_array::LEGACY_SESSION.arrays().registry().clone();
+        let inner_array = array.rebuild_inner(&registry, &vortex_array::LEGACY_SESSION)?;
         inner_array.scalar_at(index)
     }
 }
