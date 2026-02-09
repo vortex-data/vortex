@@ -92,7 +92,7 @@ impl ZstdBuffersArray {
             compressed_buffers.push(ByteBuffer::from(compressed));
         }
 
-        Ok(Self {
+        let compressed = Self {
             inner_encoding_id: encoding_id,
             inner_metadata: metadata,
             compressed_buffers,
@@ -102,7 +102,12 @@ impl ZstdBuffersArray {
             dtype: array.dtype().clone(),
             len: array.len(),
             stats_set: Default::default(),
-        })
+        };
+        compressed
+            .stats_set
+            .to_ref(compressed.as_ref())
+            .inherit_from(array.statistics());
+        Ok(compressed)
     }
 
     fn decompress_buffers(&self) -> VortexResult<Vec<ByteBuffer>> {
@@ -319,6 +324,9 @@ impl VisitorVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::expr::stats::Precision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProvider;
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::LEGACY_SESSION;
@@ -379,6 +387,17 @@ mod tests {
         let decompressed = compressed.into_array().execute::<ArrayRef>(&mut ctx)?;
 
         assert_arrays_eq!(input, decompressed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_compress_inherits_stats() -> VortexResult<()> {
+        let input = make_primitive_array();
+        input.statistics().set(Stat::Min, Precision::exact(0i32));
+
+        let compressed = ZstdBuffersArray::compress(&input, 3)?;
+
+        assert!(compressed.statistics().get(Stat::Min).is_some());
         Ok(())
     }
 }
