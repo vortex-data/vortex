@@ -6,6 +6,8 @@
 //! This crate provides scalar types and values that can be used to represent individual data
 //! elements in the Vortex array system. [`Scalar`]s are composed of a logical data type
 //! ([`DType`](vortex_dtype::DType)) and an optional (encoding nullablity) value ([`ScalarValue`]).
+//!
+//! Note that the implementations of `Scalar` are split into several different modules.
 
 #![deny(missing_docs)]
 #![warn(clippy::missing_docs_in_private_items)]
@@ -18,8 +20,10 @@ pub mod arbitrary;
 mod arrow;
 
 mod cast;
+mod constructor;
 mod convert;
 mod display;
+mod downcast;
 mod proto;
 
 mod scalar;

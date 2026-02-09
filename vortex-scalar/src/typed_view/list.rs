@@ -8,10 +8,9 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
+use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
@@ -221,86 +220,6 @@ impl<'a> ListScalar<'a> {
                     .collect::<VortexResult<Vec<Option<ScalarValue>>>>()?,
             )),
         )
-    }
-}
-
-/// A helper enum for creating a [`ListScalar`].
-enum ListKind {
-    /// Variable-length list.
-    Variable,
-    /// Fixed-size list.
-    FixedSize,
-}
-
-/// Helper functions to create a [`ListScalar`] as a [`Scalar`].
-impl Scalar {
-    /// Creates a list [`Scalar`] from an element dtype, children, nullability, and list kind.
-    fn create_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-        list_kind: ListKind,
-    ) -> Self {
-        let element_dtype = element_dtype.into();
-
-        let children: Vec<Option<ScalarValue>> = children
-            .into_iter()
-            .map(|child| {
-                if child.dtype() != &*element_dtype {
-                    vortex_panic!(
-                        "tried to create list of {} with values of type {}",
-                        element_dtype,
-                        child.dtype()
-                    );
-                }
-                child.into_value()
-            })
-            .collect();
-        let size: u32 = children
-            .len()
-            .try_into()
-            .vortex_expect("tried to create a list that was too large");
-
-        let dtype = match list_kind {
-            ListKind::Variable => DType::List(element_dtype, nullability),
-            ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
-        };
-
-        Self::try_new(dtype, Some(ScalarValue::List(children)))
-            .vortex_expect("unable to construct a list `Scalar`")
-    }
-
-    /// Creates a new list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-    ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::Variable)
-    }
-
-    /// Creates a new empty list scalar with the given element type.
-    pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::create_list(element_dtype, vec![], nullability, ListKind::Variable)
-    }
-
-    /// Creates a new fixed-size list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn fixed_size_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-    ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
     }
 }
 

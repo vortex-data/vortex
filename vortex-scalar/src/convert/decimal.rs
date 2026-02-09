@@ -32,7 +32,7 @@ macro_rules! decimal_scalar_unpack {
             type Error = VortexError;
 
             fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
-                Ok(match value.value {
+                Ok(match value.decimal_value() {
                     None => None,
                     Some(DecimalValue::$arm(v)) => Some(v),
                     v => vortex_error::vortex_bail!(
@@ -48,7 +48,7 @@ macro_rules! decimal_scalar_unpack {
             type Error = VortexError;
 
             fn try_from(value: DecimalScalar) -> Result<Self, Self::Error> {
-                match value.value {
+                match value.decimal_value() {
                     None => vortex_error::vortex_bail!("Cannot extract value from null decimal"),
                     Some(DecimalValue::$arm(v)) => Ok(v),
                     v => vortex_error::vortex_bail!(

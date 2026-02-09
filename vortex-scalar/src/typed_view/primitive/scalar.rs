@@ -18,7 +18,6 @@ use num_traits::CheckedSub;
 use vortex_dtype::DType;
 use vortex_dtype::FromPrimitiveOrF16;
 use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexError;
@@ -294,52 +293,6 @@ impl Add for PrimitiveScalar<'_> {
 impl CheckedAdd for PrimitiveScalar<'_> {
     fn checked_add(&self, rhs: &Self) -> Option<Self> {
         self.checked_binary_numeric(rhs, NumericOperator::Add)
-    }
-}
-
-impl Scalar {
-    /// Creates a new primitive scalar from a native value.
-    pub fn primitive<T: NativePType + Into<PValue>>(value: T, nullability: Nullability) -> Self {
-        Self::primitive_value(value.into(), T::PTYPE, nullability)
-    }
-
-    /// Create a PrimitiveScalar from a PValue.
-    ///
-    /// Note that an explicit PType is passed since any compatible PValue may be used as the value
-    /// for a primitive type.
-    pub fn primitive_value(value: PValue, ptype: PType, nullability: Nullability) -> Self {
-        Self::try_new(
-            DType::Primitive(ptype, nullability),
-            Some(ScalarValue::Primitive(value)),
-        )
-        .vortex_expect("unable to construct a primitive `Scalar`")
-    }
-
-    /// Reinterprets the bytes of this scalar as a different primitive type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the scalar is not a primitive type or if the types have different byte widths.
-    pub fn reinterpret_cast(&self, ptype: PType) -> Self {
-        let primitive = self.as_primitive();
-        if primitive.ptype() == ptype {
-            return self.clone();
-        }
-
-        assert_eq!(
-            primitive.ptype().byte_width(),
-            ptype.byte_width(),
-            "can't reinterpret cast between integers of two different widths"
-        );
-
-        Scalar::try_new(
-            DType::Primitive(ptype, self.dtype().nullability()),
-            primitive
-                .pvalue
-                .map(|p| p.reinterpret_cast(ptype))
-                .map(ScalarValue::Primitive),
-        )
-        .vortex_expect("unable to reinterpret cast a primitive `Scalar`")
     }
 }
 

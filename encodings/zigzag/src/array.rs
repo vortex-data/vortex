@@ -195,7 +195,7 @@ impl OperationsVTable<ZigZagVTable> for ZigZagVTable {
     fn scalar_at(array: &ZigZagArray, index: usize) -> VortexResult<Scalar> {
         let scalar = array.encoded().scalar_at(index)?;
         if scalar.is_null() {
-            return Ok(scalar.reinterpret_cast(array.ptype()));
+            return scalar.primitive_reinterpret_cast(array.ptype());
         }
 
         let pscalar = scalar.as_primitive();

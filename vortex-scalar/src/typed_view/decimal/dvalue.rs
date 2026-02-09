@@ -11,33 +11,13 @@ use num_traits::CheckedAdd;
 use num_traits::CheckedDiv;
 use num_traits::CheckedMul;
 use num_traits::CheckedSub;
-use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
 use vortex_dtype::ToI256;
 use vortex_dtype::i256;
 use vortex_dtype::match_each_decimal_value;
 use vortex_error::VortexExpect;
-
-use crate::Scalar;
-use crate::ScalarValue;
-
-impl Scalar {
-    /// Creates a new decimal scalar with the given value, precision, scale, and nullability.
-    pub fn decimal(
-        value: DecimalValue,
-        decimal_type: DecimalDType,
-        nullability: Nullability,
-    ) -> Self {
-        Self::try_new(
-            DType::Decimal(decimal_type, nullability),
-            Some(ScalarValue::Decimal(value)),
-        )
-        .vortex_expect("unable to construct a decimal `Scalar`")
-    }
-}
 
 /// A decimal value that can be stored in various integer widths.
 ///

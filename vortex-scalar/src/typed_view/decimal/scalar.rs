@@ -25,11 +25,11 @@ use crate::ScalarValue;
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
     /// The data type of this scalar.
-    pub(crate) dtype: &'a DType,
+    dtype: &'a DType,
     /// The decimal type (precision and scale).
-    pub(crate) decimal_type: DecimalDType,
+    decimal_type: DecimalDType,
     /// The decimal value, or [`None`] if null.
-    pub(crate) value: Option<DecimalValue>,
+    decimal_value: Option<DecimalValue>,
 }
 
 impl<'a> DecimalScalar<'a> {
@@ -45,7 +45,7 @@ impl<'a> DecimalScalar<'a> {
         Ok(Self {
             dtype,
             decimal_type,
-            value,
+            decimal_value: value,
         })
     }
 
@@ -57,7 +57,7 @@ impl<'a> DecimalScalar<'a> {
 
     /// Returns the decimal value, or None if null.
     pub fn decimal_value(&self) -> Option<DecimalValue> {
-        self.value
+        self.decimal_value
     }
 
     /// Casts this scalar to the given `dtype`.
@@ -67,13 +67,16 @@ impl<'a> DecimalScalar<'a> {
                 // Cast between decimal types
                 if self.decimal_type == *target_dtype {
                     // Same decimal type, just change nullability if needed
-                    return Scalar::try_new(dtype.clone(), self.value.map(ScalarValue::Decimal));
+                    return Scalar::try_new(
+                        dtype.clone(),
+                        self.decimal_value.map(ScalarValue::Decimal),
+                    );
                 }
 
                 // Different precision/scale - need to implement scaling logic
                 // For now, we'll do a simple value preservation without scaling
                 // TODO: Implement proper decimal scaling logic
-                if let Some(value) = &self.value {
+                if let Some(value) = &self.decimal_value {
                     Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
                 } else {
                     Ok(Scalar::null(dtype.clone()))
@@ -81,7 +84,7 @@ impl<'a> DecimalScalar<'a> {
             }
             DType::Primitive(ptype, nullability) => {
                 // Cast decimal to primitive type
-                if let Some(decimal_value) = &self.value {
+                if let Some(decimal_value) = &self.decimal_value {
                     // Convert decimal value to primitive, accounting for scale
                     let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
 
@@ -209,7 +212,7 @@ impl<'a> DecimalScalar<'a> {
         };
 
         // Handle null cases using SQL semantics
-        let result_value = match (self.value, other.value) {
+        let result_value = match (self.decimal_value, other.decimal_value) {
             (None, _) | (_, None) => None,
             (Some(lhs), Some(rhs)) => {
                 // Perform the operation
@@ -235,14 +238,14 @@ impl<'a> DecimalScalar<'a> {
         Some(DecimalScalar {
             dtype: result_dtype,
             decimal_type: self.decimal_type,
-            value: result_value,
+            decimal_value: result_value,
         })
     }
 }
 
 impl PartialEq for DecimalScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype) && self.decimal_value == other.decimal_value
     }
 }
 
@@ -254,13 +257,13 @@ impl PartialOrd for DecimalScalar<'_> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.value.partial_cmp(&other.value)
+        self.decimal_value.partial_cmp(&other.decimal_value)
     }
 }
 
 impl fmt::Display for DecimalScalar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Some(&decimal_value) = self.value.as_ref() else {
+        let Some(&decimal_value) = self.decimal_value.as_ref() else {
             return write!(f, "null");
         };
 

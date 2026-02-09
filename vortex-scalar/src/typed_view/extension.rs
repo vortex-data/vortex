@@ -8,10 +8,8 @@ use std::fmt::Formatter;
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::extension::ExtDTypeRef;
-use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -131,28 +129,6 @@ impl<'a> ExtScalar<'a> {
             self.ext_dtype.storage_dtype(),
             dtype
         );
-    }
-}
-
-// TODO(connor): Figure out the error handling here...
-impl Scalar {
-    /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
-            .vortex_expect("Failed to create extension dtype");
-        Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
-    }
-
-    /// Creates a new extension scalar wrapping the given storage value.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::try_new(DType::Extension(ext_dtype), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
     }
 }
 

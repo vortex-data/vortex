@@ -32,7 +32,7 @@ pub struct StructScalar<'a> {
     /// The data type of this scalar.
     dtype: &'a DType,
     /// The field values, or [`None`] if the entire struct is null.
-    pub(crate) fields: Option<&'a [Option<ScalarValue>]>,
+    fields: Option<&'a [Option<ScalarValue>]>,
 }
 
 impl Display for StructScalar<'_> {

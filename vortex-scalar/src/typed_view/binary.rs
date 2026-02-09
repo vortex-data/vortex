@@ -9,7 +9,6 @@ use std::fmt::Formatter;
 use itertools::Itertools;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -148,17 +147,6 @@ impl<'a> BinaryScalar<'a> {
     /// Returns whether its value is non-null and empty, otherwise `None`.
     pub fn is_empty(&self) -> Option<bool> {
         self.value.as_ref().map(|v| v.is_empty())
-    }
-}
-
-impl Scalar {
-    /// Creates a new binary scalar from a byte buffer.
-    pub fn binary(buffer: impl Into<ByteBuffer>, nullability: Nullability) -> Self {
-        Self::try_new(
-            DType::Binary(nullability),
-            Some(ScalarValue::Binary(buffer.into())),
-        )
-        .vortex_expect("unable to construct a binary `Scalar`")
     }
 }
 

@@ -10,7 +10,6 @@ use std::fmt::Formatter;
 
 use vortex_buffer::BufferString;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -18,77 +17,6 @@ use vortex_utils::aliases::StringEscape;
 
 use crate::Scalar;
 use crate::ScalarValue;
-
-/// Types that can hold a valid UTF-8 string.
-pub trait StringLike: private::Sealed + Sized {
-    /// Replace the last codepoint in the string with the next codepoint.
-    ///
-    /// This operation will attempt to reuse the original memory.
-    ///
-    /// If incrementing the last char fails, or if the string is empty,
-    /// we return an Err with the original unmodified string.
-    /// # Errors
-    ///
-    /// Returns `Err(self)` if the string is empty or if incrementing the last char overflows.
-    fn increment(self) -> Result<Self, Self>;
-}
-
-/// Sealed trait implementation module for [`StringLike`].
-mod private {
-    use vortex_buffer::BufferString;
-
-    use crate::StringLike;
-
-    /// Prevents external implementations of [`StringLike`].
-    pub trait Sealed {}
-
-    impl Sealed for String {}
-
-    impl StringLike for String {
-        fn increment(mut self) -> Result<String, String> {
-            let Some(last_char) = self.pop() else {
-                return Ok(self);
-            };
-
-            if let Some(next_char) = char::from_u32(last_char as u32 + 1) {
-                self.push(next_char);
-                Ok(self)
-            } else {
-                // Return the original string
-                self.push(last_char);
-                Err(self)
-            }
-        }
-    }
-
-    impl Sealed for BufferString {}
-
-    impl StringLike for BufferString {
-        #[allow(clippy::unwrap_in_result, clippy::expect_used)]
-        fn increment(self) -> Result<BufferString, BufferString> {
-            if self.is_empty() {
-                return Err(self);
-            }
-
-            // Chop off the last char and return it here.
-            let (last_idx, last_char) = self.char_indices().last().expect("non-empty");
-            if let Some(next_char) = char::from_u32(last_char as u32 + 1)
-                && next_char.len_utf8() == last_char.len_utf8()
-            {
-                // Because the next char has the same byte width as the last char, we can overwrite
-                // the memory directly.
-                let mut bytes = self.into_inner().into_mut();
-                next_char.encode_utf8(&mut bytes.as_mut()[last_idx..]);
-
-                // SAFETY: we overwrite the last valid char with new valid char, so
-                //  the buffer continues to hold valid UTF-8 data.
-                unsafe { Ok(BufferString::new_unchecked(bytes.freeze())) }
-            } else {
-                Err(self)
-            }
-        }
-    }
-}
 
 /// A scalar value representing a UTF-8 encoded string.
 ///
@@ -223,36 +151,74 @@ impl<'a> Utf8Scalar<'a> {
     }
 }
 
-impl Scalar {
-    /// Creates a new UTF-8 scalar from a string-like value.
+/// Types that can hold a valid UTF-8 string.
+pub trait StringLike: private::Sealed + Sized {
+    /// Replace the last codepoint in the string with the next codepoint.
     ///
-    /// # Panics
+    /// This operation will attempt to reuse the original memory.
     ///
-    /// Panics if the input cannot be converted to a valid UTF-8 string.
-    pub fn utf8<B>(str: B, nullability: Nullability) -> Self
-    where
-        B: Into<BufferString>,
-    {
-        Self::try_utf8(str, nullability).unwrap()
-    }
-
-    /// Tries to create a new UTF-8 scalar from a string-like value.
-    ///
+    /// If incrementing the last char fails, or if the string is empty,
+    /// we return an Err with the original unmodified string.
     /// # Errors
     ///
-    /// Returns an error if the input cannot be converted to a valid UTF-8 string.
-    pub fn try_utf8<B>(
-        str: B,
-        nullability: Nullability,
-    ) -> Result<Self, <B as TryInto<BufferString>>::Error>
-    where
-        B: TryInto<BufferString>,
-    {
-        Ok(Self::try_new(
-            DType::Utf8(nullability),
-            Some(ScalarValue::Utf8(str.try_into()?)),
-        )
-        .vortex_expect("unable to construct a UTF-8 `Scalar`"))
+    /// Returns `Err(self)` if the string is empty or if incrementing the last char overflows.
+    fn increment(self) -> Result<Self, Self>;
+}
+
+/// Sealed trait implementation module for [`StringLike`].
+mod private {
+    use vortex_buffer::BufferString;
+
+    use crate::StringLike;
+
+    /// Prevents external implementations of [`StringLike`].
+    pub trait Sealed {}
+
+    impl Sealed for String {}
+
+    impl StringLike for String {
+        fn increment(mut self) -> Result<String, String> {
+            let Some(last_char) = self.pop() else {
+                return Ok(self);
+            };
+
+            if let Some(next_char) = char::from_u32(last_char as u32 + 1) {
+                self.push(next_char);
+                Ok(self)
+            } else {
+                // Return the original string
+                self.push(last_char);
+                Err(self)
+            }
+        }
+    }
+
+    impl Sealed for BufferString {}
+
+    impl StringLike for BufferString {
+        #[allow(clippy::unwrap_in_result, clippy::expect_used)]
+        fn increment(self) -> Result<BufferString, BufferString> {
+            if self.is_empty() {
+                return Err(self);
+            }
+
+            // Chop off the last char and return it here.
+            let (last_idx, last_char) = self.char_indices().last().expect("non-empty");
+            if let Some(next_char) = char::from_u32(last_char as u32 + 1)
+                && next_char.len_utf8() == last_char.len_utf8()
+            {
+                // Because the next char has the same byte width as the last char, we can overwrite
+                // the memory directly.
+                let mut bytes = self.into_inner().into_mut();
+                next_char.encode_utf8(&mut bytes.as_mut()[last_idx..]);
+
+                // SAFETY: we overwrite the last valid char with new valid char, so
+                //  the buffer continues to hold valid UTF-8 data.
+                unsafe { Ok(BufferString::new_unchecked(bytes.freeze())) }
+            } else {
+                Err(self)
+            }
+        }
     }
 }
 

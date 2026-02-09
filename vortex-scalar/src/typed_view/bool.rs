@@ -8,8 +8,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
@@ -109,14 +108,6 @@ impl<'a> BoolScalar<'a> {
     pub fn into_scalar(self) -> Scalar {
         // SAFETY: `BoolScalar` is already a valid `Scalar`.
         unsafe { Scalar::new_unchecked(self.dtype.clone(), self.value.map(ScalarValue::Bool)) }
-    }
-}
-
-impl Scalar {
-    /// Creates a new boolean scalar with the given value and nullability.
-    pub fn bool(value: bool, nullability: Nullability) -> Self {
-        Self::try_new(DType::Bool(nullability), Some(ScalarValue::Bool(value)))
-            .vortex_expect("unable to ")
     }
 }
 
