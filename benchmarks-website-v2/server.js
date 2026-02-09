@@ -38,6 +38,7 @@ const RENAME = {
   'duckdb:duckdb': 'duckdb:duckdb',
   'duckdb:vortex-compact': 'duckdb:vortex-compact',
   'vortex-tokio-local-disk': 'vortex-nvme',
+  'vortex-compact-tokio-local-disk': 'vortex-compact-nvme',
   'lance-tokio-local-disk': 'lance-nvme',
   'parquet-tokio-local-disk': 'parquet-nvme',
   'lance': 'lance',
@@ -242,9 +243,22 @@ async function refresh() {
       }
       if (!groups[group]) continue;
 
-      const [query, series] = b.name.split('/');
-      const seriesName = rename(series || 'default');
-      const chartName = formatQuery(query);
+      // Random access names have the form: random-access/{dataset}/{pattern}/{format}
+      // Historical random access names: random-access/{format}
+      // Other benchmarks use: {query}/{series}
+      let seriesName, chartName;
+      const parts = b.name.split('/');
+      if (group === 'Random Access' && parts.length === 4) {
+        chartName = `${parts[1]}/${parts[2]}`.toUpperCase().replace(/[_-]/g, ' ');
+        seriesName = rename(parts[3] || 'default');
+      } else if (group === 'Random Access' && parts.length === 2) {
+        // Legacy format: random-access/{format} → chart "RANDOM ACCESS", series from format
+        chartName = 'RANDOM ACCESS';
+        seriesName = rename(parts[1] || 'default');
+      } else {
+        seriesName = rename(parts[1] || 'default');
+        chartName = formatQuery(parts[0]);
+      }
       if (chartName.includes('PARQUET-UNC')) continue;
 
       // Skip throughput metrics (keep only time/size)

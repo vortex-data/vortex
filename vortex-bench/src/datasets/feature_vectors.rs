@@ -18,8 +18,13 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::CompactionStrategy;
+use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::data_path;
+
+/// Dataset identifier used for data path generation.
+pub const DATASET: &str = "feature_vectors";
 
 /// Number of rows in the feature vectors dataset.
 pub const ROW_COUNT: usize = 1_000_000;
@@ -36,7 +41,7 @@ const BATCH_SIZE: usize = 100_000;
 /// This simulates a table of embedding vectors, common in ML workloads.
 pub async fn feature_vectors_parquet() -> Result<PathBuf> {
     idempotent_async(
-        "feature_vectors/feature_vectors.parquet",
+        data_path(DATASET, Format::Parquet),
         |temp_path| async move {
             let schema = Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, false),
@@ -85,21 +90,13 @@ pub async fn feature_vectors_parquet() -> Result<PathBuf> {
 /// Get the path to the feature vectors vortex file, converting from parquet if needed.
 pub async fn feature_vectors_vortex() -> Result<PathBuf> {
     let parquet_path = feature_vectors_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "feature_vectors/feature_vectors.vortex",
-        CompactionStrategy::Default,
-    )
-    .await
+    let path = data_path(DATASET, Format::OnDiskVortex);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Default).await
 }
 
 /// Get the path to the feature vectors compact vortex file, converting from parquet if needed.
 pub async fn feature_vectors_vortex_compact() -> Result<PathBuf> {
     let parquet_path = feature_vectors_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "feature_vectors/feature_vectors-compact.vortex",
-        CompactionStrategy::Compact,
-    )
-    .await
+    let path = data_path(DATASET, Format::VortexCompact);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
 }

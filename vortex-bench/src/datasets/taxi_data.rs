@@ -20,6 +20,9 @@ use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
 
+/// Dataset identifier used for data path generation.
+pub const DATASET: &str = "taxi";
+
 pub struct TaxiData;
 
 #[async_trait]

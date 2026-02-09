@@ -19,8 +19,13 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::CompactionStrategy;
+use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::data_path;
+
+/// Dataset identifier used for data path generation.
+pub const DATASET: &str = "nested_structs";
 
 /// Number of rows in the nested structs dataset.
 pub const ROW_COUNT: usize = 1_000_000;
@@ -45,7 +50,7 @@ const BATCH_SIZE: usize = 100_000;
 /// ```
 pub async fn nested_structs_parquet() -> Result<PathBuf> {
     idempotent_async(
-        "nested_structs/nested_structs.parquet",
+        data_path(DATASET, Format::Parquet),
         |temp_path| async move {
             let inner_fields = Fields::from(vec![
                 Field::new("x", DataType::Float64, false),
@@ -110,21 +115,13 @@ pub async fn nested_structs_parquet() -> Result<PathBuf> {
 /// Get the path to the nested structs vortex file, converting from parquet if needed.
 pub async fn nested_structs_vortex() -> Result<PathBuf> {
     let parquet_path = nested_structs_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "nested_structs/nested_structs.vortex",
-        CompactionStrategy::Default,
-    )
-    .await
+    let path = data_path(DATASET, Format::OnDiskVortex);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Default).await
 }
 
 /// Get the path to the nested structs compact vortex file, converting from parquet if needed.
 pub async fn nested_structs_vortex_compact() -> Result<PathBuf> {
     let parquet_path = nested_structs_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "nested_structs/nested_structs-compact.vortex",
-        CompactionStrategy::Compact,
-    )
-    .await
+    let path = data_path(DATASET, Format::VortexCompact);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
 }

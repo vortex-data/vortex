@@ -18,8 +18,13 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 
 use crate::CompactionStrategy;
+use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::data_path;
+
+/// Dataset identifier used for data path generation.
+pub const DATASET: &str = "nested_lists";
 
 /// Number of rows in the nested lists dataset.
 pub const ROW_COUNT: usize = 1_000_000;
@@ -36,7 +41,7 @@ const BATCH_SIZE: usize = 100_000;
 /// Each row contains a variable-length list of 1 to 20 random integers.
 pub async fn nested_lists_parquet() -> Result<PathBuf> {
     idempotent_async(
-        "nested_lists/nested_lists.parquet",
+        data_path(DATASET, Format::Parquet),
         |temp_path| async move {
             let schema = Arc::new(Schema::new(vec![
                 Field::new("id", DataType::Int64, false),
@@ -83,21 +88,13 @@ pub async fn nested_lists_parquet() -> Result<PathBuf> {
 /// Get the path to the nested lists vortex file, converting from parquet if needed.
 pub async fn nested_lists_vortex() -> Result<PathBuf> {
     let parquet_path = nested_lists_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "nested_lists/nested_lists.vortex",
-        CompactionStrategy::Default,
-    )
-    .await
+    let path = data_path(DATASET, Format::OnDiskVortex);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Default).await
 }
 
 /// Get the path to the nested lists compact vortex file, converting from parquet if needed.
 pub async fn nested_lists_vortex_compact() -> Result<PathBuf> {
     let parquet_path = nested_lists_parquet().await?;
-    write_parquet_as_vortex(
-        parquet_path,
-        "nested_lists/nested_lists-compact.vortex",
-        CompactionStrategy::Compact,
-    )
-    .await
+    let path = data_path(DATASET, Format::VortexCompact);
+    write_parquet_as_vortex(parquet_path, &path, CompactionStrategy::Compact).await
 }
