@@ -35,7 +35,13 @@ fn take_10_stratified(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| packed.take(indices.to_array()).unwrap())
+        .bench_refs(|(packed, indices)| {
+            packed
+                .take(indices.to_array())
+                .unwrap()
+                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        })
 }
 
 #[divan::bench]
@@ -47,7 +53,13 @@ fn take_10_contiguous(bencher: Bencher) {
 
     bencher
         .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| packed.take(indices.to_array()).unwrap())
+        .bench_refs(|(packed, indices)| {
+            packed
+                .take(indices.to_array())
+                .unwrap()
+                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .unwrap()
+        })
 }
 
 #[divan::bench]
