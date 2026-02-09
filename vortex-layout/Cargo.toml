@@ -57,7 +57,6 @@ rstest = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros"] }
 vortex-array = { path = "../vortex-array", features = ["_test-harness"] }
 vortex-io = { path = "../vortex-io", features = ["tokio"] }
-vortex-layout = { path = ".", features = ["zstd"] }
 vortex-utils = { workspace = true, features = ["_test-harness"] }
 
 [features]
