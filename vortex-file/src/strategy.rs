@@ -62,6 +62,8 @@ use vortex_sequence::SequenceVTable;
 use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZagVTable;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+use vortex_zstd::ZstdBuffersVTable;
 #[cfg(feature = "zstd")]
 use vortex_zstd::ZstdVTable;
 
@@ -110,6 +112,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 
     #[cfg(feature = "zstd")]
     registry.register(ZstdVTable::ID, ZstdVTable);
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    registry.register(ZstdBuffersVTable::ID, ZstdBuffersVTable);
 
     registry
 });
