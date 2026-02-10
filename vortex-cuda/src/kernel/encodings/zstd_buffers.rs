@@ -15,8 +15,12 @@ use futures::future::try_join_all;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::buffer::DeviceBuffer;
+use vortex_buffer::Alignment;
+use vortex_buffer::Buffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
+use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 use vortex_zstd::ZstdBuffersArray;
@@ -120,6 +124,8 @@ async fn decode_zstd_buffers(
         .map_err(|e| vortex_err!("nvcomp decompress_async failed: {}", e))?;
     }
 
+    validate_decompress_results(&plan, device_actual_sizes, device_statuses).await?;
+
     let output_handle = BufferHandle::new_device(Arc::new(CudaDeviceBuffer::new(device_output)));
     let decompressed_buffers = plan.split_output_handle(&output_handle)?;
 
@@ -146,6 +152,50 @@ async fn move_frames_to_device(
         .collect::<VortexResult<Vec<_>>>()?;
 
     try_join_all(move_futures).await
+}
+
+// this does d2h to get back the lengths array and the status array
+async fn validate_decompress_results(
+    plan: &vortex_zstd::ZstdBuffersDecodePlan,
+    device_actual_sizes: CudaSlice<usize>,
+    device_statuses: CudaSlice<nvcompStatus_t>,
+) -> VortexResult<()> {
+    let actual_sizes_host = CudaDeviceBuffer::new(device_actual_sizes)
+        .copy_to_host(Alignment::of::<usize>())?
+        .await?;
+    let statuses_host = CudaDeviceBuffer::new(device_statuses)
+        .copy_to_host(Alignment::of::<nvcompStatus_t>())?
+        .await?;
+
+    let actual_sizes = Buffer::<usize>::from_byte_buffer(actual_sizes_host);
+    let statuses = Buffer::<nvcompStatus_t>::from_byte_buffer(statuses_host);
+    let expected_sizes = plan.output_sizes();
+
+    for (idx, ((&status, &actual), &expected)) in statuses
+        .as_slice()
+        .iter()
+        .zip(actual_sizes.as_slice().iter())
+        .zip(expected_sizes.iter())
+        .enumerate()
+    {
+        if status != sys::nvcompStatus_t_nvcompSuccess {
+            return Err(vortex_err!(
+                "nvcomp chunk {} failed with status {}",
+                idx,
+                status
+            ));
+        }
+        if actual != expected {
+            return Err(vortex_err!(
+                "nvcomp chunk {} decompressed size mismatch: expected {}, got {}",
+                idx,
+                expected,
+                actual
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
