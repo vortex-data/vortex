@@ -152,14 +152,14 @@ mod tests {
     /// fill_null with a value that overflows the array's storage type should upcast the array.
     #[test]
     fn fill_null_overflow_upcasts() {
-        let decimal_dtype = DecimalDType::new(2, 0);
+        let decimal_dtype = DecimalDType::new(3, 0);
         let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
         // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
         let result = fill_null(
             arr.as_ref(),
             &Scalar::decimal(
                 DecimalValue::I128(200i128),
-                DecimalDType::new(2, 0),
+                DecimalDType::new(3, 0),
                 Nullability::NonNullable,
             ),
         )
