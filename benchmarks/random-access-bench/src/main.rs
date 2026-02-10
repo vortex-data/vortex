@@ -285,9 +285,14 @@ struct Args {
     display_format: DisplayFormat,
     #[arg(short)]
     output_path: Option<PathBuf>,
-    /// Which dataset to benchmark random access on.
-    #[arg(long, value_enum, default_value_t = DatasetArg::Taxi)]
-    dataset: DatasetArg,
+    /// Which datasets to benchmark random access on.
+    #[arg(
+        long,
+        value_delimiter = ',',
+        value_enum,
+        default_values_t = vec![DatasetArg::Taxi, DatasetArg::FeatureVectors, DatasetArg::NestedLists, DatasetArg::NestedStructs]
+    )]
+    datasets: Vec<DatasetArg>,
 }
 
 #[tokio::main]
@@ -296,10 +301,14 @@ async fn main() -> Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let dataset = args.dataset.into_dataset();
+    let datasets: Vec<DatasetPaths> = args
+        .datasets
+        .into_iter()
+        .map(|d| d.into_dataset())
+        .collect();
 
     run_random_access(
-        &dataset,
+        &datasets,
         args.formats,
         args.time_limit,
         args.display_format,
@@ -382,60 +391,64 @@ const BENCHMARK_ID: &str = "random-access";
 const FIXED_TAXI_INDICES: [u64; 6] = [10, 11, 12, 13, 100_000, 3_000_000];
 
 async fn run_random_access(
-    dataset: &dyn BenchDataset,
+    datasets: &[DatasetPaths],
     formats: Vec<Format>,
     time_limit: u64,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
 ) -> Result<()> {
-    let is_legacy = dataset.name() == "taxi";
-
-    // Legacy datasets get an extra run per format (fixed indices, old-style name).
-    let legacy_extra = if is_legacy { formats.len() } else { 0 };
-    let total_steps = formats.len() * ACCESS_PATTERNS.len() + legacy_extra;
+    let total_steps: usize = datasets
+        .iter()
+        .map(|d| {
+            let legacy_extra = if d.name() == "taxi" { formats.len() } else { 0 };
+            formats.len() * ACCESS_PATTERNS.len() + legacy_extra
+        })
+        .sum();
     let progress = ProgressBar::new(total_steps as u64);
 
     let mut targets = Vec::new();
     let mut measurements = Vec::new();
 
-    for format in &formats {
-        if is_legacy {
-            // Taxi: also emit the old fixed-index benchmark for historical continuity.
-            let mut accessor = dataset.create(*format).await?;
-            accessor.open().await?;
-            let name = measurement_name(dataset.name(), None, *format);
-            let measurement = benchmark_random_access(
-                accessor.as_ref(),
-                &name,
-                &FIXED_TAXI_INDICES,
-                time_limit,
-                STORAGE_NVME,
-            )
-            .await?;
+    for dataset in datasets {
+        for format in &formats {
+            if dataset.name() == "taxi" {
+                // Taxi: also emit the old fixed-index benchmark for historical continuity.
+                let mut accessor = dataset.create(*format).await?;
+                accessor.open().await?;
+                let name = measurement_name(dataset.name(), None, *format);
+                let measurement = benchmark_random_access(
+                    accessor.as_ref(),
+                    &name,
+                    &FIXED_TAXI_INDICES,
+                    time_limit,
+                    STORAGE_NVME,
+                )
+                .await?;
 
-            targets.push(measurement.target);
-            measurements.push(measurement);
-            progress.inc(1);
-        }
+                targets.push(measurement.target);
+                measurements.push(measurement);
+                progress.inc(1);
+            }
 
-        // All datasets: run each access pattern with 4-part names.
-        for pattern in &ACCESS_PATTERNS {
-            let mut accessor = dataset.create(*format).await?;
-            accessor.open().await?;
-            let indices = generate_indices(dataset, *pattern);
-            let name = measurement_name(dataset.name(), Some(*pattern), *format);
-            let measurement = benchmark_random_access(
-                accessor.as_ref(),
-                &name,
-                &indices,
-                time_limit,
-                STORAGE_NVME,
-            )
-            .await?;
+            // All datasets: run each access pattern with 4-part names.
+            for pattern in &ACCESS_PATTERNS {
+                let mut accessor = dataset.create(*format).await?;
+                accessor.open().await?;
+                let indices = generate_indices(dataset, *pattern);
+                let name = measurement_name(dataset.name(), Some(*pattern), *format);
+                let measurement = benchmark_random_access(
+                    accessor.as_ref(),
+                    &name,
+                    &indices,
+                    time_limit,
+                    STORAGE_NVME,
+                )
+                .await?;
 
-            targets.push(measurement.target);
-            measurements.push(measurement);
-            progress.inc(1);
+                targets.push(measurement.target);
+                measurements.push(measurement);
+                progress.inc(1);
+            }
         }
     }
 
