@@ -25,9 +25,6 @@ use crate::api::ScanRequest;
 use crate::api::Split;
 use crate::api::SplitRef;
 
-/// The default number of rows per Scan API split.
-const DEFAULT_SPLIT_SIZE: u64 = 100_000;
-
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
@@ -38,11 +35,16 @@ pub struct LayoutReaderDataSource {
 
 impl LayoutReaderDataSource {
     /// Creates a new [`LayoutReaderDataSource`].
+    ///
+    /// By default, the entire scan is returned as a single split. This best preserves V1
+    /// `ScanBuilder` behavior where one scan covers the full row range, allowing the internal
+    /// I/O pipeline and `SplitBy::Layout` chunking to operate without per-split overhead from
+    /// redundant expression resolution and layout tree traversal.
     pub fn new(reader: LayoutReaderRef, session: VortexSession) -> Self {
         Self {
             reader,
             session,
-            split_size: DEFAULT_SPLIT_SIZE,
+            split_size: u64::MAX,
             metrics_registry: None,
         }
     }
@@ -154,7 +156,10 @@ impl DataSourceScan for LayoutReaderScan {
                 break;
             }
 
-            let split_end = (self.next_row + self.split_size).min(self.end_row);
+            let split_end = self
+                .next_row
+                .saturating_add(self.split_size)
+                .min(self.end_row);
             let row_range = self.next_row..split_end;
             let split_rows = split_end - self.next_row;
 

@@ -23,6 +23,7 @@ mod scan_builder;
 pub use scan_builder::ScanBuilder;
 
 pub mod layout;
+pub mod multi;
 mod repeated_scan;
 #[cfg(test)]
 mod test;
