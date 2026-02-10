@@ -40,6 +40,9 @@ pub enum ScalarValue {
 
 // TODO(connor): Docs can be improved (in combination with the associated `Scalar` methods).
 impl ScalarValue {
+    // TODO(connor): There is an inconsistency here w.r.t. `FixedSizeList` and `Struct` types, since
+    // we say that the zero value for those are **not** empty lists. But here we say that a list is
+    // a "zero" value if it is empty. So depending on the dtype this might just be incorrect!
     /// Returns true if the scalar represents the zero / identity value for its [`DType`].
     ///
     /// Returns false if the scalar is null.
@@ -130,7 +133,7 @@ impl ScalarValue {
                 let field_values = fields.fields().map(|f| Self::default_value(&f)).collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::zero_value(ext_dtype.storage_dtype()), // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => Self::default_value(ext_dtype.storage_dtype())?, // TODO(connor): Fix this!
         })
     }
 }

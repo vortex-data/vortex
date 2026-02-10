@@ -142,6 +142,7 @@ impl From<DecimalValue> for Scalar {
 impl From<Option<DecimalValue>> for Scalar {
     fn from(value: Option<DecimalValue>) -> Self {
         let Some(value) = value else {
+            // TODO(connor): This is definitely a footgun!
             // We have no way of knowing what the decimal value precision is (since we have no
             // data), so just choose a small one.
             return Self::null(DType::Decimal(

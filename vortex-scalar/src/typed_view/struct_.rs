@@ -158,6 +158,8 @@ impl<'a> StructScalar<'a> {
         self.field_by_idx(idx)
     }
 
+    // TODO(connor): This should have the opposite behavior: It should panic if the field index is
+    // out of bounds, and it should return None if it is null.
     /// Returns the field at the given index as a scalar.
     ///
     /// Returns None if the index is out of bounds.

@@ -10,6 +10,7 @@ use std::hash::Hasher;
 
 use num_traits::NumCast;
 use num_traits::ToPrimitive;
+use num_traits::Zero;
 use paste::paste;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
@@ -151,9 +152,9 @@ impl PValue {
                 | PValue::I16(0)
                 | PValue::I32(0)
                 | PValue::I64(0)
-        ) || matches!(self, PValue::F16(f) if f.to_f32() == Some(0.0))
-            || matches!(self, PValue::F32(f) if *f == 0.0)
-            || matches!(self, PValue::F64(f) if *f == 0.0)
+        ) || matches!(self, PValue::F16(f) if f.to_f32().is_some_and(|f| f.is_zero()))
+            || matches!(self, PValue::F32(f) if f.is_zero())
+            || matches!(self, PValue::F64(f) if f.is_zero())
     }
 
     /// Creates a zero value for the given primitive type.

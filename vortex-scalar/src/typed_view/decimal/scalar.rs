@@ -100,6 +100,9 @@ impl<'a> DecimalScalar<'a> {
                         })
                     })?;
 
+                    // TODO(connor): A lot of questionable stuff happening here, it would be good to
+                    // either formally prove this is all correct or use more checked methods.
+
                     // Apply scale to get the actual value.
                     let actual_value = scaled_value as f64 / scale_factor as f64;
 

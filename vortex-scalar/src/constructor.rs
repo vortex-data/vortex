@@ -3,8 +3,6 @@
 
 //! Typed constructors for [`Scalar`].
 
-// TODO(connor): Ideally, we also want `try_` constructors that return errors instead of just panic.
-
 use std::sync::Arc;
 
 use vortex_buffer::BufferString;
@@ -25,6 +23,7 @@ use crate::PValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
+// TODO(connor): Really, we want `try_` constructors that return errors instead of just panic.
 impl Scalar {
     /// Creates a new boolean scalar with the given value and nullability.
     pub fn bool(value: bool, nullability: Nullability) -> Self {

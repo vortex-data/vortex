@@ -163,6 +163,7 @@ impl Scalar {
         let Some(value) = value else {
             return dtype.is_nullable();
         };
+        // From here on, we know that the value is not null.
 
         match dtype {
             DType::Null => false,
@@ -227,7 +228,7 @@ impl Scalar {
                 }
             }
             DType::Extension(ext_dtype) => {
-                // TODO(connor): Fix this!
+                // TODO(connor): Fix this when adding the correct extension scalars!
                 Self::is_compatible(ext_dtype.storage_dtype(), Some(value))
             }
         }

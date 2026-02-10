@@ -354,7 +354,7 @@ fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
     }
 }
 
-/// Deserialize a [`ScalarValue`] from a protobuf `BytesValue`.
+/// Deserialize a [`ScalarValue`] from a protobuf bytes and a `DType`.
 ///
 /// Handles [`Utf8`](ScalarValue::Utf8), [`Binary`](ScalarValue::Binary), and
 /// [`Decimal`](ScalarValue::Decimal) dtypes.
@@ -362,6 +362,7 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
     match dtype {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::try_from(bytes)?)),
         DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(bytes))),
+        // TODO(connor): This is incorrect, we need to verify this matches the `dtype`.
         DType::Decimal(..) => Ok(ScalarValue::Decimal(match bytes.len() {
             1 => DecimalValue::I8(bytes[0] as i8),
             2 => DecimalValue::I16(i16::from_le_bytes(bytes.try_into()?)),
@@ -397,6 +398,7 @@ mod tests {
 
     use vortex_buffer::BufferString;
     use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
     use vortex_dtype::half::f16;
@@ -405,6 +407,7 @@ mod tests {
     use vortex_session::VortexSession;
 
     use super::*;
+    use crate::DecimalValue;
     use crate::Scalar;
     use crate::ScalarValue;
 
@@ -496,24 +499,72 @@ mod tests {
         ));
     }
 
-    // TODO(ct): Re-enable these tests once ScalarValue has protobytes support.
-    // #[rstest]
-    // #[case(Scalar::binary(ByteBuffer::copy_from(b"hello"), Nullability::NonNullable))]
-    // #[case(Scalar::utf8("hello", Nullability::NonNullable))]
-    // #[case(Scalar::primitive(1u8, Nullability::NonNullable))]
-    // fn test_scalar_value_serde_roundtrip(#[case] scalar: Scalar) {
-    //     ...
-    // }
+    #[test]
+    fn test_decimal_i32_roundtrip() {
+        // A typical decimal with moderate precision and scale.
+        round_trip(Scalar::decimal(
+            DecimalValue::I32(123_456),
+            DecimalDType::new(10, 2),
+            Nullability::NonNullable,
+        ));
+    }
 
-    // TODO(connor): Is this right?
+    #[test]
+    fn test_decimal_i128_roundtrip() {
+        // A large decimal value that requires i128 storage.
+        round_trip(Scalar::decimal(
+            DecimalValue::I128(99_999_999_999_999_999_999),
+            DecimalDType::new(38, 6),
+            Nullability::Nullable,
+        ));
+    }
+
+    #[test]
+    fn test_decimal_null_roundtrip() {
+        round_trip(Scalar::null(DType::Decimal(
+            DecimalDType::new(10, 2),
+            Nullability::Nullable,
+        )));
+    }
+
+    #[test]
+    fn test_scalar_value_serde_roundtrip_binary() {
+        round_trip(Scalar::binary(
+            ByteBuffer::copy_from(b"hello"),
+            Nullability::NonNullable,
+        ));
+    }
+
+    #[test]
+    fn test_scalar_value_serde_roundtrip_utf8() {
+        round_trip(Scalar::utf8("hello", Nullability::NonNullable));
+    }
+
     #[test]
     fn test_backcompat_f16_serialized_as_u64() {
-        // Note that this is a backwards compatibility test for poor design in the previous
-        // implementation. Previously, f16 ScalarValues were serialized as
-        // `pb::ScalarValue::Uint64Value(v.to_bits() as u64)` (since `u16` becomes a `u64`).
+        // Backwards compatibility test for the legacy f16 serialization format.
+        //
+        // Previously, f16 ScalarValues were serialized as `Uint64Value(v.to_bits() as u64)` because
+        // the proto schema only had 64-bit integer types, and f16's underlying representation is
+        // u16 which got widened to u64.
+        //
+        // The current implementation uses a dedicated `F16Value` proto field, but we must still be
+        // able to deserialize the old format. This test verifies that:
+        //
+        // 1. A `Uint64Value` containing f16 bits can be read as a U64 primitive (the raw bits).
+        // 2. When wrapped in a Scalar with F16 dtype, the value is correctly interpreted as f16.
+        //
+        // This ensures data written with the old serialization format remains readable.
+
+        // Simulate the old serialization: f16(0.42) stored as Uint64Value with its bit pattern.
+        let f16_value = f16::from_f32(0.42);
+        let f16_bits_as_u64 = f16_value.to_bits() as u64; // 14008
+
         let pb_scalar_value = pb::ScalarValue {
-            kind: Some(Kind::Uint64Value(f16::from_f32(0.42).to_bits() as u64)),
+            kind: Some(Kind::Uint64Value(f16_bits_as_u64)),
         };
+
+        // Step 1: Verify the normal U64 scalar.
         let scalar_value = ScalarValue::from_proto(
             &pb_scalar_value,
             &DType::Primitive(PType::U64, Nullability::NonNullable),
@@ -521,17 +572,25 @@ mod tests {
         .unwrap();
         assert_eq!(
             scalar_value.as_ref().map(|v| v.as_primitive()),
-            Some(&PValue::U64(14008u64))
+            Some(&PValue::U64(14008u64)),
         );
+
+        // Step 2: Verify that when we use F16 dtype, the Uint64Value is correctly interpreted.
+        let scalar_value_f16 = ScalarValue::from_proto(
+            &pb_scalar_value,
+            &DType::Primitive(PType::F16, Nullability::Nullable),
+        )
+        .unwrap();
 
         let scalar = Scalar::new(
             DType::Primitive(PType::F16, Nullability::Nullable),
-            scalar_value,
+            scalar_value_f16,
         );
 
         assert_eq!(
             scalar.as_primitive().pvalue().unwrap(),
-            PValue::F16(f16::from_f32(0.42))
+            PValue::F16(f16::from_f32(0.42)),
+            "Uint64Value should be correctly interpreted as f16 when dtype is F16"
         );
     }
 

@@ -304,7 +304,11 @@ impl CheckedAdd for PrimitiveScalar<'_> {
 impl<'a> PrimitiveScalar<'a> {
     /// Apply the (checked) operator to self and other using SQL-style null semantics.
     ///
-    /// If the operation overflows, Ok(None) is returned.
+    /// If the operation overflows, `None` is returned (for integral types only).
+    ///
+    /// Note: Floating-point operations cannot overflow in the traditional sense.
+    /// Instead, they may return `Some(Inf)` or `Some(NaN)` for operations that
+    /// would overflow or are undefined (e.g., `0.0 / 0.0`).
     ///
     /// If the types are incompatible (ignoring nullability), an error is returned.
     ///
