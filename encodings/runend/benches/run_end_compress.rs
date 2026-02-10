@@ -97,13 +97,15 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
         .unwrap()
         .to_array();
 
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
+
     bencher
         .with_inputs(|| (&source_array, &runend_array))
         .bench_refs(|(array, indices)| {
             array
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         });
 }

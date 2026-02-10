@@ -61,6 +61,7 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
     let fsl = create_fsl(LIST_SIZE, NUM_LISTS);
     let indices = create_random_indices(num_indices, NUM_LISTS);
     let indices_array = indices.into_array();
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&fsl, &indices_array))
@@ -68,7 +69,7 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
             array
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         });
 }
@@ -86,6 +87,7 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
 
     let indices = create_random_indices(num_indices, NUM_LISTS);
     let indices_array = indices.into_array();
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&fsl, &indices_array))
@@ -93,7 +95,7 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
             array
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         });
 }

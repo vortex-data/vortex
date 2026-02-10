@@ -32,6 +32,7 @@ fn take_10_stratified(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -39,7 +40,7 @@ fn take_10_stratified(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -50,6 +51,7 @@ fn take_10_contiguous(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = buffer![0..10].into_array();
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -57,7 +59,7 @@ fn take_10_contiguous(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -71,6 +73,7 @@ fn take_10k_random(bencher: Bencher) {
 
     let rng = StdRng::seed_from_u64(0);
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -78,7 +81,7 @@ fn take_10k_random(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -89,6 +92,7 @@ fn take_10k_contiguous(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter(0..10_000);
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -96,7 +100,7 @@ fn take_10k_contiguous(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -107,6 +111,7 @@ fn take_200k_dispersed(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -114,7 +119,7 @@ fn take_200k_dispersed(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -125,6 +130,7 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -132,7 +138,7 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -170,6 +176,7 @@ fn patched_take_10_stratified(bencher: Bencher) {
     );
 
     let indices = PrimitiveArray::from_iter((0..10).map(|i| i * 10_000));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -177,7 +184,7 @@ fn patched_take_10_stratified(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -195,6 +202,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     );
 
     let indices = buffer![0..10].into_array();
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -202,7 +210,7 @@ fn patched_take_10_contiguous(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -216,6 +224,7 @@ fn patched_take_10k_random(bencher: Bencher) {
     let rng = StdRng::seed_from_u64(0);
     let range = Uniform::new(0, values.len()).unwrap();
     let indices = PrimitiveArray::from_iter(rng.sample_iter(range).take(10_000).map(|i| i as u32));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -223,7 +232,7 @@ fn patched_take_10k_random(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -234,6 +243,7 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0u32..NUM_EXCEPTIONS).cycle().take(10000));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -241,7 +251,7 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -260,6 +270,7 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
 
     let indices =
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -267,7 +278,7 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -278,6 +289,7 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -285,7 +297,7 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -296,6 +308,7 @@ fn patched_take_200k_first_chunk_only(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values, Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| ((i * 42) % 1024) as u64));
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -303,7 +316,7 @@ fn patched_take_200k_first_chunk_only(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
@@ -321,6 +334,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
             .flat_map(|base_idx| base_idx..(base_idx + per_chunk_count))
             .take(10000),
     );
+    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
         .with_inputs(|| (&packed, &indices))
@@ -328,7 +342,7 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut LEGACY_SESSION.create_execution_ctx())
+                .execute::<RecursiveCanonical>(&mut execution_ctx)
                 .unwrap()
         })
 }
