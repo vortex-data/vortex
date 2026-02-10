@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::iter::once;
 use std::path::PathBuf;
 
 use anyhow::anyhow;
@@ -15,6 +16,7 @@ use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
 use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
+use tokio::fs::File;
 use vortex::array::Array;
 use vortex::array::Canonical;
 use vortex::array::IntoArray;
@@ -167,14 +169,14 @@ impl RandomAccessor for ParquetRandomAccessor {
     }
 
     async fn open(&mut self) -> anyhow::Result<()> {
-        let file = tokio::fs::File::open(&self.path).await?;
+        let file = File::open(&self.path).await?;
         let builder = ParquetRecordBatchStreamBuilder::new_with_options(
             file,
             ArrowReaderOptions::new().with_page_index(true),
         )
         .await?;
 
-        let row_group_offsets = std::iter::once(0)
+        let row_group_offsets = once(0)
             .chain(
                 builder
                     .metadata()
@@ -222,7 +224,7 @@ impl RandomAccessor for ParquetRandomAccessor {
             .collect_vec();
 
         // Re-open the file for reading (Parquet builder consumes the file handle).
-        let file = tokio::fs::File::open(&meta.path).await?;
+        let file = File::open(&meta.path).await?;
         let builder = ParquetRecordBatchStreamBuilder::new_with_options(
             file,
             ArrowReaderOptions::new().with_page_index(true),

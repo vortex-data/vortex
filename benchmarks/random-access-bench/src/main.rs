@@ -412,7 +412,6 @@ async fn run_random_access(
     for dataset in datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
-                // Taxi: also emit the old fixed-index benchmark for historical continuity.
                 let mut accessor = dataset.create(*format).await?;
                 accessor.open().await?;
                 let name = measurement_name(dataset.name(), None, *format);
@@ -430,7 +429,6 @@ async fn run_random_access(
                 progress.inc(1);
             }
 
-            // All datasets: run each access pattern with 4-part names.
             for pattern in &ACCESS_PATTERNS {
                 let mut accessor = dataset.create(*format).await?;
                 accessor.open().await?;

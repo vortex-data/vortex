@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::fs::File;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -37,7 +38,7 @@ const BATCH_SIZE: usize = 100_000;
 
 /// Generate a synthetic feature vectors parquet file.
 ///
-/// Schema: `id: Int64, embedding: FixedSizeList<Float32, 128>`.
+/// Schema: `id: Int64, embedding: FixedSizeList<Float32, VECTOR_DIM>`.
 /// This simulates a table of embedding vectors, common in ML workloads.
 pub async fn feature_vectors_parquet() -> Result<PathBuf> {
     idempotent_async(
@@ -55,7 +56,7 @@ pub async fn feature_vectors_parquet() -> Result<PathBuf> {
                 ),
             ]));
 
-            let file = std::fs::File::create(&temp_path)?;
+            let file = File::create(&temp_path)?;
             let mut writer = ArrowWriter::try_new(file, schema.clone(), None)?;
             let mut rng = StdRng::seed_from_u64(42);
 
