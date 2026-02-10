@@ -10,6 +10,8 @@ mod runend;
 mod sequence;
 mod zigzag;
 mod zstd;
+#[cfg(feature = "unstable_encodings")]
+mod zstd_buffers;
 
 pub use alp::ALPExecutor;
 pub use bitpacked::BitPackedExecutor;
@@ -24,3 +26,5 @@ pub use zigzag::ZigZagExecutor;
 pub use zstd::ZstdExecutor;
 pub use zstd::ZstdKernelPrep;
 pub use zstd::zstd_kernel_prepare;
+#[cfg(feature = "unstable_encodings")]
+pub use zstd_buffers::ZstdBuffersExecutor;
