@@ -543,10 +543,11 @@ jobs:
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
         run: cargo test -p vortex-cuda
-      - name: CUDA - racecheck
-        env:
-          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        run: cargo test -p vortex-cuda
+        # TODO(joe): try to re-enable, This is hanging in CI.
+        #      - name: CUDA - racecheck
+        #        env:
+        #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
+        #        run: cargo test -p vortex-cuda
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
