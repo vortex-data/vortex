@@ -85,21 +85,14 @@ jobs:
 
           TARGET_TRIPLE=$(rustc +nightly -vV | sed -n 's|host: ||p')
 
-          # cargo fuzz may place the binary in fuzz/target or the workspace target dir
-          FUZZ_BIN=""
-          for TARGET_DIR in fuzz/target target; do
-            CANDIDATE="${TARGET_DIR}/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
-            if [ -f "$CANDIDATE" ]; then
-              FUZZ_BIN="$CANDIDATE"
-              break
-            fi
-          done
+          # cargo-fuzz coverage places the binary at:
+          #   target/<triple>/coverage/<triple>/release/<fuzz_target>
+          FUZZ_BIN="target/${TARGET_TRIPLE}/coverage/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
 
-          if [ -z "$FUZZ_BIN" ]; then
-            echo "ERROR: Could not find fuzz binary for ${{ matrix.fuzz_target }}"
-            echo "Searched:"
-            echo "  fuzz/target/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
-            echo "  target/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+          if [ ! -f "$FUZZ_BIN" ]; then
+            echo "ERROR: Could not find fuzz binary at $FUZZ_BIN"
+            echo "Searching for binary in target directories..."
+            find target -name "${{ matrix.fuzz_target }}" -type f 2>/dev/null || true
             exit 1
           fi
 
