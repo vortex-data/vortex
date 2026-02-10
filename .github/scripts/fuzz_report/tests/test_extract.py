@@ -19,7 +19,6 @@ from fuzz_report.extract import (
     normalize_message,
 )
 
-
 INDEX_BOUNDS_LOG = """
 Running: cargo +nightly fuzz run file_io
 INFO: Seed: 1705312847
@@ -82,10 +81,7 @@ stack backtrace:
 
 class TestExtractPanicLocation:
     def test_standard_format(self):
-        assert (
-            extract_panic_location(INDEX_BOUNDS_LOG)
-            == "vortex-array/src/compute/slice.rs:142"
-        )
+        assert extract_panic_location(INDEX_BOUNDS_LOG) == "vortex-array/src/compute/slice.rs:142"
 
     def test_unknown_when_missing(self):
         assert extract_panic_location("no panic here") == "unknown"

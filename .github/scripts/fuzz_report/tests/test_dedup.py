@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from fuzz_report.dedup import (
-    DedupResult,
     check_duplicate,
     check_error_pattern,
     check_panic_location,
@@ -15,7 +14,6 @@ from fuzz_report.dedup import (
     check_stack_trace,
 )
 from fuzz_report.extract import CrashInfo
-
 
 EXISTING_ISSUES = [
     {

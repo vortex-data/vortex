@@ -1,7 +1,7 @@
 """Fuzzer crash reporting utilities."""
 
+from .dedup import DedupResult, check_duplicate
 from .extract import extract_crash_info
-from .dedup import check_duplicate, DedupResult
 from .template import render_template
 
 __all__ = [

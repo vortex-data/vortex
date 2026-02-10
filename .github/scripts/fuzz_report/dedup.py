@@ -43,9 +43,7 @@ def load_issues(issues_path: str | Path) -> list[dict]:
 def check_seed_hash(seed_hash: str, issues: list[dict]) -> DedupResult:
     """Check if seed hash exists in any issue body."""
     if not seed_hash or seed_hash == "unknown":
-        return DedupResult(
-            duplicate=False, check="seed_hash", reason="No seed hash provided"
-        )
+        return DedupResult(duplicate=False, check="seed_hash", reason="No seed hash provided")
 
     for issue in issues:
         body = issue.get("body", "")
@@ -60,9 +58,7 @@ def check_seed_hash(seed_hash: str, issues: list[dict]) -> DedupResult:
                 reason="Exact seed hash match - same crash input",
             )
 
-    return DedupResult(
-        duplicate=False, check="seed_hash", reason="No matching seed hash found"
-    )
+    return DedupResult(duplicate=False, check="seed_hash", reason="No matching seed hash found")
 
 
 def check_panic_location(panic_location: str, issues: list[dict]) -> DedupResult:
@@ -101,9 +97,7 @@ def check_panic_location(panic_location: str, issues: list[dict]) -> DedupResult
 def check_stack_trace(stack_hash: str, issues: list[dict]) -> DedupResult:
     """Check if stack trace hash exists in any issue body."""
     if not stack_hash or stack_hash == "unknown":
-        return DedupResult(
-            duplicate=False, check="stack_trace", reason="No stack hash provided"
-        )
+        return DedupResult(duplicate=False, check="stack_trace", reason="No stack hash provided")
 
     for issue in issues:
         body = issue.get("body", "")
@@ -125,14 +119,10 @@ def check_stack_trace(stack_hash: str, issues: list[dict]) -> DedupResult:
     )
 
 
-def check_error_pattern(
-    message_hash: str, error_variant: str, issues: list[dict]
-) -> DedupResult:
+def check_error_pattern(message_hash: str, error_variant: str, issues: list[dict]) -> DedupResult:
     """Check if error pattern exists in any issue body."""
     if not message_hash:
-        return DedupResult(
-            duplicate=False, check="error_pattern", reason="No message hash provided"
-        )
+        return DedupResult(duplicate=False, check="error_pattern", reason="No message hash provided")
 
     # First try: exact message hash match
     for issue in issues:
@@ -163,9 +153,7 @@ def check_error_pattern(
                     reason=f"Same error variant type: {error_variant}",
                 )
 
-    return DedupResult(
-        duplicate=False, check="error_pattern", reason="No matching error pattern found"
-    )
+    return DedupResult(duplicate=False, check="error_pattern", reason="No matching error pattern found")
 
 
 def check_duplicate(crash_info: CrashInfo, issues_path: str | Path) -> DedupResult:
@@ -191,9 +179,7 @@ def check_duplicate(crash_info: CrashInfo, issues_path: str | Path) -> DedupResu
         return result
 
     # Check 4: Error pattern (normalized message)
-    result = check_error_pattern(
-        crash_info.message_hash, crash_info.error_variant, issues
-    )
+    result = check_error_pattern(crash_info.message_hash, crash_info.error_variant, issues)
     if result.duplicate:
         result.check_order = 4
         return result

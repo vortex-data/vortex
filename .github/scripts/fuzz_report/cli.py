@@ -6,17 +6,15 @@ import json
 import sys
 from pathlib import Path
 
-from .extract import CrashInfo, extract_crash_info
 from .dedup import check_duplicate
+from .extract import CrashInfo, extract_crash_info
 from .template import render_template, render_template_to_file
 
 
 def parse_var_arg(var_str: str) -> tuple[str, str]:
     """Parse a -v KEY=VALUE argument into (key, value)."""
     if "=" not in var_str:
-        raise argparse.ArgumentTypeError(
-            f"Invalid variable format: {var_str!r} (expected KEY=VALUE)"
-        )
+        raise argparse.ArgumentTypeError(f"Invalid variable format: {var_str!r} (expected KEY=VALUE)")
     key, _, value = var_str.partition("=")
     return key, value
 
@@ -131,8 +129,7 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
 
     if action == "skip":
         print(
-            f"(exact duplicate of #{dedup_result.issue_number}, "
-            "no issue/comment would be created)",
+            f"(exact duplicate of #{dedup_result.issue_number}, no issue/comment would be created)",
             file=sys.stderr,
         )
         return 0

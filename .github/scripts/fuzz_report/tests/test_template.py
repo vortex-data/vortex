@@ -6,7 +6,6 @@ used by fuzzer-fix-automation.yml to extract crash details from issue bodies.
 
 import os
 import re
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -26,14 +25,7 @@ def simple_template(tmp_path):
 @pytest.fixture
 def conditional_template(tmp_path):
     """Create a template with {{#if}} conditionals."""
-    content = (
-        "# Title\n"
-        "{{#if ANALYSIS}}\n"
-        "### Analysis\n"
-        "{{ANALYSIS}}\n"
-        "{{/if}}\n"
-        "Footer\n"
-    )
+    content = "# Title\n{{#if ANALYSIS}}\n### Analysis\n{{ANALYSIS}}\n{{/if}}\nFooter\n"
     path = tmp_path / "conditional.md"
     path.write_text(content)
     return str(path)
@@ -42,17 +34,13 @@ def conditional_template(tmp_path):
 @pytest.fixture
 def new_issue_template():
     """Path to the actual new_issue.md template."""
-    return str(
-        Path(__file__).parent.parent / "templates" / "new_issue.md"
-    )
+    return str(Path(__file__).parent.parent / "templates" / "new_issue.md")
 
 
 @pytest.fixture
 def related_comment_template():
     """Path to the actual related_comment.md template."""
-    return str(
-        Path(__file__).parent.parent / "templates" / "related_comment.md"
-    )
+    return str(Path(__file__).parent.parent / "templates" / "related_comment.md")
 
 
 class TestRenderTemplate:
@@ -135,9 +123,7 @@ class TestRenderTemplateToFile:
     def test_writes_to_file(self, simple_template, tmp_path):
         variables = {"TITLE": "Test", "TARGET": "test", "VALUE": "1"}
         output_path = tmp_path / "output.md"
-        render_template_to_file(
-            simple_template, str(output_path), variables, use_env=False
-        )
+        render_template_to_file(simple_template, str(output_path), variables, use_env=False)
         content = output_path.read_text()
         assert "Test" in content
 
@@ -170,9 +156,7 @@ class TestDownstreamGrepCompatibility:
 
     def test_target_grep_pattern(self, new_issue_template):
         """Verify **Target**: `value` matches downstream grep."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP '(?<=\*\*Target\*\*: `)[^`]+'
         match = re.search(r"\*\*Target\*\*: `([^`]+)`", rendered)
         assert match is not None, f"Target pattern not found in:\n{rendered}"
@@ -180,9 +164,7 @@ class TestDownstreamGrepCompatibility:
 
     def test_crash_file_grep_pattern(self, new_issue_template):
         """Verify **Crash File**: `value` matches downstream grep."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP '(?<=\*\*Crash File\*\*: `)[^`]+'
         match = re.search(r"\*\*Crash File\*\*: `([^`]+)`", rendered)
         assert match is not None, f"Crash File pattern not found in:\n{rendered}"
@@ -190,9 +172,7 @@ class TestDownstreamGrepCompatibility:
 
     def test_artifact_url_grep_pattern(self, new_issue_template):
         """Verify artifact URL matches downstream grep."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         # Simulate: grep -oP 'https://[^\s]+/artifacts/[0-9]+'
         match = re.search(r"https://[^\s]+/artifacts/[0-9]+", rendered)
         assert match is not None, f"Artifact URL pattern not found in:\n{rendered}"
@@ -200,34 +180,26 @@ class TestDownstreamGrepCompatibility:
 
     def test_hidden_hashes_present(self, new_issue_template):
         """Verify hidden HTML comment with hashes is present."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "<!-- seed_hash:aaa111" in rendered
         assert "stack_hash:bbb222" in rendered
         assert "message_hash:ccc333" in rendered
 
     def test_claude_analysis_shown_when_present(self, new_issue_template):
         """Claude analysis section should appear when provided."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "Root Cause Analysis" in rendered
         assert "off-by-one error" in rendered
 
     def test_claude_analysis_hidden_when_empty(self, new_issue_template):
         """Claude analysis section should not appear when empty."""
         vars_no_analysis = {**self.SAMPLE_VARS, "CLAUDE_ANALYSIS": ""}
-        rendered = render_template(
-            new_issue_template, vars_no_analysis, use_env=False
-        )
+        rendered = render_template(new_issue_template, vars_no_analysis, use_env=False)
         assert "Root Cause Analysis" not in rendered
 
     def test_debug_output_in_details(self, new_issue_template):
         """Debug output should be inside a <details> block."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
         assert "<details>" in rendered
         assert "Debug Output" in rendered
         assert "Array { dtype: Int32, len: 10 }" in rendered
@@ -239,18 +211,14 @@ class TestDownstreamGrepCompatibility:
             "DEDUP_REASON": "Same panic location",
             "DEDUP_CONFIDENCE": "high",
         }
-        rendered = render_template(
-            related_comment_template, vars_with_dedup, use_env=False
-        )
+        rendered = render_template(related_comment_template, vars_with_dedup, use_env=False)
         match = re.search(r"\*\*Target\*\*: `([^`]+)`", rendered)
         assert match is not None
         assert match.group(1) == "file_io"
 
     def test_full_end_to_end_grep_simulation(self, new_issue_template):
         """Full simulation of the three grep commands from fuzzer-fix-automation.yml."""
-        rendered = render_template(
-            new_issue_template, self.SAMPLE_VARS, use_env=False
-        )
+        rendered = render_template(new_issue_template, self.SAMPLE_VARS, use_env=False)
 
         # grep -oP '(?<=\*\*Target\*\*: `)[^`]+'
         target_match = re.search(r"(?<=\*\*Target\*\*: `)[^`]+", rendered)
@@ -265,7 +233,4 @@ class TestDownstreamGrepCompatibility:
         # grep -oP 'https://[^\s]+/artifacts/[0-9]+'
         url_match = re.search(r"https://[^\s]+/artifacts/[0-9]+", rendered)
         assert url_match is not None
-        assert (
-            url_match.group(0)
-            == "https://github.com/spiraldb/vortex/actions/runs/12345/artifacts/67890"
-        )
+        assert url_match.group(0) == "https://github.com/spiraldb/vortex/actions/runs/12345/artifacts/67890"
