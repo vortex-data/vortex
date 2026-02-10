@@ -187,6 +187,7 @@ jobs:
         if: matrix.remote_storage == null || github.event.pull_request.head.repo.fork == true
         shell: bash
         env:
+          VORTEX_USE_SCAN_API: "1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
           OTEL_EXPORTER_OTLP_ENDPOINT: "${{ (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false) && secrets.OTEL_EXPORTER_OTLP_ENDPOINT || '' }}"
@@ -200,6 +201,7 @@ jobs:
         if: matrix.remote_storage != null && (inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false)
         shell: bash
         env:
+          VORTEX_USE_SCAN_API: "1"
           AWS_REGION: "eu-west-1"
           OTEL_SERVICE_NAME: "vortex-bench"
           OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf"
