@@ -208,10 +208,9 @@ mod tests {
         );
 
         // Casting to NonNullable should succeed since all logical values are non-null.
-        let result = cast(
-            dict.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-        );
+        let result = dict
+            .to_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable));
         assert!(
             result.is_ok(),
             "cast to NonNullable should succeed for dict with only unreferenced null values"
