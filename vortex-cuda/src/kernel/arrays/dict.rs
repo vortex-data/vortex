@@ -485,7 +485,7 @@ mod tests {
         let values: Vec<u32> = (0..256).map(|i| i * 1000).collect();
         let values_array = PrimitiveArray::new(Buffer::from(values), NonNullable);
 
-        let codes: Vec<u16> = (0..5000).map(|i| (i % 256) as u16).collect();
+        let codes: Vec<u16> = (0..2050).map(|i| (i % 256) as u16).collect();
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values_array.into_array())

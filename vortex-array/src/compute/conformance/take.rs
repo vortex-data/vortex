@@ -9,7 +9,6 @@ use crate::Array;
 use crate::Canonical;
 use crate::IntoArray as _;
 use crate::arrays::PrimitiveArray;
-use crate::compute::take;
 
 /// Test conformance of the take compute function for an array.
 ///
@@ -55,8 +54,9 @@ pub fn test_take_conformance(array: &dyn Array) {
 fn test_take_all(array: &dyn Array) {
     let len = array.len();
     let indices = PrimitiveArray::from_iter(0..len as u64);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), len);
     assert_eq!(result.dtype(), array.dtype());
@@ -94,8 +94,9 @@ fn test_take_all(array: &dyn Array) {
 
 fn test_take_none(array: &dyn Array) {
     let indices: PrimitiveArray = PrimitiveArray::from_iter::<[u64; 0]>([]);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 0);
     assert_eq!(result.dtype(), array.dtype());
@@ -110,7 +111,8 @@ fn test_take_selective(array: &dyn Array) {
     let expected_len = indices.len();
     let indices_array = PrimitiveArray::from_iter(indices.clone());
 
-    let result = take(array, indices_array.as_ref())
+    let result = array
+        .take(indices_array.to_array())
         .vortex_expect("take should succeed in conformance test");
     assert_eq!(result.len(), expected_len);
 
@@ -130,8 +132,9 @@ fn test_take_selective(array: &dyn Array) {
 fn test_take_first_and_last(array: &dyn Array) {
     let len = array.len();
     let indices = PrimitiveArray::from_iter([0u64, (len - 1) as u64]);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 2);
     assert_eq!(
@@ -166,8 +169,9 @@ fn test_take_with_nullable_indices(array: &dyn Array) {
     };
 
     let indices = PrimitiveArray::from_option_iter(indices_vec.clone());
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), indices_vec.len());
     assert_eq!(
@@ -206,8 +210,9 @@ fn test_take_repeated_indices(array: &dyn Array) {
 
     // Take the first element multiple times
     let indices = buffer![0u64, 0, 0].into_array();
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 3);
     let first_elem = array
@@ -225,8 +230,9 @@ fn test_take_repeated_indices(array: &dyn Array) {
 
 fn test_empty_indices(array: &dyn Array) {
     let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 0);
     assert_eq!(result.dtype(), array.dtype());
@@ -236,8 +242,9 @@ fn test_take_reverse(array: &dyn Array) {
     let len = array.len();
     // Take elements in reverse order
     let indices = PrimitiveArray::from_iter((0..len as u64).rev());
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), len);
 
@@ -259,8 +266,9 @@ fn test_take_single_middle(array: &dyn Array) {
     let middle_idx = len / 2;
 
     let indices = PrimitiveArray::from_iter([middle_idx as u64]);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), 1);
     assert_eq!(
@@ -286,7 +294,8 @@ fn test_take_random_unsorted(array: &dyn Array) {
     }
 
     let indices_array = PrimitiveArray::from_iter(indices.clone());
-    let result = take(array, indices_array.as_ref())
+    let result = array
+        .take(indices_array.to_array())
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), indices.len());
@@ -311,8 +320,9 @@ fn test_take_contiguous_range(array: &dyn Array) {
 
     // Take a contiguous range from the middle
     let indices = PrimitiveArray::from_iter(start as u64..end as u64);
-    let result =
-        take(array, indices.as_ref()).vortex_expect("take should succeed in conformance test");
+    let result = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), end - start);
 
@@ -346,7 +356,8 @@ fn test_take_mixed_repeated(array: &dyn Array) {
     ];
 
     let indices_array = PrimitiveArray::from_iter(indices.clone());
-    let result = take(array, indices_array.as_ref())
+    let result = array
+        .take(indices_array.to_array())
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), indices.len());
@@ -376,7 +387,8 @@ fn test_take_large_indices(array: &dyn Array) {
         .collect();
 
     let indices_array = PrimitiveArray::from_iter(indices.clone());
-    let result = take(array, indices_array.as_ref())
+    let result = array
+        .take(indices_array.to_array())
         .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(result.len(), num_indices);

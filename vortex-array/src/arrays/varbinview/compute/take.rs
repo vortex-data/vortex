@@ -97,7 +97,6 @@ mod tests {
     use crate::arrays::VarBinViewArray;
     use crate::canonical::ToCanonical;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -111,7 +110,7 @@ mod tests {
             Some("six"),
         ]);
 
-        let taken = take(arr.as_ref(), &buffer![0, 3].into_array()).unwrap();
+        let taken = arr.take(buffer![0, 3].into_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(
@@ -132,7 +131,7 @@ mod tests {
             Validity::from(BitBuffer::from(vec![true, false])),
         );
 
-        let taken = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = arr.take(indices.to_array()).unwrap();
 
         assert!(taken.dtype().is_nullable());
         assert_eq!(

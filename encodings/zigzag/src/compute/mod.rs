@@ -77,7 +77,6 @@ mod tests {
     use vortex_array::assert_arrays_eq;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
-    use vortex_array::compute::take;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_buffer::buffer;
@@ -109,7 +108,7 @@ mod tests {
         ))?;
 
         let indices = buffer![0, 2].into_array();
-        let actual = take(zigzag.as_ref(), &indices).unwrap();
+        let actual = zigzag.take(indices.to_array()).unwrap();
         let expected = zigzag_encode(PrimitiveArray::new(buffer![-189, 1], Validity::AllValid))?;
         assert_arrays_eq!(actual, expected);
         Ok(())

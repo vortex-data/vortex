@@ -12,10 +12,13 @@ use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::EmptyMetadata;
+use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::ProstMetadata;
+use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
+use crate::arrays::constant::ConstantMetadata;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -39,10 +42,14 @@ impl ConstantVTable {
     pub const ID: ArrayId = ArrayId::new_ref("vortex.constant");
 }
 
+/// Maximum size (in bytes) of a protobuf-encoded scalar value that will be inlined
+/// into the array metadata. Values larger than this are stored only in the buffer.
+const CONSTANT_INLINE_THRESHOLD: usize = 1024;
+
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
 
-    type Metadata = EmptyMetadata;
+    type Metadata = ProstMetadata<ConstantMetadata>;
 
     type ArrayVTable = Self;
     type OperationsVTable = Self;
@@ -53,35 +60,47 @@ impl VTable for ConstantVTable {
         Self::ID
     }
 
-    fn metadata(_array: &ConstantArray) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+    fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
+        let proto_bytes: Vec<u8> = array.scalar().value().to_protobytes();
+        let scalar_value = (proto_bytes.len() <= CONSTANT_INLINE_THRESHOLD).then_some(proto_bytes);
+        Ok(ProstMetadata(ConstantMetadata { scalar_value }))
     }
 
-    fn serialize(_metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(vec![]))
+    fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        Ok(Some(metadata.serialize()))
     }
 
     fn deserialize(
-        _bytes: &[u8],
+        bytes: &[u8],
         _dtype: &DType,
         _len: usize,
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(EmptyMetadata)
+        // Empty bytes indicates an old writer that didn't produce metadata.
+        if bytes.is_empty() {
+            return Ok(ProstMetadata(ConstantMetadata { scalar_value: None }));
+        }
+        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
+        Ok(ProstMetadata(metadata))
     }
 
     fn build(
         dtype: &DType,
         len: usize,
-        _metadata: &Self::Metadata,
+        metadata: &Self::Metadata,
         buffers: &[BufferHandle],
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
-        if buffers.len() != 1 {
-            vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-        }
-        let buffer = buffers[0].clone().try_to_host_sync()?;
-        let sv = ScalarValue::from_protobytes(&buffer)?;
+        // Prefer reading the scalar from inlined metadata to avoid device-to-host copies.
+        let sv = if let Some(ref proto_bytes) = metadata.scalar_value {
+            ScalarValue::from_protobytes(proto_bytes)?
+        } else {
+            if buffers.len() != 1 {
+                vortex_bail!("Expected 1 buffer, got {}", buffers.len());
+            }
+            let buffer = buffers[0].clone().try_to_host_sync()?;
+            ScalarValue::from_protobytes(&buffer)?
+        };
         let scalar = Scalar::new(dtype.clone(), sv);
         Ok(ConstantArray::new(scalar, len))
     }

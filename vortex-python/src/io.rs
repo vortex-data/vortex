@@ -15,7 +15,6 @@ use vortex::array::arrow::FromArrowArray;
 use vortex::array::iter::ArrayIterator;
 use vortex::array::iter::ArrayIteratorAdapter;
 use vortex::array::iter::ArrayIteratorExt;
-use vortex::compressor::CompactCompressor;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
 use vortex::error::VortexError;
@@ -246,9 +245,7 @@ pub fn write(
 /// :func:`vortex.io.write`.
 #[pyclass(name = "VortexWriteOptions", module = "io", frozen)]
 pub(crate) struct PyVortexWriteOptions {
-    // TODO(DK): This might need to be an Arc<dyn Compressor> if we actually have multiple
-    // compressors.
-    compressor: Option<CompactCompressor>,
+    use_compact_encodings: bool,
 }
 
 #[pymethods]
@@ -256,7 +253,9 @@ impl PyVortexWriteOptions {
     /// Balance size, read-throughput, and read-latency.
     #[staticmethod]
     pub fn default() -> Self {
-        Self { compressor: None }
+        Self {
+            use_compact_encodings: false,
+        }
     }
 
     /// Prioritize small size over read-throughput and read-latency.
@@ -290,14 +289,14 @@ impl PyVortexWriteOptions {
     /// ```python
     /// >>> vx.io.VortexWriteOptions.compact().write(sprl, "tiny.vortex")
     /// >>> os.path.getsize('tiny.vortex')
-    /// 55116
+    /// 55316
     /// ```
     ///
     /// Random numbers are not (usually) composed of random bytes!
     #[staticmethod]
     pub fn compact() -> Self {
         Self {
-            compressor: Some(CompactCompressor::default()),
+            use_compact_encodings: true,
         }
     }
 
@@ -350,8 +349,8 @@ impl PyVortexWriteOptions {
     ) -> PyVortexResult<()> {
         py.detach(|| {
             let mut strategy = WriteStrategyBuilder::default();
-            if let Some(compressor) = self.compressor.as_ref() {
-                strategy = strategy.with_compressor(compressor.clone())
+            if self.use_compact_encodings {
+                strategy = strategy.with_compact_encodings();
             }
             let strategy = strategy.build();
             TOKIO_RUNTIME.block_on(async move {

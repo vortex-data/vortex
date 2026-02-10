@@ -218,16 +218,16 @@ mod tests {
     }
 
     #[rstest]
-    #[case::u8(make_constant_array(42u8, 5000))]
-    #[case::u16(make_constant_array(1234u16, 5000))]
-    #[case::u32(make_constant_array(100000u32, 5000))]
-    #[case::u64(make_constant_array(1000000u64, 5000))]
-    #[case::i8(make_constant_array(-42i8, 5000))]
-    #[case::i16(make_constant_array(-1234i16, 5000))]
-    #[case::i32(make_constant_array(-100000i32, 5000))]
-    #[case::i64(make_constant_array(-1000000i64, 5000))]
-    #[case::f32(make_constant_array(1.23f32, 5000))]
-    #[case::f64(make_constant_array(4.56789f64, 5000))]
+    #[case::u8(make_constant_array(42u8, 2050))]
+    #[case::u16(make_constant_array(1234u16, 2050))]
+    #[case::u32(make_constant_array(100000u32, 2050))]
+    #[case::u64(make_constant_array(1000000u64, 2050))]
+    #[case::i8(make_constant_array(-42i8, 2050))]
+    #[case::i16(make_constant_array(-1234i16, 2050))]
+    #[case::i32(make_constant_array(-100000i32, 2050))]
+    #[case::i64(make_constant_array(-1000000i64, 2050))]
+    #[case::f32(make_constant_array(1.23f32, 2050))]
+    #[case::f64(make_constant_array(4.56789f64, 2050))]
     #[tokio::test]
     async fn test_cuda_constant_materialization(
         #[case] constant_array: ConstantArray,

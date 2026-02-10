@@ -38,7 +38,6 @@ use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
 use crate::compute::or;
-use crate::compute::take;
 
 /// Tests that filter and take operations produce consistent results.
 ///
@@ -75,8 +74,9 @@ fn test_filter_take_consistency(array: &dyn Array) {
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
 
     // Take using those indices
-    let taken =
-        take(array, &indices_array).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices_array.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     // Results should be identical
     assert_eq!(
@@ -356,7 +356,9 @@ fn test_take_slice_consistency(array: &dyn Array) {
     // Take indices [1, 2, 3]
     let end = 4.min(len);
     let indices = PrimitiveArray::from_iter((1..end).map(|i| i as u64)).into_array();
-    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     // Slice from 1 to end
     let sliced = array
@@ -441,7 +443,9 @@ fn test_take_repeated_indices(array: &dyn Array) {
 
     // Take the first element three times
     let indices = PrimitiveArray::from_iter([0u64, 0, 0]).into_array();
-    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     assert_eq!(taken.len(), 3);
     for i in 0..3 {
@@ -506,8 +510,9 @@ fn test_empty_operations_consistency(array: &dyn Array) {
 
     // Empty take
     let empty_indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable).into_array();
-    let empty_take =
-        take(array, &empty_indices).vortex_expect("take should succeed in conformance test");
+    let empty_take = array
+        .take(empty_indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
     assert_eq!(empty_take.len(), 0);
     assert_eq!(empty_take.dtype(), array.dtype());
 
@@ -530,7 +535,9 @@ fn test_take_preserves_properties(array: &dyn Array) {
 
     // Take all elements in original order
     let indices = PrimitiveArray::from_iter((0..len).map(|i| i as u64)).into_array();
-    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     // Should be identical to original
     assert_eq!(taken.len(), array.len());
@@ -573,7 +580,9 @@ fn test_nullable_indices_consistency(array: &dyn Array) {
     // Create nullable indices where some indices are null
     let indices = PrimitiveArray::from_option_iter([Some(0u64), None, Some(2u64)]).into_array();
 
-    let taken = take(array, &indices).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     // Result should have nulls where indices were null
     assert_eq!(
@@ -637,8 +646,9 @@ fn test_large_array_consistency(array: &dyn Array) {
     // Test with every 10th element
     let indices: Vec<u64> = (0..len).step_by(10).map(|i| i as u64).collect();
     let indices_array = PrimitiveArray::from_iter(indices).into_array();
-    let taken =
-        take(array, &indices_array).vortex_expect("take should succeed in conformance test");
+    let taken = array
+        .take(indices_array.to_array())
+        .vortex_expect("take should succeed in conformance test");
 
     // Create equivalent filter mask
     let mask_pattern: Vec<bool> = (0..len).map(|i| i % 10 == 0).collect();

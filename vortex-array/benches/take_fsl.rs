@@ -14,9 +14,9 @@ use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_array::Array;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FixedSizeListArray;
-use vortex_array::compute::take;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 
@@ -61,7 +61,7 @@ fn take_fsl_random<const LIST_SIZE: usize>(bencher: Bencher, num_indices: usize)
 
     bencher
         .with_inputs(|| (&fsl, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
 }
 
 #[divan::bench(args = NUM_INDICES, consts = LIST_SIZES)]
@@ -80,5 +80,5 @@ fn take_fsl_nullable_random<const LIST_SIZE: usize>(bencher: Bencher, num_indice
 
     bencher
         .with_inputs(|| (&fsl, &indices_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .bench_refs(|(array, indices)| array.take(indices.to_array()).unwrap());
 }

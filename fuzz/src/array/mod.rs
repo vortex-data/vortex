@@ -515,15 +515,22 @@ fn random_action_from_list(
 /// Compress an array using the given strategy.
 #[cfg(feature = "zstd")]
 pub fn compress_array(array: &dyn Array, strategy: CompressorStrategy) -> ArrayRef {
-    use vortex_layout::layouts::compact::CompactCompressor;
+    use vortex_btrblocks::BtrBlocksCompressorBuilder;
+    use vortex_btrblocks::FloatCode;
+    use vortex_btrblocks::IntCode;
+    use vortex_btrblocks::StringCode;
 
     match strategy {
         CompressorStrategy::Default => BtrBlocksCompressor::default()
             .compress(array)
             .vortex_expect("BtrBlocksCompressor compress should succeed in fuzz test"),
-        CompressorStrategy::Compact => CompactCompressor::default()
+        CompressorStrategy::Compact => BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
+            .include_int([IntCode::Pco])
+            .include_float([FloatCode::Pco])
+            .build()
             .compress(array)
-            .vortex_expect("CompactCompressor compress should succeed in fuzz test"),
+            .vortex_expect("Compact compress should succeed in fuzz test"),
     }
 }
 
@@ -550,8 +557,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
-    use vortex_array::compute::take;
-
     let FuzzArrayAction { array, actions } = fuzz_action;
     let mut current_array = array.to_array();
 
@@ -574,7 +579,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 if indices.is_empty() {
                     return Ok(false); // Reject
                 }
-                current_array = take(&current_array, &indices)
+                current_array = current_array
+                    .take(indices)
                     .vortex_expect("take operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

@@ -33,7 +33,6 @@ pub use nan_count::*;
 pub use numeric::*;
 use parking_lot::RwLock;
 pub use sum::*;
-pub use take::*;
 use vortex_dtype::DType;
 use vortex_error::VortexError;
 use vortex_error::VortexResult;
@@ -67,7 +66,6 @@ mod min_max;
 mod nan_count;
 mod numeric;
 mod sum;
-mod take;
 mod zip;
 
 /// An instance of a compute function holding the implementation vtable and a set of registered
