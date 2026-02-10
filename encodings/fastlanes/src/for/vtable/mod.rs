@@ -38,9 +38,7 @@ vtable!(FoR);
 impl VTable for FoRVTable {
     type Array = FoRArray;
 
-    // TODO(connor): This should really be a `Scalar` but we need to deprecate `deserialize` for the
-    // `build` method.
-    type Metadata = Vec<u8>;
+    type Metadata = Scalar;
 
     type ArrayVTable = Self;
     type OperationsVTable = Self;
@@ -66,25 +64,22 @@ impl VTable for FoRVTable {
         Ok(())
     }
 
-    // TODO(connor): DON'T TOUCH THIS UNLESS YOU KNOW WHAT YOU ARE DOING!!!
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {
-        Ok(ScalarValue::to_proto_bytes(
-            array.reference_scalar().value(),
-        ))
+        Ok(array.reference_scalar().clone())
     }
 
-    // TODO(connor): DON'T TOUCH THIS UNLESS YOU KNOW WHAT YOU ARE DOING!!!
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata))
+        Ok(Some(ScalarValue::to_proto_bytes(metadata.value())))
     }
 
     fn deserialize(
         bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        Ok(bytes.to_vec())
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        Scalar::try_new(dtype.clone(), scalar_value)
     }
 
     fn build(
@@ -102,10 +97,8 @@ impl VTable for FoRVTable {
         }
 
         let encoded = children.get(0, dtype, len)?;
-        let scalar_value = ScalarValue::from_proto_bytes(metadata, dtype)?;
-        let reference = Scalar::try_new(dtype.clone(), scalar_value)?;
 
-        FoRArray::try_new(encoded, reference)
+        FoRArray::try_new(encoded, metadata.clone())
     }
 
     fn reduce_parent(

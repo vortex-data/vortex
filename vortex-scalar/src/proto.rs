@@ -44,6 +44,7 @@ impl From<&Scalar> for pb::Scalar {
     }
 }
 
+// TODO(connor): Remove this
 impl Scalar {
     /// Serialize this [`Scalar`]'s value to protobuf bytes (handles null values).
     ///
@@ -168,6 +169,7 @@ impl From<&PValue> for pb::ScalarValue {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl Scalar {
+    // TODO(connor): Remove this
     /// Deserialize a [`ScalarValue`] from protobuf bytes.
     ///
     /// Note that we need to provide a [`DType`] since protobuf serialization only supports 64-bit
