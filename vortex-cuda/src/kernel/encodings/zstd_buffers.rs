@@ -44,7 +44,7 @@ impl CudaExecute for ZstdBuffersExecutor {
     ) -> VortexResult<Canonical> {
         let zstd_buffers = array
             .try_into::<ZstdBuffersVTable>()
-            .map_err(|_| vortex_err!("expectd zstd buffers array"))?;
+            .map_err(|_| vortex_err!("expected zstd buffers array"))?;
         decode_zstd_buffers(zstd_buffers, ctx).await
     }
 }
