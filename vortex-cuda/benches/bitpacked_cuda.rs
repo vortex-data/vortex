@@ -145,32 +145,26 @@ where
 
 /// Benchmark bit unpacking for u8
 fn benchmark_bitunpack_u8(c: &mut Criterion) {
-    // Benchmark all meaningful bit widths for u8 (1-8)
-    for bit_width in 1..=8 {
-        benchmark_bitunpack_typed::<u8>(c, bit_width, "u8");
-    }
+    benchmark_bitunpack_typed::<u8>(c, 3, "u8");
 }
 
 /// Benchmark bit unpacking for u16
 fn benchmark_bitunpack_u16(c: &mut Criterion) {
-    // Benchmark selected bit widths for u16
-    for bit_width in [1, 2, 4, 8, 12, 16] {
+    for bit_width in [3, 12] {
         benchmark_bitunpack_typed::<u16>(c, bit_width, "u16");
     }
 }
 
 /// Benchmark bit unpacking for u32
 fn benchmark_bitunpack_u32(c: &mut Criterion) {
-    // Benchmark selected bit widths for u32
-    for bit_width in [1, 2, 4, 8, 12, 16, 20, 24, 28, 32] {
+    for bit_width in [3, 12, 24] {
         benchmark_bitunpack_typed::<u32>(c, bit_width, "u32");
     }
 }
 
 /// Benchmark bit unpacking for u64
 fn benchmark_bitunpack_u64(c: &mut Criterion) {
-    // Benchmark selected bit widths for u64
-    for bit_width in [1, 2, 4, 8, 16, 24, 32, 40, 48, 56, 64] {
+    for bit_width in [3, 12, 24, 36] {
         benchmark_bitunpack_typed::<u64>(c, bit_width, "u64");
     }
 }
