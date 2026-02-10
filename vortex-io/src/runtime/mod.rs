@@ -32,7 +32,7 @@ mod smol;
 #[cfg(feature = "tokio")]
 pub mod tokio;
 #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
-pub use cpu_segregated::CPUSegregatedRuntime;
+pub use cpu_segregated::CPUSegregatedExecutor;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm;
 

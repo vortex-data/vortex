@@ -39,8 +39,23 @@ pub trait RuntimeSessionExt: SessionExt {
 
     /// Configure the runtime session to use the application's Tokio runtime.
     ///
+    /// On non-wasm32 targets, this uses CPUSegregatedRuntime which separates
+    /// CPU-bound work from I/O to prevent I/O starvation. On wasm32, it uses
+    /// the standard TokioRuntime.
+    ///
     /// For example, if the application is launched using `#[tokio::main]`.
-    #[cfg(feature = "tokio")]
+    #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
+    fn with_tokio(self) -> Self {
+        todo!()
+        // self.get_mut::<RuntimeSession>().handle =
+        //     Some(crate::runtime::CPUSegregatedRuntime::current());
+        // self
+    }
+
+    /// Configure the runtime session to use the application's Tokio runtime.
+    ///
+    /// For example, if the application is launched using `#[tokio::main]`.
+    #[cfg(all(feature = "tokio", target_arch = "wasm32"))]
     fn with_tokio(self) -> Self {
         self.get_mut::<RuntimeSession>().handle =
             Some(crate::runtime::tokio::TokioRuntime::current());
@@ -59,19 +74,21 @@ pub trait RuntimeSessionExt: SessionExt {
     /// The CPU pool will reserve 2 cores for I/O by default.
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     fn with_cpu_segregated_runtime(self) -> Self {
-        self.get_mut::<RuntimeSession>().handle =
-            Some(crate::runtime::CPUSegregatedRuntime::current());
-        self
+        todo!()
+        // self.get_mut::<RuntimeSession>().handle =
+        //     Some(crate::runtime::CPUSegregatedRuntime::current());
+        // self
     }
 
     /// Configure the runtime session to use a CPUSegregatedRuntime,
     /// reserving the specified number of cores for I/O.
     #[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
     fn with_cpu_segregated_runtime_reserved(self, reserved_for_io: usize) -> Self {
-        self.get_mut::<RuntimeSession>().handle = Some(
-            crate::runtime::CPUSegregatedRuntime::current_with_reserved(reserved_for_io),
-        );
-        self
+        todo!()
+        // self.get_mut::<RuntimeSession>().handle = Some(
+        //     crate::runtime::CPUSegregatedRuntime::current_with_reserved(reserved_for_io),
+        // );
+        // self
     }
 }
 impl<S: SessionExt> RuntimeSessionExt for S {}

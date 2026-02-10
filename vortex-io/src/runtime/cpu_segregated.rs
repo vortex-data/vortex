@@ -8,41 +8,18 @@
 //! network I/O operations.
 
 use std::sync::Arc;
-use std::sync::LazyLock;
-use std::sync::OnceLock;
+use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::Ordering;
 
 use futures::future::BoxFuture;
 use rayon::ThreadPool;
-use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
 use crate::runtime::AbortHandle;
 use crate::runtime::AbortHandleRef;
 use crate::runtime::Executor;
 use crate::runtime::Handle;
-
-/// Global CPU pool, lazily initialized.
-/// This is shared across all CPUSegregatedRuntime handles.
-static CPU_POOL: OnceLock<Arc<ThreadPool>> = OnceLock::new();
-
-fn get_or_init_cpu_pool(reserved_for_io: usize) -> Arc<ThreadPool> {
-    CPU_POOL
-        .get_or_init(|| {
-            let available = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(1);
-            let cpu_threads = available.saturating_sub(reserved_for_io).max(1);
-
-            Arc::new(
-                rayon::ThreadPoolBuilder::new()
-                    .num_threads(cpu_threads)
-                    .thread_name(|i| format!("vortex-cpu-{}", i))
-                    .build()
-                    .unwrap_or_else(|e| vortex_panic!("Failed to create CPU thread pool: {}", e)),
-            )
-        })
-        .clone()
-}
 
 /// A runtime that segregates CPU-bound work from I/O work.
 ///
@@ -53,13 +30,24 @@ fn get_or_init_cpu_pool(reserved_for_io: usize) -> Arc<ThreadPool> {
 /// This separation ensures that CPU-heavy work (like array decompression and
 /// expression evaluation) doesn't starve network I/O operations, which need
 /// timely attention to maintain TCP throughput.
-pub struct CPUSegregatedRuntime;
+pub struct CPUSegregatedExecutorInner {
+    cpu_pool: ThreadPool,
+    io_pool: tokio::runtime::Runtime,
+}
 
-impl CPUSegregatedRuntime {
+pub struct CPUSegregatedExecutor {
+    owned: Arc<dyn Executor>,
+}
+
+impl CPUSegregatedExecutor {
+    pub fn handle(&self) -> Handle {
+        Handle::new(Arc::downgrade(&self.owned))
+    }
+
     /// Create a [`Handle`] using the current tokio context, reserving 2 cores for I/O.
     ///
     /// The CPU pool is lazily initialized on first call and shared across all handles.
-    pub fn current() -> Handle {
+    pub fn current() -> VortexResult<Self> {
         Self::current_with_reserved(2)
     }
 
@@ -67,33 +55,41 @@ impl CPUSegregatedRuntime {
     ///
     /// Note: The `reserved_for_io` parameter only affects the first call that initializes
     /// the global CPU pool. Subsequent calls will reuse the existing pool.
-    pub fn current_with_reserved(reserved_for_io: usize) -> Handle {
-        // Initialize the CPU pool (or get existing one)
-        drop(get_or_init_cpu_pool(reserved_for_io));
+    // TODO(DK): rename this to not use current
+    pub fn current_with_reserved(reserved_for_io: usize) -> VortexResult<Self> {
+        let available = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+        let cpu_threads = available.saturating_sub(reserved_for_io).max(1);
 
-        // Use a static executor that grabs the current tokio handle on each call
-        static EXECUTOR: LazyLock<Arc<dyn Executor>> =
-            LazyLock::new(|| Arc::new(CurrentCPUSegregatedExecutor));
+        let cpu_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(cpu_threads)
+            .thread_name(|i| format!("vortex-cpu-{}", i))
+            .build()
+            .unwrap_or_else(|e| vortex_panic!("Failed to create CPU thread pool: {}", e));
+        let io_pool = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(reserved_for_io)
+            .thread_name_fn(|| {
+                static ATOMIC_ID: AtomicUsize = AtomicUsize::new(0);
+                let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
+                format!("vortex-io-{}", id)
+            })
+            .build()?;
 
-        Handle::new(Arc::downgrade(&EXECUTOR))
+        let owned = Arc::from(CPUSegregatedExecutorInner { cpu_pool, io_pool });
+        Ok(CPUSegregatedExecutor { owned })
     }
 }
 
-/// An executor that uses the current tokio handle and the global CPU pool.
-struct CurrentCPUSegregatedExecutor;
-
-impl Executor for CurrentCPUSegregatedExecutor {
+impl Executor for CPUSegregatedExecutorInner {
     fn spawn(&self, fut: BoxFuture<'static, ()>) -> AbortHandleRef {
-        Box::new(tokio::runtime::Handle::current().spawn(fut).abort_handle())
+        Box::new(self.io_pool.spawn(fut).abort_handle())
     }
 
     fn spawn_cpu(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
         // Spawn on the dedicated CPU pool, not tokio.
         // This ensures CPU-heavy work doesn't block I/O threads.
-        let cpu_pool = CPU_POOL
-            .get()
-            .vortex_expect("CPU pool not initialized - call CPUSegregatedRuntime::current() first");
-        cpu_pool.spawn(move || {
+        self.cpu_pool.spawn(move || {
             task();
         });
         // CPU tasks cannot be aborted once spawned to the Rayon pool
@@ -101,11 +97,7 @@ impl Executor for CurrentCPUSegregatedExecutor {
     }
 
     fn spawn_blocking(&self, task: Box<dyn FnOnce() + Send + 'static>) -> AbortHandleRef {
-        Box::new(
-            tokio::runtime::Handle::current()
-                .spawn_blocking(task)
-                .abort_handle(),
-        )
+        Box::new(self.io_pool.spawn_blocking(task).abort_handle())
     }
 }
 
@@ -129,7 +121,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cpu_segregated_spawn_cpu() {
-        let handle = CPUSegregatedRuntime::current();
+        let handle = CPUSegregatedExecutor::current();
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
@@ -145,7 +137,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cpu_segregated_spawn() {
-        let handle = CPUSegregatedRuntime::current();
+        let handle = CPUSegregatedExecutor::current();
 
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
