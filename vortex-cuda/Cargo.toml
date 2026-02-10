@@ -88,3 +88,7 @@ harness = false
 [[bench]]
 name = "date_time_parts_cuda"
 harness = false
+
+[[bench]]
+name = "bitpacked_cuda"
+harness = false
