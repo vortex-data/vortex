@@ -90,7 +90,7 @@ where
 
 /// Cast an array to the given data type.
 ///
-/// Use [`ArrayBuiltins::cast`] instead.
+/// Use [`crate::builtins::ArrayBuiltins::cast`] instead.
 #[deprecated(note = "Use `array.cast(dtype)` via `ArrayBuiltins` trait instead")]
 pub fn cast(array: &dyn super::Array, dtype: &DType) -> VortexResult<ArrayRef> {
     use crate::builtins::ArrayBuiltins as _;
