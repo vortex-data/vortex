@@ -35,12 +35,12 @@ fn take_10_stratified(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -54,12 +54,12 @@ fn take_10_contiguous(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -76,12 +76,12 @@ fn take_10k_random(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -95,12 +95,12 @@ fn take_10k_contiguous(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -114,12 +114,12 @@ fn take_200k_dispersed(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -133,12 +133,12 @@ fn take_200k_first_chunk_only(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -179,12 +179,12 @@ fn patched_take_10_stratified(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -205,12 +205,12 @@ fn patched_take_10_contiguous(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -227,12 +227,12 @@ fn patched_take_10k_random(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -246,12 +246,12 @@ fn patched_take_10k_contiguous_not_patches(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -270,15 +270,14 @@ fn patched_take_10k_contiguous_patches(bencher: Bencher) {
 
     let indices =
         PrimitiveArray::from_iter((BIG_BASE2..BIG_BASE2 + NUM_EXCEPTIONS).cycle().take(10000));
-    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -289,15 +288,14 @@ fn patched_take_200k_dispersed(bencher: Bencher) {
     let uncompressed = PrimitiveArray::new(values.clone(), Validity::NonNullable);
     let packed = bitpack_to_best_bit_width(&uncompressed).unwrap();
     let indices = PrimitiveArray::from_iter((0..200_000).map(|i| (i * 42) % values.len() as u64));
-    let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -311,12 +309,12 @@ fn patched_take_200k_first_chunk_only(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
@@ -337,12 +335,12 @@ fn patched_take_10k_adversarial(bencher: Bencher) {
     let mut execution_ctx = LEGACY_SESSION.create_execution_ctx();
 
     bencher
-        .with_inputs(|| (&packed, &indices))
-        .bench_refs(|(packed, indices)| {
+        .with_inputs(|| (&packed, &indices, LEGACY_SESSION.create_execution_ctx()))
+        .bench_refs(|(packed, indices, execution_ctx)| {
             packed
                 .take(indices.to_array())
                 .unwrap()
-                .execute::<RecursiveCanonical>(&mut execution_ctx)
+                .execute::<RecursiveCanonical>(execution_ctx)
                 .unwrap()
         })
 }
