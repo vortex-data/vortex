@@ -106,6 +106,8 @@ impl ZstdBuffersDecodePlan {
         self.compressed_buffers.len()
     }
 
+    /// Split a contiguous decompressed output buffer into per-buffer handles using planned
+    /// offsets/sizes and enforce each buffer's required alignment.
     pub fn split_output_handle(
         &self,
         output_handle: &BufferHandle,
@@ -159,7 +161,7 @@ impl ZstdBuffersArray {
         let mut buffer_alignments = Vec::with_capacity(buffer_handles.len());
 
         let mut compressor = zstd::bulk::Compressor::new(level)?;
-        // compression is currently cpu only, so we gather all buffers to the host
+        // Compression is currently CPU-only, so we gather all buffers on the host.
         for handle in &buffer_handles {
             buffer_alignments.push(u32::from(handle.alignment()));
             let host_buf = handle.clone().try_to_host_sync()?;
@@ -187,6 +189,8 @@ impl ZstdBuffersArray {
     }
 
     fn decompress_buffers(&self) -> VortexResult<Vec<BufferHandle>> {
+        // CPU decode path: zstd::bulk works on host bytes, so compressed buffers are
+        // materialized on the host via `try_to_host_sync`.
         let mut decompressor = zstd::bulk::Decompressor::new()?;
         let mut result = Vec::with_capacity(self.compressed_buffers.len());
         for (i, (buf, &uncompressed_size)) in self
@@ -202,8 +206,8 @@ impl ZstdBuffersArray {
             let mut output = ByteBufferMut::with_capacity_aligned(size, aligned);
             let spare = output.spare_capacity_mut();
 
-            // this is currently guaranteed but still good to check because
-            // of the unsafe calls below
+            // This is currently guaranteed, but still good to check because
+            // of the unsafe calls below.
             if spare.len() < size {
                 return Err(vortex_err!(
                     "Insufficient output capacity: expected at least {}, got {}",
@@ -236,8 +240,8 @@ impl ZstdBuffersArray {
         self.build_inner(&decompressed_buffers, session)
     }
 
-    // this is exposed to help non cpu executors pass uncompressed buffer handles to build
-    // the inner array
+    // This is exposed to help non-CPU executors pass uncompressed buffer handles
+    // to build the inner array.
     pub fn build_inner(
         &self,
         buffer_handles: &[BufferHandle],
@@ -261,8 +265,8 @@ impl ZstdBuffersArray {
     }
 
     pub fn decode_plan(&self) -> VortexResult<ZstdBuffersDecodePlan> {
-        // if invariants are somehow broken the device decompression could have UB, so ensure
-        // they still hold
+        // If invariants are somehow broken, device decompression could have UB, so ensure
+        // they still hold.
         self.validate()
             .vortex_expect("zstd_buffers invariant violated before decode_plan");
 

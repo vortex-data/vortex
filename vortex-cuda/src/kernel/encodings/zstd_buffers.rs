@@ -91,7 +91,8 @@ async fn decode_zstd_buffers(
             .collect::<Vec<_>>()
     };
 
-    // we need to copy nvcomp args to the device, these are from the decode plan which is host resident
+    // We need to copy nvcomp args to the device; these come from the
+    // host-resident decode plan.
     let (frame_ptrs_handle, frame_sizes_handle, output_sizes_handle, output_ptrs_handle) = futures::try_join!(
         ctx.copy_to_device(frame_ptrs)?,
         ctx.copy_to_device(plan.frame_sizes())?,
@@ -155,7 +156,7 @@ async fn move_frames_to_device(
     try_join_all(move_futures).await
 }
 
-// this does d2h to get back the lengths array and the status array
+// This performs D2H to retrieve the lengths and status arrays.
 async fn validate_decompress_results(
     plan: &vortex_zstd::ZstdBuffersDecodePlan,
     device_actual_sizes: CudaSlice<usize>,
