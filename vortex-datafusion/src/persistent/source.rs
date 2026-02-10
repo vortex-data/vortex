@@ -69,7 +69,11 @@ pub struct VortexSource {
 }
 
 impl VortexSource {
-    pub(crate) fn new(table_schema: TableSchema, session: VortexSession) -> Self {
+    /// Creates a new VortexSource with default configuration and a provided [`VortexSession`].
+    /// Meant to be use with a [`FileScanConfig`] to scan a file with the provided schema.
+    ///
+    /// Can be configured using the provided methods.
+    pub fn new(table_schema: TableSchema, session: VortexSession) -> Self {
         let full_schema = table_schema.table_schema();
         let indices = (0..full_schema.fields().len()).collect::<Vec<_>>();
         let projection = ProjectionExprs::from_indices(&indices, full_schema);
