@@ -31,9 +31,9 @@ use crate::Array;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
 use crate::arrays::PrimitiveArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::Operator;
 use crate::compute::and;
-use crate::compute::cast;
 use crate::compute::compare;
 use crate::compute::invert;
 use crate::compute::mask;
@@ -1201,7 +1201,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             .vortex_expect("slice should succeed in conformance test");
 
         // Try to cast the sliced array
-        let slice_then_cast = match cast(&sliced, &target_dtype) {
+        let slice_then_cast = match sliced.cast(target_dtype.clone()) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
@@ -1249,7 +1249,7 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         }
 
         // Also test the other way: cast then slice
-        let casted = match cast(array, &target_dtype) {
+        let casted = match array.to_array().cast(target_dtype.clone()) {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };

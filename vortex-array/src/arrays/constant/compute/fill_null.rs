@@ -8,9 +8,9 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::FillNullKernel;
 use crate::compute::FillNullKernelAdapter;
-use crate::compute::cast;
 use crate::register_kernel;
 
 impl FillNullKernel for ConstantVTable {
@@ -18,7 +18,7 @@ impl FillNullKernel for ConstantVTable {
         if array.scalar().is_null() {
             Ok(ConstantArray::new(fill_value.clone(), array.len()).into_array())
         } else {
-            cast(array.as_ref(), fill_value.dtype())
+            array.to_array().cast(fill_value.dtype().clone())
         }
     }
 }

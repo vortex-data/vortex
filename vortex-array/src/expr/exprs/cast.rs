@@ -7,14 +7,16 @@ use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
+use crate::Array;
 use crate::ArrayRef;
+use crate::array::IntoArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::cast as compute_cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -98,8 +100,21 @@ impl VTable for Cast {
                     .cast(target_dtype.clone())
             }
             Some(columnar) => {
-                // TODO(ngates): inline casting logic for scalars / canonical here.
-                compute_cast(columnar.as_ref(), target_dtype)
+                let array: &dyn Array = columnar.as_ref();
+                // If already canonical and still here, no CastKernel handled it.
+                if array.is_canonical() {
+                    vortex_bail!(
+                        "No CastKernel to cast canonical array {} from {} to {}",
+                        array.encoding_id(),
+                        array.dtype(),
+                        target_dtype,
+                    );
+                }
+                // Canonicalize and retry — the canonical type's CastKernel will handle it.
+                array
+                    .to_canonical()?
+                    .into_array()
+                    .cast(target_dtype.clone())
             }
         }
     }

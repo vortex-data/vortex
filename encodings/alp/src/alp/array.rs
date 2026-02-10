@@ -42,6 +42,7 @@ use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
+use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
@@ -172,6 +173,14 @@ impl VTable for ALPVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // TODO(joe): take by value
         Ok(execute_decompress(array.clone(), ctx)?.into_array())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute_parent(

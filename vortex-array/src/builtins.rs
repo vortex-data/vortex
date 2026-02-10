@@ -15,7 +15,11 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Executable;
+use crate::LEGACY_SESSION;
+use crate::VortexSessionExecute;
 use crate::arrays::ScalarFnArrayExt;
+use crate::arrays::ScalarFnVTable;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::Expression;
@@ -89,8 +93,25 @@ pub trait ArrayBuiltins: Sized {
 
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
-        Cast.try_new_array(self.len(), dtype, [self.clone()])?
-            .optimize()
+        // Short-circuit: no-op if already the target type
+        if self.dtype() == &dtype {
+            return Ok(self.clone());
+        }
+
+        let scalar_fn = Cast.try_new_array(self.len(), dtype, [self.clone()])?;
+        let optimized = scalar_fn.optimize()?;
+
+        // If a reduce rule resolved the cast (e.g. nullability change, push through encoding),
+        // return the result directly.
+        if !optimized.is::<ScalarFnVTable>() {
+            return Ok(optimized);
+        }
+
+        // Otherwise, eagerly execute to invoke the CastKernel (execute_parent) or the
+        // Cast::execute fallback (canonicalize-and-retry). This matches the old eager
+        // cast() behavior and ensures errors are surfaced immediately.
+        let mut ctx = LEGACY_SESSION.create_execution_ctx();
+        <ArrayRef as Executable>::execute(optimized, &mut ctx)
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef> {

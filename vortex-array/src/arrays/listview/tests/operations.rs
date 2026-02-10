@@ -22,7 +22,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewVTable;
 use crate::arrays::PrimitiveArray;
 use crate::assert_arrays_eq;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::conformance::mask::test_mask_conformance;
 use crate::compute::is_constant;
 use crate::compute::mask;
@@ -232,7 +232,7 @@ fn test_cast_numeric_types(#[case] from_ptype: PType, #[case] to_ptype: PType) {
         Nullability::NonNullable,
     );
 
-    let result = cast(&listview, &target_dtype).unwrap();
+    let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
     let result_list = result.to_listview();
@@ -268,7 +268,7 @@ fn test_cast_with_nulls() {
         Nullability::Nullable,
     );
 
-    let result = cast(&listview, &target_dtype).unwrap();
+    let result = listview.cast(target_dtype.clone()).unwrap();
     assert_eq!(result.dtype(), &target_dtype);
 
     let result_list = result.to_listview();
@@ -312,7 +312,7 @@ fn test_cast_special_patterns(#[case] expected_sizes: Vec<usize>, #[case] list_c
         )
     };
 
-    let result = cast(&listview, &target_dtype).unwrap();
+    let result = listview.cast(target_dtype).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), list_count);
@@ -344,7 +344,7 @@ fn test_cast_large_dataset() {
         Nullability::NonNullable,
     );
 
-    let result = cast(&listview, &target_dtype).unwrap();
+    let result = listview.cast(target_dtype).unwrap();
     let result_list = result.to_listview();
 
     assert_eq!(result_list.len(), 20);

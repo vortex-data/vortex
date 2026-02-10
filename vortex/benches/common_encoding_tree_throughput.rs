@@ -22,8 +22,8 @@ use vortex::array::arrays::PrimitiveArray;
 use vortex::array::arrays::TemporalArray;
 use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
+use vortex::array::builtins::ArrayBuiltins;
 use vortex::array::vtable::ValidityHelper;
-use vortex::compute::cast;
 use vortex::dtype::DType;
 use vortex::dtype::PType;
 use vortex::dtype::datetime::TimeUnit;
@@ -68,10 +68,14 @@ mod setup {
         let mut rng = StdRng::seed_from_u64(0);
         let uint_array =
             PrimitiveArray::from_iter((0..NUM_VALUES).map(|_| rng.random_range(42u32..256)));
-        let int_array = cast(uint_array.as_ref(), PType::I32.into())
+        let int_array = uint_array
+            .to_array()
+            .cast(PType::I32.into())
             .unwrap()
             .to_primitive();
-        let float_array = cast(uint_array.as_ref(), PType::F64.into())
+        let float_array = uint_array
+            .to_array()
+            .cast(PType::F64.into())
             .unwrap()
             .to_primitive();
         (uint_array, int_array, float_array)

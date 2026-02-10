@@ -2,9 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_array::ArrayRef;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
@@ -12,8 +10,8 @@ use vortex_error::VortexResult;
 use crate::ZstdArray;
 use crate::ZstdVTable;
 
-impl CastKernel for ZstdVTable {
-    fn cast(&self, array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for ZstdVTable {
+    fn cast(array: &ZstdArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.eq_ignore_nullability(array.dtype()) {
             // Type changes can't be handled in ZSTD, need to decode and tweak.
             // TODO(aduffy): handle trivial conversions like Binary -> UTF8, integer widening, etc.
@@ -72,15 +70,13 @@ impl CastKernel for ZstdVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(ZstdVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::ToCanonical;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -98,11 +94,10 @@ mod tests {
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
-        let casted = cast(
-            zstd.as_ref(),
-            &DType::Primitive(PType::I64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = zstd
+            .to_array()
+            .cast(DType::Primitive(PType::I64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::I64, Nullability::NonNullable)
@@ -120,11 +115,10 @@ mod tests {
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 0).unwrap();
 
-        let casted = cast(
-            zstd.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = zstd
+            .to_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
@@ -139,11 +133,9 @@ mod tests {
         );
         let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = zstd.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -165,11 +157,9 @@ mod tests {
         ]);
         let zstd = ZstdArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = zstd.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)

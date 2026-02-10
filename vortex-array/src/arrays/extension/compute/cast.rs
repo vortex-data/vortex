@@ -7,17 +7,11 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
-use crate::compute::CastKernel;
-use crate::compute::CastKernelAdapter;
-use crate::compute::{self};
-use crate::register_kernel;
+use crate::builtins::ArrayBuiltins;
+use crate::compute::CastReduce;
 
-impl CastKernel for ExtensionVTable {
-    fn cast(
-        &self,
-        array: &ExtensionArray,
-        dtype: &DType,
-    ) -> vortex_error::VortexResult<Option<ArrayRef>> {
+impl CastReduce for ExtensionVTable {
+    fn cast(array: &ExtensionArray, dtype: &DType) -> vortex_error::VortexResult<Option<ArrayRef>> {
         if !array.dtype().eq_ignore_nullability(dtype) {
             return Ok(None);
         }
@@ -26,7 +20,7 @@ impl CastKernel for ExtensionVTable {
             unreachable!("Already verified we have an extension dtype");
         };
 
-        let new_storage = match compute::cast(array.storage(), ext_dtype.storage_dtype()) {
+        let new_storage = match array.storage().cast(ext_dtype.storage_dtype().clone()) {
             Ok(arr) => arr,
             Err(e) => {
                 tracing::warn!("Failed to cast storage array: {e}");
@@ -39,8 +33,6 @@ impl CastKernel for ExtensionVTable {
         ))
     }
 }
-
-register_kernel!(CastKernelAdapter(ExtensionVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -55,7 +47,7 @@ mod tests {
     use super::*;
     use crate::IntoArray;
     use crate::arrays::PrimitiveArray;
-    use crate::compute::cast;
+    use crate::builtins::ArrayBuiltins;
     use crate::compute::conformance::cast::test_cast_conformance;
 
     #[test]
@@ -65,7 +57,10 @@ mod tests {
 
         let arr = ExtensionArray::new(ext_dtype.clone(), storage);
 
-        let output = cast(arr.as_ref(), &DType::Extension(ext_dtype.clone())).unwrap();
+        let output = arr
+            .to_array()
+            .cast(DType::Extension(ext_dtype.clone()))
+            .unwrap();
         assert_eq!(arr.len(), output.len());
         assert_eq!(arr.dtype(), output.dtype());
         assert_eq!(output.dtype(), &DType::Extension(ext_dtype));
@@ -81,7 +76,7 @@ mod tests {
 
         let new_dtype = DType::Extension(ext_dtype).with_nullability(Nullability::Nullable);
 
-        let output = cast(arr.as_ref(), &new_dtype).unwrap();
+        let output = arr.to_array().cast(new_dtype.clone()).unwrap();
         assert_eq!(arr.len(), output.len());
         assert!(arr.dtype().eq_ignore_nullability(output.dtype()));
         assert_eq!(output.dtype(), &new_dtype);
@@ -97,7 +92,7 @@ mod tests {
         let storage = buffer![1i64].into_array();
         let arr = ExtensionArray::new(original_dtype, storage);
 
-        assert!(cast(arr.as_ref(), &DType::Extension(target_dtype)).is_err());
+        assert!(arr.to_array().cast(DType::Extension(target_dtype)).is_err());
     }
 
     #[rstest]

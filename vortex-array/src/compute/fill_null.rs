@@ -15,12 +15,12 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
-use crate::compute::cast;
 use crate::vtable::VTable;
 
 static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -105,7 +105,7 @@ impl ComputeFnVTable for FillNull {
         let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
 
         if !array.dtype().is_nullable() || array.all_valid()? {
-            return Ok(cast(array, fill_value.dtype())?.into());
+            return Ok(array.to_array().cast(fill_value.dtype().clone())?.into());
         }
 
         if array.all_invalid()? {
