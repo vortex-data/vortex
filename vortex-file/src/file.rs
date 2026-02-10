@@ -105,17 +105,20 @@ impl VortexFile {
             return Ok(false);
         };
 
-        let set =
-            FieldPathSet::from_iter(fields.names().iter().zip(stats.stats().iter()).flat_map(
-                |(name, stats)| {
+        let set = FieldPathSet::from_iter(
+            fields
+                .names()
+                .iter()
+                .zip(stats.stats_sets().iter())
+                .flat_map(|(name, stats)| {
                     stats.iter().map(|(stat, _)| {
                         FieldPath::from_iter([
                             Field::Name(name.clone()),
                             Field::Name(stat.name().into()),
                         ])
                     })
-                },
-            ));
+                }),
+        );
 
         let Some((predicate, required_stats)) = checked_pruning_expr(filter, &set) else {
             return Ok(false);
@@ -128,8 +131,11 @@ impl VortexFile {
                 .map(|(path, stats)| (path.clone(), stats.clone())),
         );
 
-        let Some(file_stats) =
-            extract_relevant_file_stats_as_struct_row(&required_file_stats, stats.stats(), fields)?
+        let Some(file_stats) = extract_relevant_file_stats_as_struct_row(
+            &required_file_stats,
+            stats.stats_sets(),
+            fields,
+        )?
         else {
             return Ok(false);
         };

@@ -127,7 +127,7 @@ impl FileStatistics {
     }
 
     /// Returns a reference to the statistics sets.
-    pub fn stats(&self) -> &Arc<[StatsSet]> {
+    pub fn stats_sets(&self) -> &Arc<[StatsSet]> {
         &self.stats
     }
 
@@ -156,7 +156,7 @@ impl WriteFlatBuffer for FileStatistics {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let field_stats = self
-            .stats()
+            .stats_sets()
             .iter()
             .map(|s| s.write_flatbuffer(fbb))
             .collect::<VortexResult<Vec<_>>>()?;

@@ -375,7 +375,6 @@ impl FileFormat for VortexFormat {
             let mut column_statistics = Vec::with_capacity(table_schema.fields().len());
 
             for field in table_schema.fields().iter() {
-                // TODO(connor): Is this actually true?
                 // If the column does not exist, continue. This can happen if the schema has evolved
                 // but we have not yet updated the Vortex file.
                 let Some(col_idx) = struct_dtype.find(field.name()) else {

@@ -48,6 +48,8 @@ impl DecimalValue {
 
     /// Returns a reasonable precision and scale as a [`DecimalDType`] for the given
     /// [`DecimalValue`].
+    ///
+    /// Note that this is **not** the same as [`DecimalValue::decimal_type`]!!!
     pub fn decimal_dtype(&self) -> DecimalDType {
         // Default to a reasonable precision and scale.
         match self {
@@ -57,6 +59,20 @@ impl DecimalValue {
             DecimalValue::I64(_) => DecimalDType::new(19, 0),
             DecimalValue::I128(_) => DecimalDType::new(38, 0),
             DecimalValue::I256(_) => DecimalDType::new(76, 0),
+        }
+    }
+
+    /// Returns the [`DecimalType`] for the given [`DecimalValue`].
+    ///
+    /// Note that this is **not** the same as [`DecimalValue::decimal_dtype`]!!!
+    pub fn decimal_type(&self) -> DecimalType {
+        match self {
+            DecimalValue::I8(_) => DecimalType::I8,
+            DecimalValue::I16(_) => DecimalType::I16,
+            DecimalValue::I32(_) => DecimalType::I32,
+            DecimalValue::I64(_) => DecimalType::I64,
+            DecimalValue::I128(_) => DecimalType::I128,
+            DecimalValue::I256(_) => DecimalType::I256,
         }
     }
 

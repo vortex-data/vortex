@@ -28,7 +28,7 @@ mod proto;
 
 mod scalar;
 mod scalar_value;
-pub mod typed_view;
+mod typed_view;
 
 pub use scalar::*;
 pub use scalar_value::*;
