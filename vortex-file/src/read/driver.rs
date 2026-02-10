@@ -4,11 +4,16 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::sync::LazyLock;
 use std::task::Context;
 use std::task::Poll;
 
 use futures::Stream;
 use pin_project_lite::pin_project;
+use tokio::sync::OwnedSemaphorePermit;
+use tokio::sync::Semaphore;
+use tokio_util::sync::PollSemaphore;
 use vortex_buffer::Alignment;
 use vortex_error::VortexExpect;
 use vortex_io::CoalesceConfig;
@@ -62,6 +67,9 @@ impl<S> IoRequestStream<S> {
     }
 }
 
+static GLOBAL_IO_REQUEST_LIMIT: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::from(Semaphore::new(32)));
+
 impl<S> Stream for IoRequestStream<S>
 where
     S: Stream<Item = ReadEvent> + Unpin + Send + 'static,
@@ -87,8 +95,15 @@ where
             }
         }
 
+        let mut limit = PollSemaphore::new(GLOBAL_IO_REQUEST_LIMIT.clone());
+        let permit = match limit.poll_acquire(cx) {
+            Poll::Ready(Some(permit)) => permit,
+            Poll::Ready(None) => panic!("semaphore is closed?"),
+            Poll::Pending => return Poll::Pending,
+        };
+
         // Try to get a coalesced request
-        if let Some(coalesced) = this.state.next(this.coalesce_window.as_ref()) {
+        if let Some(coalesced) = this.state.next(this.coalesce_window.as_ref(), permit) {
             return Poll::Ready(Some(coalesced));
         }
 
@@ -166,11 +181,15 @@ impl State {
     }
 
     /// Get the next request, if any.
-    fn next(&mut self, coalesce_window: Option<&CoalesceConfig>) -> Option<IoRequest> {
+    fn next(
+        &mut self,
+        coalesce_window: Option<&CoalesceConfig>,
+        permit: OwnedSemaphorePermit,
+    ) -> Option<IoRequest> {
         match coalesce_window {
             None => self.next_uncoalesced().map(|request| {
                 self.metrics.individual_requests.add(1);
-                IoRequest::new_single(request)
+                IoRequest::new_single(request, permit)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
                 match request.requests.len() {
@@ -182,7 +201,7 @@ impl State {
                             .update(num_requests as f64);
                     }
                 };
-                IoRequest::new_coalesced(request)
+                IoRequest::new_coalesced(request, permit)
             }),
         }
     }

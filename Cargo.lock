@@ -10711,6 +10711,7 @@ dependencies = [
  "parking_lot",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
  "vortex-alp",

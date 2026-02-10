@@ -7,6 +7,7 @@ use std::fmt::Formatter;
 use std::ops::Range;
 use std::sync::Arc;
 
+use tokio::sync::OwnedSemaphorePermit;
 use vortex_array::buffer::BufferHandle;
 use vortex_buffer::Alignment;
 use vortex_error::VortexError;
@@ -18,27 +19,27 @@ use vortex_layout::segments::SegmentPriority;
 pub(crate) struct IoRequest(IoRequestInner);
 
 impl IoRequest {
-    pub(crate) fn new_single(request: ReadRequest) -> Self {
-        IoRequest(IoRequestInner::Single(request))
+    pub(crate) fn new_single(request: ReadRequest, permit: OwnedSemaphorePermit) -> Self {
+        IoRequest(IoRequestInner::Single(request, permit))
     }
 
-    pub(crate) fn new_coalesced(request: CoalescedRequest) -> Self {
-        IoRequest(IoRequestInner::Coalesced(request))
+    pub(crate) fn new_coalesced(request: CoalescedRequest, permit: OwnedSemaphorePermit) -> Self {
+        IoRequest(IoRequestInner::Coalesced(request, permit))
     }
 
     /// Returns the starting offset of this request within the file.
     pub fn offset(&self) -> u64 {
         match &self.0 {
-            IoRequestInner::Single(r) => r.offset,
-            IoRequestInner::Coalesced(r) => r.range.start,
+            IoRequestInner::Single(r, ..) => r.offset,
+            IoRequestInner::Coalesced(r, ..) => r.range.start,
         }
     }
 
     /// Returns the length of this request in bytes.
     pub fn len(&self) -> usize {
         match &self.0 {
-            IoRequestInner::Single(r) => r.length,
-            IoRequestInner::Coalesced(r) => usize::try_from(r.range.end - r.range.start)
+            IoRequestInner::Single(r, ..) => r.length,
+            IoRequestInner::Coalesced(r, ..) => usize::try_from(r.range.end - r.range.start)
                 .vortex_expect("range too big for usize"),
         }
     }
@@ -46,16 +47,17 @@ impl IoRequest {
     /// Returns the alignment requirement for this request.
     pub fn alignment(&self) -> Alignment {
         match &self.0 {
-            IoRequestInner::Single(r) => r.alignment,
-            IoRequestInner::Coalesced(r) => r.alignment,
+            IoRequestInner::Single(r, ..) => r.alignment,
+            IoRequestInner::Coalesced(r, ..) => r.alignment,
         }
     }
 
     /// Resolves the request with the given result.
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
+        // The permit is released when we are dropped.
         match self.0 {
-            IoRequestInner::Single(req) => req.resolve(result),
-            IoRequestInner::Coalesced(req) => req.resolve(result),
+            IoRequestInner::Single(req, _permit) => req.resolve(result),
+            IoRequestInner::Coalesced(req, _permit) => req.resolve(result),
         }
     }
 }
@@ -70,18 +72,18 @@ impl IoRequest {
     /// Returns the byte range this request within the file.
     pub(crate) fn range(&self) -> Range<u64> {
         match &self.0 {
-            IoRequestInner::Single(r) => {
+            IoRequestInner::Single(r, ..) => {
                 r.offset
                     ..(r.offset + u64::try_from(r.length).vortex_expect("length too big for u64"))
             }
-            IoRequestInner::Coalesced(r) => r.range.clone(),
+            IoRequestInner::Coalesced(r, ..) => r.range.clone(),
         }
     }
 }
 
 pub(crate) enum IoRequestInner {
-    Single(ReadRequest),
-    Coalesced(CoalescedRequest),
+    Single(ReadRequest, OwnedSemaphorePermit),
+    Coalesced(CoalescedRequest, OwnedSemaphorePermit),
 }
 
 pub(crate) type RequestId = usize;
