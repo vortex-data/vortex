@@ -19,11 +19,14 @@ use vortex_layout::segments::SegmentPriority;
 pub(crate) struct IoRequest(IoRequestInner);
 
 impl IoRequest {
-    pub(crate) fn new_single(request: ReadRequest, permit: OwnedSemaphorePermit) -> Self {
+    pub(crate) fn new_single(request: ReadRequest, permit: Option<OwnedSemaphorePermit>) -> Self {
         IoRequest(IoRequestInner::Single(request, permit))
     }
 
-    pub(crate) fn new_coalesced(request: CoalescedRequest, permit: OwnedSemaphorePermit) -> Self {
+    pub(crate) fn new_coalesced(
+        request: CoalescedRequest,
+        permit: Option<OwnedSemaphorePermit>,
+    ) -> Self {
         IoRequest(IoRequestInner::Coalesced(request, permit))
     }
 
@@ -82,8 +85,8 @@ impl IoRequest {
 }
 
 pub(crate) enum IoRequestInner {
-    Single(ReadRequest, OwnedSemaphorePermit),
-    Coalesced(CoalescedRequest, OwnedSemaphorePermit),
+    Single(ReadRequest, Option<OwnedSemaphorePermit>),
+    Coalesced(CoalescedRequest, Option<OwnedSemaphorePermit>),
 }
 
 pub(crate) type RequestId = usize;

@@ -98,9 +98,16 @@ where
         let mut limit = PollSemaphore::new(GLOBAL_IO_REQUEST_LIMIT.clone());
         let permit = match limit.poll_acquire(cx) {
             Poll::Ready(Some(permit)) => permit,
-            Poll::Ready(None) => panic!("semaphore is closed?"),
-            Poll::Pending => return Poll::Pending,
+            Poll::Ready(None) => {
+                println!("SEMAPHORE IS CLOSED??");
+                return Poll::Pending;
+            }
+            Poll::Pending => {
+                return Poll::Pending;
+            }
         };
+        // println!("I have a permit!");
+        let permit = Some(permit);
 
         // Try to get a coalesced request
         if let Some(coalesced) = this.state.next(this.coalesce_window.as_ref(), permit) {
@@ -184,7 +191,7 @@ impl State {
     fn next(
         &mut self,
         coalesce_window: Option<&CoalesceConfig>,
-        permit: OwnedSemaphorePermit,
+        permit: Option<OwnedSemaphorePermit>,
     ) -> Option<IoRequest> {
         match coalesce_window {
             None => self.next_uncoalesced().map(|request| {
@@ -201,6 +208,11 @@ impl State {
                             .update(num_requests as f64);
                     }
                 };
+                println!(
+                    "requesting: {:?} {}",
+                    request,
+                    permit.as_ref().unwrap().semaphore().available_permits()
+                );
                 IoRequest::new_coalesced(request, permit)
             }),
         }

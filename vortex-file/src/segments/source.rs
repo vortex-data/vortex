@@ -117,6 +117,7 @@ impl FileSegmentSource {
                             .read_at(req.offset(), req.len(), req.alignment())
                             .await;
                         req.resolve(result);
+                        // println!("resolved!");
                     }
                 })
                 .buffer_unordered(concurrency)
