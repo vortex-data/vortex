@@ -364,11 +364,14 @@ impl FileOpener for VortexOpener {
                     .collect::<VortexResult<Vec<_>>>()
                     .map_err(|e| exec_datafusion_err!("Failed to execute Vortex split: {e}"))?;
 
-                // Spawn the Vortex-to-Arrow conversion onto a CPU thread so it doesn't
-                // block the polling thread. buffered(2) lets us overlap: while one
-                // chunk is being converted, the inner scan stream can drive I/O for
-                // the next chunk.
+                // Spawn Vortex-to-Arrow conversion onto CPU threads so it doesn't
+                // block the polling thread. The inner scan stream already handles I/O
+                // and compute concurrency; this buffer just needs to be large enough
+                // that conversion doesn't stall the pipeline.
                 let handle = session.handle();
+                let num_workers = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(1);
                 stream::iter(streams)
                     .flatten()
                     .map(move |result| {
@@ -381,7 +384,7 @@ impl FileOpener for VortexOpener {
                             })
                         })
                     })
-                    .buffered(2)
+                    .buffered(num_workers)
                     .boxed()
             } else {
                 // Direct ScanBuilder path (existing).
