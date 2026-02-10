@@ -44,6 +44,7 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
+use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::decimal_byte_parts::compute::kernel::PARENT_KERNELS;
@@ -285,10 +286,10 @@ impl OperationsVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
         let primitive_scalar = scalar.as_primitive();
         // TODO(joe): extend this to support multiple parts.
         let value = primitive_scalar.as_::<i64>().vortex_expect("non-null");
-        Ok(Scalar::new(
+        Scalar::try_new(
             array.dtype.clone(),
-            DecimalValue::I64(value).into(),
-        ))
+            Some(ScalarValue::Decimal(DecimalValue::I64(value))),
+        )
     }
 }
 
@@ -319,6 +320,7 @@ mod tests {
     use vortex_dtype::Nullability;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
 
     use crate::DecimalBytePartsArray;
 
@@ -339,11 +341,15 @@ mod tests {
 
         assert_eq!(Scalar::null(dtype.clone()), array.scalar_at(0).unwrap());
         assert_eq!(
-            Scalar::new(dtype.clone(), DecimalValue::I64(200).into()),
+            Scalar::try_new(
+                dtype.clone(),
+                Some(ScalarValue::Decimal(DecimalValue::I64(200)))
+            )
+            .unwrap(),
             array.scalar_at(1).unwrap()
         );
         assert_eq!(
-            Scalar::new(dtype, DecimalValue::I64(400).into()),
+            Scalar::try_new(dtype, Some(ScalarValue::Decimal(DecimalValue::I64(400)))).unwrap(),
             array.scalar_at(2).unwrap()
         );
     }

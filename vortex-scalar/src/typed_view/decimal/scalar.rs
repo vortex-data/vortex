@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`DecimalScalar`] typed view implementation.
+
 use std::cmp::Ordering;
 use std::fmt;
 
@@ -9,14 +11,12 @@ use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
 use vortex_dtype::PType;
 use vortex_dtype::match_each_decimal_value;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::NumericOperator;
 use crate::Scalar;
 use crate::ScalarValue;
@@ -24,9 +24,12 @@ use crate::ScalarValue;
 /// A scalar value representing a decimal number with fixed precision and scale.
 #[derive(Debug, Clone, Copy, Hash)]
 pub struct DecimalScalar<'a> {
-    pub(super) dtype: &'a DType,
-    pub(super) decimal_type: DecimalDType,
-    pub(super) value: Option<DecimalValue>,
+    /// The data type of this scalar.
+    dtype: &'a DType,
+    /// The decimal type (precision and scale).
+    decimal_type: DecimalDType,
+    /// The decimal value, or [`None`] if null.
+    decimal_value: Option<DecimalValue>,
 }
 
 impl<'a> DecimalScalar<'a> {
@@ -35,14 +38,14 @@ impl<'a> DecimalScalar<'a> {
     /// # Errors
     ///
     /// Returns an error if the data type is not a decimal type.
-    pub fn try_new(dtype: &'a DType, value: &ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a DType, value: Option<&ScalarValue>) -> VortexResult<Self> {
         let decimal_type = DecimalDType::try_from(dtype)?;
-        let value = value.as_decimal()?;
+        let value = value.map(|v| *v.as_decimal());
 
         Ok(Self {
             dtype,
             decimal_type,
-            value,
+            decimal_value: value,
         })
     }
 
@@ -54,28 +57,31 @@ impl<'a> DecimalScalar<'a> {
 
     /// Returns the decimal value, or None if null.
     pub fn decimal_value(&self) -> Option<DecimalValue> {
-        self.value
+        self.decimal_value
     }
 
-    /// Cast decimal scalar to another data type.
+    /// Returns whether this decimal value is zero, or `None` if null.
+    pub fn is_zero(&self) -> Option<bool> {
+        self.decimal_value.map(|v| v.is_zero())
+    }
+
+    /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
         match dtype {
             DType::Decimal(target_dtype, target_nullability) => {
                 // Cast between decimal types
                 if self.decimal_type == *target_dtype {
                     // Same decimal type, just change nullability if needed
-                    return Ok(Scalar::new(
+                    return Scalar::try_new(
                         dtype.clone(),
-                        ScalarValue(InnerScalarValue::Decimal(
-                            self.value.unwrap_or(DecimalValue::I128(0)),
-                        )),
-                    ));
+                        self.decimal_value.map(ScalarValue::Decimal),
+                    );
                 }
 
                 // Different precision/scale - need to implement scaling logic
                 // For now, we'll do a simple value preservation without scaling
                 // TODO: Implement proper decimal scaling logic
-                if let Some(value) = &self.value {
+                if let Some(value) = &self.decimal_value {
                     Ok(Scalar::decimal(*value, *target_dtype, *target_nullability))
                 } else {
                     Ok(Scalar::null(dtype.clone()))
@@ -83,7 +89,7 @@ impl<'a> DecimalScalar<'a> {
             }
             DType::Primitive(ptype, nullability) => {
                 // Cast decimal to primitive type
-                if let Some(decimal_value) = &self.value {
+                if let Some(decimal_value) = &self.decimal_value {
                     // Convert decimal value to primitive, accounting for scale
                     let scale_factor = 10_i128.pow(self.decimal_type.scale() as u32);
 
@@ -93,6 +99,9 @@ impl<'a> DecimalScalar<'a> {
                             vortex_err!("Decimal value too large to cast to primitive")
                         })
                     })?;
+
+                    // TODO(connor): A lot of questionable stuff happening here, it would be good to
+                    // either formally prove this is all correct or use more checked methods.
 
                     // Apply scale to get the actual value.
                     let actual_value = scaled_value as f64 / scale_factor as f64;
@@ -211,7 +220,7 @@ impl<'a> DecimalScalar<'a> {
         };
 
         // Handle null cases using SQL semantics
-        let result_value = match (self.value, other.value) {
+        let result_value = match (self.decimal_value, other.decimal_value) {
             (None, _) | (_, None) => None,
             (Some(lhs), Some(rhs)) => {
                 // Perform the operation
@@ -225,7 +234,7 @@ impl<'a> DecimalScalar<'a> {
                 }?;
 
                 // Check if the result fits within the precision constraints
-                if operation_result.fits_in_precision(self.decimal_type)? {
+                if operation_result.fits_in_precision(self.decimal_type) {
                     Some(operation_result)
                 } else {
                     // Result exceeds precision, return None (overflow)
@@ -237,22 +246,14 @@ impl<'a> DecimalScalar<'a> {
         Some(DecimalScalar {
             dtype: result_dtype,
             decimal_type: self.decimal_type,
-            value: result_value,
+            decimal_value: result_value,
         })
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for DecimalScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        DecimalScalar::try_new(scalar.dtype(), scalar.value())
     }
 }
 
 impl PartialEq for DecimalScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.dtype.eq_ignore_nullability(other.dtype) && self.value == other.value
+        self.dtype.eq_ignore_nullability(other.dtype) && self.decimal_value == other.decimal_value
     }
 }
 
@@ -264,13 +265,13 @@ impl PartialOrd for DecimalScalar<'_> {
         if !self.dtype.eq_ignore_nullability(other.dtype) {
             return None;
         }
-        self.value.partial_cmp(&other.value)
+        self.decimal_value.partial_cmp(&other.decimal_value)
     }
 }
 
 impl fmt::Display for DecimalScalar<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let Some(&decimal_value) = self.value.as_ref() else {
+        let Some(&decimal_value) = self.decimal_value.as_ref() else {
             return write!(f, "null");
         };
 

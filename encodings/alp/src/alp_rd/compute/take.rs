@@ -9,7 +9,6 @@ use vortex_array::arrays::TakeExecute;
 use vortex_array::compute::fill_null;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::ALPRDArray;
 use crate::ALPRDVTable;
@@ -36,7 +35,7 @@ impl TakeExecute for ALPRDVTable {
             .transpose()?;
         let right_parts = fill_null(
             &array.right_parts().take(indices.to_array())?,
-            &Scalar::new(array.right_parts().dtype().clone(), ScalarValue::from(0)),
+            &Scalar::zero_value(array.right_parts().dtype()),
         )?;
 
         Ok(Some(

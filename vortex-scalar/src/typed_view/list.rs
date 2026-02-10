@@ -1,22 +1,21 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`ListScalar`] typed view implementation.
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 use std::sync::Arc;
 
-use itertools::Itertools as _;
+use itertools::Itertools;
 use vortex_dtype::DType;
-use vortex_dtype::Nullability;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect as _;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 
-use crate::InnerScalarValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
@@ -32,9 +31,15 @@ use crate::ScalarValue;
 /// [`FixedSizeList`]: DType::FixedSizeList
 #[derive(Debug, Clone)]
 pub struct ListScalar<'a> {
+    /// The data type of this scalar.
     dtype: &'a DType,
+    /// A convenience field so that we do not have to unwrap and check the top-level `dtype` field
+    /// every time we want to access this.
     element_dtype: &'a Arc<DType>,
-    elements: Option<Arc<[ScalarValue]>>,
+    /// The elements of the list. `None` if the entire list is null.
+    /// Each element is `Option<ScalarValue>` where `None` represents a null element within the
+    /// list.
+    elements: Option<&'a [Option<ScalarValue>]>,
 }
 
 impl Display for ListScalar<'_> {
@@ -42,19 +47,19 @@ impl Display for ListScalar<'_> {
         match &self.elements {
             None => write!(f, "null"),
             Some(elems) => {
-                let fixed_size_list_str: &dyn Display =
-                    if let DType::FixedSizeList(_, size, _) = self.dtype {
-                        &format!("fixed_size<{size}>")
-                    } else {
-                        &""
-                    };
+                let type_str: &dyn Display = if let DType::FixedSizeList(_, size, _) = self.dtype {
+                    &format!("fixed_size<{size}>")
+                } else {
+                    &""
+                };
 
                 write!(
                     f,
-                    "{fixed_size_list_str}[{}]",
+                    "{type_str}[{}]",
                     elems
                         .iter()
-                        .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
+                        .map(|e| Scalar::try_new(self.element_dtype().clone(), e.clone())
+                            .vortex_expect("`ListScalar` is already a valid `Scalar`"))
                         .format(", ")
                 )
             }
@@ -91,6 +96,23 @@ impl Hash for ListScalar<'_> {
 }
 
 impl<'a> ListScalar<'a> {
+    /// Attempts to create a new [`ListScalar`] from a [`DType`] and optional [`ScalarValue`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the data type is not a [`DType::List`] or [`DType::FixedSizeList`].
+    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
+        let element_dtype = dtype
+            .as_any_size_list_element_opt()
+            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", dtype))?;
+
+        Ok(Self {
+            dtype,
+            element_dtype,
+            elements: value.map(|v| v.as_list()),
+        })
+    }
+
     /// Returns the data type of this list scalar.
     #[inline]
     pub fn dtype(&self) -> &'a DType {
@@ -132,20 +154,23 @@ impl<'a> ListScalar<'a> {
     ///
     /// Returns None if the list is null or the index is out of bounds.
     pub fn element(&self, idx: usize) -> Option<Scalar> {
-        self.elements
-            .as_ref()
-            .and_then(|l| l.get(idx))
-            .map(|value| Scalar::new(self.element_dtype().clone(), value.clone()))
+        self.elements.and_then(|l| l.get(idx)).map(|value| {
+            // SAFETY: `ListScalar` is already a valid `Scalar`.
+            unsafe { Scalar::new_unchecked(self.element_dtype().clone(), value.clone()) }
+        })
     }
 
     /// Returns all elements in the list as a vector of scalars.
     ///
     /// Returns None if the list is null.
     pub fn elements(&self) -> Option<Vec<Scalar>> {
-        self.elements.as_ref().map(|elems| {
+        self.elements.map(|elems| {
             elems
                 .iter()
-                .map(|e| Scalar::new(self.element_dtype().clone(), e.clone()))
+                .map(|e| {
+                    // SAFETY: `ListScalar` is already a valid `Scalar`.
+                    unsafe { Scalar::new_unchecked(self.element_dtype().clone(), e.clone()) }
+                })
                 .collect_vec()
         })
     }
@@ -154,7 +179,7 @@ impl<'a> ListScalar<'a> {
     ///
     /// # Panics
     ///
-    /// Panics if the target [`DType`] is not a [`List`]: or [`FixedSizeList`], or if trying to cast
+    /// Panics if the target [`DType`] is not a [`List`] or [`FixedSizeList`], or if trying to cast
     /// to a [`FixedSizeList`] with the incorrect number of elements.
     ///
     /// [`List`]: DType::List
@@ -180,115 +205,21 @@ impl<'a> ListScalar<'a> {
             )
         }
 
-        Ok(Scalar::new(
+        Scalar::try_new(
             dtype.clone(),
-            ScalarValue(InnerScalarValue::List(
+            Some(ScalarValue::List(
                 self.elements
-                    .as_ref()
-                    .vortex_expect("nullness handled in Scalar::cast")
+                    .ok_or_else(|| vortex_err!("nullness should be handled in Scalar::cast"))?
                     .iter()
                     .map(|element| {
                         // Recursively cast the elements of the list.
-                        Scalar::new(DType::clone(self.element_dtype), element.clone())
+                        Scalar::try_new(DType::clone(self.element_dtype), element.clone())?
                             .cast(target_element_dtype)
                             .map(|x| x.into_value())
                     })
-                    .collect::<VortexResult<Arc<[ScalarValue]>>>()?,
+                    .collect::<VortexResult<Vec<Option<ScalarValue>>>>()?,
             )),
-        ))
-    }
-}
-
-/// A helper enum for creating a [`ListScalar`].
-enum ListKind {
-    Variable,
-    FixedSize,
-}
-
-/// Helper functions to create a [`ListScalar`] as a [`Scalar`].
-impl Scalar {
-    fn create_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-        list_kind: ListKind,
-    ) -> Self {
-        let element_dtype = element_dtype.into();
-
-        let children: Arc<[ScalarValue]> = children
-            .into_iter()
-            .map(|child| {
-                if child.dtype() != &*element_dtype {
-                    vortex_panic!(
-                        "tried to create list of {} with values of type {}",
-                        element_dtype,
-                        child.dtype()
-                    );
-                }
-                child.into_value()
-            })
-            .collect();
-        let size: u32 = children
-            .len()
-            .try_into()
-            .vortex_expect("tried to create a list that was too large");
-
-        let dtype = match list_kind {
-            ListKind::Variable => DType::List(element_dtype, nullability),
-            ListKind::FixedSize => DType::FixedSizeList(element_dtype, size, nullability),
-        };
-
-        Self::new(dtype, ScalarValue(InnerScalarValue::List(children)))
-    }
-
-    /// Creates a new list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-    ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::Variable)
-    }
-
-    /// Creates a new empty list scalar with the given element type.
-    pub fn list_empty(element_dtype: Arc<DType>, nullability: Nullability) -> Self {
-        Self::create_list(element_dtype, vec![], nullability, ListKind::Variable)
-    }
-
-    /// Creates a new fixed-size list scalar with the given element type and children.
-    ///
-    /// # Panics
-    ///
-    /// Panics if any child scalar has a different type than the element type, or if there are too
-    /// many children.
-    pub fn fixed_size_list(
-        element_dtype: impl Into<Arc<DType>>,
-        children: Vec<Scalar>,
-        nullability: Nullability,
-    ) -> Self {
-        Self::create_list(element_dtype, children, nullability, ListKind::FixedSize)
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ListScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &'a Scalar) -> Result<Self, Self::Error> {
-        let element_dtype = value
-            .dtype()
-            .as_any_size_list_element_opt()
-            .ok_or_else(|| vortex_err!("Expected list scalar, found {}", value.dtype()))?;
-
-        Ok(Self {
-            dtype: value.dtype(),
-            element_dtype,
-            elements: value.value().as_list()?.cloned(),
-        })
+        )
     }
 }
 
@@ -312,7 +243,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
         assert_eq!(list.len(), 3);
         assert!(!list.is_empty());
         assert!(!list.is_null());
@@ -323,7 +254,7 @@ mod tests {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
         let list_scalar = Scalar::list_empty(element_dtype, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
         assert_eq!(list.len(), 0);
         assert!(list.is_empty());
         assert!(!list.is_null());
@@ -334,7 +265,7 @@ mod tests {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::Nullable));
         let null = Scalar::null(DType::List(element_dtype, Nullability::Nullable));
 
-        let list = ListScalar::try_from(&null).unwrap();
+        let list = null.as_list();
         assert!(list.is_empty());
         assert!(list.is_null());
     }
@@ -349,7 +280,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
 
         // Test element access
         let elem0 = list.element(0).unwrap();
@@ -374,7 +305,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
         let elements = list.elements().unwrap();
 
         assert_eq!(elements.len(), 2);
@@ -397,7 +328,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
         let display = format!("{list}");
         assert!(display.contains("1"));
         assert!(display.contains("2"));
@@ -418,8 +349,8 @@ mod tests {
         ];
         let list_scalar2 = Scalar::list(element_dtype, children2, Nullability::NonNullable);
 
-        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
-        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        let list1 = list_scalar1.as_list();
+        let list2 = list_scalar2.as_list();
 
         assert_eq!(list1, list2);
     }
@@ -439,8 +370,8 @@ mod tests {
         ];
         let list_scalar2 = Scalar::list(element_dtype, children2, Nullability::NonNullable);
 
-        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
-        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        let list1 = list_scalar1.as_list();
+        let list2 = list_scalar2.as_list();
 
         assert_ne!(list1, list2);
     }
@@ -455,8 +386,8 @@ mod tests {
         let children2 = vec![Scalar::primitive(2i32, Nullability::NonNullable)];
         let list_scalar2 = Scalar::list(element_dtype, children2, Nullability::NonNullable);
 
-        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
-        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        let list1 = list_scalar1.as_list();
+        let list2 = list_scalar2.as_list();
 
         assert!(list1 < list2);
     }
@@ -472,8 +403,8 @@ mod tests {
         let children2 = vec![Scalar::primitive(1i64, Nullability::NonNullable)];
         let list_scalar2 = Scalar::list(element_dtype2, children2, Nullability::NonNullable);
 
-        let list1 = ListScalar::try_from(&list_scalar1).unwrap();
-        let list2 = ListScalar::try_from(&list_scalar2).unwrap();
+        let list1 = list_scalar1.as_list();
+        let list2 = list_scalar2.as_list();
 
         assert!(list1.partial_cmp(&list2).is_none());
     }
@@ -491,7 +422,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
 
         let mut hasher1 = DefaultHasher::new();
         list.hash(&mut hasher1);
@@ -536,7 +467,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
 
         // Cast to list with i64 elements
         let target_dtype = DType::List(
@@ -545,7 +476,7 @@ mod tests {
         );
 
         let casted = list.cast(&target_dtype).unwrap();
-        let casted_list = ListScalar::try_from(&casted).unwrap();
+        let casted_list = casted.as_list();
 
         assert_eq!(casted_list.len(), 2);
         let elem0 = casted_list.element(0).unwrap();
@@ -565,8 +496,7 @@ mod tests {
     #[test]
     fn test_try_from_wrong_dtype() {
         let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let result = ListScalar::try_from(&scalar);
-        assert!(result.is_err());
+        assert!(scalar.as_list_opt().is_none());
     }
 
     #[test]
@@ -578,7 +508,7 @@ mod tests {
         ];
         let list_scalar = Scalar::list(element_dtype, children, Nullability::NonNullable);
 
-        let list = ListScalar::try_from(&list_scalar).unwrap();
+        let list = list_scalar.as_list();
         assert_eq!(list.len(), 2);
 
         let elem0 = list.element(0).unwrap();
@@ -620,11 +550,11 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let list = ListScalar::try_from(&outer_list).unwrap();
+        let list = outer_list.as_list();
         assert_eq!(list.len(), 2);
 
         let nested_list = list.element(0).unwrap();
-        let nested = ListScalar::try_from(&nested_list).unwrap();
+        let nested = nested_list.as_list();
         assert_eq!(nested.len(), 2);
     }
 }

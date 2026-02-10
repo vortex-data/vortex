@@ -30,9 +30,9 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
+    use vortex_dtype::i256;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
-    use vortex_scalar::i256;
 
     use crate::array::IntoArray;
     use crate::arrays::ChunkedArray;

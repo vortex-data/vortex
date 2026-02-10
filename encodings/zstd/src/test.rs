@@ -84,9 +84,7 @@ fn test_zstd_with_validity_and_multi_frame() {
     let slice = compressed.slice(176..179).unwrap();
     let primitive = slice.to_primitive();
     assert_eq!(
-        TryInto::<i32>::try_into(primitive.scalar_at(1).unwrap().as_ref())
-            .ok()
-            .unwrap(),
+        i32::try_from(&primitive.scalar_at(1).unwrap()).unwrap(),
         177
     );
     assert_eq!(

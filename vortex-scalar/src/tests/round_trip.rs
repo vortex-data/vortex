@@ -19,14 +19,8 @@ mod tests {
     use vortex_dtype::i256;
     use vortex_proto::scalar as pb;
 
-    use crate::BinaryScalar;
-    use crate::BoolScalar;
-    use crate::DecimalScalar;
     use crate::DecimalValue;
-    use crate::ListScalar;
-    use crate::PrimitiveScalar;
     use crate::Scalar;
-    use crate::Utf8Scalar;
     use crate::tests::SESSION;
 
     // Test that primitive scalars round-trip through ScalarValue
@@ -46,7 +40,7 @@ mod tests {
         ];
 
         for scalar in values {
-            let value = scalar.value().clone();
+            let value = scalar.value().cloned();
             let dtype = scalar.dtype().clone();
             let reconstructed = Scalar::new(dtype, value);
             assert_eq!(scalar, reconstructed);
@@ -57,24 +51,24 @@ mod tests {
     #[test]
     fn test_null_scalar_type_preservation() {
         let null_scalars = vec![
-            Scalar::null_typed::<i8>(),
-            Scalar::null_typed::<i16>(),
-            Scalar::null_typed::<i32>(),
-            Scalar::null_typed::<i64>(),
-            Scalar::null_typed::<u8>(),
-            Scalar::null_typed::<u16>(),
-            Scalar::null_typed::<u32>(),
-            Scalar::null_typed::<u64>(),
-            Scalar::null_typed::<f32>(),
-            Scalar::null_typed::<f64>(),
-            Scalar::null_typed::<bool>(),
-            Scalar::null_typed::<String>(),
+            Scalar::null_native::<i8>(),
+            Scalar::null_native::<i16>(),
+            Scalar::null_native::<i32>(),
+            Scalar::null_native::<i64>(),
+            Scalar::null_native::<u8>(),
+            Scalar::null_native::<u16>(),
+            Scalar::null_native::<u32>(),
+            Scalar::null_native::<u64>(),
+            Scalar::null_native::<f32>(),
+            Scalar::null_native::<f64>(),
+            Scalar::null_native::<bool>(),
+            Scalar::null_native::<String>(),
         ];
 
         for scalar in null_scalars {
             assert!(scalar.is_null());
             let dtype = scalar.dtype().clone();
-            let value = scalar.value().clone();
+            let value = scalar.value().cloned();
             let reconstructed = Scalar::new(dtype.clone(), value);
             assert_eq!(scalar, reconstructed);
             assert_eq!(scalar.dtype(), reconstructed.dtype());
@@ -86,24 +80,24 @@ mod tests {
     fn test_specialized_scalar_conversions() {
         // Test PrimitiveScalar
         let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let primitive_scalar = PrimitiveScalar::try_from(&int_scalar).unwrap();
+        let primitive_scalar = int_scalar.as_primitive();
         assert_eq!(primitive_scalar.typed_value::<i32>().unwrap(), 42);
         let reconstructed = Scalar::from(primitive_scalar);
         assert_eq!(int_scalar, reconstructed);
 
         // Test BoolScalar
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        let bool_specialized = BoolScalar::try_from(&bool_scalar).unwrap();
+        let bool_specialized = bool_scalar.as_bool();
         assert!(bool_specialized.value().unwrap());
 
         // Test Utf8Scalar
         let utf8_scalar = Scalar::utf8("hello".to_string(), Nullability::NonNullable);
-        let utf8_specialized = Utf8Scalar::try_from(&utf8_scalar).unwrap();
+        let utf8_specialized = utf8_scalar.as_utf8();
         assert_eq!(utf8_specialized.value().unwrap().as_str(), "hello");
 
         // Test BinaryScalar
         let binary_scalar = Scalar::binary(vec![1, 2, 3, 4], Nullability::NonNullable);
-        let binary_specialized = BinaryScalar::try_from(&binary_scalar).unwrap();
+        let binary_specialized = binary_scalar.as_binary();
         assert_eq!(
             binary_specialized.value().unwrap().as_slice(),
             &[1, 2, 3, 4]
@@ -163,7 +157,7 @@ mod tests {
         let list_scalar = Scalar::list(element_dtype, children.clone(), Nullability::NonNullable);
 
         // Extract as ListScalar
-        let list_specialized = ListScalar::try_from(&list_scalar).unwrap();
+        let list_specialized = list_scalar.as_list();
         assert_eq!(list_specialized.len(), 3);
 
         // Extract as Vec<i32>
@@ -182,19 +176,19 @@ mod tests {
     fn test_decimal_scalar_round_trip() {
         let decimal_dtype = DecimalDType::new(10, 2);
 
-        // Test various decimal value types
+        // Test various decimal value types.
         let decimal_values = vec![
             DecimalValue::I8(100),
             DecimalValue::I16(10000),
             DecimalValue::I32(1000000),
-            DecimalValue::I64(100000000000),
-            DecimalValue::I128(123456789012345678901234567890i128),
-            DecimalValue::I256(i256::from_i128(987654321098765432109876543210i128)),
+            DecimalValue::I64(10000000),
+            DecimalValue::I128(100000000),
+            DecimalValue::I256(i256::from_i128(1000000000)),
         ];
 
         for value in decimal_values {
             let scalar = Scalar::decimal(value, decimal_dtype, Nullability::NonNullable);
-            let decimal_specialized = DecimalScalar::try_from(&scalar).unwrap();
+            let decimal_specialized = scalar.as_decimal();
 
             match decimal_specialized.decimal_value() {
                 Some(extracted) => assert_eq!(extracted, value),
@@ -202,7 +196,7 @@ mod tests {
             }
 
             // Test round-trip through ScalarValue
-            let scalar_value = scalar.value().clone();
+            let scalar_value = scalar.value().cloned();
             let dtype = scalar.dtype().clone();
             let reconstructed = Scalar::new(dtype, scalar_value);
             assert_eq!(scalar, reconstructed);
@@ -290,14 +284,12 @@ mod tests {
         let result: Result<i32, _> = i32::try_from(&string_scalar);
         assert!(result.is_err());
 
-        // Try to convert an integer scalar to a list
+        // Try to convert an integer scalar to a list.
         let int_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let result = ListScalar::try_from(&int_scalar);
-        assert!(result.is_err());
+        assert!(int_scalar.as_list_opt().is_none());
 
-        // Try to convert a boolean to a decimal
+        // Try to convert a boolean to a decimal.
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
-        let result = DecimalScalar::try_from(&bool_scalar);
-        assert!(result.is_err());
+        assert!(bool_scalar.as_decimal_opt().is_none());
     }
 }

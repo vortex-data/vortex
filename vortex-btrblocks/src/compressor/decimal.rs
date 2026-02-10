@@ -8,8 +8,8 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::narrowed_decimal;
 use vortex_array::vtable::ValidityHelper;
 use vortex_decimal_byte_parts::DecimalBytePartsArray;
+use vortex_dtype::DecimalType;
 use vortex_error::VortexResult;
-use vortex_scalar::DecimalType;
 
 use crate::BtrBlocksCompressor;
 use crate::CanonicalCompressor;

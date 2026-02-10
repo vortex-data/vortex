@@ -48,14 +48,14 @@ impl CastKernel for SequenceVTable {
         // For type changes, we need to cast the base and multiplier
         if array.ptype() != *target_ptype {
             // Create scalars from PValues and cast them
-            let base_scalar = Scalar::new(
+            let base_scalar = Scalar::try_new(
                 DType::Primitive(array.ptype(), Nullability::NonNullable),
-                ScalarValue::from(array.base()),
-            );
-            let multiplier_scalar = Scalar::new(
+                Some(ScalarValue::Primitive(array.base())),
+            )?;
+            let multiplier_scalar = Scalar::try_new(
                 DType::Primitive(array.ptype(), Nullability::NonNullable),
-                ScalarValue::from(array.multiplier()),
-            );
+                Some(ScalarValue::Primitive(array.multiplier())),
+            )?;
 
             let new_base_scalar =
                 base_scalar.cast(&DType::Primitive(*target_ptype, Nullability::NonNullable))?;

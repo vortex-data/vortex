@@ -17,7 +17,6 @@ use vortex_utils::aliases::hash_set::HashSet;
 
 use crate::DecimalValue;
 use crate::Scalar;
-use crate::decimal::DecimalScalar;
 
 #[rstest]
 #[case(DecimalValue::I8(100), DecimalValue::I8(100))]
@@ -57,14 +56,14 @@ fn test_decimal_cast_to_primitive() {
     );
 
     // Cast to f64 should give us 123.45
-    let float_result = decimal_scalar
+    let float_result = &decimal_scalar
         .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
         .unwrap();
     let float_value: f64 = float_result.try_into().unwrap();
     assert!((float_value - 123.45).abs() < 0.001);
 
     // Cast to i32 should give us 123 (truncated)
-    let int_result = decimal_scalar
+    let int_result = &decimal_scalar
         .cast(&DType::Primitive(PType::I32, Nullability::NonNullable))
         .unwrap();
     let int_value: i32 = int_result.try_into().unwrap();
@@ -141,7 +140,7 @@ fn test_decimal_cast_negative_values() {
     );
 
     // Cast to f64 should give us -56.78
-    let float_result = decimal_scalar
+    let float_result = &decimal_scalar
         .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
         .unwrap();
     let float_value: f64 = float_result.try_into().unwrap();
@@ -180,7 +179,7 @@ fn test_decimal_cast_with_scale(#[case] value: i32, #[case] scale: i8, #[case] e
         Nullability::NonNullable,
     );
 
-    let float_result = decimal_scalar
+    let float_result = &decimal_scalar
         .cast(&DType::Primitive(PType::F64, Nullability::NonNullable))
         .unwrap();
     let float_value: f64 = float_result.try_into().unwrap();
@@ -571,14 +570,14 @@ fn test_decimal_partial_ord() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I32(200),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     // Same type comparison should work
     assert!(scalar1 < scalar2);
@@ -594,7 +593,7 @@ fn test_decimal_partial_ord() {
         DecimalDType::new(20, 4), // Different precision/scale
         Nullability::NonNullable,
     );
-    let scalar3 = DecimalScalar::try_from(&decimal3).unwrap();
+    let scalar3 = decimal3.as_decimal();
     assert_eq!(scalar1.partial_cmp(&scalar3), None);
 }
 
@@ -605,14 +604,14 @@ fn test_decimal_eq() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I32(100),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     assert_eq!(scalar1, scalar2);
 
@@ -622,7 +621,7 @@ fn test_decimal_eq() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar3 = DecimalScalar::try_from(&decimal3).unwrap();
+    let scalar3 = decimal3.as_decimal();
     assert_ne!(scalar1, scalar3);
 }
 
@@ -650,7 +649,7 @@ fn test_decimal_scalar_try_from_errors() {
         DecimalDType::new(5, 2),
         Nullability::NonNullable,
     );
-    let scalar = DecimalScalar::try_from(&decimal).unwrap();
+    let scalar = decimal.as_decimal();
 
     // Try to extract as wrong type
     let result: Result<i8, _> = scalar.try_into();
@@ -661,7 +660,7 @@ fn test_decimal_scalar_try_from_errors() {
         DecimalDType::new(10, 2),
         Nullability::Nullable,
     ));
-    let null_scalar = DecimalScalar::try_from(&null_decimal).unwrap();
+    let null_scalar = null_decimal.as_decimal();
     let result: Result<i32, _> = null_scalar.try_into();
     assert!(result.is_err());
 
@@ -683,7 +682,7 @@ fn test_decimal_cast_large_scale() {
     // Cast to f64
     let result = decimal.cast(&DType::Primitive(PType::F64, Nullability::NonNullable));
     assert!(result.is_ok());
-    let f64_value: f64 = result.unwrap().try_into().unwrap();
+    let f64_value: f64 = (&result.unwrap()).try_into().unwrap();
     assert!((f64_value - 1234.56789012345).abs() < 0.0000000001);
 }
 
@@ -699,7 +698,7 @@ fn test_decimal_cast_zero_scale() {
     // Cast to i32 should give exact value
     let result = decimal.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
     assert!(result.is_ok());
-    let i32_value: i32 = result.unwrap().try_into().unwrap();
+    let i32_value: i32 = (&result.unwrap()).try_into().unwrap();
     assert_eq!(i32_value, 123456);
 }
 
@@ -719,7 +718,7 @@ fn test_decimal_cast_u64_boundary() {
     // Test U64 boundary case
     let decimal = Scalar::decimal(
         DecimalValue::I128(18446744073709551615_i128), // U64::MAX
-        DecimalDType::new(20, 0),
+        DecimalDType::new(21, 0),
         Nullability::NonNullable,
     );
 
@@ -734,7 +733,7 @@ fn test_decimal_cast_u64_boundary() {
     // Note: The cast logic checks the float value against U64::MAX
     let decimal = Scalar::decimal(
         DecimalValue::I128(i128::MAX), // Much larger than U64::MAX
-        DecimalDType::new(38, 0),
+        DecimalDType::new(39, 0),
         Nullability::NonNullable,
     );
 
@@ -767,14 +766,14 @@ fn test_decimal_scalar_checked_add() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(200),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Add)
@@ -794,14 +793,14 @@ fn test_decimal_scalar_checked_sub() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(200),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Sub)
@@ -821,14 +820,14 @@ fn test_decimal_scalar_checked_mul() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I32(10),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Mul)
@@ -848,14 +847,14 @@ fn test_decimal_scalar_checked_div() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(10),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Div)
@@ -875,14 +874,14 @@ fn test_decimal_scalar_checked_div_by_zero() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(0),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Div);
     assert_eq!(result, None);
@@ -896,14 +895,14 @@ fn test_decimal_scalar_null_handling() {
         DecimalDType::new(10, 2),
         Nullability::Nullable,
     ));
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(200),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     let result = scalar1
         .checked_binary_numeric(&scalar2, NumericOperator::Add)
@@ -921,14 +920,14 @@ fn test_decimal_scalar_precision_overflow() {
         DecimalDType::new(3, 0),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I16(2),
         DecimalDType::new(3, 0),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     // 999 + 2 = 1001 which exceeds precision 3
     let result = scalar1.checked_binary_numeric(&scalar2, NumericOperator::Add);
@@ -944,14 +943,14 @@ fn test_decimal_scalar_rsub_and_rdiv() {
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar1 = DecimalScalar::try_from(&decimal1).unwrap();
+    let scalar1 = decimal1.as_decimal();
 
     let decimal2 = Scalar::decimal(
         DecimalValue::I64(300),
         DecimalDType::new(10, 2),
         Nullability::NonNullable,
     );
-    let scalar2 = DecimalScalar::try_from(&decimal2).unwrap();
+    let scalar2 = decimal2.as_decimal();
 
     // RSub: 300 - 100 = 200
     let result = scalar1
@@ -970,4 +969,260 @@ fn test_decimal_scalar_rsub_and_rdiv() {
         result.decimal_value(),
         Some(DecimalValue::I256(i256::from_i128(3)))
     );
+}
+
+#[test]
+fn test_decimal_value_from_scalar() {
+    let value = DecimalValue::I32(12345);
+    let scalar = Scalar::from(value);
+
+    // Test extraction
+    let extracted: DecimalValue = DecimalValue::try_from(&scalar).unwrap();
+    assert_eq!(extracted, value);
+
+    // Test owned extraction
+    let extracted_owned: DecimalValue = DecimalValue::try_from(scalar).unwrap();
+    assert_eq!(extracted_owned, value);
+}
+
+#[test]
+fn test_decimal_value_option_from_scalar() {
+    // Non-null case
+    let value = DecimalValue::I64(999999);
+    let scalar = Scalar::from(value);
+
+    let extracted: Option<DecimalValue> = Option::try_from(&scalar).unwrap();
+    assert_eq!(extracted, Some(value));
+
+    // Null case
+    let null_scalar = Scalar::null(DType::Decimal(
+        DecimalDType::new(10, 2),
+        Nullability::Nullable,
+    ));
+
+    let extracted_null: Option<DecimalValue> = Option::try_from(&null_scalar).unwrap();
+    assert_eq!(extracted_null, None);
+}
+
+#[test]
+fn test_decimal_value_from_conversion() {
+    // Test that From<DecimalValue> creates reasonable defaults
+    let values = vec![
+        DecimalValue::I8(127),
+        DecimalValue::I16(32767),
+        DecimalValue::I32(1000000),
+        DecimalValue::I64(1000000000000),
+        DecimalValue::I128(123456789012345678901234567890),
+        DecimalValue::I256(i256::from_i128(987654321)),
+    ];
+
+    for value in values {
+        let scalar = Scalar::from(value);
+        assert!(!scalar.is_null());
+
+        // Verify we can extract it back
+        let extracted: DecimalValue = DecimalValue::try_from(&scalar).unwrap();
+        assert_eq!(extracted, value);
+    }
+}
+
+#[test]
+fn test_decimal_value_checked_add() {
+    let a = DecimalValue::I64(100);
+    let b = DecimalValue::I64(200);
+    let result = a.checked_add(&b).unwrap();
+    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+}
+
+#[test]
+fn test_decimal_value_checked_sub() {
+    let a = DecimalValue::I64(500);
+    let b = DecimalValue::I64(200);
+    let result = a.checked_sub(&b).unwrap();
+    assert_eq!(result, DecimalValue::I256(i256::from_i128(300)));
+}
+
+#[test]
+fn test_decimal_value_checked_mul() {
+    let a = DecimalValue::I32(50);
+    let b = DecimalValue::I32(10);
+    let result = a.checked_mul(&b).unwrap();
+    assert_eq!(result, DecimalValue::I256(i256::from_i128(500)));
+}
+
+#[test]
+fn test_decimal_value_checked_div() {
+    let a = DecimalValue::I64(1000);
+    let b = DecimalValue::I64(10);
+    let result = a.checked_div(&b).unwrap();
+    assert_eq!(result, DecimalValue::I256(i256::from_i128(100)));
+}
+
+#[test]
+fn test_decimal_value_checked_div_by_zero() {
+    let a = DecimalValue::I64(1000);
+    let b = DecimalValue::I64(0);
+    let result = a.checked_div(&b);
+    assert_eq!(result, None);
+}
+
+#[test]
+fn test_decimal_value_mixed_types() {
+    // Test operations with different underlying types
+    let a = DecimalValue::I8(10);
+    let b = DecimalValue::I128(20);
+    let result = a.checked_add(&b).unwrap();
+    assert_eq!(result, DecimalValue::I256(i256::from_i128(30)));
+}
+
+#[test]
+fn test_fits_in_precision_exact_boundary() {
+    use vortex_dtype::DecimalDType;
+
+    // Precision 3 means max value is 10^3 - 1 = 999
+    let dtype = DecimalDType::new(3, 0);
+
+    // Test exact upper boundary: 999 should fit
+    let value = DecimalValue::I16(999);
+    assert!(value.fits_in_precision(dtype));
+
+    // Test just beyond upper boundary: 1000 should NOT fit
+    let value = DecimalValue::I16(1000);
+    assert!(!value.fits_in_precision(dtype));
+
+    // Test exact lower boundary: -999 should fit
+    let value = DecimalValue::I16(-999);
+    assert!(value.fits_in_precision(dtype));
+
+    // Test just beyond lower boundary: -1000 should NOT fit
+    let value = DecimalValue::I16(-1000);
+    assert!(!value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_zero() {
+    use vortex_dtype::DecimalDType;
+
+    let dtype = DecimalDType::new(5, 2);
+
+    // Zero should always fit
+    let value = DecimalValue::I8(0);
+    assert!(value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_small_precision() {
+    use vortex_dtype::DecimalDType;
+
+    // Precision 1 means max value is 10^1 - 1 = 9
+    let dtype = DecimalDType::new(1, 0);
+
+    // Test values within range
+    for i in -9..=9 {
+        let value = DecimalValue::I8(i);
+        assert!(
+            value.fits_in_precision(dtype),
+            "value {} should fit in precision 1",
+            i
+        );
+    }
+
+    // Test values outside range
+    let value = DecimalValue::I8(10);
+    assert!(!value.fits_in_precision(dtype));
+    let value = DecimalValue::I8(-10);
+    assert!(!value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_large_precision() {
+    use vortex_dtype::DecimalDType;
+
+    // Precision 38 means max value is 10^38 - 1
+    let dtype = DecimalDType::new(38, 0);
+
+    // Test i128::MAX which is approximately 1.7e38
+    // This should NOT fit because 10^38 - 1 < i128::MAX
+    let value = DecimalValue::I128(i128::MAX);
+    assert!(!value.fits_in_precision(dtype));
+
+    // Test a large value that should fit: 10^37
+    let value = DecimalValue::I128(10_i128.pow(37));
+    assert!(value.fits_in_precision(dtype));
+
+    // Test 10^38 - 1 (the exact maximum)
+    let max_val = i256::from_i128(10).wrapping_pow(38) - i256::from_i128(1);
+    let value = DecimalValue::I256(max_val);
+    assert!(value.fits_in_precision(dtype));
+
+    // Test 10^38 (just over the maximum)
+    let over_max = i256::from_i128(10).wrapping_pow(38);
+    let value = DecimalValue::I256(over_max);
+    assert!(!value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_max_precision() {
+    use vortex_dtype::DecimalDType;
+
+    // Maximum precision is 76
+    let dtype = DecimalDType::new(76, 0);
+
+    // Test that reasonable i256 values fit
+    let value = DecimalValue::I256(i256::from_i128(i128::MAX));
+    assert!(value.fits_in_precision(dtype));
+
+    // Test negative
+    let value = DecimalValue::I256(i256::from_i128(i128::MIN));
+    assert!(value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_different_scales() {
+    use vortex_dtype::DecimalDType;
+
+    // Scale doesn't affect the precision check - it's only about the stored value
+    let value = DecimalValue::I32(12345);
+
+    // Precision 5 with different scales
+    assert!(value.fits_in_precision(DecimalDType::new(5, 0)));
+    assert!(value.fits_in_precision(DecimalDType::new(5, 2)));
+    assert!(value.fits_in_precision(DecimalDType::new(5, -2)));
+
+    // Precision 4 should fail (max value 9999, we have 12345)
+    assert!(!value.fits_in_precision(DecimalDType::new(4, 0)));
+    assert!(!value.fits_in_precision(DecimalDType::new(4, 2)));
+}
+
+#[test]
+fn test_fits_in_precision_negative_values() {
+    use vortex_dtype::DecimalDType;
+
+    let dtype = DecimalDType::new(4, 2);
+
+    // Test negative values at boundaries
+    // Precision 4 means max magnitude is 9999
+    let value = DecimalValue::I16(-9999);
+    assert!(value.fits_in_precision(dtype));
+
+    let value = DecimalValue::I16(-10000);
+    assert!(!value.fits_in_precision(dtype));
+
+    let value = DecimalValue::I16(-1);
+    assert!(value.fits_in_precision(dtype));
+}
+
+#[test]
+fn test_fits_in_precision_mixed_decimal_value_types() {
+    use vortex_dtype::DecimalDType;
+
+    let dtype = DecimalDType::new(5, 0);
+
+    // Test that different DecimalValue types work correctly
+    assert!(DecimalValue::I8(99).fits_in_precision(dtype));
+    assert!(DecimalValue::I16(9999).fits_in_precision(dtype));
+    assert!(DecimalValue::I32(99999).fits_in_precision(dtype));
+    assert!(!DecimalValue::I64(100000).fits_in_precision(dtype));
+    assert!(DecimalValue::I128(99999).fits_in_precision(dtype));
+    assert!(!DecimalValue::I256(i256::from_i128(100000)).fits_in_precision(dtype));
 }

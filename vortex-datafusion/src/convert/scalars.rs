@@ -13,11 +13,12 @@ use vortex::dtype::datetime::AnyTemporal;
 use vortex::dtype::datetime::TemporalMetadata;
 use vortex::dtype::datetime::TimeUnit;
 use vortex::dtype::half::f16;
+use vortex::dtype::i256;
+use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::scalar::DecimalValue;
 use vortex::scalar::Scalar;
-use vortex::scalar::i256;
 
 use crate::convert::FromDataFusion;
 use crate::convert::TryToDataFusion;
@@ -101,12 +102,13 @@ impl TryToDataFusion<ScalarValue> for Scalar {
                 }
             }
             // SAFETY: By construction Utf8 scalar values are utf8
-            DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().map(|s| unsafe {
+            DType::Utf8(_) => ScalarValue::Utf8(self.as_utf8().value().cloned().map(|s| unsafe {
                 String::from_utf8_unchecked(Vec::<u8>::from(s.into_inner().into_inner()))
             })),
             DType::Binary(_) => ScalarValue::Binary(
                 self.as_binary()
                     .value()
+                    .cloned()
                     .map(|b| Vec::<u8>::from(b.into_inner())),
             ),
             DType::Struct(..) => todo!("struct scalar conversion"),
@@ -217,11 +219,8 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::Time32Second(v)
             | ScalarValue::Time32Millisecond(v) => {
                 let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
-                Scalar::new(
-                    dtype,
-                    v.map(vortex::scalar::ScalarValue::from)
-                        .unwrap_or_else(vortex::scalar::ScalarValue::null),
-                )
+                Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
+                    .vortex_expect("unable to create a time `Scalar`")
             }
             ScalarValue::Date64(v)
             | ScalarValue::Time64Microsecond(v)
@@ -231,11 +230,8 @@ impl FromDataFusion<ScalarValue> for Scalar {
             | ScalarValue::TimestampMicrosecond(v, _)
             | ScalarValue::TimestampNanosecond(v, _) => {
                 let dtype = DType::from_arrow((&value.data_type(), Nullability::Nullable));
-                Scalar::new(
-                    dtype,
-                    v.map(vortex::scalar::ScalarValue::from)
-                        .unwrap_or_else(vortex::scalar::ScalarValue::null),
-                )
+                Scalar::try_new(dtype, v.map(vortex::scalar::ScalarValue::from))
+                    .vortex_expect("unable to create a time `Scalar`")
             }
             ScalarValue::Decimal32(decimal, precision, scale) => {
                 let decimal_dtype = DecimalDType::new(*precision, *scale);
@@ -305,9 +301,9 @@ mod tests {
     use vortex::dtype::DecimalDType;
     use vortex::dtype::Nullability;
     use vortex::dtype::PType;
+    use vortex::dtype::i256;
     use vortex::scalar::DecimalValue;
     use vortex::scalar::Scalar;
-    use vortex::scalar::i256;
 
     use super::*;
 
@@ -684,7 +680,13 @@ mod tests {
     #[case::fixed_size_binary(ScalarValue::FixedSizeBinary(5, Some(vec![1u8, 2, 3, 4, 5])))]
     fn test_binary_variants(#[case] variant: ScalarValue) {
         let result = Scalar::from_df(&variant);
-        let result_bytes: Vec<u8> = result.as_binary().value().unwrap().into_inner().into();
+        let result_bytes: Vec<u8> = result
+            .as_binary()
+            .value()
+            .cloned()
+            .unwrap()
+            .into_inner()
+            .into();
         assert_eq!(result_bytes, vec![1u8, 2, 3, 4, 5]);
     }
 }

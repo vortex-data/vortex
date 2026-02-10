@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`ExtScalar`] typed view implementation.
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_dtype::ExtDType;
 use vortex_dtype::datetime::AnyTemporal;
 use vortex_dtype::extension::ExtDTypeRef;
-use vortex_dtype::extension::ExtDTypeVTable;
-use vortex_error::VortexError;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -23,8 +22,10 @@ use crate::ScalarValue;
 /// Extension types allow wrapping a storage type with custom semantics.
 #[derive(Debug, Clone)]
 pub struct ExtScalar<'a> {
+    /// The extension data type reference.
     ext_dtype: &'a ExtDTypeRef,
-    value: &'a ScalarValue,
+    /// The underlying scalar value, or [`None`] if null.
+    value: Option<&'a ScalarValue>,
 }
 
 impl Display for ExtScalar<'_> {
@@ -75,12 +76,13 @@ impl Hash for ExtScalar<'_> {
 }
 
 impl<'a> ExtScalar<'a> {
+    // TODO(connor): This should really be validating the data on construction!!!
     /// Creates a new extension scalar from a data type and scalar value.
     ///
     /// # Errors
     ///
     /// Returns an error if the data type is not an extension type.
-    pub fn try_new(dtype: &'a DType, value: &'a ScalarValue) -> VortexResult<Self> {
+    pub fn try_new(dtype: &'a DType, value: Option<&'a ScalarValue>) -> VortexResult<Self> {
         let DType::Extension(ext_dtype) = dtype else {
             vortex_bail!("Expected extension scalar, found {}", dtype)
         };
@@ -90,7 +92,8 @@ impl<'a> ExtScalar<'a> {
 
     /// Returns the storage scalar of the extension scalar.
     pub fn storage(&self) -> Scalar {
-        Scalar::new(self.ext_dtype.storage_dtype().clone(), self.value.clone())
+        Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
+            .vortex_expect("ExtScalar is invalid")
     }
 
     /// Returns the extension data type.
@@ -98,8 +101,9 @@ impl<'a> ExtScalar<'a> {
         self.ext_dtype
     }
 
+    /// Casts this scalar to the given `dtype`.
     pub(crate) fn cast(&self, dtype: &DType) -> VortexResult<Scalar> {
-        if self.value.is_null() && !dtype.is_nullable() {
+        if self.value.is_none() && !dtype.is_nullable() {
             vortex_bail!(
                 "cannot cast extension dtype with id {} and storage type {} to {}",
                 self.ext_dtype.id(),
@@ -110,13 +114,13 @@ impl<'a> ExtScalar<'a> {
 
         if self.ext_dtype.storage_dtype().eq_ignore_nullability(dtype) {
             // Casting from an extension type to the underlying storage type is OK.
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+            return Scalar::try_new(dtype.clone(), self.value.cloned());
         }
 
         if let DType::Extension(ext_dtype) = dtype
             && self.ext_dtype.eq_ignore_nullability(ext_dtype)
         {
-            return Ok(Scalar::new(dtype.clone(), self.value.clone()));
+            return Scalar::try_new(dtype.clone(), self.value.cloned());
         }
 
         vortex_bail!(
@@ -125,29 +129,6 @@ impl<'a> ExtScalar<'a> {
             self.ext_dtype.storage_dtype(),
             dtype
         );
-    }
-}
-
-impl<'a> TryFrom<&'a Scalar> for ExtScalar<'a> {
-    type Error = VortexError;
-
-    fn try_from(scalar: &'a Scalar) -> Result<Self, Self::Error> {
-        ExtScalar::try_new(scalar.dtype(), scalar.value())
-    }
-}
-
-impl Scalar {
-    /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
-            .vortex_expect("Failed to create extension dtype");
-        Self::new(DType::Extension(ext_dtype.erased()), value.value().clone())
-    }
-
-    /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::new(DType::Extension(ext_dtype), value.value().clone())
     }
 }
 
@@ -163,7 +144,7 @@ mod tests {
     use vortex_error::VortexResult;
 
     use crate::ExtScalar;
-    use crate::InnerScalarValue;
+    use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
 
@@ -210,9 +191,9 @@ mod tests {
             Scalar::primitive(43i32, Nullability::NonNullable),
         );
 
-        let ext1 = ExtScalar::try_from(&scalar1).unwrap();
-        let ext2 = ExtScalar::try_from(&scalar2).unwrap();
-        let ext3 = ExtScalar::try_from(&scalar3).unwrap();
+        let ext1 = scalar1.as_extension();
+        let ext2 = scalar2.as_extension();
+        let ext3 = scalar3.as_extension();
 
         assert_eq!(ext1, ext2);
         assert_ne!(ext1, ext3);
@@ -229,8 +210,8 @@ mod tests {
             Scalar::primitive(20i32, Nullability::NonNullable),
         );
 
-        let ext1 = ExtScalar::try_from(&scalar1).unwrap();
-        let ext2 = ExtScalar::try_from(&scalar2).unwrap();
+        let ext1 = scalar1.as_extension();
+        let ext2 = scalar2.as_extension();
 
         assert!(ext1 < ext2);
         assert!(ext2 > ext1);
@@ -265,8 +246,8 @@ mod tests {
             Scalar::primitive(20i32, Nullability::NonNullable),
         );
 
-        let ext1 = ExtScalar::try_from(&scalar1).unwrap();
-        let ext2 = ExtScalar::try_from(&scalar2).unwrap();
+        let ext1 = scalar1.as_extension();
+        let ext2 = scalar2.as_extension();
 
         // Different extension types should not be comparable
         assert_eq!(ext1.partial_cmp(&ext2), None);
@@ -306,7 +287,7 @@ mod tests {
         let storage_scalar = Scalar::primitive(42i32, Nullability::NonNullable);
         let ext_scalar = Scalar::extension::<TestExt>(EmptyMetadata, storage_scalar.clone());
 
-        let ext = ExtScalar::try_from(&ext_scalar).unwrap();
+        let ext = ext_scalar.as_extension();
         assert_eq!(ext.storage(), storage_scalar);
     }
 
@@ -318,7 +299,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
         assert_eq!(ext.ext_dtype().id(), ext_dtype.id());
         assert_eq!(ext.ext_dtype(), &ext_dtype.erased());
     }
@@ -330,7 +311,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
 
         // Cast to storage type
         let casted = ext
@@ -365,7 +346,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
         let ext_dtype = ext_dtype.erased();
 
         // Cast to same extension type
@@ -385,7 +366,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
 
         // Cast to incompatible type should fail
         let result = ext.cast(&DType::Utf8(Nullability::NonNullable));
@@ -399,7 +380,7 @@ mod tests {
             Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
 
         // Cast null to non-nullable should fail
         let result = ext.cast(&DType::Primitive(PType::I32, Nullability::NonNullable));
@@ -409,9 +390,9 @@ mod tests {
     #[test]
     fn test_ext_scalar_try_new_non_extension() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let value = ScalarValue(InnerScalarValue::Primitive(crate::PValue::I32(42)));
+        let value = ScalarValue::Primitive(PValue::I32(42));
 
-        let result = ExtScalar::try_new(&dtype, &value);
+        let result = ExtScalar::try_new(&dtype, Some(&value));
         assert!(result.is_err());
     }
 
@@ -440,25 +421,7 @@ mod tests {
             Scalar::primitive(42i32, Nullability::NonNullable),
         );
 
-        let ext = ExtScalar::try_from(&scalar).unwrap();
+        let ext = scalar.as_extension();
         assert_eq!(ext.ext_dtype().metadata::<TestExtMetadata>(), &1234);
-    }
-
-    #[test]
-    fn test_ext_scalar_equality_ignores_nullability() {
-        let scalar1 = Scalar::extension::<TestExt>(
-            EmptyMetadata,
-            Scalar::primitive(42i32, Nullability::NonNullable),
-        );
-        let scalar2 = Scalar::extension::<TestExt>(
-            EmptyMetadata,
-            Scalar::primitive(42i32, Nullability::Nullable),
-        );
-
-        let ext1 = ExtScalar::try_from(&scalar1).unwrap();
-        let ext2 = ExtScalar::try_from(&scalar2).unwrap();
-
-        // Equality should ignore nullability differences
-        assert_eq!(ext1, ext2);
     }
 }

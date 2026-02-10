@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use flatbuffers::root;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
 use vortex_dtype::DType;
@@ -140,7 +141,9 @@ impl FooterDeserializer {
         let file_stats = postscript
             .statistics
             .as_ref()
-            .map(|segment| self.parse_file_statistics(initial_offset, &self.buffer, segment))
+            .map(|segment| {
+                self.parse_file_statistics(initial_offset, &self.buffer, segment, &dtype)
+            })
             .transpose()?;
 
         Ok(DeserializeStep::Done(self.parse_footer(
@@ -218,11 +221,14 @@ impl FooterDeserializer {
         initial_offset: u64,
         initial_read: &[u8],
         segment: &PostscriptSegment,
+        dtype: &DType,
     ) -> VortexResult<FileStatistics> {
         let offset = usize::try_from(segment.offset - initial_offset)?;
         let sliced_buffer =
             FlatBuffer::copy_from(&initial_read[offset..offset + (segment.length as usize)]);
-        FileStatistics::read_flatbuffer_bytes(&sliced_buffer)
+
+        let fb = root::<vortex_flatbuffers::footer::FileStatistics>(&sliced_buffer)?;
+        FileStatistics::from_flatbuffer(&fb, dtype)
     }
 
     /// Parse the rest of the footer from the initial read.

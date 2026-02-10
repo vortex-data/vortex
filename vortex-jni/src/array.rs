@@ -31,11 +31,11 @@ use vortex::array::arrays::VarBinArray;
 use vortex::array::arrays::VarBinViewArray;
 use vortex::array::arrow::IntoArrowArray;
 use vortex::dtype::DType;
+use vortex::dtype::i256;
 use vortex::error::VortexError;
 use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::scalar::DecimalValue;
-use vortex::scalar::i256;
 
 use crate::errors::JNIError;
 use crate::errors::try_or_throw;

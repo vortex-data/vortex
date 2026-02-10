@@ -87,8 +87,8 @@ mod tests {
             Validity::NonNullable,
         );
         let min_max = min_max(array.as_ref()).unwrap().unwrap();
-        assert_eq!(f32::try_from(min_max.min).unwrap(), -1.0);
-        assert_eq!(f32::try_from(min_max.max).unwrap(), 1.0);
+        assert_eq!(f32::try_from(&min_max.min).unwrap(), -1.0);
+        assert_eq!(f32::try_from(&min_max.max).unwrap(), 1.0);
     }
 
     #[test]
@@ -98,7 +98,7 @@ mod tests {
             Validity::NonNullable,
         );
         let min_max = min_max(array.as_ref()).unwrap().unwrap();
-        assert_eq!(f32::try_from(min_max.min).unwrap(), f32::NEG_INFINITY);
-        assert_eq!(f32::try_from(min_max.max).unwrap(), f32::INFINITY);
+        assert_eq!(f32::try_from(&min_max.min).unwrap(), f32::NEG_INFINITY);
+        assert_eq!(f32::try_from(&min_max.max).unwrap(), f32::INFINITY);
     }
 }

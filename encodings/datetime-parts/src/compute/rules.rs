@@ -171,7 +171,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
 fn is_constant_zero(array: &ArrayRef) -> bool {
     array
         .as_opt::<ConstantVTable>()
-        .is_some_and(|c| c.scalar().is_zero())
+        .is_some_and(|c| c.scalar().is_zero() == Some(true))
 }
 
 #[cfg(test)]

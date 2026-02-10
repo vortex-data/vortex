@@ -245,28 +245,26 @@ impl VTable for SequenceVTable {
         let ptype = dtype.as_ptype();
 
         // We go via scalar to cast the scalar values into the correct PType
-        let base = Scalar::new(
-            DType::Primitive(ptype, NonNullable),
+        let base = Scalar::from_proto_value(
             metadata
                 .0
                 .base
                 .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?
-                .try_into()?,
-        )
+                .ok_or_else(|| vortex_err!("base required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
         .as_primitive()
         .pvalue()
         .vortex_expect("non-nullable primitive");
 
-        let multiplier = Scalar::new(
-            DType::Primitive(ptype, NonNullable),
+        let multiplier = Scalar::from_proto_value(
             metadata
                 .0
                 .multiplier
                 .as_ref()
-                .ok_or_else(|| vortex_err!("base required"))?
-                .try_into()?,
-        )
+                .ok_or_else(|| vortex_err!("multiplier required"))?,
+            &DType::Primitive(ptype, NonNullable),
+        )?
         .as_primitive()
         .pvalue()
         .vortex_expect("non-nullable primitive");
@@ -355,10 +353,10 @@ impl BaseArrayVTable<SequenceVTable> for SequenceVTable {
 
 impl OperationsVTable<SequenceVTable> for SequenceVTable {
     fn scalar_at(array: &SequenceArray, index: usize) -> VortexResult<Scalar> {
-        Ok(Scalar::new(
+        Scalar::try_new(
             array.dtype().clone(),
-            ScalarValue::from(array.index_value(index)),
-        ))
+            Some(ScalarValue::Primitive(array.index_value(index))),
+        )
     }
 }
 
@@ -423,7 +421,7 @@ mod tests {
 
         assert_eq!(
             scalar,
-            Scalar::new(scalar.dtype().clone(), ScalarValue::from(8i64))
+            Scalar::try_new(scalar.dtype().clone(), Some(ScalarValue::from(8i64))).unwrap()
         )
     }
 

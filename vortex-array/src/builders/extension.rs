@@ -95,8 +95,7 @@ impl ArrayBuilder for ExtensionBuilder {
             scalar.dtype()
         );
 
-        let ext_scalar = ExtScalar::try_from(scalar)?;
-        self.append_value(ext_scalar)
+        self.append_value(scalar.as_extension())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {
