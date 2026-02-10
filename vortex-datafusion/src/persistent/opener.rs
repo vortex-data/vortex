@@ -5,6 +5,7 @@ use std::ops::Range;
 use std::sync::Arc;
 use std::sync::Weak;
 
+use arrow_schema::Schema;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::ScalarValue;
@@ -230,22 +231,36 @@ impl FileOpener for VortexOpener {
                 leftover_projection,
             } = if projection_pushdown {
                 expr_convertor.split_projection(
-                    projection,
+                    projection.clone(),
                     &this_file_schema,
                     &projected_physical_schema,
                 )?
             } else {
                 // When projection pushdown is disabled, read only the required columns
                 // and apply the full projection after the scan.
-                expr_convertor.no_pushdown_projection(projection, &this_file_schema)?
+                expr_convertor.no_pushdown_projection(projection.clone(), &this_file_schema)?
             };
 
             // The schema of the stream returned from the vortex scan.
-            // We use the physical_file_schema as reference for types that don't roundtrip.
+            // We use a reference schema for types that don't roundtrip (Dictionary, Utf8, etc.).
             let scan_dtype = scan_projection.return_dtype(vxf.dtype()).map_err(|_e| {
                 exec_datafusion_err!("Couldn't get the dtype for the underlying Vortex scan")
             })?;
-            let stream_schema = calculate_physical_schema(&scan_dtype, &projected_physical_schema)?;
+
+            // When projection pushdown is enabled, the scan outputs the projected columns.
+            // When disabled, the scan outputs raw columns and the projection is applied after.
+            let scan_reference_schema = if projection_pushdown {
+                projected_physical_schema
+            } else {
+                // Build schema from the raw columns being read
+                let column_indices = projection.column_indices();
+                let fields: Vec<_> = column_indices
+                    .into_iter()
+                    .map(|idx| this_file_schema.field(idx).clone())
+                    .collect();
+                Schema::new(fields)
+            };
+            let stream_schema = calculate_physical_schema(&scan_dtype, &scan_reference_schema)?;
 
             let leftover_projection = leftover_projection
                 .try_map_exprs(|expr| reassign_expr_columns(expr, &stream_schema))?;
