@@ -101,7 +101,6 @@ impl VTable for FillNull {
     ) -> VortexResult<Option<Expression>> {
         let input_dtype = ctx.return_dtype(expr.child(0))?;
 
-        // If the input is non-nullable, fill_null is a no-op.
         if !input_dtype.is_nullable() {
             return Ok(Some(expr.child(0).clone()));
         }
