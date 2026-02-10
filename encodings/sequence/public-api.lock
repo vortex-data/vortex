@@ -32,6 +32,8 @@ impl vortex_sequence::SequenceVTable
 pub const vortex_sequence::SequenceVTable::ID: vortex_array::vtable::dyn_::ArrayId
 impl core::fmt::Debug for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_sequence::SequenceVTable
+pub fn vortex_sequence::SequenceVTable::take(array: &vortex_sequence::SequenceArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::filter(array: &vortex_sequence::SequenceArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_sequence::SequenceVTable
@@ -47,8 +49,6 @@ impl vortex_array::compute::list_contains::ListContainsKernel for vortex_sequenc
 pub fn vortex_sequence::SequenceVTable::list_contains(&self, list: &dyn vortex_array::array::Array, element: &Self::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::min_max::MinMaxKernel for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::min_max(&self, array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::min_max::MinMaxResult>>
-impl vortex_array::compute::take::TakeKernel for vortex_sequence::SequenceVTable
-pub fn vortex_sequence::SequenceVTable::take(&self, array: &vortex_sequence::SequenceArray, indices: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::vtable::VTable for vortex_sequence::SequenceVTable
 pub type vortex_sequence::SequenceVTable::Array = vortex_sequence::SequenceArray
 pub type vortex_sequence::SequenceVTable::ArrayVTable = vortex_sequence::SequenceVTable

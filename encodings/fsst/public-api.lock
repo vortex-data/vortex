@@ -45,6 +45,8 @@ impl vortex_fsst::FSSTVTable
 pub const vortex_fsst::FSSTVTable::ID: vortex_array::vtable::dyn_::ArrayId
 impl core::fmt::Debug for vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_fsst::FSSTVTable
+pub fn vortex_fsst::FSSTVTable::take(array: &vortex_fsst::FSSTArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::filter(array: &vortex_fsst::FSSTArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_fsst::FSSTVTable
@@ -53,8 +55,6 @@ impl vortex_array::compute::cast::CastKernel for vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::cast(&self, array: &vortex_fsst::FSSTArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::compare::CompareKernel for vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::compare(&self, lhs: &vortex_fsst::FSSTArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::take::TakeKernel for vortex_fsst::FSSTVTable
-pub fn vortex_fsst::FSSTVTable::take(&self, array: &vortex_fsst::FSSTArray, indices: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::vtable::VTable for vortex_fsst::FSSTVTable
 pub type vortex_fsst::FSSTVTable::Array = vortex_fsst::FSSTArray
 pub type vortex_fsst::FSSTVTable::ArrayVTable = vortex_fsst::FSSTVTable

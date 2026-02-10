@@ -4,6 +4,7 @@ pub vortex_btrblocks::FloatCode::Alp
 pub vortex_btrblocks::FloatCode::AlpRd
 pub vortex_btrblocks::FloatCode::Constant
 pub vortex_btrblocks::FloatCode::Dict
+pub vortex_btrblocks::FloatCode::Pco
 pub vortex_btrblocks::FloatCode::Rle
 pub vortex_btrblocks::FloatCode::RunEnd
 pub vortex_btrblocks::FloatCode::Sparse
@@ -34,6 +35,7 @@ pub vortex_btrblocks::IntCode::BitPacking
 pub vortex_btrblocks::IntCode::Constant
 pub vortex_btrblocks::IntCode::Dict
 pub vortex_btrblocks::IntCode::For
+pub vortex_btrblocks::IntCode::Pco
 pub vortex_btrblocks::IntCode::Rle
 pub vortex_btrblocks::IntCode::RunEnd
 pub vortex_btrblocks::IntCode::Sequence
@@ -67,6 +69,7 @@ pub vortex_btrblocks::StringCode::Dict
 pub vortex_btrblocks::StringCode::Fsst
 pub vortex_btrblocks::StringCode::Sparse
 pub vortex_btrblocks::StringCode::Uncompressed
+pub vortex_btrblocks::StringCode::Zstd
 impl core::clone::Clone for vortex_btrblocks::StringCode
 pub fn vortex_btrblocks::StringCode::clone(&self) -> vortex_btrblocks::StringCode
 impl core::cmp::Eq for vortex_btrblocks::StringCode

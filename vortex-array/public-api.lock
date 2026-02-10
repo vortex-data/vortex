@@ -46,6 +46,8 @@ impl vortex_array::arrays::FilterReduce for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::filter(array: &vortex_array::arrays::DictArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::DictVTable::take(array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::cast(&self, array: &vortex_array::arrays::DictArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::DictVTable
@@ -63,8 +65,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::min_max(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::NumericKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::numeric(&self, lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, op: vortex_scalar::primitive::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::DictVTable
-pub fn vortex_array::arrays::DictVTable::take(&self, array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::array_eq(array: &vortex_array::arrays::DictArray, other: &vortex_array::arrays::DictArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::DictVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::DictArray, state: &mut H, precision: vortex_array::Precision)
@@ -83,6 +83,7 @@ pub type vortex_array::arrays::DictVTable::VisitorVTable = vortex_array::arrays:
 pub fn vortex_array::arrays::DictVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
 pub fn vortex_array::arrays::DictVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::DictVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::DictVTable::metadata(array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -169,6 +170,8 @@ impl vortex_array::arrays::FilterKernel for vortex_array::arrays::BoolVTable
 pub fn vortex_array::arrays::BoolVTable::filter(array: &vortex_array::arrays::BoolArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::BoolVTable
 pub fn vortex_array::arrays::BoolVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::BoolVTable
+pub fn vortex_array::arrays::BoolVTable::take(array: &vortex_array::arrays::BoolArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::BoolVTable
 pub fn vortex_array::arrays::BoolVTable::cast(&self, array: &vortex_array::arrays::BoolArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::FillNullKernel for vortex_array::arrays::BoolVTable
@@ -186,8 +189,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::BoolVTable
 pub fn vortex_array::arrays::BoolVTable::min_max(&self, array: &vortex_array::arrays::BoolArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::BoolVTable
 pub fn vortex_array::arrays::BoolVTable::sum(&self, array: &vortex_array::arrays::BoolArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::BoolVTable
-pub fn vortex_array::arrays::BoolVTable::take(&self, array: &vortex_array::arrays::BoolArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::BoolVTable> for vortex_array::arrays::BoolMaskedValidityRule
 pub type vortex_array::arrays::BoolMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::BoolMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::BoolArray, parent: &vortex_array::arrays::MaskedArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -255,6 +256,8 @@ impl vortex_array::arrays::FilterKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::filter(array: &vortex_array::arrays::ChunkedArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ChunkedVTable
+pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::cast(&self, array: &vortex_array::arrays::ChunkedArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::ChunkedVTable
@@ -274,8 +277,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::min_max(&self, array: &vortex_array::arrays::ChunkedArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::sum(&self, array: &vortex_array::arrays::ChunkedArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ChunkedVTable
-pub fn vortex_array::arrays::ChunkedVTable::take(&self, array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::ZipKernel for vortex_array::arrays::ChunkedVTable
 pub fn vortex_array::arrays::ChunkedVTable::zip(&self, if_true: &vortex_array::arrays::ChunkedArray, if_false: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ChunkedVTable> for vortex_array::arrays::ChunkedVTable
@@ -330,12 +331,16 @@ pub fn vortex_array::arrays::ConstantArray::into_array(self) -> vortex_array::Ar
 pub struct vortex_array::arrays::ConstantVTable
 impl vortex_array::arrays::ConstantVTable
 pub const vortex_array::arrays::ConstantVTable::ID: vortex_array::vtable::ArrayId
+impl vortex_array::arrays::ConstantVTable
+pub const vortex_array::arrays::ConstantVTable::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
 impl core::fmt::Debug for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::FilterReduce for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::filter(array: &vortex_array::arrays::ConstantArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ConstantVTable
+pub fn vortex_array::arrays::ConstantVTable::take(array: &vortex_array::arrays::ConstantArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::BooleanKernel for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::boolean(&self, lhs: &vortex_array::arrays::ConstantArray, rhs: &dyn vortex_array::Array, op: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ConstantVTable
@@ -354,8 +359,6 @@ impl vortex_array::compute::NumericKernel for vortex_array::arrays::ConstantVTab
 pub fn vortex_array::arrays::ConstantVTable::numeric(&self, array: &vortex_array::arrays::ConstantArray, rhs: &dyn vortex_array::Array, op: vortex_scalar::primitive::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::sum(&self, array: &vortex_array::arrays::ConstantArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::take(&self, array: &vortex_array::arrays::ConstantArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ConstantVTable> for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::array_eq(array: &vortex_array::arrays::ConstantArray, other: &vortex_array::arrays::ConstantArray, _precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::ConstantVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::ConstantArray, state: &mut H, _precision: vortex_array::Precision)
@@ -367,17 +370,17 @@ pub fn vortex_array::arrays::ConstantVTable::scalar_at(array: &vortex_array::arr
 impl vortex_array::vtable::VTable for vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::Array = vortex_array::arrays::ConstantArray
 pub type vortex_array::arrays::ConstantVTable::ArrayVTable = vortex_array::arrays::ConstantVTable
-pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::EmptyMetadata
+pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::ProstMetadata<vortex_array::arrays::constant::array::ConstantMetadata>
 pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::VisitorVTable = vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
-pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::arrays::ConstantVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-pub fn vortex_array::arrays::ConstantVTable::metadata(_array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::metadata(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub fn vortex_array::arrays::ConstantVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::ConstantVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn vortex_array::arrays::ConstantVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 impl vortex_array::vtable::ValidityVTable<vortex_array::arrays::ConstantVTable> for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::validity(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
@@ -445,6 +448,8 @@ impl core::fmt::Debug for vortex_array::arrays::DecimalVTable
 pub fn vortex_array::arrays::DecimalVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::DecimalVTable
 pub fn vortex_array::arrays::DecimalVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DecimalVTable
+pub fn vortex_array::arrays::DecimalVTable::take(array: &vortex_array::arrays::DecimalArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::BetweenKernel for vortex_array::arrays::DecimalVTable
 pub fn vortex_array::arrays::DecimalVTable::between(&self, arr: &vortex_array::arrays::DecimalArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::compute::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::DecimalVTable
@@ -460,8 +465,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DecimalVTable
 pub fn vortex_array::arrays::DecimalVTable::min_max(&self, array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::DecimalVTable
 pub fn vortex_array::arrays::DecimalVTable::sum(&self, array: &vortex_array::arrays::DecimalArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::DecimalVTable
-pub fn vortex_array::arrays::DecimalVTable::take(&self, array: &vortex_array::arrays::DecimalArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::DecimalVTable> for vortex_array::arrays::DecimalMaskedValidityRule
 pub type vortex_array::arrays::DecimalMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::DecimalMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::DecimalArray, parent: &vortex_array::arrays::MaskedArray, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -483,6 +486,7 @@ pub type vortex_array::arrays::DecimalVTable::VisitorVTable = vortex_array::arra
 pub fn vortex_array::arrays::DecimalVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::DecimalArray>
 pub fn vortex_array::arrays::DecimalVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::DecimalVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::DecimalVTable::metadata(array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DecimalVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -546,6 +550,8 @@ impl vortex_array::arrays::FilterReduce for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::filter(array: &vortex_array::arrays::DictArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::DictVTable::take(array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::cast(&self, array: &vortex_array::arrays::DictArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::DictVTable
@@ -563,8 +569,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::min_max(&self, array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::NumericKernel for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::numeric(&self, lhs: &vortex_array::arrays::DictArray, rhs: &dyn vortex_array::Array, op: vortex_scalar::primitive::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::DictVTable
-pub fn vortex_array::arrays::DictVTable::take(&self, array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::DictVTable> for vortex_array::arrays::DictVTable
 pub fn vortex_array::arrays::DictVTable::array_eq(array: &vortex_array::arrays::DictArray, other: &vortex_array::arrays::DictArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::DictVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::DictArray, state: &mut H, precision: vortex_array::Precision)
@@ -583,6 +587,7 @@ pub type vortex_array::arrays::DictVTable::VisitorVTable = vortex_array::arrays:
 pub fn vortex_array::arrays::DictVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
 pub fn vortex_array::arrays::DictVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::DictVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::DictVTable::metadata(array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -639,6 +644,8 @@ impl vortex_array::arrays::FilterReduce for vortex_array::arrays::ExtensionVTabl
 pub fn vortex_array::arrays::ExtensionVTable::filter(array: &vortex_array::arrays::ExtensionArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ExtensionVTable
 pub fn vortex_array::arrays::ExtensionVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ExtensionVTable
+pub fn vortex_array::arrays::ExtensionVTable::take(array: &vortex_array::arrays::ExtensionArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ExtensionVTable
 pub fn vortex_array::arrays::ExtensionVTable::cast(&self, array: &vortex_array::arrays::ExtensionArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::ExtensionVTable
@@ -654,8 +661,6 @@ impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ExtensionVTab
 pub fn vortex_array::arrays::ExtensionVTable::min_max(&self, array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::ExtensionVTable
 pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::arrays::ExtensionArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ExtensionVTable
-pub fn vortex_array::arrays::ExtensionVTable::take(&self, array: &vortex_array::arrays::ExtensionArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ExtensionVTable> for vortex_array::arrays::ExtensionVTable
 pub fn vortex_array::arrays::ExtensionVTable::array_eq(array: &vortex_array::arrays::ExtensionArray, other: &vortex_array::arrays::ExtensionArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::ExtensionVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::ExtensionArray, state: &mut H, precision: vortex_array::Precision)
@@ -674,6 +679,7 @@ pub type vortex_array::arrays::ExtensionVTable::VisitorVTable = vortex_array::ar
 pub fn vortex_array::arrays::ExtensionVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ExtensionArray>
 pub fn vortex_array::arrays::ExtensionVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::ExtensionVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::ExtensionVTable::metadata(_array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ExtensionVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -793,6 +799,8 @@ impl core::fmt::Debug for vortex_array::arrays::FixedSizeListVTable
 pub fn vortex_array::arrays::FixedSizeListVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::FixedSizeListVTable
 pub fn vortex_array::arrays::FixedSizeListVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::FixedSizeListVTable
+pub fn vortex_array::arrays::FixedSizeListVTable::take(array: &vortex_array::arrays::FixedSizeListArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::FixedSizeListVTable
 pub fn vortex_array::arrays::FixedSizeListVTable::cast(&self, array: &vortex_array::arrays::FixedSizeListArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::FixedSizeListVTable
@@ -804,8 +812,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::FixedSizeListVT
 pub fn vortex_array::arrays::FixedSizeListVTable::mask(&self, array: &vortex_array::arrays::FixedSizeListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::FixedSizeListVTable
 pub fn vortex_array::arrays::FixedSizeListVTable::min_max(&self, _array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::FixedSizeListVTable
-pub fn vortex_array::arrays::FixedSizeListVTable::take(&self, array: &vortex_array::arrays::FixedSizeListArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::FixedSizeListVTable> for vortex_array::arrays::FixedSizeListVTable
 pub fn vortex_array::arrays::FixedSizeListVTable::array_eq(array: &vortex_array::arrays::FixedSizeListArray, other: &vortex_array::arrays::FixedSizeListArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::FixedSizeListVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::FixedSizeListArray, state: &mut H, precision: vortex_array::Precision)
@@ -824,6 +830,7 @@ pub type vortex_array::arrays::FixedSizeListVTable::VisitorVTable = vortex_array
 pub fn vortex_array::arrays::FixedSizeListVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::FixedSizeListArray>
 pub fn vortex_array::arrays::FixedSizeListVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::FixedSizeListVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::FixedSizeListVTable::metadata(_array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::FixedSizeListVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -875,6 +882,8 @@ impl vortex_array::arrays::FilterKernel for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::filter(array: &vortex_array::arrays::ListArray, mask: &vortex_mask::Mask, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListVTable
+pub fn vortex_array::arrays::ListVTable::take(array: &vortex_array::arrays::ListArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::cast(&self, array: &Self::Array, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::ListVTable
@@ -886,8 +895,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::mask(&self, array: &vortex_array::arrays::ListArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::min_max(&self, _array: &vortex_array::arrays::ListArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ListVTable
-pub fn vortex_array::arrays::ListVTable::take(&self, array: &vortex_array::arrays::ListArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ListVTable> for vortex_array::arrays::ListVTable
 pub fn vortex_array::arrays::ListVTable::array_eq(array: &vortex_array::arrays::ListArray, other: &vortex_array::arrays::ListArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::ListVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::ListArray, state: &mut H, precision: vortex_array::Precision)
@@ -966,6 +973,8 @@ impl core::fmt::Debug for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListViewVTable
+pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::cast(&self, array: &vortex_array::arrays::ListViewArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::ListViewVTable
@@ -977,8 +986,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::mask(&self, array: &vortex_array::arrays::ListViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::min_max(&self, _array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ListViewVTable
-pub fn vortex_array::arrays::ListViewVTable::take(&self, array: &vortex_array::arrays::ListViewArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::ListViewVTable> for vortex_array::arrays::ListViewVTable
 pub fn vortex_array::arrays::ListViewVTable::array_eq(array: &vortex_array::arrays::ListViewArray, other: &vortex_array::arrays::ListViewArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::ListViewVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::ListViewArray, state: &mut H, precision: vortex_array::Precision)
@@ -997,6 +1004,7 @@ pub type vortex_array::arrays::ListViewVTable::VisitorVTable = vortex_array::arr
 pub fn vortex_array::arrays::ListViewVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 pub fn vortex_array::arrays::ListViewVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::ListViewVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::ListViewVTable::metadata(array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ListViewVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1033,12 +1041,12 @@ impl vortex_array::arrays::FilterReduce for vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::MaskedVTable::filter(array: &vortex_array::arrays::MaskedArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::MaskedVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::MaskedVTable
+pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::MaskedVTable::compare(&self, lhs: &vortex_array::arrays::MaskedArray, rhs: &dyn vortex_array::Array, operator: vortex_array::compute::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::MaskKernel for vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::MaskedVTable::mask(&self, array: &vortex_array::arrays::MaskedArray, mask_arg: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::MaskedVTable
-pub fn vortex_array::arrays::MaskedVTable::take(&self, array: &vortex_array::arrays::MaskedArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::MaskedVTable> for vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::MaskedVTable::array_eq(array: &vortex_array::arrays::MaskedArray, other: &vortex_array::arrays::MaskedArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::MaskedVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::MaskedArray, state: &mut H, precision: vortex_array::Precision)
@@ -1057,6 +1065,7 @@ pub type vortex_array::arrays::MaskedVTable::VisitorVTable = vortex_array::array
 pub fn vortex_array::arrays::MaskedVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::MaskedArray>
 pub fn vortex_array::arrays::MaskedVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::MaskedVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::MaskedVTable::metadata(_array: &vortex_array::arrays::MaskedArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::MaskedVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1121,20 +1130,22 @@ pub fn vortex_vector::null::vector::NullVector::into_array(self, dtype: &vortex_
 pub struct vortex_array::arrays::NullVTable
 impl vortex_array::arrays::NullVTable
 pub const vortex_array::arrays::NullVTable::ID: vortex_array::vtable::ArrayId
+impl vortex_array::arrays::NullVTable
+pub const vortex_array::arrays::NullVTable::TAKE_RULES: vortex_array::optimizer::rules::ParentRuleSet<Self>
 impl core::fmt::Debug for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::FilterReduce for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::filter(_array: &vortex_array::arrays::NullArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::slice(_array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::NullVTable
+pub fn vortex_array::arrays::NullVTable::take(array: &vortex_array::arrays::NullArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::cast(&self, array: &vortex_array::arrays::NullArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::MaskKernel for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::mask(&self, array: &vortex_array::arrays::NullArray, _mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::min_max(&self, _array: &vortex_array::arrays::NullArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::NullVTable
-pub fn vortex_array::arrays::NullVTable::take(&self, array: &vortex_array::arrays::NullArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::NullVTable> for vortex_array::arrays::NullVTable
 pub fn vortex_array::arrays::NullVTable::array_eq(array: &vortex_array::arrays::NullArray, other: &vortex_array::arrays::NullArray, _precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::NullVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::NullArray, state: &mut H, _precision: vortex_array::Precision)
@@ -1241,6 +1252,8 @@ impl core::fmt::Debug for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::PrimitiveVTable
+pub fn vortex_array::arrays::PrimitiveVTable::take(array: &vortex_array::arrays::PrimitiveArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::BetweenKernel for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::between(&self, arr: &vortex_array::arrays::PrimitiveArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::compute::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::PrimitiveVTable
@@ -1260,8 +1273,6 @@ impl vortex_array::compute::NaNCountKernel for vortex_array::arrays::PrimitiveVT
 pub fn vortex_array::arrays::PrimitiveVTable::nan_count(&self, array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<usize>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::PrimitiveVTable
-pub fn vortex_array::arrays::PrimitiveVTable::take(&self, array: &vortex_array::arrays::PrimitiveArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::optimizer::rules::ArrayParentReduceRule<vortex_array::arrays::PrimitiveVTable> for vortex_array::arrays::PrimitiveMaskedValidityRule
 pub type vortex_array::arrays::PrimitiveMaskedValidityRule::Parent = vortex_array::arrays::MaskedVTable
 pub fn vortex_array::arrays::PrimitiveMaskedValidityRule::reduce_parent(&self, array: &vortex_array::arrays::PrimitiveArray, parent: &vortex_array::arrays::MaskedArray, _child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1283,6 +1294,7 @@ pub type vortex_array::arrays::PrimitiveVTable::VisitorVTable = vortex_array::ar
 pub fn vortex_array::arrays::PrimitiveVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
 pub fn vortex_array::arrays::PrimitiveVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::PrimitiveVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::PrimitiveVTable::metadata(_array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::PrimitiveVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1533,6 +1545,8 @@ impl core::fmt::Debug for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::StructVTable
+pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::cast(&self, array: &vortex_array::arrays::StructArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::StructVTable
@@ -1541,8 +1555,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::mask(&self, array: &vortex_array::arrays::StructArray, filter_mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::min_max(&self, _array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::StructVTable
-pub fn vortex_array::arrays::StructVTable::take(&self, array: &vortex_array::arrays::StructArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::ZipKernel for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::zip(&self, if_true: &vortex_array::arrays::StructArray, if_false: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::StructVTable> for vortex_array::arrays::StructVTable
@@ -1563,6 +1575,7 @@ pub type vortex_array::arrays::StructVTable::VisitorVTable = vortex_array::array
 pub fn vortex_array::arrays::StructVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::StructArray>
 pub fn vortex_array::arrays::StructVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::StructVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::StructVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::StructVTable::metadata(_array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::StructVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1571,6 +1584,22 @@ pub fn vortex_array::arrays::StructVTable::with_children(array: &mut Self::Array
 impl vortex_array::vtable::VisitorVTable<vortex_array::arrays::StructVTable> for vortex_array::arrays::StructVTable
 pub fn vortex_array::arrays::StructVTable::visit_buffers(_array: &vortex_array::arrays::StructArray, _visitor: &mut dyn vortex_array::ArrayBufferVisitor)
 pub fn vortex_array::arrays::StructVTable::visit_children(array: &vortex_array::arrays::StructArray, visitor: &mut dyn vortex_array::ArrayChildVisitor)
+pub struct vortex_array::arrays::TakeExecuteAdaptor<V>(pub V)
+impl<V: core::default::Default> core::default::Default for vortex_array::arrays::TakeExecuteAdaptor<V>
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::default() -> vortex_array::arrays::TakeExecuteAdaptor<V>
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::arrays::TakeExecuteAdaptor<V>
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::TakeExecuteAdaptor<V> where V: vortex_array::arrays::TakeExecute
+pub type vortex_array::arrays::TakeExecuteAdaptor<V>::Parent = vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub struct vortex_array::arrays::TakeReduceAdaptor<V>(pub V)
+impl<V: core::default::Default> core::default::Default for vortex_array::arrays::TakeReduceAdaptor<V>
+pub fn vortex_array::arrays::TakeReduceAdaptor<V>::default() -> vortex_array::arrays::TakeReduceAdaptor<V>
+impl<V: core::fmt::Debug> core::fmt::Debug for vortex_array::arrays::TakeReduceAdaptor<V>
+pub fn vortex_array::arrays::TakeReduceAdaptor<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::arrays::TakeReduceAdaptor<V> where V: vortex_array::arrays::TakeReduce
+pub type vortex_array::arrays::TakeReduceAdaptor<V>::Parent = vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::TakeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: &vortex_array::arrays::DictArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub struct vortex_array::arrays::TemporalArray
 impl vortex_array::arrays::TemporalArray
 pub fn vortex_array::arrays::TemporalArray::dtype(&self) -> &vortex_dtype::dtype::DType
@@ -1674,6 +1703,8 @@ impl vortex_array::arrays::FilterKernel for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::filter(array: &vortex_array::arrays::VarBinArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::VarBinVTable
+pub fn vortex_array::arrays::VarBinVTable::take(array: &vortex_array::arrays::VarBinArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::cast(&self, array: &vortex_array::arrays::VarBinArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::VarBinVTable
@@ -1687,8 +1718,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::mask(&self, array: &vortex_array::arrays::VarBinArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::min_max(&self, array: &vortex_array::arrays::VarBinArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::VarBinVTable
-pub fn vortex_array::arrays::VarBinVTable::take(&self, array: &vortex_array::arrays::VarBinArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::VarBinVTable> for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::array_eq(array: &vortex_array::arrays::VarBinArray, other: &vortex_array::arrays::VarBinArray, precision: vortex_array::Precision) -> bool
 pub fn vortex_array::arrays::VarBinVTable::array_hash<H: core::hash::Hasher>(array: &vortex_array::arrays::VarBinArray, state: &mut H, precision: vortex_array::Precision)
@@ -1783,6 +1812,8 @@ impl core::fmt::Debug for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::VarBinViewVTable
+pub fn vortex_array::arrays::VarBinViewVTable::take(array: &vortex_array::arrays::VarBinViewArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::cast(&self, array: &vortex_array::arrays::VarBinViewArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::IsConstantKernel for vortex_array::arrays::VarBinViewVTable
@@ -1794,8 +1825,6 @@ impl vortex_array::compute::MaskKernel for vortex_array::arrays::VarBinViewVTabl
 pub fn vortex_array::arrays::VarBinViewVTable::mask(&self, array: &vortex_array::arrays::VarBinViewArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::MinMaxKernel for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::min_max(&self, array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::MinMaxResult>>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::VarBinViewVTable
-pub fn vortex_array::arrays::VarBinViewVTable::take(&self, array: &vortex_array::arrays::VarBinViewArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::ZipKernel for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::zip(&self, if_true: &vortex_array::arrays::VarBinViewArray, if_false: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::vtable::BaseArrayVTable<vortex_array::arrays::VarBinViewVTable> for vortex_array::arrays::VarBinViewVTable
@@ -1816,6 +1845,7 @@ pub type vortex_array::arrays::VarBinViewVTable::VisitorVTable = vortex_array::a
 pub fn vortex_array::arrays::VarBinViewVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::VarBinViewArray>
 pub fn vortex_array::arrays::VarBinViewVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::VarBinViewVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::VarBinViewVTable::metadata(_array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::VarBinViewVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -1888,6 +1918,40 @@ impl vortex_array::arrays::SliceReduce for vortex_array::arrays::VarBinVTable
 pub fn vortex_array::arrays::VarBinVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::SliceReduce for vortex_array::arrays::VarBinViewVTable
 pub fn vortex_array::arrays::VarBinViewVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub trait vortex_array::arrays::TakeExecute: vortex_array::vtable::VTable
+pub fn vortex_array::arrays::TakeExecute::take(array: &Self::Array, indices: &dyn vortex_array::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::BoolVTable
+pub fn vortex_array::arrays::BoolVTable::take(array: &vortex_array::arrays::BoolArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ChunkedVTable
+pub fn vortex_array::arrays::ChunkedVTable::take(array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DecimalVTable
+pub fn vortex_array::arrays::DecimalVTable::take(array: &vortex_array::arrays::DecimalArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::DictVTable::take(array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ExtensionVTable
+pub fn vortex_array::arrays::ExtensionVTable::take(array: &vortex_array::arrays::ExtensionArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::FixedSizeListVTable
+pub fn vortex_array::arrays::FixedSizeListVTable::take(array: &vortex_array::arrays::FixedSizeListArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListVTable
+pub fn vortex_array::arrays::ListVTable::take(array: &vortex_array::arrays::ListArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::ListViewVTable
+pub fn vortex_array::arrays::ListViewVTable::take(array: &vortex_array::arrays::ListViewArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::MaskedVTable
+pub fn vortex_array::arrays::MaskedVTable::take(array: &vortex_array::arrays::MaskedArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::PrimitiveVTable
+pub fn vortex_array::arrays::PrimitiveVTable::take(array: &vortex_array::arrays::PrimitiveArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::StructVTable
+pub fn vortex_array::arrays::StructVTable::take(array: &vortex_array::arrays::StructArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::VarBinVTable
+pub fn vortex_array::arrays::VarBinVTable::take(array: &vortex_array::arrays::VarBinArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeExecute for vortex_array::arrays::VarBinViewVTable
+pub fn vortex_array::arrays::VarBinViewVTable::take(array: &vortex_array::arrays::VarBinViewArray, indices: &dyn vortex_array::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+pub trait vortex_array::arrays::TakeReduce: vortex_array::vtable::VTable
+pub fn vortex_array::arrays::TakeReduce::take(array: &Self::Array, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ConstantVTable
+pub fn vortex_array::arrays::ConstantVTable::take(array: &vortex_array::arrays::ConstantArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl vortex_array::arrays::TakeReduce for vortex_array::arrays::NullVTable
+pub fn vortex_array::arrays::NullVTable::take(array: &vortex_array::arrays::NullArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::chunk_range(chunk_idx: usize, offset: usize, array_len: usize) -> core::ops::range::Range<usize>
 pub fn vortex_array::arrays::compute_is_constant<T: vortex_dtype::ptype::NativePType, const WIDTH: usize>(values: &[T]) -> bool
 pub fn vortex_array::arrays::list_from_list_view(list_view: vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<vortex_array::arrays::ListArray>
@@ -1896,7 +1960,7 @@ pub fn vortex_array::arrays::mask_validity_canonical(canonical: vortex_array::Ca
 pub fn vortex_array::arrays::narrowed_decimal(decimal_array: vortex_array::arrays::DecimalArray) -> vortex_array::arrays::DecimalArray
 pub fn vortex_array::arrays::patch_chunk<T, I, C>(decoded_values: &mut [T], patches_indices: &[I], patches_values: &[T], patches_offset: usize, chunk_offsets_slice: &[C], chunk_idx: usize, offset_within_chunk: usize) where T: vortex_dtype::ptype::NativePType, I: vortex_dtype::ptype::UnsignedPType, C: vortex_dtype::ptype::UnsignedPType
 pub fn vortex_array::arrays::recursive_list_from_list_view(array: vortex_array::ArrayRef) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-pub fn vortex_array::arrays::take_canonical(values: vortex_array::Canonical, codes: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<vortex_array::Canonical>
+pub fn vortex_array::arrays::take_canonical(values: vortex_array::Canonical, codes: &vortex_array::arrays::PrimitiveArray, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::Canonical>
 pub fn vortex_array::arrays::varbin_scalar(value: vortex_buffer::ByteBuffer, dtype: &vortex_dtype::dtype::DType) -> vortex_scalar::scalar::Scalar
 pub mod vortex_array::arrow
 pub mod vortex_array::arrow::bool
@@ -2918,30 +2982,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_
 pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 pub struct vortex_array::compute::SumKernelRef(_)
 impl inventory::Collect for vortex_array::compute::SumKernelRef
-pub struct vortex_array::compute::TakeFrom
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::TakeFrom
-pub fn vortex_array::compute::TakeFrom::invoke(&self, _args: &vortex_array::compute::InvocationArgs<'_>, _kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-pub fn vortex_array::compute::TakeFrom::is_elementwise(&self) -> bool
-pub fn vortex_array::compute::TakeFrom::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
-pub fn vortex_array::compute::TakeFrom::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-pub struct vortex_array::compute::TakeFromKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeFromKernel> vortex_array::compute::TakeFromKernelAdapter<V>
-pub const fn vortex_array::compute::TakeFromKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::TakeFromKernelRef
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::TakeFromKernelAdapter<V>
-pub fn vortex_array::compute::TakeFromKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeFromKernel> vortex_array::compute::Kernel for vortex_array::compute::TakeFromKernelAdapter<V>
-pub fn vortex_array::compute::TakeFromKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-pub struct vortex_array::compute::TakeFromKernelRef(pub arcref::ArcRef<dyn vortex_array::compute::Kernel>)
-impl inventory::Collect for vortex_array::compute::TakeFromKernelRef
-pub struct vortex_array::compute::TakeKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeKernel> vortex_array::compute::TakeKernelAdapter<V>
-pub const fn vortex_array::compute::TakeKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::TakeKernelRef
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::TakeKernelAdapter<V>
-pub fn vortex_array::compute::TakeKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeKernel> vortex_array::compute::Kernel for vortex_array::compute::TakeKernelAdapter<V>
-pub fn vortex_array::compute::TakeKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-pub struct vortex_array::compute::TakeKernelRef(pub arcref::ArcRef<dyn vortex_array::compute::Kernel>)
-impl inventory::Collect for vortex_array::compute::TakeKernelRef
 pub struct vortex_array::compute::UnaryArgs<'a, O: vortex_array::compute::Options>
 pub vortex_array::compute::UnaryArgs::array: &'a dyn vortex_array::Array
 pub vortex_array::compute::UnaryArgs::options: &'a O
@@ -3027,11 +3067,6 @@ pub fn vortex_array::compute::MinMax::invoke(&self, args: &vortex_array::compute
 pub fn vortex_array::compute::MinMax::is_elementwise(&self) -> bool
 pub fn vortex_array::compute::MinMax::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
 pub fn vortex_array::compute::MinMax::return_len(&self, _args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
-impl vortex_array::compute::ComputeFnVTable for vortex_array::compute::TakeFrom
-pub fn vortex_array::compute::TakeFrom::invoke(&self, _args: &vortex_array::compute::InvocationArgs<'_>, _kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_array::compute::Output>
-pub fn vortex_array::compute::TakeFrom::is_elementwise(&self) -> bool
-pub fn vortex_array::compute::TakeFrom::return_dtype(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<vortex_dtype::dtype::DType>
-pub fn vortex_array::compute::TakeFrom::return_len(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<usize>
 pub trait vortex_array::compute::FillNullKernel: vortex_array::vtable::VTable
 pub fn vortex_array::compute::FillNullKernel::fill_null(&self, array: &Self::Array, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 impl vortex_array::compute::FillNullKernel for vortex_array::arrays::BoolVTable
@@ -3151,10 +3186,6 @@ impl<V: vortex_array::vtable::VTable + vortex_array::compute::NumericKernel> vor
 pub fn vortex_array::compute::NumericKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::SumKernel> vortex_array::compute::Kernel for vortex_array::compute::SumKernelAdapter<V>
 pub fn vortex_array::compute::SumKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeFromKernel> vortex_array::compute::Kernel for vortex_array::compute::TakeFromKernelAdapter<V>
-pub fn vortex_array::compute::TakeFromKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::TakeKernel> vortex_array::compute::Kernel for vortex_array::compute::TakeKernelAdapter<V>
-pub fn vortex_array::compute::TakeKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::ZipKernel> vortex_array::compute::Kernel for vortex_array::compute::ZipKernelAdapter<V>
 pub fn vortex_array::compute::ZipKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 pub trait vortex_array::compute::LikeKernel: vortex_array::vtable::VTable
@@ -3263,40 +3294,6 @@ impl vortex_array::compute::SumKernel for vortex_array::arrays::ExtensionVTable
 pub fn vortex_array::arrays::ExtensionVTable::sum(&self, array: &vortex_array::arrays::ExtensionArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
 impl vortex_array::compute::SumKernel for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::sum(&self, array: &vortex_array::arrays::PrimitiveArray, accumulator: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-pub trait vortex_array::compute::TakeFromKernel: vortex_array::vtable::VTable
-pub fn vortex_array::compute::TakeFromKernel::take_from(&self, indices: &Self::Array, array: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub trait vortex_array::compute::TakeKernel: vortex_array::vtable::VTable
-pub fn vortex_array::compute::TakeKernel::take(&self, array: &Self::Array, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::BoolVTable
-pub fn vortex_array::arrays::BoolVTable::take(&self, array: &vortex_array::arrays::BoolArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ChunkedVTable
-pub fn vortex_array::arrays::ChunkedVTable::take(&self, array: &vortex_array::arrays::ChunkedArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::take(&self, array: &vortex_array::arrays::ConstantArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::DecimalVTable
-pub fn vortex_array::arrays::DecimalVTable::take(&self, array: &vortex_array::arrays::DecimalArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::DictVTable
-pub fn vortex_array::arrays::DictVTable::take(&self, array: &vortex_array::arrays::DictArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ExtensionVTable
-pub fn vortex_array::arrays::ExtensionVTable::take(&self, array: &vortex_array::arrays::ExtensionArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::FixedSizeListVTable
-pub fn vortex_array::arrays::FixedSizeListVTable::take(&self, array: &vortex_array::arrays::FixedSizeListArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ListVTable
-pub fn vortex_array::arrays::ListVTable::take(&self, array: &vortex_array::arrays::ListArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::ListViewVTable
-pub fn vortex_array::arrays::ListViewVTable::take(&self, array: &vortex_array::arrays::ListViewArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::MaskedVTable
-pub fn vortex_array::arrays::MaskedVTable::take(&self, array: &vortex_array::arrays::MaskedArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::NullVTable
-pub fn vortex_array::arrays::NullVTable::take(&self, array: &vortex_array::arrays::NullArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::PrimitiveVTable
-pub fn vortex_array::arrays::PrimitiveVTable::take(&self, array: &vortex_array::arrays::PrimitiveArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::StructVTable
-pub fn vortex_array::arrays::StructVTable::take(&self, array: &vortex_array::arrays::StructArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::VarBinVTable
-pub fn vortex_array::arrays::VarBinVTable::take(&self, array: &vortex_array::arrays::VarBinArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
-impl vortex_array::compute::TakeKernel for vortex_array::arrays::VarBinViewVTable
-pub fn vortex_array::arrays::VarBinViewVTable::take(&self, array: &vortex_array::arrays::VarBinViewArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub trait vortex_array::compute::ZipKernel: vortex_array::vtable::VTable
 pub fn vortex_array::compute::ZipKernel::zip(&self, if_true: &Self::Array, if_false: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::ZipKernel for vortex_array::arrays::ChunkedVTable
@@ -3340,7 +3337,6 @@ pub fn vortex_array::compute::sub(lhs: &dyn vortex_array::Array, rhs: &dyn vorte
 pub fn vortex_array::compute::sub_scalar(lhs: &dyn vortex_array::Array, rhs: vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::compute::sum(array: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
 pub fn vortex_array::compute::sum_impl(array: &dyn vortex_array::Array, accumulator: &vortex_scalar::scalar::Scalar, kernels: &[arcref::ArcRef<dyn vortex_array::compute::Kernel>]) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
-pub fn vortex_array::compute::take(array: &dyn vortex_array::Array, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::compute::warm_up_vtables()
 pub fn vortex_array::compute::zip(if_true: &dyn vortex_array::Array, if_false: &dyn vortex_array::Array, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub mod vortex_array::display
@@ -4744,6 +4740,9 @@ pub fn vortex_array::arrays::FilterExecuteAdaptor<V>::execute_parent(&self, arra
 impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::SliceExecuteAdaptor<V> where V: vortex_array::arrays::SliceKernel
 pub type vortex_array::arrays::SliceExecuteAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 pub fn vortex_array::arrays::SliceExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl<V> vortex_array::kernel::ExecuteParentKernel<V> for vortex_array::arrays::TakeExecuteAdaptor<V> where V: vortex_array::arrays::TakeExecute
+pub type vortex_array::arrays::TakeExecuteAdaptor<V>::Parent = vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::TakeExecuteAdaptor<V>::execute_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub mod vortex_array::mask
 pub mod vortex_array::matcher
 pub struct vortex_array::matcher::AnyArray
@@ -4820,6 +4819,9 @@ pub fn vortex_array::arrays::FilterReduceAdaptor<V>::reduce_parent(&self, array:
 impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::arrays::SliceReduceAdaptor<V> where V: vortex_array::arrays::SliceReduce
 pub type vortex_array::arrays::SliceReduceAdaptor<V>::Parent = vortex_array::arrays::SliceVTable
 pub fn vortex_array::arrays::SliceReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: <Self::Parent as vortex_array::matcher::Matcher>::Match, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
+impl<V> vortex_array::optimizer::rules::ArrayParentReduceRule<V> for vortex_array::arrays::TakeReduceAdaptor<V> where V: vortex_array::arrays::TakeReduce
+pub type vortex_array::arrays::TakeReduceAdaptor<V>::Parent = vortex_array::arrays::DictVTable
+pub fn vortex_array::arrays::TakeReduceAdaptor<V>::reduce_parent(&self, array: &<V as vortex_array::vtable::VTable>::Array, parent: &vortex_array::arrays::DictArray, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub trait vortex_array::optimizer::rules::ArrayReduceRule<V: vortex_array::vtable::VTable>: core::fmt::Debug + core::marker::Send + core::marker::Sync + 'static
 pub fn vortex_array::optimizer::rules::ArrayReduceRule::reduce(&self, array: &<V as vortex_array::vtable::VTable>::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub trait vortex_array::optimizer::rules::DynArrayParentReduceRule<V: vortex_array::vtable::VTable>: core::fmt::Debug + core::marker::Send + core::marker::Sync
@@ -5514,17 +5516,17 @@ pub fn vortex_array::arrays::ChunkedVTable::with_children(array: &mut Self::Arra
 impl vortex_array::vtable::VTable for vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::Array = vortex_array::arrays::ConstantArray
 pub type vortex_array::arrays::ConstantVTable::ArrayVTable = vortex_array::arrays::ConstantVTable
-pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::EmptyMetadata
+pub type vortex_array::arrays::ConstantVTable::Metadata = vortex_array::ProstMetadata<vortex_array::arrays::constant::array::ConstantMetadata>
 pub type vortex_array::arrays::ConstantVTable::OperationsVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::ValidityVTable = vortex_array::arrays::ConstantVTable
 pub type vortex_array::arrays::ConstantVTable::VisitorVTable = vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
-pub fn vortex_array::arrays::ConstantVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], _children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ConstantArray>
+pub fn vortex_array::arrays::ConstantVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
 pub fn vortex_array::arrays::ConstantVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
-pub fn vortex_array::arrays::ConstantVTable::metadata(_array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_array::arrays::ConstantVTable::metadata(array: &vortex_array::arrays::ConstantArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ConstantVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub fn vortex_array::arrays::ConstantVTable::serialize(_metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
+pub fn vortex_array::arrays::ConstantVTable::serialize(metadata: Self::Metadata) -> vortex_error::VortexResult<core::option::Option<alloc::vec::Vec<u8>>>
 pub fn vortex_array::arrays::ConstantVTable::with_children(_array: &mut Self::Array, children: alloc::vec::Vec<vortex_array::ArrayRef>) -> vortex_error::VortexResult<()>
 impl vortex_array::vtable::VTable for vortex_array::arrays::DecimalVTable
 pub type vortex_array::arrays::DecimalVTable::Array = vortex_array::arrays::DecimalArray
@@ -5536,6 +5538,7 @@ pub type vortex_array::arrays::DecimalVTable::VisitorVTable = vortex_array::arra
 pub fn vortex_array::arrays::DecimalVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::DecimalArray>
 pub fn vortex_array::arrays::DecimalVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DecimalVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DecimalVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::DecimalVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::DecimalVTable::metadata(array: &vortex_array::arrays::DecimalArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DecimalVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5551,6 +5554,7 @@ pub type vortex_array::arrays::DictVTable::VisitorVTable = vortex_array::arrays:
 pub fn vortex_array::arrays::DictVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::DictArray>
 pub fn vortex_array::arrays::DictVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::DictVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::DictVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::DictVTable::metadata(array: &vortex_array::arrays::DictArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::DictVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5566,6 +5570,7 @@ pub type vortex_array::arrays::ExtensionVTable::VisitorVTable = vortex_array::ar
 pub fn vortex_array::arrays::ExtensionVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ExtensionArray>
 pub fn vortex_array::arrays::ExtensionVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ExtensionVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ExtensionVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::ExtensionVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::ExtensionVTable::metadata(_array: &vortex_array::arrays::ExtensionArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ExtensionVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5597,6 +5602,7 @@ pub type vortex_array::arrays::FixedSizeListVTable::VisitorVTable = vortex_array
 pub fn vortex_array::arrays::FixedSizeListVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::FixedSizeListArray>
 pub fn vortex_array::arrays::FixedSizeListVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::FixedSizeListVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::FixedSizeListVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::FixedSizeListVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::FixedSizeListVTable::metadata(_array: &vortex_array::arrays::FixedSizeListArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::FixedSizeListVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5628,6 +5634,7 @@ pub type vortex_array::arrays::ListViewVTable::VisitorVTable = vortex_array::arr
 pub fn vortex_array::arrays::ListViewVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::ListViewArray>
 pub fn vortex_array::arrays::ListViewVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ListViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::ListViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::ListViewVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::ListViewVTable::metadata(array: &vortex_array::arrays::ListViewArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::ListViewVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5643,6 +5650,7 @@ pub type vortex_array::arrays::MaskedVTable::VisitorVTable = vortex_array::array
 pub fn vortex_array::arrays::MaskedVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::MaskedArray>
 pub fn vortex_array::arrays::MaskedVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::MaskedVTable::execute(array: &Self::Array, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::MaskedVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::MaskedVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::MaskedVTable::metadata(_array: &vortex_array::arrays::MaskedArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::MaskedVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5673,6 +5681,7 @@ pub type vortex_array::arrays::PrimitiveVTable::VisitorVTable = vortex_array::ar
 pub fn vortex_array::arrays::PrimitiveVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::PrimitiveArray>
 pub fn vortex_array::arrays::PrimitiveVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::PrimitiveVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::PrimitiveVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::PrimitiveVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::PrimitiveVTable::metadata(_array: &vortex_array::arrays::PrimitiveArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::PrimitiveVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5733,6 +5742,7 @@ pub type vortex_array::arrays::StructVTable::VisitorVTable = vortex_array::array
 pub fn vortex_array::arrays::StructVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::StructArray>
 pub fn vortex_array::arrays::StructVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::StructVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::StructVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::StructVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::StructVTable::metadata(_array: &vortex_array::arrays::StructArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::StructVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
@@ -5764,6 +5774,7 @@ pub type vortex_array::arrays::VarBinViewVTable::VisitorVTable = vortex_array::a
 pub fn vortex_array::arrays::VarBinViewVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_array::arrays::VarBinViewArray>
 pub fn vortex_array::arrays::VarBinViewVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::VarBinViewVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::ArrayRef>
+pub fn vortex_array::arrays::VarBinViewVTable::execute_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub fn vortex_array::arrays::VarBinViewVTable::id(_array: &Self::Array) -> vortex_array::vtable::ArrayId
 pub fn vortex_array::arrays::VarBinViewVTable::metadata(_array: &vortex_array::arrays::VarBinViewArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_array::arrays::VarBinViewVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>

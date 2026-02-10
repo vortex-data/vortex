@@ -25,6 +25,8 @@ impl vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub const vortex_decimal_byte_parts::DecimalBytePartsVTable::ID: vortex_array::vtable::dyn_::ArrayId
 impl core::fmt::Debug for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_decimal_byte_parts::DecimalBytePartsVTable
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::filter::kernel::FilterReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::filter(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, mask: &vortex_mask::Mask) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::slice::SliceReduce for vortex_decimal_byte_parts::DecimalBytePartsVTable
@@ -37,8 +39,6 @@ impl vortex_array::compute::is_constant::IsConstantKernel for vortex_decimal_byt
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::is_constant(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 impl vortex_array::compute::mask::MaskKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::mask(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, mask_array: &vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
-impl vortex_array::compute::take::TakeKernel for vortex_decimal_byte_parts::DecimalBytePartsVTable
-pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::take(&self, array: &vortex_decimal_byte_parts::DecimalBytePartsArray, indices: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::vtable::VTable for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::Array = vortex_decimal_byte_parts::DecimalBytePartsArray
 pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::ArrayVTable = vortex_decimal_byte_parts::DecimalBytePartsVTable
@@ -49,6 +49,7 @@ pub type vortex_decimal_byte_parts::DecimalBytePartsVTable::VisitorVTable = vort
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, _buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_decimal_byte_parts::DecimalBytePartsArray>
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::metadata(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::reduce_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

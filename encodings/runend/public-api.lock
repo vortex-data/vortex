@@ -54,6 +54,8 @@ impl vortex_runend::RunEndVTable
 pub const vortex_runend::RunEndVTable::ID: vortex_array::vtable::dyn_::ArrayId
 impl core::fmt::Debug for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_array::arrays::dict::take::TakeExecute for vortex_runend::RunEndVTable
+pub fn vortex_runend::RunEndVTable::take(array: &vortex_runend::RunEndArray, indices: &dyn vortex_array::array::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::arrays::filter::kernel::FilterKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::filter(array: &vortex_runend::RunEndArray, mask: &vortex_mask::Mask, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::cast::CastKernel for vortex_runend::RunEndVTable
@@ -73,10 +75,6 @@ impl vortex_array::compute::min_max::MinMaxKernel for vortex_runend::RunEndVTabl
 pub fn vortex_runend::RunEndVTable::min_max(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::min_max::MinMaxResult>>
 impl vortex_array::compute::numeric::NumericKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::numeric(&self, array: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, op: vortex_scalar::primitive::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::take::TakeFromKernel for vortex_runend::RunEndVTable
-pub fn vortex_runend::RunEndVTable::take_from(&self, indices: &vortex_runend::RunEndArray, source: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::take::TakeKernel for vortex_runend::RunEndVTable
-pub fn vortex_runend::RunEndVTable::take(&self, array: &vortex_runend::RunEndArray, indices: &dyn vortex_array::array::Array) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::vtable::VTable for vortex_runend::RunEndVTable
 pub type vortex_runend::RunEndVTable::Array = vortex_runend::RunEndArray
 pub type vortex_runend::RunEndVTable::ArrayVTable = vortex_runend::RunEndVTable
