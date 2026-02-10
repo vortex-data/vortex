@@ -64,7 +64,7 @@ impl Default for BtrBlocksCompressorBuilder {
             string_schemes: ALL_STRING_SCHEMES
                 .iter()
                 .copied()
-                .filter(|s| s.code() != StringCode::Zstd)
+                .filter(|s| s.code() != StringCode::Zstd && s.code() != StringCode::ZstdBuffers)
                 .collect(),
         }
     }

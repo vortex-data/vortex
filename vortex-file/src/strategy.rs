@@ -178,18 +178,27 @@ impl WriteStrategyBuilder {
 
     /// Configure a write strategy that emits only CUDA-compatible encodings.
     ///
-    /// This configures BtrBlocks to use Zstd for strings and exclude schemes
-    /// without CUDA kernel support.
+    /// This configures BtrBlocks to exclude schemes without CUDA kernel support.
+    /// With the `unstable_encodings` feature, strings use buffer-level Zstd compression
+    /// (`ZstdBuffersArray`) which preserves the array buffer layout for zero-conversion
+    /// GPU decompression. Without it, strings use interleaved Zstd compression.
     #[cfg(feature = "zstd")]
     pub fn with_cuda_compatible_encodings(mut self) -> Self {
-        let btrblocks = BtrBlocksCompressorBuilder::default()
-            .include_string([StringCode::Zstd])
+        let mut builder = BtrBlocksCompressorBuilder::default()
             .exclude_int([IntCode::Sparse, IntCode::Rle])
             .exclude_float([FloatCode::AlpRd, FloatCode::Rle, FloatCode::Sparse])
-            .exclude_string([StringCode::Dict, StringCode::Fsst])
-            .build();
+            .exclude_string([StringCode::Dict, StringCode::Fsst]);
 
-        self.compressor = Some(Arc::new(btrblocks));
+        #[cfg(feature = "unstable_encodings")]
+        {
+            builder = builder.include_string([StringCode::ZstdBuffers]);
+        }
+        #[cfg(not(feature = "unstable_encodings"))]
+        {
+            builder = builder.include_string([StringCode::Zstd]);
+        }
+
+        self.compressor = Some(Arc::new(builder.build()));
         self
     }
 

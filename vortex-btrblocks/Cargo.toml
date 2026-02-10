@@ -49,7 +49,7 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = []
+unstable_encodings = ["vortex-zstd?/unstable_encodings"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 
