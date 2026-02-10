@@ -251,12 +251,11 @@ async fn execute_dict_decimal_typed<
     )))
 }
 
-/// Dictionary array decompression for short string (UTF-8/Binary) values.
+/// Dictionary array decompression for string (UTF-8/Binary) values.
 ///
-/// Reinterprets the dictionary's `BinaryView` buffer as `i128` values.
-///
-/// All dictionary string values must be inlined (≤ 12 bytes). The output `VarBinViewArray`
-/// has no external data buffers since all views are self-contained.
+/// Reinterprets the dictionary's `BinaryView` buffer as `i128` values and gathers
+/// them by code index. Both inlined (≤ 12 bytes) and outlined (> 12 bytes) views
+/// are supported. For outlined views, the output shares the values' data buffers.
 async fn execute_dict_varbinview(
     dict: DictArray,
     ctx: &mut CudaExecutionCtx,
@@ -273,21 +272,9 @@ async fn execute_dict_varbinview(
     let codes_len = codes_prim.len();
     let values_vbv = values.execute_cuda(ctx).await?.into_varbinview();
 
-    // Validate: All dictionary strings must be inlined (≤ 12 bytes) so that
-    // entries are self-contained and can be copied as raw i128 values.
-    for (i, view) in values_vbv.views().iter().enumerate() {
-        if !view.is_inlined() {
-            vortex_bail!(
-                "Dict value at index {} has length {} (> 12 bytes), \
-                 cannot use CUDA i128 string dict path",
-                i,
-                view.len()
-            );
-        }
-    }
-
     let VarBinViewArrayParts {
         views: values_views_handle,
+        buffers: values_data_buffers,
         validity: values_validity,
         ..
     } = values_vbv.into_parts();
@@ -339,11 +326,13 @@ async fn execute_dict_varbinview(
         )?;
     });
 
-    // Wrap output as VarBinViewArray with no data buffers (all views are inlined).
+    // Output views gathered by the kernel share the values' data buffers.
+    // Outlined views reference into these buffers via buffer_index + offset,
+    // and inlined views are self-contained within the 16-byte view.
     Ok(Canonical::VarBinView(unsafe {
         VarBinViewArray::new_handle_unchecked(
             BufferHandle::new_device(Arc::new(output_device)),
-            Arc::from(Vec::<BufferHandle>::new()),
+            values_data_buffers,
             dtype,
             output_validity,
         )
@@ -508,8 +497,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
+    #[tokio::test]
+    async fn test_cuda_dict_values_with_validity() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
@@ -527,14 +516,11 @@ mod tests {
         // Get baseline from CPU canonicalization
         let baseline = dict_array.to_canonical()?;
 
-        let cuda_result = futures::executor::block_on(async {
-            // Execute on CUDA
-            DictExecutor
-                .execute(dict_array.into_array(), &mut cuda_ctx)
-                .await
-                .vortex_expect("GPU decompression failed")
-                .into_primitive()
-        });
+        let cuda_result = DictExecutor
+            .execute(dict_array.into_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_primitive();
 
         let cuda_result = cuda_primitive_to_host(cuda_result)?;
 
@@ -949,22 +935,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cuda_dict_string_rejects_long_strings() -> VortexResult<()> {
+    async fn test_cuda_dict_string_outlined_views() -> VortexResult<()> {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        // 13 bytes — exceeds the 12-byte inlined BinaryView limit
-        let values = VarBinViewArray::from_iter_str(["short", "this_is_13_by"]);
-        let codes: Vec<u8> = vec![0, 1, 0];
+        // 13+ bytes — outlined BinaryViews that reference data buffers
+        let values = VarBinViewArray::from_iter_str([
+            "short",
+            "this_is_a_longer_string_that_is_outlined",
+            "another_outlined_string_value",
+        ]);
+        let codes: Vec<u8> = vec![0, 1, 2, 1, 0, 2, 1];
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
             .vortex_expect("failed to create Dict array");
 
-        let result = DictExecutor
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
             .execute(dict_array.to_array(), &mut cuda_ctx)
-            .await;
-        assert!(result.is_err(), "expected error for strings > 12 bytes");
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
         Ok(())
     }
 
@@ -1001,6 +997,39 @@ mod tests {
         let values = VarBinViewArray::from_iter_nullable_str([Some("hello"), None, Some("world")]);
 
         let codes: Vec<u8> = vec![0, 1, 2, 0, 1, 2];
+        let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
+
+        let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
+            .vortex_expect("failed to create Dict array");
+
+        let baseline = dict_array.to_canonical()?;
+
+        let cuda_result = DictExecutor
+            .execute(dict_array.to_array(), &mut cuda_ctx)
+            .await
+            .vortex_expect("GPU decompression failed")
+            .into_varbinview();
+        let cuda_result = cuda_varbinview_to_host(cuda_result).await?;
+
+        assert_arrays_eq!(cuda_result.into_array(), baseline.into_array());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_cuda_dict_string_outlined_with_validity() -> VortexResult<()> {
+        let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+            .vortex_expect("failed to create execution context");
+
+        // Mix of inlined, outlined, and null dictionary values
+        let values = VarBinViewArray::from_iter_nullable_str([
+            Some("short"),
+            None,
+            Some("a_very_long_outlined_string_value_here"),
+            Some("another_long_outlined_string"),
+        ]);
+
+        // Codes referencing all value indices including the null
+        let codes: Vec<u8> = vec![0, 1, 2, 3, 0, 2, 1, 3];
         let codes_array = PrimitiveArray::new(Buffer::from(codes), NonNullable);
 
         let dict_array = DictArray::try_new(codes_array.into_array(), values.into_array())
