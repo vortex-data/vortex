@@ -693,6 +693,7 @@ mod tests {
     use crate::expr::exprs::binary::not_eq;
     use crate::expr::exprs::binary::or;
     use crate::expr::exprs::cast::cast;
+    use crate::expr::exprs::fill_null::fill_null;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::get_item::get_item;
     use crate::expr::exprs::is_null::is_null;
@@ -734,6 +735,8 @@ mod tests {
     #[case(checked_add(col("a"), lit(5)))]
     // Null check expressions
     #[case(is_null(col("nullable_col")))]
+    // Fill null expressions
+    #[case(fill_null(col("a"), lit(0)))]
     // Type casting expressions
     #[case(cast(
         col("a"),
