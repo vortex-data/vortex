@@ -128,7 +128,11 @@ impl VTable for SparseVTable {
         if buffers.len() != 1 {
             vortex_bail!("Expected 1 buffer, got {}", buffers.len());
         }
-        let fill_value = Scalar::from_proto_bytes(&buffers[0].clone().try_to_host_sync()?, dtype)?;
+
+        let bytes: &[u8] = &buffers[0].clone().try_to_host_sync()?;
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+
+        let fill_value = Scalar::try_new(dtype.clone(), scalar_value)?;
 
         SparseArray::try_new(patch_indices, patch_values, len, fill_value)
     }

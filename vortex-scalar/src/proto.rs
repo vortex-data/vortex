@@ -44,16 +44,6 @@ impl From<&Scalar> for pb::Scalar {
     }
 }
 
-// TODO(connor): Remove this
-impl Scalar {
-    /// Serialize this [`Scalar`]'s value to protobuf bytes (handles null values).
-    ///
-    /// This internally calls [`ScalarValue::to_proto_bytes`].
-    pub fn to_proto_bytes<B: Default + bytes::BufMut>(&self) -> B {
-        ScalarValue::to_proto_bytes(self.value())
-    }
-}
-
 impl ScalarValue {
     /// Ideally, we would not have this function and instead implement this `From` implementation:
     ///
@@ -169,22 +159,6 @@ impl From<&PValue> for pb::ScalarValue {
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 impl Scalar {
-    // TODO(connor): Remove this
-    /// Deserialize a [`ScalarValue`] from protobuf bytes.
-    ///
-    /// Note that we need to provide a [`DType`] since protobuf serialization only supports 64-bit
-    /// integers, and serializing _into_ protobuf loses that type information.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if decoding or type validation fails.
-    pub fn from_proto_bytes(bytes: &[u8], dtype: &DType) -> VortexResult<Self> {
-        let proto = pb::ScalarValue::decode(bytes)?;
-        let scalar_value = ScalarValue::from_proto(&proto, dtype)?;
-
-        Scalar::try_new(dtype.clone(), scalar_value)
-    }
-
     /// Creates a [`Scalar`] from a [protobuf `ScalarValue`](pb::ScalarValue) representation.
     ///
     /// Note that we need to provide a [`DType`] since protobuf serialization only supports 64-bit
