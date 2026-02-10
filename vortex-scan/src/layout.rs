@@ -3,6 +3,7 @@
 
 use std::any::Any;
 use std::ops::Range;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use vortex_array::expr::Expression;
@@ -11,6 +12,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_layout::LayoutReaderRef;
+use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
 
 use crate::ScanBuilder;
@@ -31,6 +33,7 @@ pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
     split_size: u64,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
 impl LayoutReaderDataSource {
@@ -40,6 +43,7 @@ impl LayoutReaderDataSource {
             reader,
             session,
             split_size: DEFAULT_SPLIT_SIZE,
+            metrics_registry: None,
         }
     }
 
@@ -50,6 +54,18 @@ impl LayoutReaderDataSource {
     /// parallelism granularity, not the I/O granularity.
     pub fn with_split_size(mut self, split_size: u64) -> Self {
         self.split_size = split_size;
+        self
+    }
+
+    /// Sets the metrics registry for tracking scan performance.
+    pub fn with_metrics_registry(mut self, metrics: Arc<dyn MetricsRegistry>) -> Self {
+        self.metrics_registry = Some(metrics);
+        self
+    }
+
+    /// Optionally sets the metrics registry for tracking scan performance.
+    pub fn with_some_metrics_registry(mut self, metrics: Option<Arc<dyn MetricsRegistry>>) -> Self {
+        self.metrics_registry = metrics;
         self
     }
 }
@@ -82,6 +98,7 @@ impl DataSource for LayoutReaderDataSource {
             filter: scan_request.filter,
             limit: scan_request.limit,
             selection: scan_request.selection,
+            metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
             split_size: self.split_size,
@@ -101,6 +118,7 @@ struct LayoutReaderScan {
     filter: Option<Expression>,
     limit: Option<u64>,
     selection: Selection,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
     next_row: u64,
     end_row: u64,
     split_size: u64,
@@ -153,6 +171,7 @@ impl DataSourceScan for LayoutReaderScan {
                 limit: split_limit,
                 row_range,
                 selection: self.selection.clone(),
+                metrics_registry: self.metrics_registry.clone(),
             }) as SplitRef);
 
             self.next_row = split_end;
@@ -170,6 +189,7 @@ struct LayoutReaderSplit {
     limit: Option<u64>,
     row_range: Range<u64>,
     selection: Selection,
+    metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
 impl Split for LayoutReaderSplit {
@@ -190,6 +210,9 @@ impl Split for LayoutReaderSplit {
         }
         if let Some(limit) = self.limit {
             builder = builder.with_limit(limit);
+        }
+        if let Some(metrics) = self.metrics_registry {
+            builder = builder.with_metrics_registry(metrics);
         }
 
         Ok(Box::pin(builder.into_array_stream()?))

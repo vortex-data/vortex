@@ -35,12 +35,17 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
+use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::layout::LayoutReader;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
 use vortex::scan::ScanBuilder;
+use vortex::scan::Selection;
+use vortex::scan::api::DataSource as _;
+use vortex::scan::api::ScanRequest;
+use vortex::scan::layout::LayoutReaderDataSource;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::dash_map::DashMap;
 use vortex_utils::aliases::dash_map::Entry;
@@ -122,6 +127,7 @@ impl FileOpener for VortexOpener {
         let limit = self.limit;
         let layout_reader = self.layout_readers.clone();
         let has_output_ordering = self.has_output_ordering;
+        let use_scan_api = std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1");
 
         let expr_convertor = self.expression_convertor.clone();
 
@@ -270,23 +276,7 @@ impl FileOpener for VortexOpener {
                 }
             };
 
-            let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
-
-            if let Some(extensions) = file.extensions
-                && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
-            {
-                scan_builder = vortex_plan.apply_to_builder(scan_builder);
-            }
-
-            if let Some(file_range) = file.range {
-                scan_builder = apply_byte_range(
-                    file_range,
-                    file.object_meta.size,
-                    vxf.row_count(),
-                    scan_builder,
-                );
-            }
-
+            // Convert the DF filter to a Vortex expression.
             let filter = filter
                 .and_then(|f| {
                     // Verify that all filters we've accepted from DataFusion get pushed down.
@@ -320,31 +310,116 @@ impl FileOpener for VortexOpener {
                 })
                 .transpose()?;
 
-            if let Some(limit) = limit
-                && filter.is_none()
-            {
-                scan_builder = scan_builder.with_limit(limit);
-            }
+            let file_location = file.object_meta.location.clone();
 
-            let stream = scan_builder
-                .with_metrics_registry(metrics_registry)
-                .with_projection(scan_projection)
-                .with_some_filter(filter)
-                .with_ordered(has_output_ordering)
-                .map(move |chunk| {
-                    let mut ctx = session.create_execution_ctx();
-                    chunk.execute_record_batch(&stream_schema, &mut ctx)
-                })
-                .into_stream()
-                .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+            // Both paths produce a boxed stream of VortexResult<RecordBatch>.
+            let chunk_stream = if use_scan_api {
+                // Scan API path: use LayoutReaderDataSource + ScanRequest.
+                let session = session.clone();
+                let stream_schema = stream_schema.clone();
+
+                let mut selection = Selection::All;
+                if let Some(extensions) = &file.extensions
+                    && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
+                    && let Some(sel) = vortex_plan.selection()
+                {
+                    selection = sel.clone();
+                }
+
+                let row_range = file.range.map(|file_range| {
+                    byte_range_to_row_range(
+                        file_range.start as u64..file_range.end as u64,
+                        vxf.row_count(),
+                        file.object_meta.size,
+                    )
+                });
+
+                let scan_limit = if filter.is_none() { limit } else { None };
+
+                let scan_request = ScanRequest {
+                    projection: Some(scan_projection),
+                    filter,
+                    row_range,
+                    selection,
+                    limit: scan_limit,
+                };
+
+                let data_source = LayoutReaderDataSource::new(layout_reader, session.clone())
+                    .with_some_metrics_registry(Some(metrics_registry));
+
+                let mut scan = data_source
+                    .scan(scan_request)
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to create Vortex scan: {e}"))?;
+
+                let splits = scan
+                    .next_splits(usize::MAX)
+                    .await
+                    .map_err(|e| exec_datafusion_err!("Failed to get Vortex splits: {e}"))?;
+
+                let streams: Vec<_> = splits
+                    .into_iter()
+                    .map(|split| split.execute())
+                    .collect::<VortexResult<Vec<_>>>()
+                    .map_err(|e| exec_datafusion_err!("Failed to execute Vortex split: {e}"))?;
+
+                stream::iter(streams)
+                    .flatten()
+                    .map(move |result| {
+                        result.and_then(|chunk| {
+                            let mut ctx = session.create_execution_ctx();
+                            chunk.execute_record_batch(&stream_schema, &mut ctx)
+                        })
+                    })
+                    .boxed()
+            } else {
+                // Direct ScanBuilder path (existing).
+                let mut scan_builder = ScanBuilder::new(session.clone(), layout_reader);
+
+                if let Some(extensions) = file.extensions
+                    && let Some(vortex_plan) = extensions.downcast_ref::<VortexAccessPlan>()
+                {
+                    scan_builder = vortex_plan.apply_to_builder(scan_builder);
+                }
+
+                if let Some(file_range) = file.range {
+                    scan_builder = apply_byte_range(
+                        file_range,
+                        file.object_meta.size,
+                        vxf.row_count(),
+                        scan_builder,
+                    );
+                }
+
+                if let Some(limit) = limit
+                    && filter.is_none()
+                {
+                    scan_builder = scan_builder.with_limit(limit);
+                }
+
+                scan_builder
+                    .with_metrics_registry(metrics_registry)
+                    .with_projection(scan_projection)
+                    .with_some_filter(filter)
+                    .with_ordered(has_output_ordering)
+                    .map(move |chunk| {
+                        let mut ctx = session.create_execution_ctx();
+                        chunk.execute_record_batch(&stream_schema, &mut ctx)
+                    })
+                    .into_stream()
+                    .map_err(|e| exec_datafusion_err!("Failed to create Vortex stream: {e}"))?
+                    .boxed()
+            };
+
+            // Shared post-processing: batch slicing, error mapping, leftover projection.
+            let stream = chunk_stream
                 .map_ok(move |rb| {
-                    // We try and slice the stream into respecting datafusion's configured batch size.
+                    // Slice the stream to respect DataFusion's configured batch size.
                     stream::iter(
                         (0..rb.num_rows().div_ceil(batch_size * 2))
                             .flat_map(move |block_idx| {
                                 let offset = block_idx * batch_size * 2;
 
-                                // If we have less than two batches worth of rows left, we keep them together as a single batch.
                                 if rb.num_rows() - offset < 2 * batch_size {
                                     let length = rb.num_rows() - offset;
                                     [Some(rb.slice(offset, length)), None].into_iter()
@@ -359,10 +434,9 @@ impl FileOpener for VortexOpener {
                     )
                 })
                 .map_err(move |e: VortexError| {
-                    DataFusionError::External(Box::new(e.with_context(format!(
-                        "Failed to read Vortex file: {}",
-                        file.object_meta.location
-                    ))))
+                    DataFusionError::External(Box::new(
+                        e.with_context(format!("Failed to read Vortex file: {file_location}",)),
+                    ))
                 })
                 .try_flatten()
                 .map(move |batch| {
