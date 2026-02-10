@@ -74,6 +74,7 @@ impl CPUSegregatedExecutor {
                 let id = ATOMIC_ID.fetch_add(1, Ordering::SeqCst);
                 format!("vortex-io-{}", id)
             })
+            .enable_time()
             .build()?;
 
         let owned = Arc::from(CPUSegregatedExecutorInner { cpu_pool, io_pool });
