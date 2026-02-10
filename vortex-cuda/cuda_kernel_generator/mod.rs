@@ -89,6 +89,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     let bits = <T>::T;
     let lanes = T::LANES;
     let per_thread_loop_count = lanes / thread_count;
+    let shared_copy_ncount = 1024 / thread_count;
 
     let func_name = format!("bit_unpack_{bits}_{bit_width}bw_{thread_count}t");
 
@@ -105,9 +106,9 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
             writeln!(output, "_bit_unpack_{bits}_{bit_width}bw_lane(in, shared_out, thread_idx * {per_thread_loop_count} + {thread_lane});")?;
         }
 
-        writeln!(output, "for (int i = 0; i < {thread_count}; i++) {{")?;
+        writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
         output.indent(|output| {
-            writeln!(output, "auto idx = i * {thread_count} + threadIdx.x;")?;
+            writeln!(output, "auto idx = i * {shared_copy_ncount} + threadIdx.x;")?;
             writeln!(output, "out[idx] = shared_out[idx];")
         })?;
         writeln!(output, "}}")
