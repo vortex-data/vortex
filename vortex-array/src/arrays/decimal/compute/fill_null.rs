@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::cmp::max;
 use std::ops::Not;
 
+use vortex_buffer::BitBuffer;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
+use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
@@ -15,6 +19,7 @@ use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
 use crate::compute::FillNullKernel;
 use crate::compute::FillNullKernelAdapter;
+use crate::compute::fill_null;
 use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -26,25 +31,49 @@ impl FillNullKernel for DecimalVTable {
         Ok(match array.validity() {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().to_bit_buffer().not();
-                match_each_decimal_value_type!(array.values_type(), |T| {
-                    let mut buffer = array.buffer::<T>().into_mut();
-                    let decimal_scalar = fill_value.as_decimal();
-                    let decimal_value = decimal_scalar
-                        .decimal_value()
-                        .vortex_expect("fill_null requires a non-null fill value");
-                    let fill_value = decimal_value
-                        .cast::<T>()
-                        .vortex_expect("fill value does not fit in array's decimal storage type");
-                    for invalid_index in is_invalid.set_indices() {
-                        buffer[invalid_index] = fill_value;
-                    }
-                    DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity)
-                        .into_array()
-                })
+                let decimal_scalar = fill_value.as_decimal();
+                let decimal_value = decimal_scalar
+                    .decimal_value()
+                    .vortex_expect("fill_null requires a non-null fill value");
+                fill_invalid_positions(
+                    array,
+                    &is_invalid,
+                    &decimal_value,
+                    fill_value,
+                    result_validity,
+                )?
             }
             _ => unreachable!("checked in entry point"),
         })
     }
+}
+
+fn fill_invalid_positions(
+    array: &DecimalArray,
+    is_invalid: &BitBuffer,
+    decimal_value: &DecimalValue,
+    fill_value: &Scalar,
+    result_validity: Validity,
+) -> VortexResult<ArrayRef> {
+    match_each_decimal_value_type!(array.values_type(), |T| {
+        match decimal_value.cast::<T>() {
+            Some(fill_val) => {
+                let mut buffer = array.buffer::<T>().into_mut();
+                for invalid_index in is_invalid.set_indices() {
+                    buffer[invalid_index] = fill_val;
+                }
+                Ok(
+                    DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity)
+                        .into_array(),
+                )
+            }
+            None => {
+                let target = max(array.values_type(), decimal_value.decimal_type());
+                let upcasted = upcast_decimal_values(array, target)?;
+                fill_null(upcasted.as_ref(), fill_value)
+            }
+        }
+    })
 }
 
 register_kernel!(FillNullKernelAdapter(DecimalVTable).lift());
@@ -113,6 +142,28 @@ mod tests {
         assert_arrays_eq!(
             p,
             DecimalArray::from_iter([25500, 25500, 25500, 25500, 25500], decimal_dtype)
+        );
+    }
+
+    /// fill_null with a value that overflows the array's storage type should upcast the array.
+    #[test]
+    fn fill_null_overflow_upcasts() {
+        let decimal_dtype = DecimalDType::new(2, 0);
+        let arr = DecimalArray::from_option_iter([None, Some(10i8), None], decimal_dtype);
+        // i8 max is 127, so 200 doesn't fit — the array should be widened to i16.
+        let result = fill_null(
+            arr.as_ref(),
+            &Scalar::decimal(
+                DecimalValue::I128(200i128),
+                DecimalDType::new(2, 0),
+                Nullability::NonNullable,
+            ),
+        )
+        .unwrap()
+        .to_decimal();
+        assert_arrays_eq!(
+            result,
+            DecimalArray::from_iter([200i16, 10, 200], decimal_dtype)
         );
     }
 

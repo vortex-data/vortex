@@ -13,6 +13,7 @@ use num_traits::CheckedMul;
 use num_traits::CheckedSub;
 use vortex_dtype::DType;
 use vortex_dtype::DecimalDType;
+use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::Nullability;
 use vortex_dtype::ToI256;
@@ -62,6 +63,18 @@ pub enum DecimalValue {
 }
 
 impl DecimalValue {
+    /// Returns the `DecimalType` corresponding to this value's storage variant.
+    pub fn decimal_type(&self) -> DecimalType {
+        match self {
+            DecimalValue::I8(_) => DecimalType::I8,
+            DecimalValue::I16(_) => DecimalType::I16,
+            DecimalValue::I32(_) => DecimalType::I32,
+            DecimalValue::I64(_) => DecimalType::I64,
+            DecimalValue::I128(_) => DecimalType::I128,
+            DecimalValue::I256(_) => DecimalType::I256,
+        }
+    }
+
     /// Cast `self` to T using the respective `ToPrimitive` method.
     /// If the value cannot be represented by `T`, `None` is returned.
     pub fn cast<T: NativeDecimalType>(&self) -> Option<T> {
