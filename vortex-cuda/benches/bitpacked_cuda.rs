@@ -114,7 +114,7 @@ where
     group.sample_size(10);
 
     let array = make_bitpacked_array::<T>(bit_width, N_ROWS);
-    let nbytes = (N_ROWS * bit_width as usize).div_ceil(8);
+    let nbytes = N_ROWS * size_of::<T>();
 
     group.throughput(Throughput::Bytes(nbytes as u64));
 
