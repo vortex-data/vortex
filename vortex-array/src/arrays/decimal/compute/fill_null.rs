@@ -5,6 +5,7 @@ use std::cmp::max;
 use std::ops::Not;
 
 use vortex_buffer::BitBuffer;
+use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -19,7 +20,6 @@ use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
 use crate::compute::FillNullKernel;
 use crate::compute::FillNullKernelAdapter;
-use crate::compute::fill_null;
 use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
@@ -35,45 +35,47 @@ impl FillNullKernel for DecimalVTable {
                 let decimal_value = decimal_scalar
                     .decimal_value()
                     .vortex_expect("fill_null requires a non-null fill value");
-                fill_invalid_positions(
-                    array,
-                    &is_invalid,
-                    &decimal_value,
-                    fill_value,
-                    result_validity,
-                )?
+                match_each_decimal_value_type!(array.values_type(), |T| {
+                    fill_invalid_positions::<T>(
+                        array,
+                        &is_invalid,
+                        &decimal_value,
+                        result_validity,
+                    )?
+                })
             }
             _ => unreachable!("checked in entry point"),
         })
     }
 }
 
-fn fill_invalid_positions(
+fn fill_invalid_positions<T: NativeDecimalType>(
     array: &DecimalArray,
     is_invalid: &BitBuffer,
     decimal_value: &DecimalValue,
-    fill_value: &Scalar,
     result_validity: Validity,
 ) -> VortexResult<ArrayRef> {
-    match_each_decimal_value_type!(array.values_type(), |T| {
-        match decimal_value.cast::<T>() {
-            Some(fill_val) => {
-                let mut buffer = array.buffer::<T>().into_mut();
-                for invalid_index in is_invalid.set_indices() {
-                    buffer[invalid_index] = fill_val;
-                }
-                Ok(
-                    DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity)
-                        .into_array(),
-                )
-            }
-            None => {
-                let target = max(array.values_type(), decimal_value.decimal_type());
-                let upcasted = upcast_decimal_values(array, target)?;
-                fill_null(upcasted.as_ref(), fill_value)
-            }
+    match decimal_value.cast::<T>() {
+        Some(fill_val) => fill_buffer::<T>(array, is_invalid, fill_val, result_validity),
+        None => {
+            let target = max(array.values_type(), decimal_value.decimal_type());
+            let upcasted = upcast_decimal_values(array, target)?;
+            fill_invalid_positions::<T>(&upcasted, is_invalid, decimal_value, result_validity)
         }
-    })
+    }
+}
+
+fn fill_buffer<T: NativeDecimalType>(
+    array: &DecimalArray,
+    is_invalid: &BitBuffer,
+    fill_val: T,
+    result_validity: Validity,
+) -> VortexResult<ArrayRef> {
+    let mut buffer = array.buffer::<T>().into_mut();
+    for invalid_index in is_invalid.set_indices() {
+        buffer[invalid_index] = fill_val;
+    }
+    Ok(DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity).into_array())
 }
 
 register_kernel!(FillNullKernelAdapter(DecimalVTable).lift());
