@@ -72,21 +72,20 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
     fn take_nullable_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(
-                buffer![0, 5, 7],
-                Validity::from_iter(vec![false, true, false]),
+        let taken = array
+            .take(
+                PrimitiveArray::new(
+                    buffer![0, 5, 7],
+                    Validity::from_iter(vec![false, true, false]),
+                )
+                .into_array(),
             )
-            .into_array(),
-        )
-        .unwrap();
+            .unwrap();
         let valid_indices: &[usize] = &[1usize];
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
@@ -108,11 +107,9 @@ mod tests {
     #[test]
     fn take_all_valid_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array(),
-        )
-        .unwrap();
+        let taken = array
+            .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
+            .unwrap();
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()

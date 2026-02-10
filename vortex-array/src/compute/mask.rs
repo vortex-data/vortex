@@ -115,12 +115,13 @@ impl ComputeFnVTable for MaskFn {
     ) -> VortexResult<Output> {
         let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
 
-        if matches!(mask, Mask::AllFalse(_)) {
+        let mask_true_count = mask.true_count();
+        if mask_true_count == 0 {
             // Fast-path for empty mask
             return Ok(cast(array, &array.dtype().as_nullable())?.into());
         }
 
-        if matches!(mask, Mask::AllTrue(_)) {
+        if mask_true_count == mask.len() {
             // Fast-path for full mask.
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
