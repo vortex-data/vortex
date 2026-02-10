@@ -40,12 +40,19 @@ def fetch_open_fuzzer_issues(repo: str) -> list[dict]:
     """Fetch all open issues with the 'fuzzer' label."""
     result = run(
         [
-            "gh", "issue", "list",
-            "--repo", repo,
-            "--label", "fuzzer",
-            "--state", "open",
-            "--json", "number,title,body,url",
-            "--limit", "200",
+            "gh",
+            "issue",
+            "list",
+            "--repo",
+            repo,
+            "--label",
+            "fuzzer",
+            "--state",
+            "open",
+            "--json",
+            "number,title,body,url",
+            "--limit",
+            "200",
         ],
         capture_output=True,
         text=True,
@@ -87,9 +94,11 @@ def has_cleanup_comment(repo: str, issue_number: int) -> bool:
     """Check if the issue already has an 'Artifact Unavailable' cleanup comment."""
     result = run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{repo}/issues/{issue_number}/comments",
-            "--jq", f'[.[] | select(.body | contains("{CLEANUP_MARKER}"))] | length',
+            "--jq",
+            f'[.[] | select(.body | contains("{CLEANUP_MARKER}"))] | length',
         ],
         capture_output=True,
         text=True,
@@ -102,22 +111,26 @@ def has_cleanup_comment(repo: str, issue_number: int) -> bool:
         return False
 
 
-def comment_artifact_unavailable(repo: str, issue_number: int, dry_run: bool) -> None:
-    """Comment that the crash artifact is no longer available."""
+def close_artifact_unavailable(repo: str, issue_number: int, dry_run: bool) -> None:
+    """Comment that the crash artifact is no longer available and close the issue."""
     body = (
         f"## Artifact Unavailable\n\n"
         f"The crash artifact for this issue is no longer available "
         f"(artifacts expire after 30 days). The crash can no longer be "
         f"automatically retested.\n\n"
         f"If this issue is still relevant, please reproduce manually and "
-        f"re-upload the crash file.\n\n"
+        f"re-open this issue.\n\n"
         f"---\n*{CLEANUP_MARKER}*"
     )
     if dry_run:
-        print(f"  [dry-run] Would comment 'Artifact Unavailable' on #{issue_number}")
+        print(f"  [dry-run] Would close #{issue_number} as artifact unavailable")
         return
     run(
         ["gh", "issue", "comment", str(issue_number), "--repo", repo, "--body", body],
+        check=True,
+    )
+    run(
+        ["gh", "issue", "close", str(issue_number), "--repo", repo, "--reason", "completed"],
         check=True,
     )
 
@@ -164,10 +177,17 @@ def retest_crash(target: str, crash_path: str, timeout_secs: int = 120) -> str:
     try:
         result = run(
             [
-                "cargo", "+nightly", "fuzz", "run",
-                "--dev", "--sanitizer=none",
-                target, crash_path,
-                "--", "-runs=1", "-rss_limit_mb=0",
+                "cargo",
+                "+nightly",
+                "fuzz",
+                "run",
+                "--dev",
+                "--sanitizer=none",
+                target,
+                crash_path,
+                "--",
+                "-runs=1",
+                "-rss_limit_mb=0",
             ],
             env=env,
             timeout=timeout_secs,
@@ -245,11 +265,11 @@ def main() -> None:
 
         # Extract run ID from artifact URL
         if not issue.artifact_url:
-            print(f"  No artifact URL found in issue body")
+            print("  No artifact URL found in issue body")
             if not has_cleanup_comment(args.repo, issue.number):
-                comment_artifact_unavailable(args.repo, issue.number, args.dry_run)
+                close_artifact_unavailable(args.repo, issue.number, args.dry_run)
             else:
-                print(f"  Already commented about artifact unavailability, skipping")
+                print("  Already commented about artifact unavailability, skipping")
             summary["artifact_unavailable"].append(issue.number)
             continue
 
@@ -264,10 +284,16 @@ def main() -> None:
             artifact_name = f"{args.target}-crash-artifacts"
             dl_result = run(
                 [
-                    "gh", "run", "download", run_id,
-                    "--name", artifact_name,
-                    "--repo", args.repo,
-                    "--dir", tmpdir,
+                    "gh",
+                    "run",
+                    "download",
+                    run_id,
+                    "--name",
+                    artifact_name,
+                    "--repo",
+                    args.repo,
+                    "--dir",
+                    tmpdir,
                 ],
                 capture_output=True,
                 text=True,
@@ -276,9 +302,9 @@ def main() -> None:
             if dl_result.returncode != 0:
                 print(f"  Artifact download failed: {dl_result.stderr.strip()}")
                 if not has_cleanup_comment(args.repo, issue.number):
-                    comment_artifact_unavailable(args.repo, issue.number, args.dry_run)
+                    close_artifact_unavailable(args.repo, issue.number, args.dry_run)
                 else:
-                    print(f"  Already commented about artifact unavailability, skipping")
+                    print("  Already commented about artifact unavailability, skipping")
                 summary["artifact_unavailable"].append(issue.number)
                 continue
 
@@ -297,14 +323,14 @@ def main() -> None:
             result = retest_crash(args.target, crash_path)
 
             if result == "fixed":
-                print(f"  Crash NO LONGER reproduces — closing issue")
+                print("  Crash NO LONGER reproduces — closing issue")
                 close_issue_as_fixed(args.repo, issue.number, args.target, args.dry_run)
                 summary["closed"].append(issue.number)
             elif result == "reproduces":
-                print(f"  Crash STILL reproduces — leaving open")
+                print("  Crash STILL reproduces — leaving open")
                 summary["still_reproduces"].append(issue.number)
             elif result == "timeout":
-                print(f"  Retest TIMED OUT — skipping")
+                print("  Retest TIMED OUT — skipping")
                 summary["timeout"].append(issue.number)
 
         print()
