@@ -135,7 +135,7 @@ def close_artifact_unavailable(repo: str, issue_number: int, dry_run: bool) -> N
     )
 
 
-def close_issue_as_fixed(repo: str, issue_number: int, target: str, dry_run: bool) -> None:
+def close_issue_as_fixed(repo: str, issue_number: int, dry_run: bool) -> None:
     """Close the issue with a comment explaining the crash no longer reproduces."""
     body = (
         f"## Crash No Longer Reproduces\n\n"
@@ -324,7 +324,7 @@ def main() -> None:
 
             if result == "fixed":
                 print("  Crash NO LONGER reproduces — closing issue")
-                close_issue_as_fixed(args.repo, issue.number, args.target, args.dry_run)
+                close_issue_as_fixed(args.repo, issue.number, args.dry_run)
                 summary["closed"].append(issue.number)
             elif result == "reproduces":
                 print("  Crash STILL reproduces — leaving open")
