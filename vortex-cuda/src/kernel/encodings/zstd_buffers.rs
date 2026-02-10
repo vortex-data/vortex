@@ -18,12 +18,12 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::buffer::DeviceBuffer;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
+use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_nvcomp::sys;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
-use vortex_cuda_macros::cuda_tests;
 use vortex_zstd::ZstdBuffersArray;
 use vortex_zstd::ZstdBuffersVTable;
 
@@ -211,6 +211,7 @@ mod tests {
     use vortex_zstd::ZstdBuffersArray;
 
     use super::*;
+    use crate::CanonicalCudaExt;
     use crate::session::CudaSession;
 
     #[tokio::test]
@@ -224,6 +225,8 @@ mod tests {
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
             .await?;
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());
@@ -249,6 +252,8 @@ mod tests {
         let cpu_result = compressed.clone().into_array().to_canonical()?;
         let gpu_result = ZstdBuffersExecutor
             .execute(compressed.into_array(), &mut cuda_ctx)
+            .await?
+            .into_host()
             .await?;
 
         assert_arrays_eq!(cpu_result.into_array(), gpu_result.into_array());
