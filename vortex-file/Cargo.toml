@@ -80,6 +80,8 @@ tokio = [
     "vortex-layout/tokio",
 ]
 zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+# This feature enables unstable encodings for which we don't guarantee stability.
+unstable_encodings = ["vortex-zstd?/unstable_encodings"]
 
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03", "uuid"]

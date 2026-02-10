@@ -332,9 +332,13 @@ impl OperationsVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
 
 impl ValidityVTable<ZstdBuffersVTable> for ZstdBuffersVTable {
     fn validity(array: &ZstdBuffersArray) -> VortexResult<vortex_array::validity::Validity> {
-        Ok(vortex_array::validity::Validity::from(
-            array.dtype.nullability(),
-        ))
+        if !array.dtype.is_nullable() {
+            return Ok(vortex_array::validity::Validity::NonNullable);
+        }
+
+        let registry = vortex_array::LEGACY_SESSION.arrays().registry().clone();
+        let inner_array = array.rebuild_inner(&registry, &vortex_array::LEGACY_SESSION)?;
+        inner_array.validity()
     }
 }
 
@@ -432,6 +436,21 @@ mod tests {
         let compressed = ZstdBuffersArray::compress(&input, 3)?;
 
         assert!(compressed.statistics().get(Stat::Min).is_some());
+        Ok(())
+    }
+
+    #[test]
+    fn test_validity_delegates_for_nullable_input() -> VortexResult<()> {
+        let input = make_nullable_primitive_array();
+        let compressed = ZstdBuffersArray::compress(&input, 3)?.into_array();
+
+        assert_eq!(compressed.all_valid()?, input.all_valid()?);
+        assert_eq!(compressed.all_invalid()?, input.all_invalid()?);
+
+        for i in 0..input.len() {
+            assert_eq!(compressed.is_valid(i)?, input.is_valid(i)?);
+        }
+
         Ok(())
     }
 }

@@ -2,12 +2,14 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 pub use array::*;
+#[cfg(feature = "unstable_encodings")]
 pub use zstd_buffers::*;
 
 mod array;
 mod compute;
 mod rules;
 mod slice;
+#[cfg(feature = "unstable_encodings")]
 mod zstd_buffers;
 
 #[cfg(test)]
