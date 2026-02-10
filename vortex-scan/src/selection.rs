@@ -12,7 +12,7 @@ use crate::row_mask::RowMask;
 
 /// A selection identifies a set of rows to include in the scan (in addition to applying any
 /// filter predicates).
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub enum Selection {
     /// No selection, all rows are included.
     #[default]

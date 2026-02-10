@@ -20,6 +20,7 @@
 //!   example which encodings it knows about.
 
 use std::any::Any;
+use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -30,27 +31,35 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
-/// Create a Vortex source from serialized configuration.
+use crate::Selection;
+
+/// Opens a Vortex [`DataSource`] from a URI.
 ///
-/// Providers can be registered with Vortex under a specific
-#[async_trait(?Send)]
-pub trait DataSourceProvider: 'static {
-    /// Attempt to initialize a new source.
-    ///
-    /// Returns `Ok(None)` if the provider cannot handle the given URI.
-    async fn initialize(
+/// Configuration can be passed via the URI query parameters, similar to JDBC / ADBC.
+/// Providers can be registered with the [`VortexSession`] to support additional URI schemes.
+#[async_trait]
+pub trait DataSourceOpener: 'static {
+    /// Attempt to open a new data source from a URI.
+    async fn open(&self, uri: String, session: &VortexSession) -> VortexResult<DataSourceRef>;
+}
+
+/// Supports deserialization of a Vortex [`DataSource`] on a remote worker.
+#[async_trait]
+pub trait DataSourceRemote: 'static {
+    /// Attempt to deserialize the source.
+    fn deserialize_data_source(
         &self,
-        uri: String,
+        data: &[u8],
         session: &VortexSession,
-    ) -> VortexResult<Option<DataSourceRef>>;
+    ) -> VortexResult<DataSourceRef>;
 }
 
 /// A reference-counted data source.
 pub type DataSourceRef = Arc<dyn DataSource>;
 
 /// A data source represents a streamable dataset that can be scanned with projection and filter
-/// expressions. Each scan produces splits that can be executed (potentially in parallel) to read
-/// data. Each split can be serialized for remote execution.
+/// expressions. Each scan produces splits that can be executed in parallel to read data. Each
+/// split can be serialized for remote execution.
 ///
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
 /// split of a scan can only be consumed once.
@@ -62,14 +71,16 @@ pub trait DataSource: 'static + Send + Sync {
     /// Returns an estimate of the row count of the source.
     fn row_count_estimate(&self) -> Estimate<u64>;
 
-    /// Returns a scan over the source.
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
-
-    /// Serialize a split from this data source.
-    fn serialize_split(&self, split: &dyn Split) -> VortexResult<Vec<u8>>;
+    /// Serialize the [`DataSource`] to pass to a remote worker.
+    fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
 
     /// Deserialize a split that was previously serialized from a compatible data source.
-    fn deserialize_split(&self, data: &[u8]) -> VortexResult<SplitRef>;
+    fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef>;
+
+    /// Returns a scan over the source.
+    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 }
 
 /// A request to scan a data source.
@@ -79,7 +90,13 @@ pub struct ScanRequest {
     pub projection: Option<Expression>,
     /// Filter expression, `None` implies no filter.
     pub filter: Option<Expression>,
-    /// Optional limit on the number of rows to scan.
+    /// The row range to read.
+    pub row_range: Option<Range<u64>>,
+    /// A row selection to apply to the scan. The selection identifies rows within the specified
+    /// row range.
+    pub selection: Selection,
+    /// Optional limit on the number of rows returned by scan. Limits are applied after all
+    /// filtering and row selection.
     pub limit: Option<u64>,
 }
 
@@ -112,24 +129,45 @@ pub trait Split: 'static + Send {
     /// Downcast the split to a concrete type.
     fn as_any(&self) -> &dyn Any;
 
-    /// Executes the split.
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
-
     /// Returns an estimate of the row count for this split.
     fn row_count_estimate(&self) -> Estimate<u64>;
 
     /// Returns an estimate of the byte size for this split.
     fn byte_size_estimate(&self) -> Estimate<u64>;
+
+    /// Serialize this split for a remote worker.
+    fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    /// Executes the split.
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
 }
 
 /// An estimate that can be exact, an upper bound, or unknown.
-#[derive(Default)]
-pub enum Estimate<T> {
-    /// The exact value.
-    Exact(T),
-    /// An upper bound on the value.
-    UpperBound(T),
-    /// The value is unknown.
-    #[default]
-    Unknown,
+#[derive(Clone, Debug)]
+pub struct Estimate<T> {
+    /// The lower bound
+    pub lower: T,
+    /// The upper bound
+    pub upper: Option<T>,
+}
+
+impl<T: Default> Default for Estimate<T> {
+    fn default() -> Self {
+        Self {
+            lower: T::default(),
+            upper: None,
+        }
+    }
+}
+
+impl<T: Copy> Estimate<T> {
+    /// Creates an exact estimate.
+    pub fn exact(value: T) -> Self {
+        Self {
+            lower: value,
+            upper: Some(value),
+        }
+    }
 }
