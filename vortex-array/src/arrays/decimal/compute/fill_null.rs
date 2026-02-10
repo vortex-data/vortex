@@ -60,7 +60,9 @@ fn fill_invalid_positions<T: NativeDecimalType>(
         None => {
             let target = max(array.values_type(), decimal_value.decimal_type());
             let upcasted = upcast_decimal_values(array, target)?;
-            fill_invalid_positions::<T>(&upcasted, is_invalid, decimal_value, result_validity)
+            match_each_decimal_value_type!(upcasted.values_type(), |U| {
+                fill_invalid_positions::<U>(&upcasted, is_invalid, decimal_value, result_validity)
+            })
         }
     }
 }
