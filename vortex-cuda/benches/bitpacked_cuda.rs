@@ -143,38 +143,11 @@ where
     group.finish();
 }
 
-/// Benchmark bit unpacking for u8
-fn benchmark_bitunpack_u8(c: &mut Criterion) {
-    benchmark_bitunpack_typed::<u8>(c, 3, "u8");
-}
-
-/// Benchmark bit unpacking for u16
-fn benchmark_bitunpack_u16(c: &mut Criterion) {
-    for bit_width in [3, 12] {
-        benchmark_bitunpack_typed::<u16>(c, bit_width, "u16");
-    }
-}
-
-/// Benchmark bit unpacking for u32
-fn benchmark_bitunpack_u32(c: &mut Criterion) {
-    for bit_width in [3, 12, 24] {
-        benchmark_bitunpack_typed::<u32>(c, bit_width, "u32");
-    }
-}
-
-/// Benchmark bit unpacking for u64
-fn benchmark_bitunpack_u64(c: &mut Criterion) {
-    for bit_width in [3, 12, 24, 36] {
-        benchmark_bitunpack_typed::<u64>(c, bit_width, "u64");
-    }
-}
-
-/// Benchmark all bit unpacking operations
 fn benchmark_bitunpack(c: &mut Criterion) {
-    benchmark_bitunpack_u8(c);
-    benchmark_bitunpack_u16(c);
-    benchmark_bitunpack_u32(c);
-    benchmark_bitunpack_u64(c);
+    benchmark_bitunpack_typed::<u8>(c, 3, "u8");
+    benchmark_bitunpack_typed::<u16>(c, 5, "u16");
+    benchmark_bitunpack_typed::<u32>(c, 6, "u32");
+    benchmark_bitunpack_typed::<u64>(c, 8, "u64");
 }
 
 criterion::criterion_group!(benches, benchmark_bitunpack);
