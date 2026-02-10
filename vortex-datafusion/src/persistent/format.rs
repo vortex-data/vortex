@@ -96,6 +96,12 @@ config_namespace! {
         /// Values smaller than `MAX_POSTSCRIPT_SIZE + EOF_SIZE` will be clamped to that minimum
         /// during footer parsing.
         pub footer_initial_read_size_bytes: usize, default = DEFAULT_FOOTER_INITIAL_READ_SIZE_BYTES
+        /// Whether to enable projection pushdown into the underlying Vortex scan.
+        ///
+        /// When enabled, projection expressions may be partially evaluated during
+        /// the scan. When disabled, Vortex reads only the referenced columns and
+        /// all expressions are evaluated after the scan.
+        pub projection_pushdown: bool, default = false
     }
 }
 
@@ -497,7 +503,10 @@ impl FileFormat for VortexFormat {
     }
 
     fn file_source(&self, table_schema: TableSchema) -> Arc<dyn FileSource> {
-        Arc::new(VortexSource::new(table_schema, self.session.clone()))
+        Arc::new(
+            VortexSource::new(table_schema, self.session.clone())
+                .with_projection_pushdown(self.opts.projection_pushdown),
+        )
     }
 }
 
