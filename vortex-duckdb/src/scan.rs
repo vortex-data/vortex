@@ -14,6 +14,7 @@ use std::task::Context;
 use std::task::Poll;
 
 use async_compat::Compat;
+use async_trait::async_trait;
 use custom_labels::CURRENT_LABELSET;
 use futures::FutureExt;
 use futures::Stream;
@@ -49,6 +50,12 @@ use vortex::file::VortexOpenOptions;
 use vortex::io::runtime::BlockingRuntime;
 use vortex::io::runtime::current::ThreadSafeIterator;
 use vortex::metrics::tracing::get_global_labels;
+use vortex::scan::api::DataSource as _;
+use vortex::scan::api::DataSourceRef;
+use vortex::scan::api::ScanRequest;
+use vortex::scan::layout::LayoutReaderDataSource;
+use vortex::scan::multi::DataSourceFactory;
+use vortex::scan::multi::MultiDataSource;
 use vortex::session::VortexSession;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -228,6 +235,37 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
     }
 }
 
+/// A [`DataSourceFactory`] that opens a Vortex file from a URL and creates a
+/// [`LayoutReaderDataSource`]. Handles footer caching and statistics-based pruning.
+struct VortexFileFactory {
+    url: Url,
+    filter: Option<Expression>,
+    object_cache: duckdb::ObjectCacheRef<'static>,
+}
+
+#[async_trait]
+impl DataSourceFactory for VortexFileFactory {
+    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
+        let cache = FooterCache::new(self.object_cache);
+        let entry = cache.entry(self.url.as_ref());
+        let options = entry.apply_to_file(SESSION.open_options());
+        let file = open_file(self.url.clone(), options).await?;
+        entry.put_if_absent(|| file.footer().clone());
+
+        if let Some(ref filter) = self.filter
+            && file.can_prune(filter)?
+        {
+            return Ok(None);
+        }
+
+        let reader = file.layout_reader()?;
+        Ok(Some(Arc::new(LayoutReaderDataSource::new(
+            reader,
+            SESSION.clone(),
+        ))))
+    }
+}
+
 // taken from duckdb/common/constants.h COLUMN_IDENTIFIER_EMPTY
 // This is used by duckdb whenever there is no projection id in a logical_get node.
 // For some reason we cannot return an empty DataChunk and duckdb will look for the virtual column
@@ -396,62 +434,28 @@ impl TableFunction for VortexTableFunction {
         let client_context = init_input.client_context()?;
         let object_cache = client_context.object_cache();
 
-        let handle = RUNTIME.handle();
-        let first_file = bind_data.first_file.clone();
-        let scan_streams = stream::iter(bind_data.file_urls.clone())
-            .enumerate()
-            .map(move |(idx, url)| {
-                let first_file = first_file.clone();
-                let filter_expr = filter_expr.clone();
-                let projection_expr = projection_expr.clone();
-                let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-                let object_cache = object_cache;
+        let use_scan_api = std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1");
 
-                handle
-                    .spawn(async move {
-                        let vxf = if idx == 0 {
-                            // The first path from `file_paths` is skipped as
-                            // the first file was already opened during bind.
-                            Ok(first_file)
-                        } else {
-                            let cache = FooterCache::new(object_cache);
-                            let entry = cache.entry(url.as_ref());
-                            let options = entry.apply_to_file(SESSION.open_options());
-                            let file = open_file(url.clone(), options).await?;
-                            entry.put_if_absent(|| file.footer().clone());
-                            VortexResult::Ok(file)
-                        }?;
-
-                        if let Some(ref filter) = filter_expr
-                            && vxf.can_prune(filter)?
-                        {
-                            return Ok(None);
-                        };
-
-                        let scan = vxf
-                            .scan()?
-                            .with_some_filter(filter_expr)
-                            .with_projection(projection_expr)
-                            .with_ordered(false)
-                            .map(move |split| Ok((split, conversion_cache.clone())))
-                            .into_stream()?
-                            .boxed();
-
-                        Ok(Some(scan))
-                    })
-                    .boxed()
-            })
-            // Open up to num_workers * 2 files concurrently so we always have one ready to go.
-            .buffer_unordered(num_workers * 2)
-            .filter_map(|result| async move { result.transpose() });
+        let iterator = if use_scan_api {
+            init_global_scan_api(
+                bind_data,
+                projection_expr,
+                filter_expr,
+                num_workers,
+                object_cache,
+            )?
+        } else {
+            init_global_direct(
+                bind_data,
+                projection_expr,
+                filter_expr,
+                num_workers,
+                object_cache,
+            )?
+        };
 
         Ok(VortexGlobalData {
-            iterator: RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
-                streams: scan_streams.boxed(),
-                streams_finished: false,
-                select_all: Default::default(),
-                max_concurrency: num_workers * 2,
-            }),
+            iterator,
             batch_id: AtomicU64::new(0),
             // TODO(joe): fetch this from somewhere??.
             ctx: ExecutionCtx::new(VortexSession::default()),
@@ -545,6 +549,144 @@ impl TableFunction for VortexTableFunction {
     }
 }
 
+type ScanIterator = ThreadSafeIterator<VortexResult<(ArrayRef, Arc<ConversionCache>)>>;
+
+/// Scan API path: creates a [`MultiDataSource`] from all files and lazily pulls splits,
+/// executing each split as an independent stream for parallel consumption by DuckDB workers.
+fn init_global_scan_api(
+    bind_data: &VortexBindData,
+    projection_expr: Expression,
+    filter_expr: Option<Expression>,
+    num_workers: usize,
+    object_cache: duckdb::ObjectCacheRef<'static>,
+) -> VortexResult<ScanIterator> {
+    let first_reader = bind_data.first_file.layout_reader()?;
+    let first_ds: DataSourceRef =
+        Arc::new(LayoutReaderDataSource::new(first_reader, SESSION.clone()));
+
+    let factories: Vec<Arc<dyn DataSourceFactory>> = bind_data.file_urls[1..]
+        .iter()
+        .map(|url| {
+            Arc::new(VortexFileFactory {
+                url: url.clone(),
+                filter: filter_expr.clone(),
+                object_cache,
+            }) as Arc<dyn DataSourceFactory>
+        })
+        .collect();
+
+    let multi_ds =
+        MultiDataSource::lazy(first_ds, factories, &SESSION).with_prefetch(num_workers * 2);
+
+    let request = ScanRequest {
+        projection: Some(projection_expr),
+        filter: filter_expr,
+        ..Default::default()
+    };
+
+    let scan = RUNTIME.block_on(Compat::new(multi_ds.scan(request)))?;
+    let conversion_cache = Arc::new(ConversionCache::new(0));
+
+    // Lazily pull batches of splits, execute each into a stream, and feed into MultiScan.
+    let scan_streams = stream::unfold((scan, false), move |(mut scan, errored)| {
+        let cache = conversion_cache.clone();
+        Compat::new(async move {
+            if errored {
+                return None;
+            }
+            match scan.next_splits(num_workers).await {
+                Ok(splits) if splits.is_empty() => None,
+                Ok(splits) => {
+                    let streams: Vec<VortexResult<BoxStream<'_, VortexResult<_>>>> = splits
+                        .into_iter()
+                        .map(|split| {
+                            let cache = cache.clone();
+                            let s = split.execute()?;
+                            Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
+                        })
+                        .collect();
+                    Some((stream::iter(streams).boxed(), (scan, false)))
+                }
+                Err(e) => Some((stream::once(async { Err(e) }).boxed(), (scan, true))),
+            }
+        })
+    })
+    .flatten();
+
+    Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
+        streams: scan_streams.boxed(),
+        streams_finished: false,
+        select_all: Default::default(),
+        max_concurrency: num_workers * 2,
+    }))
+}
+
+/// Direct ScanBuilder path (existing behavior): opens files lazily via spawned tasks,
+/// creates per-file scan streams, and drives them concurrently via [`MultiScan`].
+fn init_global_direct(
+    bind_data: &VortexBindData,
+    projection_expr: Expression,
+    filter_expr: Option<Expression>,
+    num_workers: usize,
+    object_cache: duckdb::ObjectCacheRef<'static>,
+) -> VortexResult<ScanIterator> {
+    let handle = RUNTIME.handle();
+    let first_file = bind_data.first_file.clone();
+    let scan_streams = stream::iter(bind_data.file_urls.clone())
+        .enumerate()
+        .map(move |(idx, url)| {
+            let first_file = first_file.clone();
+            let filter_expr = filter_expr.clone();
+            let projection_expr = projection_expr.clone();
+            let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
+            let object_cache = object_cache;
+
+            handle
+                .spawn(async move {
+                    let vxf = if idx == 0 {
+                        // The first path from `file_paths` is skipped as
+                        // the first file was already opened during bind.
+                        Ok(first_file)
+                    } else {
+                        let cache = FooterCache::new(object_cache);
+                        let entry = cache.entry(url.as_ref());
+                        let options = entry.apply_to_file(SESSION.open_options());
+                        let file = open_file(url.clone(), options).await?;
+                        entry.put_if_absent(|| file.footer().clone());
+                        VortexResult::Ok(file)
+                    }?;
+
+                    if let Some(ref filter) = filter_expr
+                        && vxf.can_prune(filter)?
+                    {
+                        return Ok(None);
+                    };
+
+                    let scan = vxf
+                        .scan()?
+                        .with_some_filter(filter_expr)
+                        .with_projection(projection_expr)
+                        .with_ordered(false)
+                        .map(move |split| Ok((split, conversion_cache.clone())))
+                        .into_stream()?
+                        .boxed();
+
+                    Ok(Some(scan))
+                })
+                .boxed()
+        })
+        // Open up to num_workers * 2 files concurrently so we always have one ready to go.
+        .buffer_unordered(num_workers * 2)
+        .filter_map(|result| async move { result.transpose() });
+
+    Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
+        streams: scan_streams.boxed(),
+        streams_finished: false,
+        select_all: Default::default(),
+        max_concurrency: num_workers * 2,
+    }))
+}
+
 struct MultiScan<'rt, T> {
     // A stream-of-streams of scan results.
     streams: BoxStream<'rt, VortexResult<BoxStream<'rt, VortexResult<T>>>>,
@@ -581,7 +723,7 @@ impl<'rt, T: 'rt> Stream for MultiScan<'rt, T> {
             // If all current streams returned `Poll::Pending`, then we try to fetch the next
             // stream to drive. The idea here is to ensure our executors are always busy with
             // CPU work by driving as many streams necessary to keep the I/O queues full.
-            if this.select_all.len() < this.max_concurrency {
+            if !this.streams_finished && this.select_all.len() < this.max_concurrency {
                 match Pin::new(&mut this.streams).poll_next(cx) {
                     Poll::Ready(Some(Ok(stream))) => {
                         // Add the new stream to SelectAll, and continue the loop to poll it.

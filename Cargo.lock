@@ -10540,6 +10540,7 @@ dependencies = [
  "anyhow",
  "async-compat",
  "async-fs",
+ "async-trait",
  "bindgen 0.72.1",
  "bitvec",
  "cbindgen",
