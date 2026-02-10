@@ -39,7 +39,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
-      issue_number: ${{ steps.create_or_comment.outputs.issue_number }}
+      issue_number: ${{ steps.report.outputs.issue_number }}
 
     steps:
       - name: Checkout repository
@@ -57,24 +57,16 @@ jobs:
           name: ${{ inputs.artifact_name }}
           path: ./crash_artifacts
 
-      - name: Extract crash info
-        id: extract
-        run: |
-          # Find the crash file within the artifact
-          CRASH_PATH=""
-          if [ -f "crash_artifacts/${{ inputs.fuzz_target }}/${{ inputs.crash_file }}" ]; then
-            CRASH_PATH="crash_artifacts/${{ inputs.fuzz_target }}/${{ inputs.crash_file }}"
-          elif [ -f "crash_artifacts/${{ inputs.crash_file }}" ]; then
-            CRASH_PATH="crash_artifacts/${{ inputs.crash_file }}"
-          fi
+      - name: Install Python dependencies
+        run: pip install -e .github/scripts
 
+      - name: Extract crash info
+        run: |
           python3 -m fuzz_report extract \
             logs/fuzz_output.log \
-            ${CRASH_PATH:+"$CRASH_PATH"} \
+            --crash-dir crash_artifacts \
+            --crash-name "${{ inputs.crash_file }}" \
             -o crash_info.json
-        working-directory: ${{ github.workspace }}
-        env:
-          PYTHONPATH: .github/scripts
 
       - name: Fetch existing fuzzer issues
         env:
@@ -94,16 +86,6 @@ jobs:
             crash_info.json \
             fuzzer_issues.json \
             -o dedup_result.json
-
-          # Export key fields as step outputs
-          echo "duplicate=$(jq -r '.duplicate' dedup_result.json)" >> "$GITHUB_OUTPUT"
-          echo "confidence=$(jq -r '.confidence // empty' dedup_result.json)" >> "$GITHUB_OUTPUT"
-          echo "check=$(jq -r '.check // empty' dedup_result.json)" >> "$GITHUB_OUTPUT"
-          echo "issue_number=$(jq -r '.issue_number // empty' dedup_result.json)" >> "$GITHUB_OUTPUT"
-          echo "reason=$(jq -r '.reason // empty' dedup_result.json)" >> "$GITHUB_OUTPUT"
-        working-directory: ${{ github.workspace }}
-        env:
-          PYTHONPATH: .github/scripts
 
       - name: Claude analysis (optional)
         id: claude_analysis
@@ -125,94 +107,22 @@ jobs:
 
             Write ONLY the analysis text (no headers, no markdown formatting) to the file claude_analysis.txt.
           claude_args: |
-            --model claude-sonnet-4-5-20250929
+            --model claude-opus-4-6
             --max-turns 5
             --allowedTools "Read,Write,Bash(cat:*),Bash(jq:*)"
 
       - name: Create or comment on issue
-        id: create_or_comment
+        id: report
         env:
           GH_TOKEN: ${{ secrets.gh_token }}
-          PYTHONPATH: .github/scripts
         run: |
-          # Read crash info fields for template variables
-          PANIC_MESSAGE=$(jq -r '.panic_message' crash_info.json)
-          CRASH_LOCATION=$(jq -r '.crash_location' crash_info.json)
-          STACK_TRACE_RAW=$(jq -r '.stack_trace_raw' crash_info.json)
-          DEBUG_OUTPUT=$(jq -r '.debug_output' crash_info.json)
-          SEED_HASH=$(jq -r '.seed_hash' crash_info.json)
-          STACK_TRACE_HASH=$(jq -r '.stack_trace_hash' crash_info.json)
-          MESSAGE_HASH=$(jq -r '.message_hash' crash_info.json)
-          ERROR_VARIANT=$(jq -r '.error_variant' crash_info.json)
-
-          # Read Claude analysis if available
-          CLAUDE_ANALYSIS=""
-          if [ -f claude_analysis.txt ]; then
-            CLAUDE_ANALYSIS=$(cat claude_analysis.txt)
-          fi
-
-          # Common template variables
-          COMMON_VARS=(
-            -v "FUZZ_TARGET=${{ inputs.fuzz_target }}"
-            -v "CRASH_FILE=${{ inputs.crash_file }}"
-            -v "BRANCH=${{ inputs.branch }}"
-            -v "COMMIT=${{ inputs.commit }}"
+          python3 -m fuzz_report report \
+            crash_info.json \
+            --repo "${{ github.repository }}" \
+            --dedup-result dedup_result.json \
+            --claude-analysis claude_analysis.txt \
+            -v "FUZZ_TARGET=${{ inputs.fuzz_target }}" \
+            -v "CRASH_FILE=${{ inputs.crash_file }}" \
+            -v "BRANCH=${{ inputs.branch }}" \
+            -v "COMMIT=${{ inputs.commit }}" \
             -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
-            -v "PANIC_MESSAGE=${PANIC_MESSAGE}"
-            -v "CRASH_LOCATION=${CRASH_LOCATION}"
-            -v "STACK_TRACE_RAW=${STACK_TRACE_RAW}"
-            -v "DEBUG_OUTPUT=${DEBUG_OUTPUT}"
-            -v "SEED_HASH=${SEED_HASH}"
-            -v "STACK_TRACE_HASH=${STACK_TRACE_HASH}"
-            -v "MESSAGE_HASH=${MESSAGE_HASH}"
-            -v "CLAUDE_ANALYSIS=${CLAUDE_ANALYSIS}"
-          )
-
-          DUPLICATE="${{ steps.dedup.outputs.duplicate }}"
-          CONFIDENCE="${{ steps.dedup.outputs.confidence }}"
-          EXISTING_ISSUE="${{ steps.dedup.outputs.issue_number }}"
-
-          if [ "$DUPLICATE" = "true" ] && [ "$CONFIDENCE" = "exact" ]; then
-            # Exact duplicate (seed hash match) — skip entirely
-            echo "Exact duplicate of #${EXISTING_ISSUE}, skipping."
-            echo "issue_number=${EXISTING_ISSUE}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [ "$DUPLICATE" = "true" ]; then
-            # Related crash — add comment to existing issue
-            DEDUP_REASON="${{ steps.dedup.outputs.reason }}"
-            DEDUP_CONFIDENCE="${{ steps.dedup.outputs.confidence }}"
-
-            python3 -m fuzz_report render \
-              .github/scripts/fuzz_report/templates/related_comment.md \
-              "${COMMON_VARS[@]}" \
-              -v "DEDUP_REASON=${DEDUP_REASON}" \
-              -v "DEDUP_CONFIDENCE=${DEDUP_CONFIDENCE}" \
-              -o comment_body.md
-
-            gh issue comment "${EXISTING_ISSUE}" \
-              --repo "${{ github.repository }}" \
-              --body-file comment_body.md
-
-            echo "issue_number=${EXISTING_ISSUE}" >> "$GITHUB_OUTPUT"
-          else
-            # New crash — create new issue
-            TITLE="Fuzzing Crash: ${ERROR_VARIANT} in ${{ inputs.fuzz_target }}"
-
-            python3 -m fuzz_report render \
-              .github/scripts/fuzz_report/templates/new_issue.md \
-              "${COMMON_VARS[@]}" \
-              -o issue_body.md
-
-            ISSUE_URL=$(gh issue create \
-              --repo "${{ github.repository }}" \
-              --title "${TITLE}" \
-              --label "bug,fuzzer" \
-              --body-file issue_body.md)
-
-            # Extract issue number from URL
-            ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oP '\d+$')
-            echo "issue_number=${ISSUE_NUMBER}" >> "$GITHUB_OUTPUT"
-            echo "Created issue #${ISSUE_NUMBER}: ${ISSUE_URL}"
-          fi

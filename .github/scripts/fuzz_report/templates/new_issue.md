@@ -13,13 +13,13 @@
 ```
 {{STACK_TRACE_RAW}}
 ```
-{{#if CLAUDE_ANALYSIS}}
+{% if CLAUDE_ANALYSIS %}
 
 ### Root Cause Analysis
 
 {{CLAUDE_ANALYSIS}}
-{{/if}}
-{{#if DEBUG_OUTPUT}}
+{% endif %}
+{% if DEBUG_OUTPUT %}
 
 <details>
 <summary>Debug Output</summary>
@@ -28,7 +28,7 @@
 {{DEBUG_OUTPUT}}
 ```
 </details>
-{{/if}}
+{% endif %}
 
 ### Summary
 

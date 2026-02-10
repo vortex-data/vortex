@@ -17,7 +17,7 @@ A similar crash was detected in the `{{FUZZ_TARGET}}` target.
 ```
 {{STACK_TRACE_RAW}}
 ```
-{{#if DEBUG_OUTPUT}}
+{% if DEBUG_OUTPUT %}
 
 <details>
 <summary>Debug Output</summary>
@@ -26,7 +26,7 @@ A similar crash was detected in the `{{FUZZ_TARGET}}` target.
 {{DEBUG_OUTPUT}}
 ```
 </details>
-{{/if}}
+{% endif %}
 
 ### Occurrence Details
 

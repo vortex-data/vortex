@@ -1,11 +1,19 @@
-"""Template rendering for fuzzer crash reports.
-
-Supports {{VAR}} substitution and {{#if VAR}}...{{/if}} conditionals.
-"""
+"""Template rendering for fuzzer crash reports using Jinja2."""
 
 import os
-import re
 from pathlib import Path
+
+from jinja2 import BaseLoader, Environment, Undefined
+
+
+class _NotSetUndefined(Undefined):
+    """Jinja2 undefined that renders as '(not set)' and is falsy."""
+
+    def __str__(self):
+        return "(not set)"
+
+    def __bool__(self):
+        return False
 
 
 def render_template(
@@ -14,10 +22,10 @@ def render_template(
     use_env: bool = True,
 ) -> str:
     """
-    Render a template by substituting {{VAR}} placeholders and
-    evaluating {{#if VAR}}...{{/if}} conditionals.
+    Render a Jinja2 template with the given variables.
 
-    Conditionals are shown if the variable is non-empty and not "(not set)".
+    Variables are resolved in order: explicit variables > environment variables.
+    Undefined variables render as "(not set)".
 
     Args:
         template_path: Path to the template file
@@ -28,44 +36,19 @@ def render_template(
         Rendered template content
     """
     template_content = Path(template_path).read_text()
-    variables = variables or {}
+    merged = {}
+    if use_env:
+        merged.update(os.environ)
+    if variables:
+        merged.update(variables)
 
-    def resolve_var(var_name: str) -> str:
-        """Resolve a variable name to its value."""
-        if var_name in variables:
-            return str(variables[var_name])
-        if use_env and var_name in os.environ:
-            return os.environ[var_name]
-        return "(not set)"
-
-    def is_truthy(var_name: str) -> bool:
-        """Check if a variable is considered truthy for conditionals."""
-        value = resolve_var(var_name)
-        return bool(value) and value != "(not set)"
-
-    # Process {{#if VAR}}...{{/if}} conditionals (can be nested)
-    def process_conditionals(content: str) -> str:
-        # Process from innermost to outermost
-        pattern = r"\{\{#if\s+([A-Z_][A-Z0-9_]*)\}\}(.*?)\{\{/if\}\}"
-        while re.search(pattern, content, re.DOTALL):
-            content = re.sub(
-                pattern,
-                lambda m: m.group(2) if is_truthy(m.group(1)) else "",
-                content,
-                flags=re.DOTALL,
-            )
-        return content
-
-    content = process_conditionals(template_content)
-
-    # Replace all {{VAR}} patterns
-    var_pattern = r"\{\{([A-Z_][A-Z0-9_]*)\}\}"
-    content = re.sub(var_pattern, lambda m: resolve_var(m.group(1)), content)
-
-    # Clean up any double blank lines left by removed conditionals
-    content = re.sub(r"\n{3,}", "\n\n", content)
-
-    return content
+    env = Environment(
+        loader=BaseLoader(),
+        keep_trailing_newline=True,
+        undefined=_NotSetUndefined,
+    )
+    template = env.from_string(template_content)
+    return template.render(merged)
 
 
 def render_template_to_file(

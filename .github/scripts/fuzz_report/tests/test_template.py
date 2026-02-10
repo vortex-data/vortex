@@ -24,8 +24,8 @@ def simple_template(tmp_path):
 
 @pytest.fixture
 def conditional_template(tmp_path):
-    """Create a template with {{#if}} conditionals."""
-    content = "# Title\n{{#if ANALYSIS}}\n### Analysis\n{{ANALYSIS}}\n{{/if}}\nFooter\n"
+    """Create a template with Jinja2 conditionals."""
+    content = "# Title\n{% if ANALYSIS %}\n### Analysis\n{{ANALYSIS}}\n{% endif %}\nFooter\n"
     path = tmp_path / "conditional.md"
     path.write_text(content)
     return str(path)
@@ -233,4 +233,7 @@ class TestDownstreamGrepCompatibility:
         # grep -oP 'https://[^\s]+/artifacts/[0-9]+'
         url_match = re.search(r"https://[^\s]+/artifacts/[0-9]+", rendered)
         assert url_match is not None
-        assert url_match.group(0) == "https://github.com/spiraldb/vortex/actions/runs/12345/artifacts/67890"
+        assert (
+            url_match.group(0)
+            == "https://github.com/spiraldb/vortex/actions/runs/12345/artifacts/67890"
+        )

@@ -122,7 +122,9 @@ def check_stack_trace(stack_hash: str, issues: list[dict]) -> DedupResult:
 def check_error_pattern(message_hash: str, error_variant: str, issues: list[dict]) -> DedupResult:
     """Check if error pattern exists in any issue body."""
     if not message_hash:
-        return DedupResult(duplicate=False, check="error_pattern", reason="No message hash provided")
+        return DedupResult(
+            duplicate=False, check="error_pattern", reason="No message hash provided"
+        )
 
     # First try: exact message hash match
     for issue in issues:
@@ -153,7 +155,9 @@ def check_error_pattern(message_hash: str, error_variant: str, issues: list[dict
                     reason=f"Same error variant type: {error_variant}",
                 )
 
-    return DedupResult(duplicate=False, check="error_pattern", reason="No matching error pattern found")
+    return DedupResult(
+        duplicate=False, check="error_pattern", reason="No matching error pattern found"
+    )
 
 
 def check_duplicate(crash_info: CrashInfo, issues_path: str | Path) -> DedupResult:
