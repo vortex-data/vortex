@@ -108,7 +108,7 @@ fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
 
         writeln!(output, "for (int i = 0; i < {shared_copy_ncount}; i++) {{")?;
         output.indent(|output| {
-            writeln!(output, "auto idx = i * {shared_copy_ncount} + threadIdx.x;")?;
+            writeln!(output, "auto idx = i * {thread_count} + thread_idx;")?;
             writeln!(output, "out[idx] = shared_out[idx];")
         })?;
         writeln!(output, "}}")
