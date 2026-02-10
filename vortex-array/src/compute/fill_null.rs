@@ -13,12 +13,10 @@ use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
-use crate::arrays::ScalarFnArray;
 use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
-use crate::expr::EmptyOptions;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::FillNull as FillNullExpr;
-use crate::expr::ScalarFn;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
@@ -37,15 +35,15 @@ use crate::vtable::VTable;
 /// let array = fill_null(array.as_ref(), &Scalar::from(42i32)).unwrap();
 /// assert_eq!(array.display_values().to_string(), "[0i32, 42i32, 1i32, 42i32, 2i32]");
 /// ```
+// TODO(joe): deprecate me.
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         !fill_value.is_null(),
         "fill_null requires a non-null fill value"
     );
-    let len = array.len();
-    let fill_value_array = ConstantArray::new(fill_value.clone(), len).into_array();
-    let scalar_fn = ScalarFn::new_static(&FillNullExpr, EmptyOptions);
-    let result = ScalarFnArray::try_new(scalar_fn, vec![array.to_array(), fill_value_array], len)?
+    let result = array
+        .to_array()
+        .fill_null(fill_value.clone())?
         .to_canonical()?
         .into_array();
     debug_assert!(

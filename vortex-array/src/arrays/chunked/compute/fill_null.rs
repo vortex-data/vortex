@@ -8,26 +8,15 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::FillNullReduce;
-use crate::expr::EmptyOptions;
-use crate::expr::FillNull as FillNullExpr;
-use crate::expr::ScalarFn;
 
 impl FillNullReduce for ChunkedVTable {
     fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
         let new_chunks = array
             .chunks()
             .iter()
-            .map(|c| {
-                let fill_value_array = ConstantArray::new(fill_value.clone(), c.len()).into_array();
-                let scalar_fn = ScalarFn::new_static(&FillNullExpr, EmptyOptions);
-                Ok(
-                    ScalarFnArray::try_new(scalar_fn, vec![c.clone(), fill_value_array], c.len())?
-                        .into_array(),
-                )
-            })
+            .map(|c| c.fill_null(fill_value.clone()))
             .collect::<VortexResult<Vec<_>>>()?;
 
         // SAFETY: wrapping each chunk in ScalarFnArray preserves the same DType across all chunks.

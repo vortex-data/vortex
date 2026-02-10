@@ -12,13 +12,16 @@
 use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::expr::Cast;
 use crate::expr::EmptyOptions;
 use crate::expr::Expression;
+use crate::expr::FillNull;
 use crate::expr::GetItem;
 use crate::expr::IsNull;
 use crate::expr::Mask;
@@ -30,6 +33,9 @@ use crate::optimizer::ArrayOptimizer;
 pub trait ExprBuiltins: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<Expression>;
+
+    /// Replace null values with the given fill value.
+    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression>;
 
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression>;
@@ -49,6 +55,10 @@ pub trait ExprBuiltins: Sized {
 impl ExprBuiltins for Expression {
     fn cast(&self, dtype: DType) -> VortexResult<Expression> {
         Cast.try_new_expr(dtype, [self.clone()])
+    }
+
+    fn fill_null(&self, fill_value: Expression) -> VortexResult<Expression> {
+        FillNull.try_new_expr(EmptyOptions, [self.clone(), fill_value])
     }
 
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<Expression> {
@@ -72,6 +82,9 @@ pub trait ArrayBuiltins: Sized {
     /// Cast to the given data type.
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef>;
 
+    /// Replace null values with the given fill value.
+    fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef>;
+
     /// Get item by field name (for struct types).
     fn get_item(&self, field_name: impl Into<FieldName>) -> VortexResult<ArrayRef>;
 
@@ -90,6 +103,14 @@ pub trait ArrayBuiltins: Sized {
 impl ArrayBuiltins for ArrayRef {
     fn cast(&self, dtype: DType) -> VortexResult<ArrayRef> {
         Cast.try_new_array(self.len(), dtype, [self.clone()])?
+            .optimize()
+    }
+
+    fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
+        let fill_value = fill_value.into();
+        let fill_value_array = ConstantArray::new(fill_value, self.len()).to_array();
+        FillNull
+            .try_new_array(self.len(), EmptyOptions, [self.clone(), fill_value_array])?
             .optimize()
     }
 
