@@ -13,6 +13,7 @@ use arrow_array::builder::Float32Builder;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
 use rand::Rng;
 use rand::SeedableRng;
@@ -22,6 +23,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 
 /// Dataset identifier used for data path generation.
@@ -29,6 +31,28 @@ pub const DATASET: &str = "feature_vectors";
 
 /// Number of rows in the feature vectors dataset.
 pub const ROW_COUNT: usize = 1_000_000;
+
+pub struct FeatureVectorsData;
+
+#[async_trait]
+impl BenchDataset for FeatureVectorsData {
+    fn name(&self) -> &str {
+        "feature-vectors"
+    }
+
+    fn row_count(&self) -> u64 {
+        ROW_COUNT as u64
+    }
+
+    async fn path(&self, format: Format) -> Result<PathBuf> {
+        match format {
+            Format::OnDiskVortex => feature_vectors_vortex().await,
+            Format::VortexCompact => feature_vectors_vortex_compact().await,
+            Format::Parquet => feature_vectors_parquet().await,
+            other => unimplemented!("Random access bench not implemented for {other}"),
+        }
+    }
+}
 
 /// Dimensionality of each feature vector.
 const VECTOR_DIM: i32 = 1024;

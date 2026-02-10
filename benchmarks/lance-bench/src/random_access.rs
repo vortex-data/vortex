@@ -78,29 +78,24 @@ pub async fn nested_structs_lance() -> anyhow::Result<PathBuf> {
 
 /// Random accessor for Lance format files.
 ///
-/// After `open()`, the dataset handle is stored and reused across `take()` calls.
+/// The dataset handle is opened at construction time and reused across `take()` calls.
 pub struct LanceRandomAccessor {
-    path: PathBuf,
     name: String,
-    dataset: Option<Dataset>,
+    dataset: Dataset,
 }
 
 impl LanceRandomAccessor {
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            name: "random-access/lance-tokio-local-disk".to_string(),
-            dataset: None,
-        }
-    }
-
-    /// Create a new Lance random accessor with a custom name.
-    pub fn with_name(path: PathBuf, name: impl Into<String>) -> Self {
-        Self {
-            path,
+    /// Open a Lance dataset and return a ready-to-use accessor.
+    pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
+        let dataset = Dataset::open(
+            path.to_str()
+                .ok_or_else(|| anyhow!("Invalid dataset path"))?,
+        )
+        .await?;
+        Ok(Self {
             name: name.into(),
-            dataset: None,
-        }
+            dataset,
+        })
     }
 }
 
@@ -114,24 +109,9 @@ impl RandomAccessor for LanceRandomAccessor {
         &self.name
     }
 
-    async fn open(&mut self) -> anyhow::Result<()> {
-        let dataset = Dataset::open(
-            self.path
-                .to_str()
-                .ok_or_else(|| anyhow!("Invalid dataset path"))?,
-        )
-        .await?;
-        self.dataset = Some(dataset);
-        Ok(())
-    }
-
     async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let dataset = self
-            .dataset
-            .as_ref()
-            .ok_or_else(|| anyhow!("accessor not opened; call open() first"))?;
-        let projection = ProjectionRequest::from_schema(dataset.schema().clone());
-        let result = dataset.take(indices, projection).await?;
+        let projection = ProjectionRequest::from_schema(self.dataset.schema().clone());
+        let result = self.dataset.take(indices, projection).await?;
         Ok(result.num_rows())
     }
 }

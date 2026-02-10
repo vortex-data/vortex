@@ -4,7 +4,6 @@
 use std::iter::once;
 use std::path::PathBuf;
 
-use anyhow::anyhow;
 use arrow_array::PrimitiveArray;
 use arrow_array::types::Int64Type;
 use arrow_select::concat::concat_batches;
@@ -13,8 +12,8 @@ use async_trait::async_trait;
 use futures::stream;
 use itertools::Itertools;
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
+use parquet::arrow::arrow_reader::ArrowReaderMetadata;
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
-use parquet::file::metadata::RowGroupMetaData;
 use stream::StreamExt;
 use tokio::fs::File;
 use vortex::array::Array;
@@ -33,53 +32,26 @@ use crate::random_access::RandomAccessor;
 
 /// Random accessor for Vortex format files.
 ///
-/// After `open()`, the file handle is stored and reused across `take()` calls.
+/// The file handle is opened at construction time and reused across `take()` calls.
 pub struct VortexRandomAccessor {
-    path: PathBuf,
     name: String,
     format: Format,
-    file: Option<VortexFile>,
+    file: VortexFile,
 }
 
 impl VortexRandomAccessor {
-    /// Create a new Vortex random accessor for the given file path.
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            name: "random-access/vortex-tokio-local-disk".to_string(),
-            format: Format::OnDiskVortex,
-            file: None,
-        }
-    }
-
-    /// Create a new Vortex random accessor with a custom name.
-    pub fn with_name(path: PathBuf, name: impl Into<String>) -> Self {
-        Self {
-            path,
-            name: name.into(),
-            format: Format::OnDiskVortex,
-            file: None,
-        }
-    }
-
-    /// Create a new Vortex random accessor with a custom name and format.
-    pub fn with_name_and_format(path: PathBuf, name: impl Into<String>, format: Format) -> Self {
-        Self {
-            path,
+    /// Open a Vortex file and return a ready-to-use accessor.
+    pub async fn open(
+        path: impl AsRef<std::path::Path>,
+        name: impl Into<String>,
+        format: Format,
+    ) -> anyhow::Result<Self> {
+        let file = SESSION.open_options().open_path(path.as_ref()).await?;
+        Ok(Self {
             name: name.into(),
             format,
-            file: None,
-        }
-    }
-
-    /// Create a new Vortex random accessor for compact format.
-    pub fn compact(path: PathBuf) -> Self {
-        Self {
-            path,
-            name: "random-access/vortex-compact-tokio-local-disk".to_string(),
-            format: Format::VortexCompact,
-            file: None,
-        }
+            file,
+        })
     }
 }
 
@@ -93,20 +65,10 @@ impl RandomAccessor for VortexRandomAccessor {
         &self.name
     }
 
-    async fn open(&mut self) -> anyhow::Result<()> {
-        let file = SESSION.open_options().open_path(&self.path).await?;
-        self.file = Some(file);
-        Ok(())
-    }
-
     async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let file = self
-            .file
-            .as_ref()
-            .ok_or_else(|| anyhow!("accessor not opened; call open() first"))?;
-
         let indices_buf: Buffer<u64> = Buffer::from(indices.to_vec());
-        let array = file
+        let array = self
+            .file
             .scan()?
             .with_row_indices(indices_buf)
             .into_array_stream()?
@@ -120,41 +82,47 @@ impl RandomAccessor for VortexRandomAccessor {
     }
 }
 
-/// Pre-computed Parquet metadata stored after `open()`.
-struct ParquetMetadata {
+/// Random accessor for Parquet format files.
+///
+/// Parquet footer and row group offsets are parsed at construction time and
+/// reused to map indices to row groups in each `take()` call.
+pub struct ParquetRandomAccessor {
+    name: String,
     /// Cumulative row offsets per row group (length = num_row_groups + 1).
     row_group_offsets: Vec<i64>,
+    /// Cached Arrow reader metadata (footer) to avoid re-parsing on each take.
+    arrow_metadata: ArrowReaderMetadata,
     /// Path to the Parquet file (for re-opening on each take).
     path: PathBuf,
 }
 
-/// Random accessor for Parquet format files.
-///
-/// After `open()`, the file metadata and row group offsets are stored and
-/// reused to map indices to row groups in each `take()` call.
-pub struct ParquetRandomAccessor {
-    path: PathBuf,
-    name: String,
-    metadata: Option<ParquetMetadata>,
-}
-
 impl ParquetRandomAccessor {
-    /// Create a new Parquet random accessor for the given file path.
-    pub fn new(path: PathBuf) -> Self {
-        Self {
-            path,
-            name: "random-access/parquet-tokio-local-disk".to_string(),
-            metadata: None,
-        }
-    }
+    /// Open a Parquet file, parse the footer, and return a ready-to-use accessor.
+    pub async fn open(path: PathBuf, name: impl Into<String>) -> anyhow::Result<Self> {
+        let mut file = File::open(&path).await?;
+        let options = ArrowReaderOptions::new().with_page_index(true);
+        let arrow_metadata = ArrowReaderMetadata::load_async(&mut file, options).await?;
 
-    /// Create a new Parquet random accessor with a custom name.
-    pub fn with_name(path: PathBuf, name: impl Into<String>) -> Self {
-        Self {
-            path,
+        let row_group_offsets = once(0)
+            .chain(
+                arrow_metadata
+                    .metadata()
+                    .row_groups()
+                    .iter()
+                    .map(|rg| rg.num_rows()),
+            )
+            .scan(0i64, |acc, x| {
+                *acc += x;
+                Some(*acc)
+            })
+            .collect::<Vec<_>>();
+
+        Ok(Self {
             name: name.into(),
-            metadata: None,
-        }
+            row_group_offsets,
+            arrow_metadata,
+            path,
+        })
     }
 }
 
@@ -168,53 +136,18 @@ impl RandomAccessor for ParquetRandomAccessor {
         &self.name
     }
 
-    async fn open(&mut self) -> anyhow::Result<()> {
-        let file = File::open(&self.path).await?;
-        let builder = ParquetRecordBatchStreamBuilder::new_with_options(
-            file,
-            ArrowReaderOptions::new().with_page_index(true),
-        )
-        .await?;
-
-        let row_group_offsets = once(0)
-            .chain(
-                builder
-                    .metadata()
-                    .row_groups()
-                    .iter()
-                    .map(RowGroupMetaData::num_rows),
-            )
-            .scan(0i64, |acc, x| {
-                *acc += x;
-                Some(*acc)
-            })
-            .collect::<Vec<_>>();
-
-        self.metadata = Some(ParquetMetadata {
-            row_group_offsets,
-            path: self.path.clone(),
-        });
-
-        Ok(())
-    }
-
     async fn take(&self, indices: &[u64]) -> anyhow::Result<usize> {
-        let meta = self
-            .metadata
-            .as_ref()
-            .ok_or_else(|| anyhow!("accessor not opened; call open() first"))?;
-
         // Map indices to row groups.
         let mut row_groups = HashMap::new();
         for &idx in indices {
-            let row_group_idx = meta
+            let row_group_idx = self
                 .row_group_offsets
                 .binary_search(&(idx as i64))
                 .unwrap_or_else(|e| e - 1);
             row_groups
                 .entry(row_group_idx)
                 .or_insert_with(Vec::new)
-                .push((idx as i64) - meta.row_group_offsets[row_group_idx]);
+                .push((idx as i64) - self.row_group_offsets[row_group_idx]);
         }
 
         let sorted_row_group_keys = row_groups.keys().copied().sorted().collect_vec();
@@ -223,13 +156,10 @@ impl RandomAccessor for ParquetRandomAccessor {
             .map(|i| row_groups[i].clone())
             .collect_vec();
 
-        // Re-open the file for reading (Parquet builder consumes the file handle).
-        let file = File::open(&meta.path).await?;
-        let builder = ParquetRecordBatchStreamBuilder::new_with_options(
-            file,
-            ArrowReaderOptions::new().with_page_index(true),
-        )
-        .await?;
+        // Re-open the file but reuse cached metadata (avoids re-parsing the footer).
+        let file = File::open(&self.path).await?;
+        let builder =
+            ParquetRecordBatchStreamBuilder::new_with_metadata(file, self.arrow_metadata.clone());
 
         let reader = builder
             .with_row_groups(sorted_row_group_keys)

@@ -13,6 +13,7 @@ use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Fields;
 use arrow_schema::Schema;
+use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
 use rand::Rng;
 use rand::SeedableRng;
@@ -22,6 +23,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 
 /// Dataset identifier used for data path generation.
@@ -29,6 +31,28 @@ pub const DATASET: &str = "nested_structs";
 
 /// Number of rows in the nested structs dataset.
 pub const ROW_COUNT: usize = 1_000_000;
+
+pub struct NestedStructsData;
+
+#[async_trait]
+impl BenchDataset for NestedStructsData {
+    fn name(&self) -> &str {
+        "nested-structs"
+    }
+
+    fn row_count(&self) -> u64 {
+        ROW_COUNT as u64
+    }
+
+    async fn path(&self, format: Format) -> Result<PathBuf> {
+        match format {
+            Format::OnDiskVortex => nested_structs_vortex().await,
+            Format::VortexCompact => nested_structs_vortex_compact().await,
+            Format::Parquet => nested_structs_parquet().await,
+            other => unimplemented!("Random access bench not implemented for {other}"),
+        }
+    }
+}
 
 /// Batch size for data generation.
 const BATCH_SIZE: usize = 100_000;

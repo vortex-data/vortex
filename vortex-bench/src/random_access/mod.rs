@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 use async_trait::async_trait;
 
@@ -24,7 +26,7 @@ pub fn data_path(dataset: &str, format: Format) -> String {
     }
 }
 
-/// Trait for a benchmark dataset that knows how to write files and create accessors.
+/// Trait for a benchmark dataset that knows how to prepare data files.
 #[async_trait]
 pub trait BenchDataset: Send + Sync {
     /// A descriptive name for this dataset (used in benchmark output and CLI).
@@ -33,17 +35,16 @@ pub trait BenchDataset: Send + Sync {
     /// The total number of rows in this dataset.
     fn row_count(&self) -> u64;
 
-    /// Create a format-specific random accessor for this dataset.
+    /// Prepare the data file for the given format and return its path.
     ///
-    /// This prepares the data file (writing it if necessary) and returns an
-    /// accessor that can be opened and used for random access benchmarks.
-    async fn create(&self, format: Format) -> Result<Box<dyn RandomAccessor>>;
+    /// This writes the file if it doesn't already exist.
+    async fn path(&self, format: Format) -> Result<PathBuf>;
 }
 
 /// Trait for format-specific random access (take) operations.
 ///
 /// Implementations handle reading specific rows by index from a data source.
-/// The lifecycle is: construct -> `open()` (parse metadata) -> `take()` (I/O).
+/// Accessors are constructed in a ready-to-use state with metadata already parsed.
 #[async_trait]
 pub trait RandomAccessor: Send + Sync {
     /// A descriptive name for this accessor (used in benchmark output).
@@ -51,9 +52,6 @@ pub trait RandomAccessor: Send + Sync {
 
     /// The format this accessor handles.
     fn format(&self) -> Format;
-
-    /// Open the file and parse metadata. This is not timed in benchmarks.
-    async fn open(&mut self) -> Result<()>;
 
     /// Take rows at the given indices, returning the number of rows read.
     async fn take(&self, indices: &[u64]) -> Result<usize>;

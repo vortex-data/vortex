@@ -12,6 +12,7 @@ use arrow_array::builder::ListBuilder;
 use arrow_schema::DataType;
 use arrow_schema::Field;
 use arrow_schema::Schema;
+use async_trait::async_trait;
 use parquet::arrow::ArrowWriter;
 use rand::Rng;
 use rand::SeedableRng;
@@ -21,6 +22,7 @@ use crate::CompactionStrategy;
 use crate::Format;
 use crate::conversions::write_parquet_as_vortex;
 use crate::idempotent_async;
+use crate::random_access::BenchDataset;
 use crate::random_access::data_path;
 
 /// Dataset identifier used for data path generation.
@@ -28,6 +30,28 @@ pub const DATASET: &str = "nested_lists";
 
 /// Number of rows in the nested lists dataset.
 pub const ROW_COUNT: usize = 1_000_000;
+
+pub struct NestedListsData;
+
+#[async_trait]
+impl BenchDataset for NestedListsData {
+    fn name(&self) -> &str {
+        "nested-lists"
+    }
+
+    fn row_count(&self) -> u64 {
+        ROW_COUNT as u64
+    }
+
+    async fn path(&self, format: Format) -> Result<PathBuf> {
+        match format {
+            Format::OnDiskVortex => nested_lists_vortex().await,
+            Format::VortexCompact => nested_lists_vortex_compact().await,
+            Format::Parquet => nested_lists_parquet().await,
+            other => unimplemented!("Random access bench not implemented for {other}"),
+        }
+    }
+}
 
 /// Maximum number of elements in each list.
 const MAX_LIST_LEN: usize = 20;

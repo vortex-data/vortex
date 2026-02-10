@@ -1,14 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::future::Future;
 use std::path::PathBuf;
-use std::pin::Pin;
 use std::time::Duration;
 use std::time::Instant;
 
 use anyhow::Result;
-use async_trait::async_trait;
 use clap::Parser;
 use clap::ValueEnum;
 use indicatif::ProgressBar;
@@ -21,10 +18,10 @@ use vortex_bench::BenchmarkOutput;
 use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Target;
-use vortex_bench::datasets::feature_vectors::*;
-use vortex_bench::datasets::nested_lists::*;
-use vortex_bench::datasets::nested_structs::*;
-use vortex_bench::datasets::taxi_data::*;
+use vortex_bench::datasets::feature_vectors::FeatureVectorsData;
+use vortex_bench::datasets::nested_lists::NestedListsData;
+use vortex_bench::datasets::nested_structs::NestedStructsData;
+use vortex_bench::datasets::taxi_data::TaxiData;
 use vortex_bench::display::DisplayFormat;
 use vortex_bench::display::print_measurements_json;
 use vortex_bench::display::render_table;
@@ -35,129 +32,6 @@ use vortex_bench::random_access::RandomAccessor;
 use vortex_bench::random_access::VortexRandomAccessor;
 use vortex_bench::setup_logging_and_tracing;
 use vortex_bench::utils::constants::STORAGE_NVME;
-
-// ---------------------------------------------------------------------------
-// Dataset implementations
-// ---------------------------------------------------------------------------
-
-/// Short format label used in benchmark measurement names.
-fn format_label(format: Format) -> &'static str {
-    match format {
-        Format::OnDiskVortex => "vortex",
-        Format::VortexCompact => "vortex-compact",
-        Format::Parquet => "parquet",
-        Format::Lance => "lance",
-        other => unimplemented!("Random access bench not implemented for {other}"),
-    }
-}
-
-/// Create a random accessor from a file path, dataset name, and format.
-///
-/// This eliminates the repeated match-on-format boilerplate in each dataset.
-fn create_accessor(path: PathBuf, dataset: &str, format: Format) -> Box<dyn RandomAccessor> {
-    let name = format!(
-        "random-access/{}/{}-tokio-local-disk",
-        dataset,
-        format_label(format)
-    );
-    match format {
-        Format::OnDiskVortex | Format::VortexCompact => Box::new(
-            VortexRandomAccessor::with_name_and_format(path, name, format),
-        ),
-        Format::Parquet => Box::new(ParquetRandomAccessor::with_name(path, name)),
-        #[cfg(feature = "lance")]
-        Format::Lance => {
-            use lance_bench::random_access::LanceRandomAccessor;
-            Box::new(LanceRandomAccessor::with_name(path, name))
-        }
-        other => unimplemented!("Random access bench not implemented for {other}"),
-    }
-}
-
-/// A function returning a boxed future that resolves to a file path.
-type PathFn = fn() -> Pin<Box<dyn Future<Output = Result<PathBuf>> + Send>>;
-
-/// Paths for a specific dataset, keyed by format.
-struct DatasetPaths {
-    name: &'static str,
-    row_count: u64,
-    parquet: PathFn,
-    vortex: PathFn,
-    vortex_compact: PathFn,
-    #[cfg(feature = "lance")]
-    lance: PathFn,
-}
-
-#[async_trait]
-impl BenchDataset for DatasetPaths {
-    fn name(&self) -> &str {
-        self.name
-    }
-
-    fn row_count(&self) -> u64 {
-        self.row_count
-    }
-
-    async fn create(&self, format: Format) -> Result<Box<dyn RandomAccessor>> {
-        let path = match format {
-            Format::OnDiskVortex => (self.vortex)().await?,
-            Format::VortexCompact => (self.vortex_compact)().await?,
-            Format::Parquet => (self.parquet)().await?,
-            #[cfg(feature = "lance")]
-            Format::Lance => (self.lance)().await?,
-            other => unimplemented!("Random access bench not implemented for {other}"),
-        };
-        Ok(create_accessor(path, self.name, format))
-    }
-}
-
-fn taxi_dataset() -> DatasetPaths {
-    DatasetPaths {
-        name: "taxi",
-        row_count: 3_339_715,
-        parquet: || Box::pin(taxi_data_parquet()),
-        vortex: || Box::pin(taxi_data_vortex()),
-        vortex_compact: || Box::pin(taxi_data_vortex_compact()),
-        #[cfg(feature = "lance")]
-        lance: || Box::pin(lance_bench::random_access::taxi_data_lance()),
-    }
-}
-
-fn feature_vectors_dataset() -> DatasetPaths {
-    DatasetPaths {
-        name: "feature-vectors",
-        row_count: 1_000_000,
-        parquet: || Box::pin(feature_vectors_parquet()),
-        vortex: || Box::pin(feature_vectors_vortex()),
-        vortex_compact: || Box::pin(feature_vectors_vortex_compact()),
-        #[cfg(feature = "lance")]
-        lance: || Box::pin(lance_bench::random_access::feature_vectors_lance()),
-    }
-}
-
-fn nested_lists_dataset() -> DatasetPaths {
-    DatasetPaths {
-        name: "nested-lists",
-        row_count: 1_000_000,
-        parquet: || Box::pin(nested_lists_parquet()),
-        vortex: || Box::pin(nested_lists_vortex()),
-        vortex_compact: || Box::pin(nested_lists_vortex_compact()),
-        #[cfg(feature = "lance")]
-        lance: || Box::pin(lance_bench::random_access::nested_lists_lance()),
-    }
-}
-
-fn nested_structs_dataset() -> DatasetPaths {
-    DatasetPaths {
-        name: "nested-structs",
-        row_count: 1_000_000,
-        parquet: || Box::pin(nested_structs_parquet()),
-        vortex: || Box::pin(nested_structs_vortex()),
-        vortex_compact: || Box::pin(nested_structs_vortex_compact()),
-        #[cfg(feature = "lance")]
-        lance: || Box::pin(lance_bench::random_access::nested_structs_lance()),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Access patterns
@@ -254,12 +128,12 @@ enum DatasetArg {
 }
 
 impl DatasetArg {
-    fn into_dataset(self) -> DatasetPaths {
+    fn into_dataset(self) -> Box<dyn BenchDataset> {
         match self {
-            DatasetArg::Taxi => taxi_dataset(),
-            DatasetArg::FeatureVectors => feature_vectors_dataset(),
-            DatasetArg::NestedLists => nested_lists_dataset(),
-            DatasetArg::NestedStructs => nested_structs_dataset(),
+            DatasetArg::Taxi => Box::new(TaxiData),
+            DatasetArg::FeatureVectors => Box::new(FeatureVectorsData),
+            DatasetArg::NestedLists => Box::new(NestedListsData),
+            DatasetArg::NestedStructs => Box::new(NestedStructsData),
         }
     }
 }
@@ -301,7 +175,7 @@ async fn main() -> Result<()> {
 
     setup_logging_and_tracing(args.verbose, args.tracing)?;
 
-    let datasets: Vec<DatasetPaths> = args
+    let datasets: Vec<Box<dyn BenchDataset>> = args
         .datasets
         .into_iter()
         .map(|d| d.into_dataset())
@@ -362,14 +236,15 @@ async fn benchmark_random_access(
 /// For other datasets, includes dataset and pattern:
 /// `random-access/{dataset}/{pattern}/{format}-tokio-local-disk`.
 fn measurement_name(dataset: &str, pattern: Option<AccessPattern>, format: Format) -> String {
+    let fmt = format.ext();
     match pattern {
         Some(p) => format!(
             "random-access/{}/{}/{}-tokio-local-disk",
             dataset,
             p.name(),
-            format_label(format)
+            fmt
         ),
-        None => format!("random-access/{}-tokio-local-disk", format_label(format)),
+        None => format!("random-access/{}-tokio-local-disk", fmt),
     }
 }
 
@@ -384,6 +259,48 @@ fn format_to_engine(format: Format) -> Engine {
     }
 }
 
+/// Open a random accessor for any supported format.
+///
+/// For Vortex and Parquet, the path comes from [`BenchDataset::path`].
+/// For Lance (behind the `lance` feature), the path is resolved from lance-bench helpers.
+async fn open_accessor(
+    dataset: &dyn BenchDataset,
+    format: Format,
+) -> Result<Box<dyn RandomAccessor>> {
+    let name = format!(
+        "random-access/{}/{}-tokio-local-disk",
+        dataset.name(),
+        format.ext()
+    );
+    match format {
+        Format::OnDiskVortex | Format::VortexCompact => {
+            let path = dataset.path(format).await?;
+            Ok(Box::new(
+                VortexRandomAccessor::open(path, name, format).await?,
+            ))
+        }
+        Format::Parquet => {
+            let path = dataset.path(format).await?;
+            Ok(Box::new(ParquetRandomAccessor::open(path, name).await?))
+        }
+        #[cfg(feature = "lance")]
+        Format::Lance => {
+            use lance_bench::random_access;
+            let path = match dataset.name() {
+                "taxi" => random_access::taxi_data_lance().await?,
+                "feature-vectors" => random_access::feature_vectors_lance().await?,
+                "nested-lists" => random_access::nested_lists_lance().await?,
+                "nested-structs" => random_access::nested_structs_lance().await?,
+                other => anyhow::bail!("Unknown dataset for Lance: {other}"),
+            };
+            Ok(Box::new(
+                random_access::LanceRandomAccessor::open(path, name).await?,
+            ))
+        }
+        other => unimplemented!("open_accessor not implemented for {other}"),
+    }
+}
+
 /// The benchmark ID used for output path.
 const BENCHMARK_ID: &str = "random-access";
 
@@ -391,7 +308,7 @@ const BENCHMARK_ID: &str = "random-access";
 const FIXED_TAXI_INDICES: [u64; 6] = [10, 11, 12, 13, 100_000, 3_000_000];
 
 async fn run_random_access(
-    datasets: &[DatasetPaths],
+    datasets: &[Box<dyn BenchDataset>],
     formats: Vec<Format>,
     time_limit: u64,
     display_format: DisplayFormat,
@@ -412,8 +329,7 @@ async fn run_random_access(
     for dataset in datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
-                let mut accessor = dataset.create(*format).await?;
-                accessor.open().await?;
+                let accessor = open_accessor(dataset.as_ref(), *format).await?;
                 let name = measurement_name(dataset.name(), None, *format);
                 let measurement = benchmark_random_access(
                     accessor.as_ref(),
@@ -430,9 +346,8 @@ async fn run_random_access(
             }
 
             for pattern in &ACCESS_PATTERNS {
-                let mut accessor = dataset.create(*format).await?;
-                accessor.open().await?;
-                let indices = generate_indices(dataset, *pattern);
+                let accessor = open_accessor(dataset.as_ref(), *format).await?;
+                let indices = generate_indices(dataset.as_ref(), *pattern);
                 let name = measurement_name(dataset.name(), Some(*pattern), *format);
                 let measurement = benchmark_random_access(
                     accessor.as_ref(),
