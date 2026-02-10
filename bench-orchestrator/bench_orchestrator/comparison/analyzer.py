@@ -272,8 +272,7 @@ def compare_runs(
     pivot = combined.pivot_table(index=["query", "engine", "format"], columns="run", values="value", aggfunc="mean")
 
     # Deduplicate labels while preserving order (two runs can share a label).
-    seen: set[str] = set()
-    unique_labels = [l for l in labels if l not in seen and not seen.add(l)]  # type: ignore[func-returns-value]
+    unique_labels = list(dict.fromkeys(labels))
 
     # Reorder columns to match input order
     pivot = pivot[[label for label in unique_labels if label in pivot.columns]]
