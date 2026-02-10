@@ -38,6 +38,7 @@ use vortex::error::VortexError;
 use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::layout::LayoutReader;
 use vortex::metrics::Label;
 use vortex::metrics::MetricsRegistry;
@@ -363,14 +364,24 @@ impl FileOpener for VortexOpener {
                     .collect::<VortexResult<Vec<_>>>()
                     .map_err(|e| exec_datafusion_err!("Failed to execute Vortex split: {e}"))?;
 
+                // Spawn the Vortex-to-Arrow conversion onto a CPU thread so it doesn't
+                // block the polling thread. buffered(2) lets us overlap: while one
+                // chunk is being converted, the inner scan stream can drive I/O for
+                // the next chunk.
+                let handle = session.handle();
                 stream::iter(streams)
                     .flatten()
                     .map(move |result| {
-                        result.and_then(|chunk| {
-                            let mut ctx = session.create_execution_ctx();
-                            chunk.execute_record_batch(&stream_schema, &mut ctx)
+                        let session = session.clone();
+                        let stream_schema = stream_schema.clone();
+                        handle.spawn_cpu(move || {
+                            result.and_then(|chunk| {
+                                let mut ctx = session.create_execution_ctx();
+                                chunk.execute_record_batch(&stream_schema, &mut ctx)
+                            })
                         })
                     })
+                    .buffered(2)
                     .boxed()
             } else {
                 // Direct ScanBuilder path (existing).

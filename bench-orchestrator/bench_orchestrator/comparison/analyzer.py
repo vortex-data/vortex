@@ -271,8 +271,12 @@ def compare_runs(
     # Pivot to get (query, engine, format) as rows, runs as columns
     pivot = combined.pivot_table(index=["query", "engine", "format"], columns="run", values="value", aggfunc="mean")
 
+    # Deduplicate labels while preserving order (two runs can share a label).
+    seen: set[str] = set()
+    unique_labels = [l for l in labels if l not in seen and not seen.add(l)]  # type: ignore[func-returns-value]
+
     # Reorder columns to match input order
-    pivot = pivot[[label for label in labels if label in pivot.columns]]
+    pivot = pivot[[label for label in unique_labels if label in pivot.columns]]
 
     # Compute ratios relative to baseline
     if baseline_label in pivot.columns:
@@ -283,4 +287,4 @@ def compare_runs(
     else:
         result = pivot
 
-    return PivotComparison(df=result.reset_index(), baseline=baseline_label, columns=labels)
+    return PivotComparison(df=result.reset_index(), baseline=baseline_label, columns=unique_labels)
