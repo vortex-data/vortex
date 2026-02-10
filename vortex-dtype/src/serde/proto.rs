@@ -26,7 +26,7 @@ impl DType {
         match value
             .dtype_type
             .as_ref()
-            .ok_or_else(|| vortex_err!(InvalidSerde: "Unrecognized DType"))?
+            .ok_or_else(|| vortex_err!(Serde: "Unrecognized DType"))?
         {
             DtypeType::Null(_) => Ok(Self::Null),
             DtypeType::Bool(b) => Ok(Self::Bool(b.nullable.into())),
@@ -60,7 +60,7 @@ impl DType {
                     DType::from_proto(
                         l.element_type
                             .as_ref()
-                            .ok_or_else(|| vortex_err!(InvalidSerde: "Invalid list element type"))?
+                            .ok_or_else(|| vortex_err!(Serde: "Invalid list element type"))?
                             .as_ref(),
                         session,
                     )
@@ -71,13 +71,16 @@ impl DType {
             DtypeType::FixedSizeList(fsl) => {
                 let nullable = fsl.nullable.into();
                 Ok(Self::FixedSizeList(
-                    DType::from_proto(fsl.element_type
-                        .as_ref()
-                        .ok_or_else(
-                            || vortex_err!(InvalidSerde: "Invalid fixed-size list element type"),
-                        )?
-                        .as_ref(),
-                        session).map(Arc::new)?,
+                    DType::from_proto(
+                        fsl.element_type
+                            .as_ref()
+                            .ok_or_else(
+                                || vortex_err!(Serde: "Invalid fixed-size list element type"),
+                            )?
+                            .as_ref(),
+                        session,
+                    )
+                    .map(Arc::new)?,
                     fsl.size,
                     nullable,
                 ))
@@ -85,7 +88,7 @@ impl DType {
             DtypeType::Extension(e) => {
                 let id = ExtID::new_arc(e.id.as_str().to_string().into());
                 let vtable = session.dtypes().registry().find(&id).ok_or_else(
-                    || vortex_err!(InvalidSerde: "Unregistered extension type ID: {}", e.id),
+                    || vortex_err!(Serde: "Unregistered extension type ID: {}", e.id),
                 )?;
                 let storage_dtype = DType::from_proto(
                     e.storage_dtype
@@ -201,7 +204,7 @@ impl TryFrom<&pb::FieldPath> for FieldPath {
             match field
                 .field_type
                 .as_ref()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "FieldPath part missing type"))?
+                .ok_or_else(|| vortex_err!(Serde: "FieldPath part missing type"))?
             {
                 FieldType::Name(name) => path.push(Field::from(name.as_str())),
             }

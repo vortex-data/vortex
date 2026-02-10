@@ -366,7 +366,7 @@ impl Validity {
     pub fn cast_nullability(self, nullability: Nullability, len: usize) -> VortexResult<Validity> {
         match nullability {
             Nullability::NonNullable => self.into_non_nullable(len).ok_or_else(|| {
-                vortex_err!("Cannot cast array with invalid values to non-nullable type.")
+                vortex_err!(InvalidArgument: "Cannot cast array with invalid values to non-nullable type.")
             }),
             Nullability::Nullable => Ok(self.into_nullable()),
         }

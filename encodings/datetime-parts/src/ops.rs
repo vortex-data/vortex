@@ -25,7 +25,7 @@ impl OperationsVTable<DateTimePartsVTable> for DateTimePartsVTable {
         };
 
         let Some(options) = ext.metadata_opt::<Timestamp>() else {
-            vortex_panic!(ComputeError: "must decode TemporalMetadata from extension metadata");
+            vortex_panic!(Compute: "must decode TemporalMetadata from extension metadata");
         };
 
         if !array.is_valid(index)? {

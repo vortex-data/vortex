@@ -27,8 +27,8 @@ use vortex::array::stream::ArrayStreamAdapter;
 use vortex::array::stream::ArrayStreamExt;
 use vortex::dtype::DType;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::error::VortexError;
 use vortex::error::VortexResult;
+use vortex::error::vortex_err;
 use vortex::file::WriteOptionsSessionExt;
 use vortex::session::VortexSession;
 
@@ -89,20 +89,18 @@ pub fn parquet_to_vortex_stream(
     reader: ParquetRecordBatchStream<File>,
 ) -> impl futures::Stream<Item = VortexResult<ArrayRef>> {
     reader.map(move |result| {
-        result
-            .map_err(|e| VortexError::generic(e.into()))
-            .and_then(|rb| {
-                let chunk = ArrayRef::from_arrow(rb, false)?;
-                let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
+        result.map_err(|e| vortex_err!(External: e)).and_then(|rb| {
+            let chunk = ArrayRef::from_arrow(rb, false)?;
+            let mut builder = builder_with_capacity(chunk.dtype(), chunk.len());
 
-                // Canonicalize the chunk.
-                chunk.append_to_builder(
-                    builder.as_mut(),
-                    &mut VortexSession::default().create_execution_ctx(),
-                )?;
+            // Canonicalize the chunk.
+            chunk.append_to_builder(
+                builder.as_mut(),
+                &mut VortexSession::default().create_execution_ctx(),
+            )?;
 
-                Ok(builder.finish())
-            })
+            Ok(builder.finish())
+        })
     })
 }
 

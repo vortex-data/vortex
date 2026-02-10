@@ -183,14 +183,14 @@ impl Scalar {
             value
                 .dtype
                 .as_ref()
-                .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing dtype"))?,
+                .ok_or_else(|| vortex_err!(Serde: "Scalar missing dtype"))?,
             session,
         )?;
 
         let pb_scalar_value: &pb::ScalarValue = value
             .value
             .as_ref()
-            .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar missing value"))?;
+            .ok_or_else(|| vortex_err!(Serde: "Scalar missing value"))?;
 
         let value: Option<ScalarValue> = ScalarValue::from_proto(pb_scalar_value, &dtype)?;
 
@@ -224,7 +224,7 @@ impl ScalarValue {
         let kind = value
             .kind
             .as_ref()
-            .ok_or_else(|| vortex_err!(InvalidSerde: "Scalar value missing kind"))?;
+            .ok_or_else(|| vortex_err!(Serde: "Scalar value missing kind"))?;
 
         // `DType::Extension` store their serialized values using the storage `DType`.
         let dtype = match dtype {
@@ -251,7 +251,7 @@ impl ScalarValue {
 fn bool_from_proto(v: bool, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_boolean(),
-        InvalidSerde: "expected Bool dtype for BoolValue, got {dtype}"
+        Serde: "expected Bool dtype for BoolValue, got {dtype}"
     );
 
     Ok(ScalarValue::Bool(v))
@@ -264,7 +264,7 @@ fn bool_from_proto(v: bool, dtype: &DType) -> VortexResult<ScalarValue> {
 fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_primitive(),
-        InvalidSerde: "expected Primitive dtype for Int64Value, got {dtype}"
+        Serde: "expected Primitive dtype for Int64Value, got {dtype}"
     );
 
     let pvalue = match dtype.as_ptype() {
@@ -273,10 +273,10 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
         PType::I32 => v.to_i32().map(PValue::I32),
         PType::I64 => Some(PValue::I64(v)),
         ptype => vortex_bail!(
-            InvalidSerde: "expected signed integer ptype for Int64Value, got {ptype}"
+            Serde: "expected signed integer ptype for Int64Value, got {ptype}"
         ),
     }
-    .ok_or_else(|| vortex_err!(InvalidSerde: "Int64 value {v} out of range for dtype {dtype}"))?;
+    .ok_or_else(|| vortex_err!(Serde: "Int64 value {v} out of range for dtype {dtype}"))?;
 
     Ok(ScalarValue::Primitive(pvalue))
 }
@@ -289,7 +289,7 @@ fn int64_from_proto(v: i64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         dtype.is_primitive(),
-        InvalidSerde: "expected Primitive dtype for Uint64Value, got {dtype}"
+        Serde: "expected Primitive dtype for Uint64Value, got {dtype}"
     );
 
     let pvalue = match dtype.as_ptype() {
@@ -300,10 +300,10 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
         // Backwards compatibility: f16 values were previously serialized as u64.
         PType::F16 => v.to_u16().map(f16::from_bits).map(PValue::F16),
         ptype => vortex_bail!(
-            InvalidSerde: "expected unsigned integer ptype for Uint64Value, got {ptype}"
+            Serde: "expected unsigned integer ptype for Uint64Value, got {ptype}"
         ),
     }
-    .ok_or_else(|| vortex_err!(InvalidSerde: "Uint64 value {v} out of range for dtype {dtype}"))?;
+    .ok_or_else(|| vortex_err!(Serde: "Uint64 value {v} out of range for dtype {dtype}"))?;
 
     Ok(ScalarValue::Primitive(pvalue))
 }
@@ -312,12 +312,11 @@ fn uint64_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f16_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F16, _)),
-        InvalidSerde: "expected F16 dtype for F16Value, got {dtype}"
+        Serde: "expected F16 dtype for F16Value, got {dtype}"
     );
 
-    let bits = u16::try_from(v).map_err(
-        |_| vortex_err!(InvalidSerde: "f16 bitwise representation has more than 16 bits: {v}"),
-    )?;
+    let bits = u16::try_from(v)
+        .map_err(|_| vortex_err!(Serde: "f16 bitwise representation has more than 16 bits: {v}"))?;
 
     Ok(ScalarValue::Primitive(PValue::F16(f16::from_bits(bits))))
 }
@@ -326,7 +325,7 @@ fn f16_from_proto(v: u64, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f32_from_proto(v: f32, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F32, _)),
-        InvalidSerde: "expected F32 dtype for F32Value, got {dtype}"
+        Serde: "expected F32 dtype for F32Value, got {dtype}"
     );
 
     Ok(ScalarValue::Primitive(PValue::F32(v)))
@@ -336,7 +335,7 @@ fn f32_from_proto(v: f32, dtype: &DType) -> VortexResult<ScalarValue> {
 fn f64_from_proto(v: f64, dtype: &DType) -> VortexResult<ScalarValue> {
     vortex_ensure!(
         matches!(dtype, DType::Primitive(PType::F64, _)),
-        InvalidSerde: "expected F64 dtype for F64Value, got {dtype}"
+        Serde: "expected F64 dtype for F64Value, got {dtype}"
     );
 
     Ok(ScalarValue::Primitive(PValue::F64(v)))
@@ -349,7 +348,7 @@ fn string_from_proto(s: &str, dtype: &DType) -> VortexResult<ScalarValue> {
         DType::Utf8(_) => Ok(ScalarValue::Utf8(BufferString::from(s))),
         DType::Binary(_) => Ok(ScalarValue::Binary(ByteBuffer::copy_from(s.as_bytes()))),
         _ => vortex_bail!(
-            InvalidSerde: "expected Utf8 or Binary dtype for StringValue, got {dtype}"
+            Serde: "expected Utf8 or Binary dtype for StringValue, got {dtype}"
         ),
     }
 }
@@ -370,19 +369,19 @@ fn bytes_from_proto(bytes: &[u8], dtype: &DType) -> VortexResult<ScalarValue> {
             8 => DecimalValue::I64(i64::from_le_bytes(bytes.try_into()?)),
             16 => DecimalValue::I128(i128::from_le_bytes(bytes.try_into()?)),
             32 => DecimalValue::I256(i256::from_le_bytes(bytes.try_into()?)),
-            l => vortex_bail!(InvalidSerde: "invalid decimal byte length: {l}"),
+            l => vortex_bail!(Serde: "invalid decimal byte length: {l}"),
         })),
         _ => vortex_bail!(
-            InvalidSerde: "expected Utf8, Binary, or Decimal dtype for BytesValue, got {dtype}"
+            Serde: "expected Utf8, Binary, or Decimal dtype for BytesValue, got {dtype}"
         ),
     }
 }
 
 /// Deserialize a [`ScalarValue::List`] from a protobuf `ListValue`.
 fn list_from_proto(v: &ListValue, dtype: &DType) -> VortexResult<ScalarValue> {
-    let element_dtype = dtype.as_list_element_opt().ok_or_else(
-        || vortex_err!(InvalidSerde: "expected List dtype for ListValue, got {dtype}"),
-    )?;
+    let element_dtype = dtype
+        .as_list_element_opt()
+        .ok_or_else(|| vortex_err!(Serde: "expected List dtype for ListValue, got {dtype}"))?;
 
     let mut values = Vec::with_capacity(v.values.len());
     for elem in v.values.iter() {
