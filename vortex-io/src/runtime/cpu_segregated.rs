@@ -75,6 +75,7 @@ impl CPUSegregatedExecutor {
                 format!("vortex-io-{}", id)
             })
             .enable_time()
+            .enable_io()
             .build()?;
 
         let owned = Arc::from(CPUSegregatedExecutorInner { cpu_pool, io_pool });
