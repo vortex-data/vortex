@@ -3,9 +3,9 @@ description: "Toolchain setup and Initial compilation"
 
 inputs:
   repo-token:
-    description: "GitHub token for accessing the repository (typically secrets.GITHUB_TOKEN)"
+    description: "Deprecated: no longer used. Protoc is now downloaded directly from GitHub releases CDN."
     required: false
-    default: "${{ github.token }}"
+    default: ""
   toolchain:
     description: "optional override for the toolchain version (e.g. nightly)"
     required: false
@@ -50,10 +50,9 @@ runs:
     - name: Rust Compile Cache
       if: inputs.enable-sccache == 'true'
       uses: mozilla-actions/sccache-action@v0.0.9
+      with:
+        version: "v0.14.0"
 
     - name: Install Protoc (for lance-encoding build step)
       if: runner.os != 'Windows'
-      uses: arduino/setup-protoc@v3
-      with:
-        version: "29.3"
-        repo-token: ${{ inputs.repo-token }}
+      uses: ./.github/actions/setup-protoc
