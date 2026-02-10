@@ -7,7 +7,7 @@ This helps us keep track of fixed issues and changes.
 
 - Closes #.
 
-## What changes are included in this PR
+## What changes are included in this PR?
 
 <!--
 What changes are included here, if an issue or discussion are attached, there's no need to duplicate the details.
@@ -22,7 +22,7 @@ This helps reviewers and other readers understand changes, creates a shared unde
 and improves their ability to work with this change and offer better suggestions.
 -->
 
-## How is this change tests
+## How is this change tested?
 
 <!--
 Changes should be tested, we expect changes to fit in one of the following categories:
