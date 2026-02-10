@@ -15,6 +15,7 @@ use vortex_array::register_kernel;
 use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 use crate::ALPArray;
@@ -41,7 +42,13 @@ impl CompareKernel for ALPVTable {
         }
 
         if let Some(const_scalar) = rhs.as_constant() {
-            let pscalar = const_scalar.as_primitive();
+            let pscalar = const_scalar.as_primitive_opt().ok_or_else(|| {
+                vortex_err!(
+                    "ALP Compare RHS had the wrong type {}, expected {}",
+                    const_scalar,
+                    const_scalar.dtype()
+                )
+            })?;
 
             match_each_alp_float_ptype!(pscalar.ptype(), |T| {
                 match pscalar.typed_value::<T>() {

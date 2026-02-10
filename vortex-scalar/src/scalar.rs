@@ -13,6 +13,7 @@ use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_panic;
 
 use crate::PValue;
 use crate::ScalarValue;
@@ -126,10 +127,6 @@ impl Scalar {
 
         Self { dtype, value }
     }
-
-    // TODO(connor): Add an `is_zero` method to `Scalar`. Note that it is **not** as simple as
-    // calling `is_zero` on the `ScalarValue` since each variant can represent multiple things
-    // (notably `Struct` and `FixedSizeList` are represented as non-empty `List`s).
 
     /// Returns a default value for the given [`DType`].
     ///
@@ -275,7 +272,22 @@ impl Scalar {
     /// Returns `None` if the scalar is null, otherwise returns `Some(true)` if the value is zero
     /// and `Some(false)` otherwise.
     pub fn is_zero(&self) -> Option<bool> {
-        self.value.as_ref().map(|v| v.is_zero())
+        let value = self.value()?;
+
+        let is_zero = match self.dtype() {
+            DType::Null => vortex_panic!("non-null value somehow had `DType::Null`"),
+            DType::Bool(_) => !value.as_bool(),
+            DType::Primitive(..) => value.as_primitive().is_zero(),
+            DType::Decimal(..) => value.as_decimal().is_zero(),
+            DType::Utf8(_) => value.as_utf8().is_empty(),
+            DType::Binary(_) => value.as_binary().is_empty(),
+            DType::List(..) => value.as_list().is_empty(),
+            DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
+            DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
+            DType::Extension(_) => self.as_extension().storage().is_zero()?,
+        };
+
+        Some(is_zero)
     }
 
     /// Reinterprets the bytes of this scalar as a different primitive type.

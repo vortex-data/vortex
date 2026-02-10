@@ -21,7 +21,6 @@ flatbuffers = ["dep:flatbuffers"]
 serde = ["dep:serde_json"]
 
 [dependencies]
-arbitrary = { workspace = true }
 arrow-schema = { workspace = true }
 flatbuffers = { workspace = true, optional = true }
 jiff = { workspace = true }

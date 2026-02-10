@@ -154,13 +154,11 @@ impl TryFrom<&ScalarValue> for usize {
     type Error = VortexError;
 
     fn try_from(value: &ScalarValue) -> VortexResult<Self> {
-        // TODO(connor): This could probably be written in a better way...
-        usize::try_from(
-            value.as_primitive().cast_opt::<u64>().ok_or_else(|| {
-                vortex_err!("Unable to convert the `ScalarValue` to the target type")
-            })?,
-        )
-        .map_err(|err| vortex_err!("Cannot convert into usize: {err}"))
+        let val = value
+            .as_primitive()
+            .cast_opt::<u64>()
+            .ok_or_else(|| vortex_err!("Unable to convert the `ScalarValue` to the target type"))?;
+        Ok(usize::try_from(val)?)
     }
 }
 

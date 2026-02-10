@@ -392,6 +392,8 @@ impl FileFormat for VortexFormat {
                     .zip(column_size)
                     .map(|(acc, size)| acc + size);
 
+                // TODO(connor): There's a lot that can go wrong here, should probably handle this
+                // more gracefully...
                 // Find the min statistic.
                 let min = stats_set.get(Stat::Min).and_then(|pstat_val| {
                     pstat_val

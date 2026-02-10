@@ -20,7 +20,7 @@ mod serializer;
 pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
-pub(crate) use file_statistics::*;
+pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;

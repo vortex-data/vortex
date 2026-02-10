@@ -35,7 +35,7 @@ impl TakeExecute for ALPRDVTable {
             .transpose()?;
         let right_parts = fill_null(
             &array.right_parts().take(indices.to_array())?,
-            &Scalar::zero_value(&array.right_parts().dtype().clone()),
+            &Scalar::zero_value(array.right_parts().dtype()),
         )?;
 
         Ok(Some(

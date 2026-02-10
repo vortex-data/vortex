@@ -435,8 +435,6 @@ mod tests {
         assert_eq!(hash1, hash2);
     }
 
-    // TODO(connor): These tests use a non-existent `Vec::try_from(&Scalar)` impl.
-    /*
     #[test]
     fn test_vec_conversion() {
         let element_dtype = Arc::new(DType::Primitive(PType::I32, Nullability::NonNullable));
@@ -459,7 +457,6 @@ mod tests {
         let result: VortexResult<Vec<i32>> = Vec::try_from(&list_scalar);
         assert!(result.unwrap().is_empty());
     }
-    */
 
     #[test]
     fn test_list_cast() {
