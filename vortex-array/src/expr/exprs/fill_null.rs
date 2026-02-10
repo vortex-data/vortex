@@ -9,8 +9,12 @@ use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
-use crate::compute::fill_null as compute_fill_null;
+use crate::IntoArray;
+use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
+use crate::compute::cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -81,6 +85,7 @@ impl VTable for FillNull {
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
+        let len = args.row_count;
         let [input, fill_value]: [ArrayRef; _] = args
             .inputs
             .try_into()
@@ -90,7 +95,26 @@ impl VTable for FillNull {
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
-        compute_fill_null(input.as_ref(), &fill_scalar)
+        // If the input has no nulls, fill_null is a no-op (just a cast for nullability).
+        if !input.dtype().is_nullable() || input.all_valid()? {
+            return cast(input.as_ref(), fill_scalar.dtype());
+        }
+
+        // If all values are null, replace the entire array with the fill value.
+        if input.all_invalid()? {
+            return Ok(ConstantArray::new(fill_scalar, len).into_array());
+        }
+
+        // Execute the input child to get it closer to canonical form, then rewrap
+        // in a new ScalarFnArray for another optimization round.
+        static FILL_NULL_VTABLE: FillNull = FillNull;
+        let executed = input.execute::<ArrayRef>(args.ctx)?;
+        Ok(ScalarFnArray::try_new(
+            crate::expr::ScalarFn::new_static(&FILL_NULL_VTABLE, EmptyOptions),
+            vec![executed, fill_value],
+            len,
+        )?
+        .into_array())
     }
 
     fn simplify(

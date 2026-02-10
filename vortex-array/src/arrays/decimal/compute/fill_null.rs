@@ -14,21 +14,24 @@ use vortex_scalar::Scalar;
 
 use super::cast::upcast_decimal_values;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::DecimalVTable;
 use crate::arrays::decimal::DecimalArray;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for DecimalVTable {
-    fn fill_null(&self, array: &DecimalArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &DecimalArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().to_bit_buffer().not();
                 let decimal_scalar = fill_value.as_decimal();
@@ -45,7 +48,7 @@ impl FillNullKernel for DecimalVTable {
                 })
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
 
@@ -79,8 +82,6 @@ fn fill_buffer<T: NativeDecimalType>(
     }
     Ok(DecimalArray::new(buffer.freeze(), array.decimal_dtype(), result_validity).into_array())
 }
-
-register_kernel!(FillNullKernelAdapter(DecimalVTable).lift());
 
 #[cfg(test)]
 mod tests {

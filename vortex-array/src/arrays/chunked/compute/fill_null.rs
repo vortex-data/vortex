@@ -8,29 +8,35 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::compute::fill_null;
-use crate::register_kernel;
+use crate::arrays::ConstantArray;
+use crate::arrays::ScalarFnArray;
+use crate::compute::FillNullReduce;
+use crate::expr::EmptyOptions;
+use crate::expr::FillNull as FillNullExpr;
+use crate::expr::ScalarFn;
 
-impl FillNullKernel for ChunkedVTable {
-    fn fill_null(&self, array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-        // SAFETY: fill_null applied to all chunks gives them same DType
-        unsafe {
-            Ok(ChunkedArray::new_unchecked(
-                array
-                    .chunks()
-                    .iter()
-                    .map(|c| fill_null(c, fill_value))
-                    .collect::<VortexResult<Vec<_>>>()?,
-                fill_value.dtype().clone(),
-            )
-            .into_array())
-        }
+impl FillNullReduce for ChunkedVTable {
+    fn fill_null(array: &ChunkedArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+        let new_chunks = array
+            .chunks()
+            .iter()
+            .map(|c| {
+                let fill_value_array = ConstantArray::new(fill_value.clone(), c.len()).into_array();
+                let scalar_fn = ScalarFn::new_static(&FillNullExpr, EmptyOptions);
+                Ok(
+                    ScalarFnArray::try_new(scalar_fn, vec![c.clone(), fill_value_array], c.len())?
+                        .into_array(),
+                )
+            })
+            .collect::<VortexResult<Vec<_>>>()?;
+
+        // SAFETY: wrapping each chunk in ScalarFnArray preserves the same DType across all chunks.
+        Ok(Some(
+            unsafe { ChunkedArray::new_unchecked(new_chunks, fill_value.dtype().clone()) }
+                .into_array(),
+        ))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {

@@ -10,18 +10,22 @@ use super::DictArray;
 use super::DictVTable;
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
 use crate::compute::Operator;
 use crate::compute::compare;
 use crate::compute::fill_null;
-use crate::register_kernel;
 
 impl FillNullKernel for DictVTable {
-    fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &DictArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+    fn fill_null(array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
         let found_fill_values = compare(
@@ -36,9 +40,10 @@ impl FillNullKernel for DictVTable {
             found_fill_values.to_bit_buffer().set_indices().next()
         else {
             // No fill values found, so we must canonicalize and fill_null.
-            // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
-            //  fall back.
-            return fill_null(&array.to_canonical()?.into_array(), fill_value);
+            return Ok(Some(fill_null(
+                &array.to_canonical()?.into_array(),
+                fill_value,
+            )?));
         };
 
         // Now we rewrite the nullable codes to point at the fill value.
@@ -65,14 +70,14 @@ impl FillNullKernel for DictVTable {
 
         // SAFETY: invariants are still satisfied after patching nulls.
         unsafe {
-            Ok(DictArray::new_unchecked(codes, values)
-                .set_all_values_referenced(array.has_all_values_referenced())
-                .into_array())
+            Ok(Some(
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(array.has_all_values_referenced())
+                    .into_array(),
+            ))
         }
     }
 }
-
-register_kernel!(FillNullKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {

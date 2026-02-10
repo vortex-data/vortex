@@ -1,39 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::LazyLock;
-
-use arcref::ArcRef;
-use vortex_dtype::DType;
-use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
+use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 
+use super::cast::cast;
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
-use crate::compute::Output;
-use crate::compute::cast;
+use crate::arrays::ExactScalarFn;
+use crate::arrays::ScalarFnArray;
+use crate::arrays::ScalarFnArrayView;
+use crate::arrays::ScalarFnVTable;
+use crate::expr::EmptyOptions;
+use crate::expr::FillNull as FillNullExpr;
+use crate::expr::ScalarFn;
+use crate::kernel::ExecuteParentKernel;
+use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::vtable::VTable;
-
-static FILL_NULL_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("fill_null".into(), ArcRef::new_ref(&FillNull));
-    for kernel in inventory::iter::<FillNullKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    FILL_NULL_FN.kernels().len()
-}
 
 /// Replace nulls in the array with another value.
 ///
@@ -50,128 +38,140 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// assert_eq!(array.display_values().to_string(), "[0i32, 42i32, 1i32, 42i32, 2i32]");
 /// ```
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
-    FILL_NULL_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into(), fill_value.into()],
-            options: &(),
-        })?
-        .unwrap_array()
+    vortex_ensure!(
+        !fill_value.is_null(),
+        "fill_null requires a non-null fill value"
+    );
+    let len = array.len();
+    let fill_value_array = ConstantArray::new(fill_value.clone(), len).into_array();
+    let scalar_fn = ScalarFn::new_static(&FillNullExpr, EmptyOptions);
+    let result = ScalarFnArray::try_new(scalar_fn, vec![array.to_array(), fill_value_array], len)?
+        .to_canonical()?
+        .into_array();
+    debug_assert!(
+        fill_value.dtype().is_nullable() || !result.dtype().is_nullable(),
+        "fill_null with non-nullable fill value must produce a non-nullable result"
+    );
+    Ok(result)
 }
 
+/// Fill nulls in an array with a scalar value without reading buffers.
+///
+/// This trait is for fill_null implementations that can operate purely on array metadata
+/// and structure without needing to read or execute on the underlying buffers.
+/// Implementations should return `None` if the operation requires buffer access.
+///
+/// # Preconditions
+///
+/// The fill value is guaranteed to be non-null. The array is guaranteed to have mixed
+/// validity (neither all-valid nor all-invalid).
+pub trait FillNullReduce: VTable {
+    fn fill_null(array: &Self::Array, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>>;
+}
+
+/// Fill nulls in an array with a scalar value, potentially reading buffers.
+///
+/// Unlike [`FillNullReduce`], this trait is for fill_null implementations that may need
+/// to read and execute on the underlying buffers to produce the result.
+///
+/// # Preconditions
+///
+/// The fill value is guaranteed to be non-null. The array is guaranteed to have mixed
+/// validity (neither all-valid nor all-invalid).
 pub trait FillNullKernel: VTable {
-    /// Kernel for replacing null values in an array with a fill value.
-    ///
-    /// TODO(connor): Actually enforce these constraints (so that casts do not fail).
-    ///
-    /// Implementations can assume that:
-    /// - The array has at least one null value (not all valid, not all invalid).
-    /// - The fill value is non-null.
-    /// - For decimal arrays, the fill value can be successfully cast to the array's storage type.
-    fn fill_null(&self, array: &Self::Array, fill_value: &Scalar) -> VortexResult<ArrayRef>;
+    fn fill_null(
+        array: &Self::Array,
+        fill_value: &Scalar,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>>;
 }
 
-pub struct FillNullKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(FillNullKernelRef);
-
-#[derive(Debug)]
-pub struct FillNullKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + FillNullKernel> FillNullKernelAdapter<V> {
-    pub const fn lift(&'static self) -> FillNullKernelRef {
-        FillNullKernelRef(ArcRef::new_ref(self))
+/// Common preconditions for fill_null operations that apply to all arrays.
+///
+/// Returns `Some(result)` if the precondition short-circuits the fill_null operation,
+/// or `None` if fill_null should proceed with the encoding-specific implementation.
+fn precondition<V: VTable>(
+    array: &V::Array,
+    fill_value: &Scalar,
+) -> VortexResult<Option<ArrayRef>> {
+    // If the array has no nulls, fill_null is a no-op (just cast for nullability).
+    if !array.dtype().is_nullable() || array.all_valid()? {
+        return cast(&**array, fill_value.dtype()).map(Some);
     }
-}
 
-impl<V: VTable + FillNullKernel> Kernel for FillNullKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = FillNullArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_opt::<V>() else {
-            return Ok(None);
-        };
-        Ok(Some(
-            V::fill_null(&self.0, array, inputs.fill_value)?.into(),
-        ))
+    // If all values are null, replace the entire array with the fill value.
+    if array.all_invalid()? {
+        return Ok(Some(
+            ConstantArray::new(fill_value.clone(), array.len()).into_array(),
+        ));
     }
+
+    Ok(None)
 }
 
-struct FillNull;
+/// Adaptor that wraps a [`FillNullReduce`] impl as an [`ArrayParentReduceRule`].
+#[derive(Default, Debug)]
+pub struct FillNullReduceAdaptor<V>(pub V);
 
-impl ComputeFnVTable for FillNull {
-    fn invoke(
+impl<V> ArrayParentReduceRule<V> for FillNullReduceAdaptor<V>
+where
+    V: FillNullReduce,
+{
+    type Parent = ExactScalarFn<FillNullExpr>;
+
+    fn reduce_parent(
         &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
-
-        if !array.dtype().is_nullable() || array.all_valid()? {
-            return Ok(cast(array, fill_value.dtype())?.into());
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, FillNullExpr>,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only process the input child (index 0), not the fill_value child (index 1).
+        if child_idx != 0 {
+            return Ok(None);
         }
-
-        if array.all_invalid()? {
-            return Ok(ConstantArray::new(fill_value.clone(), array.len())
-                .into_array()
-                .into());
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let fill_value = scalar_fn_array.children()[1]
+            .as_constant()
+            .vortex_expect("fill_null fill_value must be constant");
+        if let Some(result) = precondition::<V>(array, &fill_value)? {
+            return Ok(Some(result));
         }
-
-        if fill_value.is_null() {
-            vortex_bail!("Cannot fill_null with a null value")
-        }
-
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-
-        tracing::debug!("FillNullFn not implemented for {}", array.encoding_id());
-        if !array.is_canonical() {
-            let canonical_arr = array.to_canonical()?.into_array();
-            return Ok(fill_null(canonical_arr.as_ref(), fill_value)?.into());
-        }
-
-        // TODO(joe): update fuzzer when fixed
-        vortex_bail!("fill null not implemented for DType {}", array.dtype())
-    }
-
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let FillNullArgs { array, fill_value } = FillNullArgs::try_from(args)?;
-        if !array.dtype().eq_ignore_nullability(fill_value.dtype()) {
-            vortex_bail!("FillNull value must match array type (ignoring nullability)");
-        }
-        Ok(fill_value.dtype().clone())
-    }
-
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let FillNullArgs { array, .. } = FillNullArgs::try_from(args)?;
-        Ok(array.len())
-    }
-
-    fn is_elementwise(&self) -> bool {
-        true
+        <V as FillNullReduce>::fill_null(array, &fill_value)
     }
 }
 
-struct FillNullArgs<'a> {
-    array: &'a dyn Array,
-    fill_value: &'a Scalar,
-}
+/// Adaptor that wraps a [`FillNullKernel`] impl as an [`ExecuteParentKernel`].
+#[derive(Default, Debug)]
+pub struct FillNullExecuteAdaptor<V>(pub V);
 
-impl<'a> TryFrom<&InvocationArgs<'a>> for FillNullArgs<'a> {
-    type Error = VortexError;
+impl<V> ExecuteParentKernel<V> for FillNullExecuteAdaptor<V>
+where
+    V: FillNullKernel,
+{
+    type Parent = ExactScalarFn<FillNullExpr>;
 
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 2 {
-            vortex_bail!("FillNull requires 2 arguments");
+    fn execute_parent(
+        &self,
+        array: &V::Array,
+        parent: ScalarFnArrayView<'_, FillNullExpr>,
+        child_idx: usize,
+        ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
+        // Only process the input child (index 0), not the fill_value child (index 1).
+        if child_idx != 0 {
+            return Ok(None);
         }
-
-        let array = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("FillNull requires an array"))?;
-        let fill_value = value.inputs[1]
-            .scalar()
-            .ok_or_else(|| vortex_err!("FillNull requires a scalar"))?;
-
-        Ok(FillNullArgs { array, fill_value })
+        let scalar_fn_array = parent
+            .as_opt::<ScalarFnVTable>()
+            .vortex_expect("ExactScalarFn matcher confirmed ScalarFnArray");
+        let fill_value = scalar_fn_array.children()[1]
+            .as_constant()
+            .vortex_expect("fill_null fill_value must be constant");
+        if let Some(result) = precondition::<V>(array, &fill_value)? {
+            return Ok(Some(result));
+        }
+        <V as FillNullKernel>::fill_null(array, &fill_value, ctx)
     }
 }

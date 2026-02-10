@@ -7,6 +7,7 @@ use vortex_array::arrays::AnyScalarFn;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
+use vortex_array::compute::FillNullReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;
@@ -15,8 +16,10 @@ use vortex_error::VortexResult;
 use crate::RunEndArray;
 use crate::RunEndVTable;
 
-pub(super) const RULES: ParentRuleSet<RunEndVTable> =
-    ParentRuleSet::new(&[ParentRuleSet::lift(&RunEndScalarFnRule)]);
+pub(super) const RULES: ParentRuleSet<RunEndVTable> = ParentRuleSet::new(&[
+    ParentRuleSet::lift(&RunEndScalarFnRule),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(RunEndVTable)),
+]);
 
 /// A rule to push down scalar functions through run-end encoding into the values array.
 ///
