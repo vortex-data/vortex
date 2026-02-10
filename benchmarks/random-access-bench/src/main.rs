@@ -114,6 +114,20 @@ fn generate_indices(dataset: &dyn BenchDataset, pattern: AccessPattern) -> Vec<u
 // CLI
 // ---------------------------------------------------------------------------
 
+/// Controls whether the file handle is reused or reopened each iteration.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum OpenMode {
+    /// Reuse the file handle across iterations (cached metadata).
+    #[clap(name = "cached")]
+    Cached,
+    /// Reopen the file each iteration (includes footer parsing).
+    #[clap(name = "reopen")]
+    Reopen,
+    /// Run both cached and reopen variants.
+    #[clap(name = "both")]
+    Both,
+}
+
 /// Which synthetic dataset to benchmark.
 #[derive(ValueEnum, Clone, Copy, Debug)]
 enum DatasetArg {
@@ -167,6 +181,9 @@ struct Args {
         default_values_t = vec![DatasetArg::Taxi, DatasetArg::FeatureVectors, DatasetArg::NestedLists, DatasetArg::NestedStructs]
     )]
     datasets: Vec<DatasetArg>,
+    /// Whether to reopen the file on each iteration, use a cached handle, or run both.
+    #[arg(long, value_enum, default_value_t = OpenMode::Both)]
+    open_mode: OpenMode,
 }
 
 #[tokio::main]
@@ -185,6 +202,7 @@ async fn main() -> Result<()> {
         &datasets,
         args.formats,
         args.time_limit,
+        args.open_mode,
         args.display_format,
         args.output_path,
     )
@@ -195,22 +213,26 @@ async fn main() -> Result<()> {
 // Benchmark core
 // ---------------------------------------------------------------------------
 
-/// Run a random access benchmark for the given accessor (already opened).
+/// Run a random access benchmark.
 ///
 /// Runs the take operation repeatedly until the time limit is reached,
-/// collecting timing for each run.
+/// collecting timing for each run. When `reopen` is true, the accessor is
+/// recreated from scratch before each iteration so that file metadata
+/// parsing is included in the timing.
 async fn benchmark_random_access(
-    accessor: &dyn RandomAccessor,
+    dataset: &dyn BenchDataset,
+    format: Format,
     measurement_name: &str,
     indices: &[u64],
     time_limit_secs: u64,
     storage: &str,
+    reopen: bool,
 ) -> Result<TimingMeasurement> {
     let time_limit = Duration::from_secs(time_limit_secs);
     let overall_start = Instant::now();
     let mut runs = Vec::new();
+    let mut accessor = open_accessor(dataset, format).await?;
 
-    // Run at least once, then continue until time limit
     loop {
         let start = Instant::now();
         let _row_count = accessor.take(indices).await?;
@@ -219,12 +241,16 @@ async fn benchmark_random_access(
         if overall_start.elapsed() >= time_limit {
             break;
         }
+
+        if reopen {
+            accessor = open_accessor(dataset, format).await?;
+        }
     }
 
     Ok(TimingMeasurement {
         name: measurement_name.to_string(),
         storage: storage.to_string(),
-        target: Target::new(format_to_engine(accessor.format()), accessor.format()),
+        target: Target::new(format_to_engine(format), format),
         runs,
     })
 }
@@ -311,14 +337,21 @@ async fn run_random_access(
     datasets: &[Box<dyn BenchDataset>],
     formats: Vec<Format>,
     time_limit: u64,
+    open_mode: OpenMode,
     display_format: DisplayFormat,
     output_path: Option<PathBuf>,
 ) -> Result<()> {
+    let reopen_variants: &[bool] = match open_mode {
+        OpenMode::Cached => &[false],
+        OpenMode::Reopen => &[true],
+        OpenMode::Both => &[false, true],
+    };
+
     let total_steps: usize = datasets
         .iter()
         .map(|d| {
             let legacy_extra = if d.name() == "taxi" { formats.len() } else { 0 };
-            formats.len() * ACCESS_PATTERNS.len() + legacy_extra
+            (formats.len() * ACCESS_PATTERNS.len() + legacy_extra) * reopen_variants.len()
         })
         .sum();
     let progress = ProgressBar::new(total_steps as u64);
@@ -329,38 +362,54 @@ async fn run_random_access(
     for dataset in datasets {
         for format in &formats {
             if dataset.name() == "taxi" {
-                let accessor = open_accessor(dataset.as_ref(), *format).await?;
                 let name = measurement_name(dataset.name(), None, *format);
-                let measurement = benchmark_random_access(
-                    accessor.as_ref(),
-                    &name,
-                    &FIXED_TAXI_INDICES,
-                    time_limit,
-                    STORAGE_NVME,
-                )
-                .await?;
+                for &reopen in reopen_variants {
+                    let bench_name = if reopen {
+                        format!("{name}-footer")
+                    } else {
+                        name.clone()
+                    };
+                    let measurement = benchmark_random_access(
+                        dataset.as_ref(),
+                        *format,
+                        &bench_name,
+                        &FIXED_TAXI_INDICES,
+                        time_limit,
+                        STORAGE_NVME,
+                        reopen,
+                    )
+                    .await?;
 
-                targets.push(measurement.target);
-                measurements.push(measurement);
-                progress.inc(1);
+                    targets.push(measurement.target);
+                    measurements.push(measurement);
+                    progress.inc(1);
+                }
             }
 
             for pattern in &ACCESS_PATTERNS {
-                let accessor = open_accessor(dataset.as_ref(), *format).await?;
                 let indices = generate_indices(dataset.as_ref(), *pattern);
                 let name = measurement_name(dataset.name(), Some(*pattern), *format);
-                let measurement = benchmark_random_access(
-                    accessor.as_ref(),
-                    &name,
-                    &indices,
-                    time_limit,
-                    STORAGE_NVME,
-                )
-                .await?;
+                for &reopen in reopen_variants {
+                    let bench_name = if reopen {
+                        format!("{name}-footer")
+                    } else {
+                        name.clone()
+                    };
+                    let measurement = benchmark_random_access(
+                        dataset.as_ref(),
+                        *format,
+                        &bench_name,
+                        &indices,
+                        time_limit,
+                        STORAGE_NVME,
+                        reopen,
+                    )
+                    .await?;
 
-                targets.push(measurement.target);
-                measurements.push(measurement);
-                progress.inc(1);
+                    targets.push(measurement.target);
+                    measurements.push(measurement);
+                    progress.inc(1);
+                }
             }
         }
     }
