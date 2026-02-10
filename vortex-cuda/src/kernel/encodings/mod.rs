@@ -13,6 +13,8 @@ mod zstd;
 
 pub use alp::ALPExecutor;
 pub use bitpacked::BitPackedExecutor;
+pub use bitpacked::bitpacked_cuda_kernel;
+pub use bitpacked::bitpacked_cuda_launch_config;
 pub use date_time_parts::DateTimePartsExecutor;
 pub use decimal_byte_parts::DecimalBytePartsExecutor;
 pub use for_::FoRExecutor;
