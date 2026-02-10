@@ -714,14 +714,18 @@ impl Executable for RecursiveCanonical {
                     fields,
                     validity,
                 } = st.into_parts();
+                match Arc::try_unwrap(fields) {
+                    Ok(own_fields) => {}
+                    Err(_) => {}
+                }
+                let mapped_fields = fields
+                    .iter()
+                    .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
+                    .collect::<VortexResult<Arc<[_]>>>()?;
+
                 Ok(RecursiveCanonical(Canonical::Struct(unsafe {
                     StructArray::new_unchecked(
-                        fields
-                            .iter()
-                            .map(|f| {
-                                Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array())
-                            })
-                            .collect::<VortexResult<Arc<[_]>>>()?,
+                        mapped_fields,
                         struct_fields,
                         len,
                         validity.execute(ctx)?,
