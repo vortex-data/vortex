@@ -42,6 +42,7 @@ jobs:
         benchmark:
           - id: random-access-bench
             name: Random Access
+            build_args: "--features lance"
           - id: compress-bench
             name: Compression
     if: ${{ contains(github.event.head_commit.message, '[benchmark]') || github.event.label.name == 'action/benchmark' && github.event_name == 'pull_request' }}
@@ -70,7 +71,7 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug
+          cargo build --package ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false

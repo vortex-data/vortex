@@ -159,7 +159,7 @@ struct Args {
         long,
         value_delimiter = ',',
         value_parser = Format::parse_allowed,
-        default_values_t = vec![Format::Parquet, Format::OnDiskVortex, Format::Lance]
+        default_values = ["parquet", "vortex", "lance"]
     )]
     formats: Vec<Format>,
     /// Time limit in seconds for each benchmark target (e.g., 10 for 10 seconds).
