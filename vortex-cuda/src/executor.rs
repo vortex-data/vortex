@@ -162,6 +162,11 @@ impl CudaExecutionCtx {
         &self.stream.0
     }
 
+    /// Returns the Vortex session backing this CUDA execution context.
+    pub(crate) fn session(&self) -> &vortex_session::VortexSession {
+        self.ctx.session()
+    }
+
     /// Get a handle to the exporter that can convert arrays into `ArrowDeviceArray`.
     pub fn exporter(&self) -> &Arc<dyn ExportDeviceArray> {
         self.cuda_session.export_device_array()

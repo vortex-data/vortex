@@ -33,6 +33,8 @@ use kernel::FoRExecutor;
 use kernel::RunEndExecutor;
 use kernel::SharedExecutor;
 use kernel::ZigZagExecutor;
+#[cfg(feature = "unstable_encodings")]
+use kernel::ZstdBuffersExecutor;
 use kernel::ZstdExecutor;
 pub use kernel::ZstdKernelPrep;
 pub use kernel::bitpacked_cuda_kernel;
@@ -57,6 +59,8 @@ pub use vortex_nvcomp as nvcomp;
 use vortex_runend::RunEndVTable;
 use vortex_sequence::SequenceVTable;
 use vortex_zigzag::ZigZagVTable;
+#[cfg(feature = "unstable_encodings")]
+use vortex_zstd::ZstdBuffersVTable;
 use vortex_zstd::ZstdVTable;
 
 use crate::kernel::SequenceExecutor;
@@ -85,6 +89,8 @@ pub fn initialize_cuda(session: &CudaSession) {
     session.register_kernel(SequenceVTable::ID, &SequenceExecutor);
     session.register_kernel(ZigZagVTable::ID, &ZigZagExecutor);
     session.register_kernel(ZstdVTable::ID, &ZstdExecutor);
+    #[cfg(feature = "unstable_encodings")]
+    session.register_kernel(ZstdBuffersVTable::ID, &ZstdBuffersExecutor);
 
     // Operation kernels
     session.register_kernel(FilterVTable::ID, &FilterExecutor);
