@@ -138,11 +138,6 @@ impl AsyncDB for DuckDB {
         tokio::time::sleep(dur).await
     }
 
-    /// [`Runner`] calls this function to run a system command.
-    ///
-    /// The default implementation is `std::process::Command::output`, which is universal to any
-    /// async runtime but would block the current thread. If you are running in tokio runtime, you
-    /// should override this by `tokio::process::Command::output`.
     async fn run_command(command: Command) -> std::io::Result<std::process::Output> {
         tokio::process::Command::from(command).output().await
     }

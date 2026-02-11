@@ -3,5 +3,5 @@
 
 # This is a common setup script to enable shared functionality
 
-# Enables default substitution, using tempdir anywhere __TEST_DIR__ is used
+# Enables default substitution, using tempdir anywhere $__TEST_DIR__ is used
 control substitution on

@@ -78,7 +78,6 @@ mod tests {
     use num_traits::AsPrimitive;
 
     use super::*;
-    use crate::LogicalType;
     use crate::cpp::duckdb_string_t;
 
     fn test_connection() -> VortexResult<Connection> {
