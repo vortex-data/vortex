@@ -33,7 +33,7 @@ impl Display for ExtScalar<'_> {
         // Specialized handling for date/time/timestamp builtin extension types.
         if let Some(temporal) = self.ext_dtype.metadata_opt::<AnyTemporal>() {
             let maybe_timestamp = self
-                .storage()
+                .to_storage_scalar()
                 .as_primitive()
                 .as_::<i64>()
                 .map(|maybe_timestamp| temporal.to_jiff(maybe_timestamp))
@@ -45,14 +45,15 @@ impl Display for ExtScalar<'_> {
                 Some(v) => write!(f, "{v}"),
             }
         } else {
-            write!(f, "{}({})", self.ext_dtype().id(), self.storage())
+            write!(f, "{}({})", self.ext_dtype().id(), self.to_storage_scalar())
         }
     }
 }
 
 impl PartialEq for ExtScalar<'_> {
     fn eq(&self, other: &Self) -> bool {
-        self.ext_dtype.eq_ignore_nullability(other.ext_dtype) && self.storage() == other.storage()
+        self.ext_dtype.eq_ignore_nullability(other.ext_dtype)
+            && self.to_storage_scalar() == other.to_storage_scalar()
     }
 }
 
@@ -64,14 +65,15 @@ impl PartialOrd for ExtScalar<'_> {
         if !self.ext_dtype.eq_ignore_nullability(other.ext_dtype) {
             return None;
         }
-        self.storage().partial_cmp(&other.storage())
+        self.to_storage_scalar()
+            .partial_cmp(&other.to_storage_scalar())
     }
 }
 
 impl Hash for ExtScalar<'_> {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.ext_dtype.hash(state);
-        self.storage().hash(state);
+        self.to_storage_scalar().hash(state);
     }
 }
 
@@ -91,7 +93,7 @@ impl<'a> ExtScalar<'a> {
     }
 
     /// Returns the storage scalar of the extension scalar.
-    pub fn storage(&self) -> Scalar {
+    pub fn to_storage_scalar(&self) -> Scalar {
         Scalar::try_new(self.ext_dtype.storage_dtype().clone(), self.value.cloned())
             .vortex_expect("ExtScalar is invalid")
     }
@@ -288,7 +290,7 @@ mod tests {
         let ext_scalar = Scalar::extension::<TestExt>(EmptyMetadata, storage_scalar.clone());
 
         let ext = ext_scalar.as_extension();
-        assert_eq!(ext.storage(), storage_scalar);
+        assert_eq!(ext.to_storage_scalar(), storage_scalar);
     }
 
     #[test]

@@ -284,7 +284,7 @@ impl Scalar {
             DType::List(..) => value.as_list().is_empty(),
             DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
-            DType::Extension(_) => self.as_extension().storage().is_zero()?,
+            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
 
         Some(is_zero)
@@ -349,7 +349,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_) => self.as_extension().storage().nbytes(),
+            DType::Extension(_) => self.as_extension().to_storage_scalar().nbytes(),
         }
     }
 }
