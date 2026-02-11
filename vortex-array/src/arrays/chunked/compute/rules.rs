@@ -12,6 +12,7 @@ use crate::arrays::ChunkedVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ScalarFnArray;
+use crate::compute::FillNullReduceAdaptor;
 use crate::optimizer::ArrayOptimizer;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
@@ -19,6 +20,7 @@ use crate::optimizer::rules::ParentRuleSet;
 pub(crate) const PARENT_RULES: ParentRuleSet<ChunkedVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&ChunkedUnaryScalarFnPushDownRule),
     ParentRuleSet::lift(&ChunkedConstantScalarFnPushDownRule),
+    ParentRuleSet::lift(&FillNullReduceAdaptor(ChunkedVTable)),
 ]);
 
 /// Push down any unary scalar function through chunked arrays.

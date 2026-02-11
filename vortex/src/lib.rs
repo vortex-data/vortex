@@ -32,6 +32,7 @@ pub mod compute2 {
 
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
+    pub use vortex_btrblocks::BtrBlocksCompressorBuilder;
 }
 
 pub mod dtype {

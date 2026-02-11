@@ -12,7 +12,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::PrimitiveScalar;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -156,8 +155,7 @@ impl<T: NativePType> ArrayBuilder for PrimitiveBuilder<T> {
             scalar.dtype()
         );
 
-        let primitive_scalar = PrimitiveScalar::try_from(scalar)?;
-        match primitive_scalar.pvalue() {
+        match scalar.as_primitive().pvalue() {
             Some(pv) => self.append_value(pv.cast::<T>()),
             None => self.append_null(),
         }

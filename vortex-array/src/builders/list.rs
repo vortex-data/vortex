@@ -210,8 +210,7 @@ impl<O: IntegerPType> ArrayBuilder for ListBuilder<O> {
             scalar.dtype()
         );
 
-        let list_scalar = ListScalar::try_from(scalar)?;
-        self.append_value(list_scalar)
+        self.append_value(scalar.as_list())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

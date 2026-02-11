@@ -176,6 +176,17 @@ impl VisitorVTable<FilterVTable> for FilterVTable {
     fn visit_children(array: &FilterArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
     }
+
+    fn nchildren(_array: &FilterArray) -> usize {
+        1
+    }
+
+    fn nth_child(array: &FilterArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.child.clone()),
+            _ => None,
+        }
+    }
 }
 
 pub struct FilterMetadata(pub(super) Mask);

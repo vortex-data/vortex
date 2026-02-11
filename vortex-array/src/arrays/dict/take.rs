@@ -156,7 +156,8 @@ pub(crate) fn propagate_take_stats(
                 source
                     .statistics()
                     .get(stat)
-                    .map(|v| (stat, v.map(|s| s.into_value()).into_inexact()))
+                    .and_then(|v| v.map(|s| s.into_value()).into_inexact().transpose())
+                    .map(|sv| (stat, sv))
             })
             .collect::<Vec<_>>();
         st.combine_sets(

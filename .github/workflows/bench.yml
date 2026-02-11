@@ -45,6 +45,7 @@ jobs:
         benchmark:
           - id: random-access-bench
             name: Random Access
+            build_args: "--features lance"
           - id: compress-bench
             name: Compression
     steps:
@@ -69,10 +70,10 @@ jobs:
         env:
           RUSTFLAGS: "-C target-cpu=native -C force-frame-pointers=yes"
         run: |
-          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug --features lance
+          cargo build --bin ${{ matrix.benchmark.id }} --profile release_debug ${{ matrix.benchmark.build_args }}
 
       - name: Setup Polar Signals
-        uses: polarsignals/gh-actions-ps-profiling@v0.7.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"

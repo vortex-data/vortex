@@ -8,22 +8,20 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
+use crate::compute::FillNullReduce;
 use crate::compute::cast;
-use crate::register_kernel;
 
-impl FillNullKernel for ConstantVTable {
-    fn fill_null(&self, array: &ConstantArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+impl FillNullReduce for ConstantVTable {
+    fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
         if array.scalar().is_null() {
-            Ok(ConstantArray::new(fill_value.clone(), array.len()).into_array())
+            Ok(Some(
+                ConstantArray::new(fill_value.clone(), array.len()).into_array(),
+            ))
         } else {
-            cast(array.as_ref(), fill_value.dtype())
+            cast(array.as_ref(), fill_value.dtype()).map(Some)
         }
     }
 }
-
-register_kernel!(FillNullKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -37,7 +35,7 @@ mod test {
     #[test]
     fn test_null() {
         let actual = fill_null(
-            &ConstantArray::new(Scalar::from(None::<i32>), 3).into_array(),
+            &ConstantArray::new(Scalar::null_native::<i32>(), 3).into_array(),
             &Scalar::from(1),
         )
         .unwrap();

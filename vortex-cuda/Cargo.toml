@@ -19,6 +19,7 @@ workspace = true
 [features]
 default = []
 _test-harness = []
+unstable_encodings = ["vortex-zstd/unstable_encodings"]
 
 [dependencies]
 arc-swap = { workspace = true }
@@ -87,4 +88,8 @@ harness = false
 
 [[bench]]
 name = "date_time_parts_cuda"
+harness = false
+
+[[bench]]
+name = "bitpacked_cuda"
 harness = false

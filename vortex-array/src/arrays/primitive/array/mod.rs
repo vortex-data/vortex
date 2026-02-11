@@ -77,7 +77,6 @@ pub struct PrimitiveArray {
 
 pub struct PrimitiveArrayParts {
     pub ptype: PType,
-    pub nullability: Nullability,
     pub buffer: BufferHandle,
     pub validity: Validity,
 }
@@ -182,10 +181,8 @@ impl PrimitiveArray {
     /// Consume the primitive array and returns its component parts.
     pub fn into_parts(self) -> PrimitiveArrayParts {
         let ptype = self.ptype();
-        let nullability = self.dtype.nullability();
         PrimitiveArrayParts {
             ptype,
-            nullability,
             buffer: self.buffer,
             validity: self.validity,
         }

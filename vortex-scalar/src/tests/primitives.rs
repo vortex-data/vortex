@@ -9,6 +9,7 @@ mod tests {
 
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
+    use vortex_dtype::DecimalDType;
     use vortex_dtype::NativeDecimalType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
@@ -16,8 +17,10 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_utils::aliases::hash_set::HashSet;
 
-    use crate::InnerScalarValue;
+    use crate::DecimalScalar;
+    use crate::DecimalValue;
     use crate::PValue;
+    use crate::PrimitiveScalar;
     use crate::Scalar;
     use crate::ScalarValue;
 
@@ -38,7 +41,7 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let scalar = Scalar::default_value(struct_dtype.clone());
+        let scalar = Scalar::default_value(&struct_dtype);
         assert_eq!(scalar.dtype(), &struct_dtype);
 
         let scalar = scalar.as_struct();
@@ -134,10 +137,6 @@ mod tests {
 
     #[test]
     fn test_decimal_nbytes() {
-        use vortex_dtype::DecimalDType;
-
-        use crate::decimal::DecimalValue;
-
         // Test decimal with precision <= 38 (should use i128 = 16 bytes)
         let decimal_low_precision = Scalar::decimal(
             DecimalValue::I128(123456789),
@@ -284,7 +283,7 @@ mod tests {
             DType::Primitive(PType::I32, Nullability::NonNullable)
         );
         match value {
-            ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
+            Some(ScalarValue::Primitive(PValue::I32(v))) => {
                 assert_eq!(v, 42);
             }
             _ => panic!("Expected I32 primitive value"),
@@ -297,7 +296,7 @@ mod tests {
         let value = scalar.into_value();
 
         match value {
-            ScalarValue(InnerScalarValue::Primitive(PValue::I32(v))) => {
+            Some(ScalarValue::Primitive(PValue::I32(v))) => {
                 assert_eq!(v, 42);
             }
             _ => panic!("Expected I32 primitive value"),
@@ -313,13 +312,6 @@ mod tests {
         let null_scalar = Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable));
         assert!(!null_scalar.is_valid());
         assert!(null_scalar.is_null());
-    }
-
-    #[test]
-    fn test_scalar_as_ref() {
-        let scalar = Scalar::primitive(42i32, Nullability::NonNullable);
-        let scalar_ref: &Scalar = scalar.as_ref();
-        assert_eq!(scalar_ref, &scalar);
     }
 
     #[test]
@@ -346,11 +338,9 @@ mod tests {
     #[test]
     fn test_scalar_from_primitive_scalar() {
         let dtype = DType::Primitive(PType::I32, Nullability::NonNullable);
-        let pscalar = crate::PrimitiveScalar::try_new(
-            &dtype,
-            &ScalarValue(InnerScalarValue::Primitive(PValue::I32(42))),
-        )
-        .unwrap();
+        let pscalar =
+            PrimitiveScalar::try_new(&dtype, Some(&ScalarValue::Primitive(PValue::I32(42))))
+                .unwrap();
 
         let scalar = Scalar::from(pscalar);
         assert_eq!(scalar.dtype(), &dtype);
@@ -359,16 +349,11 @@ mod tests {
 
     #[test]
     fn test_scalar_from_decimal_scalar() {
-        use vortex_dtype::DecimalDType;
-
-        use crate::decimal::DecimalScalar;
-        use crate::decimal::DecimalValue;
-
         let decimal_dtype = DecimalDType::new(10, 2);
         let dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
         let dscalar = DecimalScalar::try_new(
             &dtype,
-            &ScalarValue(InnerScalarValue::Decimal(DecimalValue::I32(12345))),
+            Some(&ScalarValue::Decimal(DecimalValue::I32(12345))),
         )
         .unwrap();
 

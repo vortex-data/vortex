@@ -30,11 +30,22 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
+          components: clippy, rustfmt, llvm-tools
 
-      - name: Install llvm
-        uses: aminya/setup-cpp@v1
-        with:
-          compiler: llvm
+      - name: Ensure llvm-tools are installed
+        run: |
+          rustup component add llvm-tools --toolchain nightly || \
+            rustup component add llvm-tools-preview --toolchain nightly
+
+          # Verify llvm-profdata is accessible (cargo-fuzz needs it for coverage merging)
+          LLVM_PROFDATA="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin/llvm-profdata"
+          if [ ! -f "$LLVM_PROFDATA" ]; then
+            echo "ERROR: llvm-profdata not found at $LLVM_PROFDATA"
+            echo "Listing bin directory:"
+            ls -la "$(dirname "$LLVM_PROFDATA")" || echo "Directory does not exist"
+            exit 1
+          fi
+          echo "Found llvm-profdata at $LLVM_PROFDATA"
 
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
@@ -62,33 +73,40 @@ jobs:
         run: |
           RUSTFLAGS="--cfg vortex_nightly" \
             cargo +nightly fuzz coverage --release --debug-assertions \
-            ${{ matrix.fuzz_target }}
+            ${{ matrix.fuzz_target }} \
+            -- -rss_limit_mb=4096
 
       - name: Generate coverage report
         run: |
           COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
 
-          llvm-profdata merge -sparse "$COVERAGE_DIR"/raw/*.profraw \
-            -o "$COVERAGE_DIR/coverage.profdata"
+          # llvm tools are installed via rustup's llvm-tools component
+          LLVM_TOOLS_BIN="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin"
 
-          FUZZ_BIN=$(find fuzz/target -name "${{ matrix.fuzz_target }}" -type f -executable -path "*/release/*" | grep -v deps | head -1)
+          TARGET_TRIPLE=$(rustc +nightly -vV | sed -n 's|host: ||p')
 
-          if [ -z "$FUZZ_BIN" ]; then
-            echo "ERROR: Could not find fuzz binary for ${{ matrix.fuzz_target }}"
+          # cargo-fuzz coverage places the binary at:
+          #   target/<triple>/coverage/<triple>/release/<fuzz_target>
+          FUZZ_BIN="target/${TARGET_TRIPLE}/coverage/${TARGET_TRIPLE}/release/${{ matrix.fuzz_target }}"
+
+          if [ ! -f "$FUZZ_BIN" ]; then
+            echo "ERROR: Could not find fuzz binary at $FUZZ_BIN"
+            echo "Searching for binary in target directories..."
+            find target -name "${{ matrix.fuzz_target }}" -type f 2>/dev/null || true
             exit 1
           fi
 
           echo "Using fuzz binary: $FUZZ_BIN"
 
           # HTML report for download
-          llvm-cov show "$FUZZ_BIN" \
+          "$LLVM_TOOLS_BIN/llvm-cov" show "$FUZZ_BIN" \
             --format=html \
             --instr-profile="$COVERAGE_DIR/coverage.profdata" \
             --ignore-filename-regex='(\.cargo|rustc|registry)' \
             --output-dir=coverage_html/
 
           # Text summary to job log
-          llvm-cov report "$FUZZ_BIN" \
+          "$LLVM_TOOLS_BIN/llvm-cov" report "$FUZZ_BIN" \
             --instr-profile="$COVERAGE_DIR/coverage.profdata" \
             --ignore-filename-regex='(\.cargo|rustc|registry)'
 

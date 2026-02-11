@@ -12,6 +12,9 @@ use vortex::array::ArrayRef;
 use crate::clickbench::Flavor;
 
 pub mod data_downloads;
+pub mod feature_vectors;
+pub mod nested_lists;
+pub mod nested_structs;
 pub mod struct_list_of_ints;
 pub mod taxi_data;
 pub mod tpch_l_comment;

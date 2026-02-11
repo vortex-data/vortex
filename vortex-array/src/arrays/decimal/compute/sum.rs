@@ -6,6 +6,8 @@ use num_traits::AsPrimitive;
 use num_traits::CheckedAdd;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::Buffer;
+use vortex_dtype::DType;
+use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::Nullability::Nullable;
 use vortex_dtype::match_each_decimal_value_type;
@@ -13,7 +15,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_mask::Mask;
-use vortex_scalar::DecimalScalar;
 use vortex_scalar::DecimalValue;
 use vortex_scalar::Scalar;
 
@@ -25,73 +26,75 @@ use crate::expr::stats::Stat;
 use crate::register_kernel;
 
 impl SumKernel for DecimalVTable {
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "complexity from nested match_each_* macros"
-    )]
     fn sum(&self, array: &DecimalArray, accumulator: &Scalar) -> VortexResult<Scalar> {
         let return_dtype = Stat::Sum
             .dtype(array.dtype())
             .vortex_expect("sum for decimals exists");
-        let return_decimal_dtype = return_dtype
+        let return_decimal_dtype = *return_dtype
             .as_decimal_opt()
             .vortex_expect("must be decimal");
 
-        // Extract the initial value as a DecimalValue
-        let initial_decimal = DecimalScalar::try_from(accumulator)
-            .vortex_expect("must be a decimal")
+        // Extract the initial value as a `DecimalValue`.
+        let initial_decimal = accumulator
+            .as_decimal()
             .decimal_value()
             .vortex_expect("cannot be null");
 
-        match array.validity_mask()? {
+        let mask = array.validity_mask()?;
+        let validity = match &mask {
+            Mask::AllTrue(_) => None,
+            Mask::Values(mask_values) => Some(mask_values.bit_buffer()),
             Mask::AllFalse(_) => {
                 vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
             }
-            Mask::AllTrue(_) => {
-                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
-                match_each_decimal_value_type!(array.values_type(), |I| {
-                    match_each_decimal_value_type!(values_type, |O| {
-                        let initial_val: O = initial_decimal
-                            .cast()
-                            .vortex_expect("cannot fail to cast initial value");
-                        if let Some(sum) = sum_decimal(array.buffer::<I>(), initial_val) {
-                            Ok(Scalar::decimal(
-                                DecimalValue::from(sum),
-                                *return_decimal_dtype,
-                                Nullable,
-                            ))
-                        } else {
-                            Ok(Scalar::null(return_dtype))
-                        }
-                    })
-                })
-            }
-            Mask::Values(mask_values) => {
-                let values_type = DecimalType::smallest_decimal_value_type(return_decimal_dtype);
-                match_each_decimal_value_type!(array.values_type(), |I| {
-                    match_each_decimal_value_type!(values_type, |O| {
-                        let initial_val: O = initial_decimal
-                            .cast()
-                            .vortex_expect("cannot fail to cast initial value");
+        };
 
-                        if let Some(sum) = sum_decimal_with_validity(
-                            array.buffer::<I>(),
-                            mask_values.bit_buffer(),
-                            initial_val,
-                        ) {
-                            Ok(Scalar::decimal(
-                                DecimalValue::from(sum),
-                                *return_decimal_dtype,
-                                Nullable,
-                            ))
-                        } else {
-                            Ok(Scalar::null(return_dtype))
-                        }
-                    })
-                })
-            }
-        }
+        let values_type = DecimalType::smallest_decimal_value_type(&return_decimal_dtype);
+        match_each_decimal_value_type!(array.values_type(), |I| {
+            match_each_decimal_value_type!(values_type, |O| {
+                let initial_val: O = initial_decimal
+                    .cast()
+                    .vortex_expect("cannot fail to cast initial value");
+
+                Ok(sum_to_scalar(
+                    array.buffer::<I>(),
+                    validity,
+                    initial_val,
+                    return_decimal_dtype,
+                    &return_dtype,
+                ))
+            })
+        })
     }
+}
+
+/// Compute the checked sum and convert the result to a [`Scalar`].
+///
+/// Returns a null scalar if the sum overflows the underlying integer type or if the result
+/// exceeds the declared decimal precision.
+fn sum_to_scalar<T, O>(
+    values: Buffer<T>,
+    validity: Option<&BitBuffer>,
+    initial: O,
+    return_decimal_dtype: DecimalDType,
+    return_dtype: &DType,
+) -> Scalar
+where
+    T: AsPrimitive<O>,
+    O: Copy + CheckedAdd + Into<DecimalValue> + 'static,
+{
+    let raw_sum = match validity {
+        Some(v) => sum_decimal_with_validity(values, v, initial),
+        None => sum_decimal(values, initial),
+    };
+
+    raw_sum
+        .map(Into::<DecimalValue>::into)
+        // We have to make sure that the decimal value fits the precision of the decimal dtype.
+        .filter(|v| v.fits_in_precision(return_decimal_dtype))
+        .map(|v| Scalar::decimal(v, return_decimal_dtype, Nullable))
+        // If an overflow occurs during summation, or final value does not fit, then return a null.
+        .unwrap_or_else(|| Scalar::null(return_dtype.clone()))
 }
 
 fn sum_decimal<T: AsPrimitive<I>, I: Copy + CheckedAdd + 'static>(
@@ -129,11 +132,11 @@ mod tests {
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
     use vortex_dtype::Nullability;
+    use vortex_dtype::i256;
     use vortex_error::VortexExpect;
     use vortex_scalar::DecimalValue;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
-    use vortex_scalar::i256;
 
     use crate::arrays::DecimalArray;
     use crate::compute::sum;
@@ -149,10 +152,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(600i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(600i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -167,10 +171,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
-            ScalarValue::from(DecimalValue::from(800i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(800i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -185,10 +190,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(150i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(150i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -207,10 +213,11 @@ mod tests {
 
         // Should use i64 for accumulation since precision increases
         let expected_sum = near_max as i64 + 500 + 400;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(20, 2), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -228,17 +235,18 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         let expected_sum = (large_val as i128) * 4 + 1;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
 
     #[test]
     fn test_sum_overflow_detection() {
-        use vortex_scalar::i256;
+        use vortex_dtype::i256;
 
         // Create values that will overflow when summed
         // Use maximum i128 values that will overflow when added
@@ -254,10 +262,11 @@ mod tests {
         // Should use i256 for accumulation
         let expected_sum =
             i256::from_i128(max_val) + i256::from_i128(max_val) + i256::from_i128(max_val);
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(48, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -276,10 +285,11 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         let expected_sum = (large_pos as i128) + (large_neg as i128) + (large_pos as i128) + 1000;
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(29, 3), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -295,10 +305,11 @@ mod tests {
         let result = sum(decimal.as_ref()).unwrap();
 
         // Scale should be preserved, precision increased by 10
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(16, 4), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(91346i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(91346i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -310,10 +321,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(13, 1), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(42i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(42i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -328,10 +340,11 @@ mod tests {
 
         let result = sum(decimal.as_ref()).unwrap();
 
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(14, 2), Nullability::Nullable),
-            ScalarValue::from(DecimalValue::from(300i32)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(300i32))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
     }
@@ -353,12 +366,34 @@ mod tests {
 
         // Should use i256 for accumulation since 9 * (i128::MAX / 10) fits in i128 but we increase precision
         let expected_sum = i256::from_i128(large_i128).wrapping_pow(1) * i256::from_i128(9);
-        let expected = Scalar::new(
+        let expected = Scalar::try_new(
             DType::Decimal(DecimalDType::new(48, 0), Nullability::NonNullable),
-            ScalarValue::from(DecimalValue::from(expected_sum)),
-        );
+            Some(ScalarValue::from(DecimalValue::from(expected_sum))),
+        )
+        .unwrap();
 
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_sum_precision_overflow_without_i256_overflow() {
+        // Construct values that individually fit in precision 76 but whose sum exceeds it,
+        // while still fitting in `i256`. This ensures we return null for precision overflow
+        // and not just for arithmetic overflow.
+        let ten_to_38 = i256::from_i128(10i128.pow(38));
+        let ten_to_75 = ten_to_38 * i256::from_i128(10i128.pow(37));
+        // 6 * 10^75 is a 76-digit number, which fits in precision 76.
+        let val = ten_to_75 * i256::from_i128(6);
+
+        let decimal_dtype = DecimalDType::new(76, 0);
+        let decimal = DecimalArray::new(buffer![val, val], decimal_dtype, Validity::AllValid);
+
+        // Sum = 12 * 10^75 = 1.2 * 10^76, which exceeds precision 76 but fits in `i256`.
+        let result = sum(decimal.as_ref()).unwrap();
+        assert_eq!(
+            result,
+            Scalar::null(DType::Decimal(decimal_dtype, Nullability::Nullable))
+        );
     }
 
     #[test]

@@ -3,29 +3,23 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::FillNullKernel;
-use vortex_array::compute::FillNullKernelAdapter;
-use vortex_array::compute::fill_null;
-use vortex_array::register_kernel;
+use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::FillNullReduce;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::RunEndArray;
+use crate::RunEndArrayParts;
 use crate::RunEndVTable;
 
-impl FillNullKernel for RunEndVTable {
-    fn fill_null(&self, array: &RunEndArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+impl FillNullReduce for RunEndVTable {
+    fn fill_null(array: &RunEndArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {
+        let RunEndArrayParts { values, ends } = array.clone().into_parts();
+        let new_values = values.fill_null(fill_value.clone())?;
         // SAFETY: modifying values only, does not affect ends
-        unsafe {
-            Ok(RunEndArray::new_unchecked(
-                array.ends().clone(),
-                fill_null(array.values(), fill_value)?,
-                array.offset(),
-                array.len(),
-            )
-            .into_array())
-        }
+        Ok(Some(
+            unsafe { RunEndArray::new_unchecked(ends, new_values, array.offset(), array.len()) }
+                .into_array(),
+        ))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(RunEndVTable).lift());

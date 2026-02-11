@@ -9,9 +9,9 @@ use std::ptr;
 
 use crate::cpp;
 use crate::cpp::duckdb_vx_expr_class;
-use crate::duckdb;
 use crate::duckdb::ScalarFunction;
 use crate::duckdb::ValueRef;
+use crate::duckdb::ddb_string::DDBString;
 use crate::wrapper;
 
 // TODO(joe): replace with lifetime_wrapper!
@@ -37,12 +37,12 @@ impl Expression {
         Some(
             match unsafe { cpp::duckdb_vx_expr_get_class(self.as_ptr()) } {
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_COLUMN_REF => {
-                    let ptr =
-                        unsafe { cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr()) };
+                    let name = unsafe {
+                        let ptr = cpp::duckdb_vx_expr_get_bound_column_ref_get_name(self.as_ptr());
+                        DDBString::own(ptr.cast_mut())
+                    };
 
-                    ExpressionClass::BoundColumnRef(BoundColumnRef {
-                        name: duckdb::string::String::from_ptr(ptr),
-                    })
+                    ExpressionClass::BoundColumnRef(BoundColumnRef { name })
                 }
                 cpp::DUCKDB_VX_EXPR_CLASS::DUCKDB_VX_EXPR_CLASS_BOUND_CONSTANT => {
                     let value = unsafe {
@@ -159,7 +159,7 @@ pub enum ExpressionClass<'a> {
 }
 
 pub struct BoundColumnRef {
-    pub name: duckdb::string::String,
+    pub name: DDBString,
 }
 
 pub struct BoundConstant<'a> {

@@ -19,10 +19,15 @@ __device__ void _bit_unpack_8_0bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_0bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_0bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_0bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_0bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_0bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_0bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_0bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_0bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_0bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_0bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -57,10 +62,15 @@ __device__ void _bit_unpack_8_1bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_1bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_1bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_1bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_1bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_1bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_1bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_1bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_1bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_1bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_1bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -97,10 +107,15 @@ __device__ void _bit_unpack_8_2bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_2bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_2bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_2bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_2bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_2bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_2bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_2bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_2bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_2bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_2bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -139,10 +154,15 @@ __device__ void _bit_unpack_8_3bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_3bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_3bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_3bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_3bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_3bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_3bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_3bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_3bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_3bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_3bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -183,10 +203,15 @@ __device__ void _bit_unpack_8_4bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_4bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_4bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_4bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_4bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_4bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_4bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_4bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_4bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_4bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_4bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -229,10 +254,15 @@ __device__ void _bit_unpack_8_5bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_5bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_5bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_5bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_5bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_5bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_5bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_5bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_5bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_5bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_5bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -277,10 +307,15 @@ __device__ void _bit_unpack_8_6bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_6bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_6bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_6bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_6bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_6bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_6bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_6bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_6bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_6bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_6bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -327,10 +362,15 @@ __device__ void _bit_unpack_8_7bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_7bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_7bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_7bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_7bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_7bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_7bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_7bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_7bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_7bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_7bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {
@@ -354,10 +394,15 @@ __device__ void _bit_unpack_8_8bw_lane(const uint8_t *__restrict in, uint8_t *__
 }
 
 __device__ void _bit_unpack_8_8bw_32t(const uint8_t *__restrict in, uint8_t *__restrict out, int thread_idx) {
-    _bit_unpack_8_8bw_lane(in, out, thread_idx * 4 + 0);
-    _bit_unpack_8_8bw_lane(in, out, thread_idx * 4 + 1);
-    _bit_unpack_8_8bw_lane(in, out, thread_idx * 4 + 2);
-    _bit_unpack_8_8bw_lane(in, out, thread_idx * 4 + 3);
+    __shared__ uint8_t shared_out[1024];
+    _bit_unpack_8_8bw_lane(in, shared_out, thread_idx * 4 + 0);
+    _bit_unpack_8_8bw_lane(in, shared_out, thread_idx * 4 + 1);
+    _bit_unpack_8_8bw_lane(in, shared_out, thread_idx * 4 + 2);
+    _bit_unpack_8_8bw_lane(in, shared_out, thread_idx * 4 + 3);
+    for (int i = 0; i < 32; i++) {
+        auto idx = i * 32 + thread_idx;
+        out[idx] = shared_out[idx];
+    }
 }
 
 extern "C" __global__ void bit_unpack_8_8bw_32t(const uint8_t *__restrict full_in, uint8_t *__restrict full_out) {

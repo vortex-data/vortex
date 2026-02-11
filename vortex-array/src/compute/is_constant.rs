@@ -85,7 +85,8 @@ impl ComputeFnVTable for IsConstant {
 
         // We try and rely on some easy-to-get stats
         if let Some(Precision::Exact(value)) = array.statistics().get_as::<bool>(Stat::IsConstant) {
-            return Ok(Scalar::from(Some(value)).into());
+            let scalar: Scalar = Some(value).into();
+            return Ok(scalar.into());
         }
 
         let value = is_constant_impl(array, options, kernels)?;
@@ -105,7 +106,8 @@ impl ComputeFnVTable for IsConstant {
                 .set(Stat::IsConstant, Precision::Exact(value.into()));
         }
 
-        Ok(Scalar::from(value).into())
+        let scalar: Scalar = value.into();
+        Ok(scalar.into())
     }
 
     fn return_dtype(&self, _args: &InvocationArgs) -> VortexResult<DType> {
@@ -227,7 +229,8 @@ impl<V: VTable + IsConstantKernel> Kernel for IsConstantKernelAdapter<V> {
             return Ok(None);
         };
         let is_constant = V::is_constant(&self.0, array, args.options)?;
-        Ok(Some(Scalar::from(is_constant).into()))
+        let scalar: Scalar = is_constant.into();
+        Ok(Some(scalar.into()))
     }
 }
 

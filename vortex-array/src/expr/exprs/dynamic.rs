@@ -107,10 +107,11 @@ impl VTable for DynamicComparison {
         let ret_dtype =
             DType::Bool(args.inputs[0].dtype().nullability() | data.rhs.dtype.nullability());
 
-        Ok(
-            ConstantArray::new(Scalar::new(ret_dtype, data.default.into()), args.row_count)
-                .into_array(),
+        Ok(ConstantArray::new(
+            Scalar::try_new(ret_dtype, Some(data.default.into()))?,
+            args.row_count,
         )
+        .into_array())
     }
 
     fn stat_falsification(
@@ -193,7 +194,10 @@ pub struct DynamicComparisonExpr {
 
 impl DynamicComparisonExpr {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.rhs.value)().map(|v| Scalar::new(self.rhs.dtype.clone(), v))
+        (self.rhs.value)().map(|v| {
+            Scalar::try_new(self.rhs.dtype.clone(), Some(v))
+                .vortex_expect("`DynamicComparisonExpr` was invalid")
+        })
     }
 }
 
@@ -237,7 +241,9 @@ struct Rhs {
 
 impl Rhs {
     pub fn scalar(&self) -> Option<Scalar> {
-        (self.value)().map(|v| Scalar::new(self.dtype.clone(), v))
+        (self.value)().map(|v| {
+            Scalar::try_new(self.dtype.clone(), Some(v)).vortex_expect("`Rhs` was invalid")
+        })
     }
 }
 
@@ -283,7 +289,12 @@ impl DynamicExprUpdates {
         let exprs = visitor.0.into_boxed_slice();
         let prev_versions = exprs
             .iter()
-            .map(|expr| (expr.rhs.value)().map(|v| Scalar::new(expr.rhs.dtype.clone(), v)))
+            .map(|expr| {
+                (expr.rhs.value)().map(|v| {
+                    Scalar::try_new(expr.rhs.dtype.clone(), Some(v))
+                        .vortex_expect("`DynamicExprUpdates` was invalid")
+                })
+            })
             .collect();
 
         Some(Self {

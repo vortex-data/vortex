@@ -22,7 +22,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
 use vortex_flatbuffers::FlatBuffer;
-use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
 use vortex_flatbuffers::array as fba;
 use vortex_flatbuffers::array::Compression;
@@ -378,7 +377,7 @@ impl ArrayParts {
         // Populate statistics from the serialized array.
         if let Some(stats) = self.flatbuffer().stats() {
             let decoded_statistics = decoded.statistics();
-            StatsSet::read_flatbuffer(&stats)?
+            StatsSet::from_flatbuffer(&stats, dtype)?
                 .into_iter()
                 .for_each(|(stat, val)| decoded_statistics.set(stat, val));
         }

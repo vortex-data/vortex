@@ -125,7 +125,7 @@ macro_rules! ffiarray_get_ptype {
                 let value = array.scalar_at(index as usize).vortex_expect("scalar_at failed");
                 // TODO(joe): propagate this error up instead of expecting
                 value.as_extension()
-                    .storage()
+                    .to_storage_scalar()
                     .as_primitive()
                     .as_::<$ptype>()
                     .vortex_expect("null value")

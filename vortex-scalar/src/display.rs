@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! [`Display`] implementations for [`Scalar`].
+
 use std::fmt::Display;
 use std::fmt::Formatter;
 
@@ -19,7 +21,10 @@ impl Display for Scalar {
             DType::Binary(_) => write!(f, "{}", self.as_binary()),
             DType::Struct(..) => write!(f, "{}", self.as_struct()),
             DType::List(..) | DType::FixedSizeList(..) => write!(f, "{}", self.as_list()),
-            DType::Extension(_) => write!(f, "{}", self.as_extension()),
+            DType::Extension(_) => {
+                // TODO(connor): This might need to change soon...
+                write!(f, "{}", self.as_extension())
+            }
         }
     }
 }
@@ -38,7 +43,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
@@ -129,7 +133,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(dtype(), vec![Scalar::null_typed::<u32>()])
+                Scalar::struct_(dtype(), vec![Scalar::null_native::<u32>()])
             ),
             "{foo: null}"
         );
@@ -173,10 +177,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(
-                    dtype.clone(),
-                    vec![Scalar::from(Some(true)), Scalar::null(f2)]
-                )
+                Scalar::struct_(dtype.clone(), vec![Some(true).into(), Scalar::null(f2)])
             ),
             "{foo: true, bar: null}"
         );
@@ -184,10 +185,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::struct_(
-                    dtype,
-                    vec![Scalar::from(Some(true)), Scalar::from(Some(32_u32))]
-                )
+                Scalar::struct_(dtype, vec![Some(true).into(), Some(32_u32).into()])
             ),
             "{foo: true, bar: 32u32}"
         );
@@ -206,7 +204,7 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
+                    Some(ScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
                 )
             ),
             "00:03:25"
@@ -224,10 +222,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(25)))
-                )
+                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(25))))
             ),
             "1970-01-26"
         );
@@ -235,10 +230,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365)))
-                )
+                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(365))))
             ),
             "1971-01-01"
         );
@@ -246,10 +238,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(365 * 4)))
-                )
+                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(365 * 4))))
             ),
             "1973-12-31"
         );
@@ -268,8 +257,8 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                    Some(ScalarValue::Primitive(PValue::I64(
+                        (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64
                     )))
                 )
             ),
@@ -292,10 +281,7 @@ mod tests {
         assert_eq!(
             format!(
                 "{}",
-                Scalar::new(
-                    dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(0)))
-                )
+                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I64(0i64))))
             ),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
         );
@@ -305,8 +291,8 @@ mod tests {
                 "{}",
                 Scalar::new(
                     dtype(),
-                    ScalarValue(InnerScalarValue::Primitive(PValue::I32(
-                        3 * DAYS + 2 * HOURS + 5 * MINUTES + 10
+                    Some(ScalarValue::Primitive(PValue::I64(
+                        (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64
                     )))
                 )
             ),

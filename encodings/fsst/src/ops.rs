@@ -16,8 +16,7 @@ impl OperationsVTable<FSSTVTable> for FSSTVTable {
         let compressed = array.codes().scalar_at(index)?;
         let binary_datum = compressed.as_binary().value().vortex_expect("non-null");
 
-        let decoded_buffer =
-            ByteBuffer::from(array.decompressor().decompress(binary_datum.as_slice()));
+        let decoded_buffer = ByteBuffer::from(array.decompressor().decompress(binary_datum));
         Ok(varbin_scalar(decoded_buffer, array.dtype()))
     }
 }

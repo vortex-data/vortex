@@ -1,0 +1,34 @@
+name: "Setup protoc"
+description: "Download and install protoc binary directly from GitHub releases CDN (no API calls)"
+inputs:
+  protoc_version:
+    description: "Version of the protoc binary"
+    default: "29.3"
+runs:
+  using: "composite"
+  steps:
+    - name: Download protoc
+      shell: bash
+      run: |
+        ARCH=$(uname -m)
+        OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+
+        if [ "$OS" = "linux" ]; then
+          case "$ARCH" in
+            x86_64)  PROTOC_ARCH="linux-x86_64" ;;
+            aarch64) PROTOC_ARCH="linux-aarch_64" ;;
+          esac
+        elif [ "$OS" = "darwin" ]; then
+          case "$ARCH" in
+            x86_64) PROTOC_ARCH="osx-x86_64" ;;
+            arm64)  PROTOC_ARCH="osx-aarch_64" ;;
+          esac
+        fi
+
+        PROTOC_URL="https://github.com/protocolbuffers/protobuf/releases/download/v${{ inputs.protoc_version }}/protoc-${{ inputs.protoc_version }}-${PROTOC_ARCH}.zip"
+        wget -q -O /tmp/protoc.zip "$PROTOC_URL"
+        unzip -o /tmp/protoc.zip -d /tmp/protoc
+        sudo mv /tmp/protoc/bin/protoc /usr/local/bin/
+        sudo cp -r /tmp/protoc/include/* /usr/local/include/
+        rm -rf /tmp/protoc.zip /tmp/protoc
+        protoc --version

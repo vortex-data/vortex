@@ -4,7 +4,7 @@
 use std::hash::Hash;
 
 use vortex_dtype::DType;
-use vortex_scalar::DecimalType;
+use vortex_dtype::DecimalType;
 
 use crate::Precision;
 use crate::arrays::DecimalArray;

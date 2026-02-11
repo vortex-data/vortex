@@ -129,22 +129,15 @@ fn compare_eq_neq(
         find_intersection_scalar(array.base(), array.multiplier(), array.len, constant)
     else {
         return Ok(Some(
-            ConstantArray::new(
-                Scalar::new(DType::Bool(nullability), not_match_val.into()),
-                array.len,
-            )
-            .into_array(),
+            ConstantArray::new(Scalar::bool(not_match_val, nullability), array.len).into_array(),
         ));
     };
     let idx = set_idx as u64;
     let len = array.len as u64;
 
     if len == 1 && set_idx == 0 {
-        let result_array = ConstantArray::new(
-            Scalar::new(DType::Bool(nullability), match_val.into()),
-            array.len,
-        )
-        .to_array();
+        let result_array =
+            ConstantArray::new(Scalar::bool(match_val, nullability), array.len).to_array();
         return Ok(Some(result_array));
     }
 
@@ -186,16 +179,12 @@ fn compare_ordering(
     );
 
     let result_array = match transition {
-        Transition::AllTrue => ConstantArray::new(
-            Scalar::new(DType::Bool(nullability), true.into()),
-            array.len,
-        )
-        .to_array(),
-        Transition::AllFalse => ConstantArray::new(
-            Scalar::new(DType::Bool(nullability), false.into()),
-            array.len,
-        )
-        .to_array(),
+        Transition::AllTrue => {
+            ConstantArray::new(Scalar::bool(true, nullability), array.len).to_array()
+        }
+        Transition::AllFalse => {
+            ConstantArray::new(Scalar::bool(false, nullability), array.len).to_array()
+        }
         Transition::FalseToTrue(idx) => {
             // [0..idx) is false, [idx..len) is true
             let ends = buffer![idx as u64, array.len as u64].into_array();
@@ -362,10 +351,11 @@ mod tests {
     fn test_sequence_gte_constant() -> VortexResult<()> {
         let seq = SequenceArray::typed_new(0i64, 1, NonNullable, 10)?.to_array();
         let constant = ConstantArray::new(
-            Scalar::new(
+            Scalar::try_new(
                 DType::Primitive(PType::I64, Nullability::Nullable),
-                5i64.into(),
-            ),
+                Some(5i64.into()),
+            )
+            .unwrap(),
             10,
         )
         .to_array();

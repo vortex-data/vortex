@@ -5,7 +5,6 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::ArrayRef;
 use crate::IntoArray;
@@ -25,7 +24,7 @@ impl CastKernel for NullVTable {
             return Ok(Some(array.to_array()));
         }
 
-        let scalar = Scalar::new(dtype.clone(), ScalarValue::null());
+        let scalar = Scalar::null(dtype.clone());
         Ok(Some(ConstantArray::new(scalar, array.len()).into_array()))
     }
 }

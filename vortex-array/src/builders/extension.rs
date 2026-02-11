@@ -43,7 +43,7 @@ impl ExtensionBuilder {
 
     /// Appends an extension `value` to the builder.
     pub fn append_value(&mut self, value: ExtScalar) -> VortexResult<()> {
-        self.storage.append_scalar(&value.storage())
+        self.storage.append_scalar(&value.to_storage_scalar())
     }
 
     /// Finishes the builder directly into a [`ExtensionArray`].
@@ -95,8 +95,7 @@ impl ArrayBuilder for ExtensionBuilder {
             scalar.dtype()
         );
 
-        let ext_scalar = ExtScalar::try_from(scalar)?;
-        self.append_value(ext_scalar)
+        self.append_value(scalar.as_extension())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

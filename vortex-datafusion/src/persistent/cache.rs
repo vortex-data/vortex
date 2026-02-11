@@ -56,8 +56,9 @@ fn estimate_footer_size(footer: &Footer) -> usize {
     let segments_size = footer.segment_map().len() * size_of::<SegmentSpec>();
     let stats_size = footer
         .statistics()
-        .map(|stats| {
-            stats
+        .map(|file_statistics| {
+            file_statistics
+                .stats_sets()
                 .iter()
                 .map(|s| {
                     s.iter().count() * (size_of::<Stat>() + size_of::<Precision<ScalarValue>>())

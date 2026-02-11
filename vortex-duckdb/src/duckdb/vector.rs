@@ -295,6 +295,17 @@ impl Vector {
             ))
         }
     }
+
+    pub fn get_value(&self, idx: u64, len: u64) -> Option<Value> {
+        if idx >= len {
+            return None;
+        }
+
+        unsafe {
+            let value_ptr = cpp::duckdb_vx_vector_get_value(self.as_ptr(), idx as idx_t);
+            Some(Value::own(value_ptr))
+        }
+    }
 }
 
 pub struct ValidityRef<'a> {

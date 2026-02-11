@@ -56,7 +56,7 @@ mod tests {
     #[cfg_attr(miri, ignore)]
     #[test]
     fn test_constant_metadata() {
-        let scalar_bytes: Vec<u8> = ScalarValue::from(i32::MAX).to_protobytes();
+        let scalar_bytes: Vec<u8> = ScalarValue::to_proto_bytes(Some(&ScalarValue::from(i32::MAX)));
         check_metadata(
             "constant.metadata",
             ProstMetadata(ConstantMetadata {

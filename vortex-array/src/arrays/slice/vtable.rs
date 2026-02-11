@@ -175,6 +175,17 @@ impl VisitorVTable<SliceVTable> for SliceVTable {
     fn visit_children(array: &SliceArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
     }
+
+    fn nchildren(_array: &SliceArray) -> usize {
+        1
+    }
+
+    fn nth_child(array: &SliceArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.child.clone()),
+            _ => None,
+        }
+    }
 }
 
 pub struct SliceMetadata(pub(super) Range<usize>);

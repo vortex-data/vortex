@@ -46,9 +46,9 @@ impl CompareKernel for DecimalBytePartsVTable {
             .vortex_expect("checked for null in entry func");
 
         match decimal_value_wrapper_to_primitive(rhs_decimal, lhs.msp.as_primitive_typed().ptype())
-            .map(|value| Scalar::new(scalar_type.clone(), value))
         {
-            Ok(encoded_scalar) => {
+            Ok(value) => {
+                let encoded_scalar = Scalar::try_new(scalar_type, Some(value))?;
                 let encoded_const = ConstantArray::new(encoded_scalar, rhs.len());
                 compare(&lhs.msp, &encoded_const.to_array(), operator).map(Some)
             }
@@ -165,7 +165,10 @@ mod tests {
         )
         .unwrap()
         .to_array();
-        let rhs = ConstantArray::new(Scalar::new(dtype, DecimalValue::I64(400).into()), lhs.len());
+        let rhs = ConstantArray::new(
+            Scalar::try_new(dtype, Some(DecimalValue::I64(400).into())).unwrap(),
+            lhs.len(),
+        );
 
         let res = compare(lhs.as_ref(), rhs.as_ref(), Operator::Eq).unwrap();
 
@@ -215,10 +218,11 @@ mod tests {
         .to_array();
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
-            Scalar::new(
+            Scalar::try_new(
                 dtype.clone(),
-                DecimalValue::I128(-9999999999999965304).into(),
-            ),
+                Some(DecimalValue::I128(-9999999999999965304).into()),
+            )
+            .unwrap(),
             lhs.len(),
         );
 
@@ -236,7 +240,7 @@ mod tests {
 
         // This cannot be converted to a i32.
         let rhs = ConstantArray::new(
-            Scalar::new(dtype, DecimalValue::I128(9999999999999965304).into()),
+            Scalar::try_new(dtype, Some(DecimalValue::I128(9999999999999965304).into())).unwrap(),
             lhs.len(),
         );
 

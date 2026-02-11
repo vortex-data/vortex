@@ -20,12 +20,11 @@ mod serializer;
 pub use serializer::*;
 mod deserializer;
 pub use deserializer::*;
-pub(crate) use file_statistics::*;
+pub use file_statistics::FileStatistics;
 use flatbuffers::root;
 use itertools::Itertools;
 pub use segment::*;
 use vortex_array::ArrayContext;
-use vortex_array::stats::StatsSet;
 use vortex_array::vtable::ArrayId;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
@@ -133,8 +132,8 @@ impl Footer {
     }
 
     /// Returns the statistics of the file.
-    pub fn statistics(&self) -> Option<&Arc<[StatsSet]>> {
-        self.statistics.as_ref().map(|s| &s.0)
+    pub fn statistics(&self) -> Option<&FileStatistics> {
+        self.statistics.as_ref()
     }
 
     /// Returns the [`DType`] of the file.

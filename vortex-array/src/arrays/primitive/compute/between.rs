@@ -41,8 +41,8 @@ impl BetweenKernel for PrimitiveVTable {
         Ok(Some(match_each_native_ptype!(arr.ptype(), |P| {
             between_impl::<P>(
                 arr,
-                P::try_from(lower)?,
-                P::try_from(upper)?,
+                P::try_from(&lower)?,
+                P::try_from(&upper)?,
                 nullability,
                 options,
             )

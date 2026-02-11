@@ -8,19 +8,17 @@ mod tests {
 
     use vortex_dtype::Nullability;
 
-    use crate::BoolScalar;
-    use crate::PrimitiveScalar;
     use crate::Scalar;
 
     // Demonstrates inconsistent null comparison behavior
     #[test]
     fn test_null_comparison_inconsistency() {
         // Test with primitive scalars
-        let null_i32 = Scalar::null_typed::<i32>();
-        let null_i64 = Scalar::null_typed::<i64>();
+        let null_i32 = Scalar::null_native::<i32>();
+        let null_i64 = Scalar::null_native::<i64>();
 
-        let prim_i32 = PrimitiveScalar::try_from(&null_i32).unwrap();
-        let prim_i64 = PrimitiveScalar::try_from(&null_i64).unwrap();
+        let prim_i32 = null_i32.as_primitive();
+        let prim_i64 = null_i64.as_primitive();
 
         // Primitive scalars check dtype compatibility first
         assert_eq!(prim_i32.partial_cmp(&prim_i64), None); // Different types => None
@@ -30,28 +28,12 @@ mod tests {
         let bool_nullable = Scalar::bool(true, Nullability::Nullable);
         let bool_non_nullable = Scalar::bool(true, Nullability::NonNullable);
 
-        let bool1 = BoolScalar::try_from(&bool_nullable).unwrap();
-        let bool2 = BoolScalar::try_from(&bool_non_nullable).unwrap();
+        let bool1 = bool_nullable.as_bool();
+        let bool2 = bool_non_nullable.as_bool();
 
         // Bool scalars should now check dtype compatibility but ignore nullability
         // So they should still compare as they have the same base type
         assert!(bool1.partial_cmp(&bool2).is_some()); // Same base type, different nullability -> Some
-    }
-
-    // Test that demonstrates potential issues with typed null conversions
-    #[test]
-    fn test_typed_null_unit_conversion_surprising() {
-        // This behavior is documented but potentially surprising
-        let typed_null = Scalar::null_typed::<i32>();
-
-        // A typed null (i32 null) successfully converts to unit type
-        let unit_result = <()>::try_from(&typed_null);
-        assert!(unit_result.is_ok()); // This might be unexpected!
-
-        // But a non-null value correctly fails
-        let non_null = Scalar::primitive(42i32, Nullability::NonNullable);
-        let unit_result = <()>::try_from(&non_null);
-        assert!(unit_result.is_err()); // Expected
     }
 
     // Demonstrates that equality checking doesn't always consider nullability

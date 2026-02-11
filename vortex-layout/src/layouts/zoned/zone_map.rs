@@ -118,16 +118,20 @@ impl ZoneMap {
             match stat {
                 // For stats that are associative, we can just compute them over the stat column
                 Stat::Min | Stat::Max | Stat::Sum => {
-                    if let Some(s) = array.statistics().compute_stat(stat)? {
-                        stats_set.set(stat, Precision::exact(s.into_value()))
+                    if let Some(s) = array.statistics().compute_stat(stat)?
+                        && let Some(v) = s.into_value()
+                    {
+                        stats_set.set(stat, Precision::exact(v))
                     }
                 }
                 // These stats sum up
                 Stat::NullCount | Stat::NaNCount | Stat::UncompressedSizeInBytes => {
-                    let sum = sum(&array)?
+                    if let Some(sum_value) = sum(&array)?
                         .cast(&DType::Primitive(PType::U64, Nullability::Nullable))?
-                        .into_value();
-                    stats_set.set(stat, Precision::exact(sum));
+                        .into_value()
+                    {
+                        stats_set.set(stat, Precision::exact(sum_value));
+                    }
                 }
                 // We could implement these aggregations in the future, but for now they're unused
                 Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted => {}
