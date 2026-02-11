@@ -14,6 +14,9 @@ from .template import render_template, render_template_to_file
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+# Variables that must be set (non-empty) before creating or commenting on an issue.
+REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
+
 
 def parse_var_arg(var_str: str) -> tuple[str, str]:
     """Parse a -v KEY=VALUE argument into (key, value)."""
@@ -142,6 +145,16 @@ def cmd_check_duplicate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _validate_required_variables(variables: dict[str, str]) -> list[str]:
+    """Return the names of any required variables that are missing or empty."""
+    missing = []
+    for name in REQUIRED_REPORT_VARIABLES:
+        val = variables.get(name, "")
+        if not val or val == "(not set)":
+            missing.append(name)
+    return missing
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     """Create or comment on a GitHub issue based on crash + dedup results."""
     if not Path(args.crash_info).exists():
@@ -162,6 +175,18 @@ def cmd_report(args: argparse.Namespace) -> int:
     action, dedup = _determine_action(args.dedup_result)
     variables = _build_template_variables(crash_info, args.var, claude_analysis)
     existing_issue = dedup.get("issue_number") if dedup else None
+
+    # Validate required variables before creating/commenting (skip is fine without them)
+    if action != "skip":
+        missing = _validate_required_variables(variables)
+        if missing:
+            print(
+                f"Error: Required variables not set: {', '.join(missing)}",
+                file=sys.stderr,
+            )
+            _write_github_output("validation_failed", "true")
+            _write_github_output("missing_variables", ", ".join(missing))
+            return 1
 
     if action == "skip":
         print(f"Exact duplicate of #{existing_issue}, skipping.", file=sys.stderr)
@@ -278,6 +303,15 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
 
     variables = _build_template_variables(crash_info, args.var, claude_analysis)
     existing_issue = dedup.get("issue_number") if dedup else None
+
+    # Validate required variables (same check as real report)
+    if action != "skip":
+        missing = _validate_required_variables(variables)
+        if missing:
+            print(
+                f"Warning: Required variables not set: {', '.join(missing)}",
+                file=sys.stderr,
+            )
 
     print(f"=== Action: {action.upper()} ===", file=sys.stderr)
 
