@@ -64,6 +64,7 @@ vortex-dtype = { workspace = true, features = ["cudarc"] }
 vortex-scalar = { workspace = true }
 
 [build-dependencies]
+bindgen = { workspace = true }
 fastlanes = { workspace = true }
 
 [[bench]]
@@ -95,5 +96,5 @@ name = "bitpacked_cuda"
 harness = false
 
 [[bench]]
-name = "nested_decode_cuda"
+name = "dynamic_dispatch_cuda"
 harness = false

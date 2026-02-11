@@ -81,6 +81,48 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
+/// Generates a runtime bit-width dispatch function (`bit_unpack_{bits}_lane`) that switches
+/// over all bit widths `0..=bits` and calls the corresponding compile-time-specialized lane
+/// decoder.
+///
+/// This is used by `dynamic_dispatch.cu` which `#include`s the generated `bit_unpack_*.cu`
+/// files and needs a single entry point that accepts bit width as a runtime parameter.
+fn generate_lane_dispatch<T: FastLanes, W: Write>(
+    output: &mut IndentedWriter<W>,
+) -> io::Result<()> {
+    let bits = <T>::T;
+
+    writeln!(
+        output,
+        "/// Runtime dispatch to the optimized lane decoder for the given bit width."
+    )?;
+    writeln!(
+        output,
+        "__device__ __forceinline__ void bit_unpack_{bits}_lane("
+    )?;
+    writeln!(output, "    const uint{bits}_t *__restrict in,")?;
+    writeln!(output, "    uint{bits}_t *__restrict out,")?;
+    writeln!(output, "    unsigned int lane,")?;
+    writeln!(output, "    uint32_t bit_width")?;
+    writeln!(output, ") {{")?;
+
+    output.indent(|output| {
+        writeln!(output, "switch (bit_width) {{")?;
+        output.indent(|output| {
+            for bw in 0..=bits {
+                writeln!(
+                    output,
+                    "case {bw}: _bit_unpack_{bits}_{bw}bw_lane(in, out, lane); break;"
+                )?;
+            }
+            Ok(())
+        })?;
+        writeln!(output, "}}")
+    })?;
+
+    writeln!(output, "}}")
+}
+
 fn generate_device_kernel_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     bit_width: usize,
@@ -147,6 +189,13 @@ fn generate_global_kernel_for_width<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
+/// Generate a self-contained `.cu` file containing all lane decoders, a runtime
+/// lane dispatch function, and device/global kernel wrappers for all bit widths.
+///
+/// The generated file can be compiled standalone *and* `#include`d by other
+/// kernels (e.g. `dynamic_dispatch.cu`) that need access to the lane decoders
+/// and dispatch function.
+///
 /// # Errors
 ///
 /// Will return Err if writing to the underlying writer fails.
@@ -154,6 +203,8 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
     thread_count: usize,
 ) -> io::Result<()> {
+    let bits = <T>::T;
+
     writeln!(output, "// AUTO-GENERATED. Do not edit by hand!")?;
     writeln!(output, "#include <cuda.h>")?;
     writeln!(output, "#include <cuda_runtime.h>")?;
@@ -161,9 +212,18 @@ pub fn generate_cuda_unpack_for_width<T: FastLanes, W: Write>(
     writeln!(output, "#include \"fastlanes_common.cuh\"")?;
     writeln!(output)?;
 
-    for bit_width in 0..=<T>::T {
+    // First, emit all lane decoders.
+    for bit_width in 0..=bits {
         generate_lane_decoder::<T, _>(output, bit_width)?;
         writeln!(output)?;
+    }
+
+    // Emit the runtime lane dispatch function (used by dynamic_dispatch.cu).
+    generate_lane_dispatch::<T, _>(output)?;
+    writeln!(output)?;
+
+    // Emit device and global kernel wrappers.
+    for bit_width in 0..=bits {
         generate_device_kernel_for_width::<T, _>(output, bit_width, thread_count)?;
         writeln!(output)?;
 
