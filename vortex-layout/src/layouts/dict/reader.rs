@@ -13,8 +13,6 @@ use futures::future::BoxFuture;
 use futures::try_join;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
-use vortex_array::Canonical;
-use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::MaskFuture;
 use vortex_array::VortexSessionExecute;
@@ -119,16 +117,13 @@ impl DictReader {
             return fut.clone();
         }
 
-        let session = self.session.clone();
         self.values_evals
             .entry(expr.clone())
             .or_insert_with(|| {
                 self.values_array()
                     .map(move |array| {
                         let array = array?.apply(&expr)?;
-                        // We execute the array to avoid re-evaluating for every split.
-                        let mut ctx = ExecutionCtx::new(session);
-                        Ok(array.execute::<Canonical>(&mut ctx)?.into_array())
+                        Ok(SharedArray::new(array).into_array())
                     })
                     .boxed()
                     .shared()
