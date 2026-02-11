@@ -14,7 +14,7 @@ use vortex_dtype::DType;
 use vortex_error::vortex_panic;
 
 use crate::DecimalValue;
-// use crate::ExtScalarRef;
+// use crate::ExtScalarValueRef;
 use crate::PValue;
 
 /// The value stored in a [`Scalar`][crate::Scalar].
@@ -35,33 +35,14 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
-    // Extension(ExtScalarRef),
+    // /// An extension value reference.
+    // ///
+    // /// This internally contains a `ScalarValue` and an vtable that implements
+    // /// [`ExtScalarVTable`](crate::ExtScalarVTable)
+    // Extension(ExtScalarValueRef),
 }
 
-// TODO(connor): Docs can be improved (in combination with the associated `Scalar` methods).
 impl ScalarValue {
-    // TODO(connor): There is an inconsistency here w.r.t. `FixedSizeList` and `Struct` types, since
-    // we say that the zero value for those are **not** empty lists. But here we say that a list is
-    // a "zero" value if it is empty. So depending on the dtype this might just be incorrect!
-    // /// Returns true if the scalar represents the zero / identity value for its [`DType`].
-    // ///
-    // /// Returns false if the scalar is null.
-    // ///
-    // /// See [`Scalar::zero_value()`] for more details about "zero" values.
-    // ///
-    // /// [`Scalar::zero_value()`]: crate::Scalar::zero_value
-    // pub fn is_zero(&self) -> bool {
-    //     // TODO(connor): Is it better to just do == Self::zero_value()?
-    //     match self {
-    //         ScalarValue::Bool(b) => !*b,
-    //         ScalarValue::Primitive(p) => p.is_zero(),
-    //         ScalarValue::Decimal(d) => d.is_zero(),
-    //         ScalarValue::Utf8(s) => s.is_empty(),
-    //         ScalarValue::Binary(b) => b.is_empty(),
-    //         ScalarValue::List(elems) => elems.is_empty(),
-    //     }
-    // }
-
     /// Returns the zero / identity value for the given [`DType`].
     ///
     /// # Zero Values
@@ -189,7 +170,7 @@ impl ScalarValue {
         }
     }
 
-    // pub fn as_extension(&self) -> &ExtScalarRef {
+    // pub fn as_extension(&self) -> &ExtScalarValueRef {
     //     match self {
     //         ScalarValue::Extension(e) => e,
     //         _ => vortex_panic!("ScalarValue is not an Extension"),
