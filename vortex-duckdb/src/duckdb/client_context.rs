@@ -17,7 +17,19 @@ wrapper!(
     |_| {}
 );
 
+#[derive(Clone, Copy)]
+pub(crate) struct SendableClientContext(cpp::duckdb_vx_client_context);
+// SAFETY: SendableClientContext carries the same opaque pointer as ClientContext. It is safe to
+// send/share across threads under the same guarantees as ClientContext: the underlying DuckDB
+// context is valid for the connection lifetime and DuckDB synchronizes internal state.
+unsafe impl Send for SendableClientContext {}
+unsafe impl Sync for SendableClientContext {}
+
 impl ClientContext {
+    pub(crate) fn as_sendable(&self) -> SendableClientContext {
+        SendableClientContext(self.as_ptr())
+    }
+
     /// Get the object cache for this client context.
     pub fn object_cache(&self) -> ObjectCacheRef<'static> {
         unsafe {
@@ -43,3 +55,16 @@ impl ClientContext {
         }
     }
 }
+
+impl SendableClientContext {
+    pub(crate) fn as_ptr(self) -> cpp::duckdb_vx_client_context {
+        self.0
+    }
+}
+
+// SAFETY: ClientContext is an opaque pointer owned by DuckDB and remains valid for the lifetime of
+// the DuckDB connection. DuckDB guards access to client context state internally (see
+// duckdb/main/client_context.hpp) so passing it across threads for FFI calls is safe when the
+// connection is alive.
+unsafe impl Send for ClientContext {}
+unsafe impl Sync for ClientContext {}

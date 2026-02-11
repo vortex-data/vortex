@@ -465,6 +465,7 @@ fn main() {
         .file("cpp/data_chunk.cpp")
         .file("cpp/error.cpp")
         .file("cpp/expr.cpp")
+        .file("cpp/file_system.cpp")
         .file("cpp/logical_type.cpp")
         .file("cpp/object_cache.cpp")
         .file("cpp/replacement_scan.cpp")

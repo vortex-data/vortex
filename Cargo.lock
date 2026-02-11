@@ -10251,7 +10251,6 @@ name = "vortex-duckdb"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-compat",
  "async-fs",
  "bindgen",
  "bitvec",
@@ -10259,11 +10258,9 @@ dependencies = [
  "cc",
  "custom-labels",
  "futures",
- "glob",
  "itertools 0.14.0",
  "jiff",
  "num-traits",
- "object_store",
  "once_cell",
  "parking_lot",
  "paste",
