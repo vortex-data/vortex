@@ -104,7 +104,7 @@ where
             }
         }
 
-        let permit = match self.limit.poll_acquire(cx) {
+        let permit = match this.limit.poll_acquire(cx) {
             Poll::Ready(Some(permit)) => permit,
             Poll::Ready(None) => {
                 println!("SEMAPHORE IS CLOSED??");
