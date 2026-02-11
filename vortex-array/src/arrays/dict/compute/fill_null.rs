@@ -25,7 +25,6 @@ impl FillNullKernel for DictVTable {
         fill_value: &Scalar,
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-    fn fill_null(array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
         let found_fill_values = compare(
