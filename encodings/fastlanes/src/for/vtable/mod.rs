@@ -69,6 +69,7 @@ impl VTable for FoRVTable {
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
+        // Note that we **only** serialize the optional scalar value (not including the dtype).
         Ok(Some(ScalarValue::to_proto_bytes(metadata.value())))
     }
 
