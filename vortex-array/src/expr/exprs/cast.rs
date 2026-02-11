@@ -13,7 +13,6 @@ use vortex_proto::expr as pb;
 use vortex_session::VortexSession;
 
 use crate::AnyColumnar;
-use crate::Array;
 use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
