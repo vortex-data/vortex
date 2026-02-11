@@ -205,6 +205,7 @@ impl State {
                 IoRequest::new_single(request, permit)
             }),
             Some(window) => self.next_coalesced(window).map(|request| {
+                tracing::info!(coalseced=?request);
                 match request.requests.len() {
                     1 => self.metrics.individual_requests.add(1),
                     num_requests => {

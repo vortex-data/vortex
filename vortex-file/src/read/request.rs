@@ -141,6 +141,7 @@ impl Debug for CoalescedRequest {
 
 impl CoalescedRequest {
     pub fn resolve(self, result: VortexResult<BufferHandle>) {
+        tracing::info!(coalseced=?self);
         match result {
             Ok(buffer) => {
                 let base = match buffer.ensure_aligned(Alignment::none()) {
