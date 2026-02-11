@@ -1,19 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
+
 use std::fmt::Formatter;
 
+pub use kernel::*;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
+use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
-use crate::Array;
+use crate::AnyColumnar;
 use crate::ArrayRef;
+use crate::CanonicalView;
+use crate::ColumnarView;
+use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
-use crate::arrays::ScalarFnArray;
+use crate::arrays::DecimalVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
@@ -85,7 +96,6 @@ impl VTable for FillNull {
     }
 
     fn execute(&self, _options: &Self::Options, args: ExecutionArgs) -> VortexResult<ArrayRef> {
-        let len = args.row_count;
         let [input, fill_value]: [ArrayRef; _] = args
             .inputs
             .try_into()
@@ -95,26 +105,22 @@ impl VTable for FillNull {
             .as_constant()
             .ok_or_else(|| vortex_err!("fill_null fill_value must be a constant/scalar"))?;
 
-        // If the input has no nulls, fill_null is a no-op (just a cast for nullability).
-        if !input.dtype().is_nullable() || input.all_valid()? {
-            return cast(input.as_ref(), fill_scalar.dtype());
-        }
+        let Some(columnar) = input.as_opt::<AnyColumnar>() else {
+            return input.execute::<ArrayRef>(args.ctx)?.fill_null(fill_scalar);
+        };
 
-        // If all values are null, replace the entire array with the fill value.
-        if input.all_invalid()? {
-            return Ok(ConstantArray::new(fill_scalar, len).into_array());
+        match columnar {
+            ColumnarView::Canonical(canonical) => {
+                fill_null_canonical(canonical, &fill_scalar, args.ctx)
+            }
+            ColumnarView::Constant(constant) => {
+                if constant.scalar().is_null() {
+                    Ok(ConstantArray::new(fill_scalar, constant.len()).into_array())
+                } else {
+                    cast(constant.as_ref(), fill_scalar.dtype())
+                }
+            }
         }
-
-        // Execute the input child to get it closer to canonical form, then rewrap
-        // in a new ScalarFnArray for another optimization round.
-        static FILL_NULL_VTABLE: FillNull = FillNull;
-        let executed = input.execute::<ArrayRef>(args.ctx)?;
-        Ok(ScalarFnArray::try_new(
-            crate::expr::ScalarFn::new_static(&FILL_NULL_VTABLE, EmptyOptions),
-            vec![executed, fill_value],
-            len,
-        )?
-        .into_array())
     }
 
     fn simplify(
@@ -148,6 +154,32 @@ impl VTable for FillNull {
 
     fn is_fallible(&self, _options: &Self::Options) -> bool {
         false
+    }
+}
+
+/// Fill nulls on a canonical array by directly dispatching to the appropriate kernel.
+///
+/// Returns the filled array, or bails if no kernel is registered for the canonical type.
+fn fill_null_canonical(
+    canonical: CanonicalView<'_>,
+    fill_value: &Scalar,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<ArrayRef> {
+    match canonical {
+        CanonicalView::Bool(a) => <BoolVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
+            .ok_or_else(|| vortex_err!("FillNullKernel for BoolArray returned None")),
+        CanonicalView::Primitive(a) => {
+            <PrimitiveVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for PrimitiveArray returned None"))
+        }
+        CanonicalView::Decimal(a) => {
+            <DecimalVTable as FillNullKernel>::fill_null(a, fill_value, ctx)?
+                .ok_or_else(|| vortex_err!("FillNullKernel for DecimalArray returned None"))
+        }
+        other => vortex_bail!(
+            "No FillNullKernel for canonical array {}",
+            other.as_ref().encoding_id()
+        ),
     }
 }
 
