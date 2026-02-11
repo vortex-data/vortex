@@ -316,7 +316,6 @@ impl Scalar {
         )
     }
 
-    // TODO(connor): MAKE SURE THIS IS CORRECT!!!
     /// Returns the size of the scalar in bytes, uncompressed.
     pub fn nbytes(&self) -> usize {
         use vortex_dtype::NativeDecimalType;

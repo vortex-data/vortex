@@ -39,7 +39,7 @@ impl ConstantVTable {
 
 /// Maximum size (in bytes) of a protobuf-encoded scalar value that will be inlined
 /// into the array metadata. Values larger than this are stored only in the buffer.
-const CONSTANT_INLINE_THRESHOLD: usize = 1024;
+pub(crate) const CONSTANT_INLINE_THRESHOLD: usize = 1024;
 
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
