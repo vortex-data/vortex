@@ -5,6 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::builtins::ArrayBuiltins;
@@ -21,7 +22,11 @@ impl CastReduce for FixedSizeListVTable {
             return Ok(None);
         };
 
-        let elements = array.elements().cast((**target_element_type).clone())?;
+        let elements = array
+            .elements()
+            .cast((**target_element_type).clone())?
+            .to_canonical()?
+            .into_array();
         let validity = array
             .validity()
             .clone()

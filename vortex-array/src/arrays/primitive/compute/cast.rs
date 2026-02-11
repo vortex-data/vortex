@@ -177,7 +177,11 @@ mod test {
     #[test]
     fn cast_i32_u32() {
         let arr = buffer![-1i32].into_array();
-        let error = arr.cast(PType::U32.into()).err().unwrap();
+        let error = arr
+            .cast(PType::U32.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .err()
+            .unwrap();
         let VortexError::ComputeError(s, _) = error else {
             unreachable!()
         };
@@ -187,7 +191,11 @@ mod test {
     #[test]
     fn cast_array_with_nulls_to_nonnullable() {
         let arr = PrimitiveArray::from_option_iter([Some(-1i32), None, Some(10)]);
-        let err = arr.to_array().cast(PType::I32.into()).unwrap_err();
+        let err = arr
+            .to_array()
+            .cast(PType::I32.into())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap_err();
         let VortexError::InvalidArgument(s, _) = err else {
             unreachable!()
         };

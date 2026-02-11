@@ -5,6 +5,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ListArray;
 use crate::arrays::ListVTable;
 use crate::builtins::ArrayBuiltins;
@@ -22,12 +23,14 @@ impl CastReduce for ListVTable {
             .clone()
             .cast_nullability(dtype.nullability(), array.len())?;
 
-        ListArray::try_new(
-            array.elements().cast((**target_element_type).clone())?,
-            array.offsets().clone(),
-            validity,
-        )
-        .map(|a| Some(a.to_array()))
+        let new_elements = array
+            .elements()
+            .cast((**target_element_type).clone())?
+            .to_canonical()?
+            .into_array();
+
+        ListArray::try_new(new_elements, array.offsets().clone(), validity)
+            .map(|a| Some(a.to_array()))
     }
 }
 
@@ -81,7 +84,10 @@ mod tests {
         let target_dtype = DType::Primitive(PType::U64, Nullability::NonNullable);
         // can't cast list to u64
 
-        let result = list.to_array().cast(target_dtype);
+        let result = list
+            .to_array()
+            .cast(target_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
     }
 
@@ -102,7 +108,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list.to_array().cast(target_dtype);
+        let result = list
+            .to_array()
+            .cast(target_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
 
         // Nulls in list element array
@@ -118,7 +127,10 @@ mod tests {
             Nullability::NonNullable,
         );
 
-        let result = list.to_array().cast(target_dtype);
+        let result = list
+            .to_array()
+            .cast(target_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

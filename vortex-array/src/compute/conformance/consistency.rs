@@ -1200,8 +1200,11 @@ fn test_cast_slice_consistency(array: &dyn Array) {
             .slice(start..end)
             .vortex_expect("slice should succeed in conformance test");
 
-        // Try to cast the sliced array
-        let slice_then_cast = match sliced.cast(target_dtype.clone()) {
+        // Try to cast the sliced array (force execution via to_canonical)
+        let slice_then_cast = match sliced
+            .cast(target_dtype.clone())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+        {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };
@@ -1249,7 +1252,11 @@ fn test_cast_slice_consistency(array: &dyn Array) {
         }
 
         // Also test the other way: cast then slice
-        let casted = match array.to_array().cast(target_dtype.clone()) {
+        let casted = match array
+            .to_array()
+            .cast(target_dtype.clone())
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+        {
             Ok(result) => result,
             Err(_) => continue, // Skip if cast fails
         };

@@ -149,6 +149,7 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use super::upcast_decimal_values;
+    use crate::IntoArray;
     use crate::arrays::DecimalArray;
     use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
@@ -207,7 +208,11 @@ mod tests {
 
         // Attempt to cast to non-nullable should fail
         let non_nullable_dtype = DType::Decimal(decimal_dtype, Nullability::NonNullable);
-        array.to_array().cast(non_nullable_dtype).unwrap();
+        array
+            .to_array()
+            .cast(non_nullable_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()))
+            .unwrap();
     }
 
     #[test]
@@ -220,7 +225,10 @@ mod tests {
 
         // Try to cast to different scale - not supported
         let different_dtype = DType::Decimal(DecimalDType::new(15, 3), Nullability::NonNullable);
-        let result = array.to_array().cast(different_dtype);
+        let result = array
+            .to_array()
+            .cast(different_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(
@@ -241,7 +249,10 @@ mod tests {
 
         // Try to downcast precision - not supported
         let smaller_dtype = DType::Decimal(DecimalDType::new(10, 2), Nullability::NonNullable);
-        let result = array.to_array().cast(smaller_dtype);
+        let result = array
+            .to_array()
+            .cast(smaller_dtype)
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(
@@ -280,7 +291,10 @@ mod tests {
         );
 
         // Try to cast to non-decimal type - should fail since no kernel can handle it
-        let result = array.to_array().cast(DType::Utf8(Nullability::NonNullable));
+        let result = array
+            .to_array()
+            .cast(DType::Utf8(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
 
         assert!(result.is_err());
         assert!(

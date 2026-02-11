@@ -124,9 +124,14 @@ impl VTable for Cast {
                     ),
                 }
             }
-            ColumnarView::Constant(constant) => {
-                Ok(cast_constant(constant, target_dtype)?.vortex_expect("cannot return none"))
-            }
+            ColumnarView::Constant(constant) => match cast_constant(constant, target_dtype)? {
+                Some(result) => Ok(result),
+                None => vortex_bail!(
+                    "No CastReduce to cast constant array from {} to {}",
+                    constant.dtype(),
+                    target_dtype,
+                ),
+            },
         }
     }
 
