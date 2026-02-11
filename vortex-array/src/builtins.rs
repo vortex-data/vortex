@@ -16,6 +16,7 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
 use crate::expr::Cast;
@@ -107,10 +108,15 @@ impl ArrayBuiltins for ArrayRef {
     }
 
     fn fill_null(&self, fill_value: impl Into<Scalar>) -> VortexResult<ArrayRef> {
-        let fill_value = fill_value.into();
-        let fill_value_array = ConstantArray::new(fill_value, self.len()).to_array();
         FillNull
-            .try_new_array(self.len(), EmptyOptions, [self.clone(), fill_value_array])?
+            .try_new_array(
+                self.len(),
+                EmptyOptions,
+                [
+                    self.clone(),
+                    ConstantArray::new(fill_value.into(), self.len()).into_array(),
+                ],
+            )?
             .optimize()
     }
 
