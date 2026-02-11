@@ -82,6 +82,7 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
 
 extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
+
     auto value = new duckdb::Value(vector->GetValue(index));
     return reinterpret_cast<duckdb_value>(value);
 }

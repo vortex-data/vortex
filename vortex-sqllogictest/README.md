@@ -18,16 +18,18 @@ Note that `nextest` isn't currently supported, but might be in the future.
 
 Currently, tests must account for the differences between the engines, the general pattern that works for basic things is using views over files, as DuckDB as and DataFusion don't seem to have a shared syntax to create a table backed by an external storage format.
 
+`$__TEST_DIR__` is a special variable used to point to a tempdir, its only available if substitution is enabled, by using `control substitution on`.
+
 Here is a simple test that can be reused:
 
 ```text
 query I
-COPY (values (1, 2), (3, 4)) TO 'scratch/test.vortex';
+COPY (values (1, 2), (3, 4)) TO '$__TEST_DIR__/test.vortex';
 ----
 2
 
 statement ok
-CREATE VIEW foo AS SELECT * FROM 'scratch/test.vortex';
+CREATE VIEW foo AS SELECT * FROM '$__TEST_DIR__/test.vortex';
 
 query II
 SELECT * FROM foo;

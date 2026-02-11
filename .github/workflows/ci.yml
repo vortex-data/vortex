@@ -739,7 +739,13 @@ jobs:
 
   sqllogic-test:
     name: "SQL logic tests"
-    runs-on: runs-on/runner=8cpu-linux-x86
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - family=m7i+m7i-flex+m7a
+      - cpu=8
+      - image=ubuntu24-full-x64
+      - extras=s3-cache
+      - tag=sql-logic-test
     steps:
       - uses: runs-on/action@v2
         with:

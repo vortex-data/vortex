@@ -14,6 +14,7 @@ use tempfile::TempDir;
 use tempfile::tempdir;
 use vortex::error::VortexError;
 use vortex_duckdb::LogicalType;
+use vortex_duckdb::Value;
 use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
@@ -66,6 +67,10 @@ impl DuckDB {
             }),
         })
     }
+
+    /// Turn the DuckDB logical type into a `DFColumnType`, which
+    /// tells the runner what types they are. We use the one from DataFusion
+    /// as its richer than the default one.
     fn normalize_column_type(dtype: LogicalType) -> DFColumnType {
         let type_id = dtype.as_type_id();
         if type_id == LogicalType::int32().as_type_id()
@@ -110,15 +115,17 @@ impl AsyncDB for DuckDB {
 
                 for chunk in r.into_iter() {
                     for row_idx in 0..chunk.len() {
-                        let mut row = Vec::new();
+                        let mut current_row = Vec::new();
                         for col_idx in 0..chunk.column_count() {
-                            let value = chunk
-                                .get_vector(col_idx)
-                                .get_value(usize::try_from(row_idx).map_err(VortexError::from)?);
-                            row.push(value.to_string());
+                            let vector = chunk.get_vector(col_idx);
+                            match vector.get_value(row_idx, chunk.len()) {
+                                Some(value) => current_row.push(value.to_string()),
+                                None => current_row
+                                    .push(Value::null(&vector.logical_type()).to_string()),
+                            }
                         }
 
-                        rows.push(row);
+                        rows.push(current_row);
                     }
                 }
 

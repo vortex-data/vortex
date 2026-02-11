@@ -3,5 +3,4 @@
 
 pub mod args;
 pub mod duckdb;
-pub mod sql;
 pub mod utils;

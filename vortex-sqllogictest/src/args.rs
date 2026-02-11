@@ -11,6 +11,7 @@ pub enum Engine {
     DuckDB,
 }
 
+/// Binary args, including all flags that `cargo test` might pass.
 #[derive(Parser, Debug)]
 pub struct Args {
     #[arg(short, long, value_enum, value_delimiter = ',')]
