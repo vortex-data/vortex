@@ -7,8 +7,11 @@ import pytest
 
 from fuzz_report.extract import (
     NOISE_FRAME_PATHS,
+    NOISE_FUNC_NAMES,
+    NOISE_FUNC_PREFIXES,
     CrashInfo,
     _is_noise_frame,
+    _is_noise_func,
     extract_crash_info,
     extract_crash_location,
     extract_debug_output,
@@ -81,7 +84,7 @@ stack backtrace:
 """
 
 RUST_BACKTRACE_WITH_ERROR_BOILERPLATE = """
-thread 'main' panicked at vortex-scalar/src/constructor.rs:61:10:
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
 called `Result::unwrap()` on an `Err` value: VortexError
 stack backtrace:
    0: __rustc::rust_begin_unwind
@@ -144,12 +147,82 @@ class TestIsNoiseFrame:
         )
 
 
+class TestIsNoiseFunc:
+    """Unit tests for _is_noise_func — filters function names in stack formats
+    that lack file paths (libfuzzer ``#N 0x… in func``, dash ``N: 0x… - func``).
+    """
+
+    def test_prefix_list_is_not_empty(self):
+        assert len(NOISE_FUNC_PREFIXES) > 0
+
+    @pytest.mark.parametrize("prefix", NOISE_FUNC_PREFIXES)
+    def test_all_prefixes_are_noise(self, prefix: str):
+        assert _is_noise_func(f"{prefix}some_function")
+
+    def test_std_panicking_is_noise(self):
+        assert _is_noise_func("std::panicking::begin_panic_handler")
+
+    def test_core_panicking_is_noise(self):
+        assert _is_noise_func("core::panicking::panic_fmt")
+
+    def test_dunder_sanitizer_is_noise(self):
+        assert _is_noise_func("__sanitizer_print_stack_trace")
+
+    def test_name_list_is_not_empty(self):
+        assert len(NOISE_FUNC_NAMES) > 0
+
+    @pytest.mark.parametrize("name", sorted(NOISE_FUNC_NAMES))
+    def test_all_exact_names_are_noise(self, name: str):
+        assert _is_noise_func(name)
+
+    def test_vortex_expect_is_noise(self):
+        assert _is_noise_func("vortex_expect")
+
+    def test_vortex_expect_with_generics_is_noise(self):
+        assert _is_noise_func(
+            "vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>"
+        )
+
+    def test_vortex_unwrap_is_noise(self):
+        assert _is_noise_func("vortex_unwrap")
+
+    def test_vortex_func_is_not_noise(self):
+        assert not _is_noise_func("vortex_array::compute::slice::slice_primitive")
+
+    def test_fuzz_func_is_not_noise(self):
+        assert not _is_noise_func("fuzz::array::run_fuzz_action")
+
+    def test_plain_func_is_not_noise(self):
+        assert not _is_noise_func("decimal")
+
+
 class TestExtractPanicLocation:
     def test_standard_format(self):
         assert extract_panic_location(INDEX_BOUNDS_LOG) == "vortex-array/src/compute/slice.rs:142"
 
     def test_unknown_when_missing(self):
         assert extract_panic_location("no panic here") == "unknown"
+
+    def test_panicked_at_noise_path_is_skipped(self):
+        """vortex_expect panics report vortex-error/src/lib.rs as the
+        `panicked at` location. This is the macro site, not the real crash.
+        The extractor must skip it and find the real location from the
+        stack trace instead.
+        """
+        # This is the ACTUAL format from CI logs — panicked at points at
+        # vortex-error/src/lib.rs, not the real caller.
+        log = """\
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
+unable to construct a decimal Scalar
+stack backtrace:
+   5: vortex_expect
+             at ./vortex-error/src/lib.rs:310:14
+   6: decimal
+             at ./vortex-scalar/src/constructor.rs:61:10
+"""
+        loc = extract_panic_location(log)
+        assert "lib.rs" not in loc
+        assert "constructor.rs:61" in loc
 
     def test_fallback_skips_noise_paths(self):
         """When the `panicked at` line is absent, the fallback regex scans for
@@ -243,6 +316,23 @@ class TestExtractStackFrames:
         frames = extract_stack_frames(LIBFUZZER_FRAME_LOG)
         assert len(frames) > 0
         assert any("vortex" in f for f in frames)
+        # std:: frames should be filtered out
+        assert all(not f.startswith("std::") for f in frames)
+
+    def test_in_format_non_vortex_crash(self):
+        """Crashes in non-vortex code (e.g. fuzz/) should still be captured."""
+        log = """\
+stack backtrace:
+   #0 0x7f1234567890 in std::panicking::begin_panic_handler
+   #1 0x7f1234567891 in fuzz::array::run_fuzz_action
+   #2 0x7f1234567892 in __libfuzzer_sys_run
+
+==12345== ERROR: libFuzzer: deadly signal
+"""
+        frames = extract_stack_frames(log)
+        assert "fuzz::array::run_fuzz_action" in frames
+        assert all(not f.startswith("std::") for f in frames)
+        assert all(not f.startswith("__") for f in frames)
 
     def test_no_frames(self):
         frames = extract_stack_frames("no stack trace here")

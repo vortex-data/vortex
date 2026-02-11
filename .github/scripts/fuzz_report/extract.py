@@ -31,22 +31,39 @@ class CrashInfo:
         return json.dumps(self.to_dict(), indent=2)
 
 
+def _is_noise_path(path: str) -> bool:
+    """Return True if a file path is error-handling boilerplate.
+
+    The `panicked at` line can point at vortex-error/src/lib.rs when
+    vortex_expect/vortex_unwrap panics — that's the macro location, not
+    the real crash site. This helper filters those out everywhere.
+    """
+    return any(prefix in path for prefix in NOISE_FRAME_PATHS)
+
+
 def extract_panic_location(log_content: str) -> str:
-    """Extract panic location (file:line) from log."""
+    """Extract panic location (file:line) from log.
+
+    Skips noise paths (NOISE_FRAME_PATHS) even when they appear in the
+    `panicked at` line itself — e.g. vortex_expect panics report
+    vortex-error/src/lib.rs as the location, not the actual caller.
+    """
     # Look for "panicked at file:line:" pattern (newer Rust format)
     match = re.search(r"panicked at ([^:]+\.rs:\d+)", log_content)
-    if match:
+    if match and not _is_noise_path(match.group(1)):
         return match.group(1)
 
     # Look for "panicked at 'msg', file:line" pattern (older Rust format)
     match = re.search(r"panicked at [^,]+, ([^:]+:\d+)", log_content)
-    if match:
+    if match and not _is_noise_path(match.group(1)):
         return match.group(1)
 
-    # Extract from vortex path in log, skipping noise paths (NOISE_FRAME_PATHS)
-    for match in re.finditer(r"(vortex[^/]+/src/[^:]+:\d+)", log_content):
+    # Fallback: scan "at ./path:line" from stack trace, skipping noise.
+    # The `at ./` prefix scopes to project-local paths; _is_noise_path()
+    # further excludes boilerplate like vortex-error/src/lib.rs.
+    for match in re.finditer(r"at \./([^:\s]+:\d+)", log_content):
         loc = match.group(1)
-        if any(loc.startswith(prefix) or prefix in loc for prefix in NOISE_FRAME_PATHS):
+        if _is_noise_path(loc):
             continue
         return loc
 
@@ -62,16 +79,18 @@ def extract_crash_location(log_content: str) -> str:
     # Format 4: "N: function_name\n  at ./path/file.rs:line"
     func_name = None
 
-    # Try "#N 0x... in vortex..." format
-    match = re.search(r"#\d+\s+0x[a-f0-9]+\s+in\s+(vortex[^\s<(]+)", log_content)
-    if match:
-        func_name = match.group(1)
+    # Try "#N 0x... in func" format (libfuzzer), skip noise prefixes
+    for m in re.finditer(r"#\d+\s+0x[a-f0-9]+\s+in\s+([^\s<(]+)", log_content):
+        if not _is_noise_func(m.group(1)):
+            func_name = m.group(1)
+            break
 
-    # Try "N: 0x... - vortex..." format
+    # Try "N: 0x... - func" format (dash), skip noise prefixes
     if not func_name:
-        match = re.search(r"\d+:\s+0x[a-f0-9]+\s+-\s+(vortex[^\s<(]+)", log_content)
-        if match:
-            func_name = match.group(1)
+        for m in re.finditer(r"\d+:\s+0x[a-f0-9]+\s+-\s+([^\s<(]+)", log_content):
+            if not _is_noise_func(m.group(1)):
+                func_name = m.group(1)
+                break
 
     # Try "N: function_name\n  at ./path" format (Rust backtrace)
     # The `at ./` regex excludes /rustc/ stdlib frames; _is_noise_frame()
@@ -173,6 +192,25 @@ NOISE_FRAME_PATHS = [
     "vortex-error/src/lib.rs",
 ]
 
+# Function-name prefixes that are never the real crash site.
+# Used for stack formats that lack file paths (libfuzzer, dash format).
+NOISE_FUNC_PREFIXES = (
+    "std::",
+    "core::",
+    "alloc::",
+    "__",  # sanitizer, fuzzer, and C runtime internals
+)
+
+# Exact function names (after stripping generics) that are error-handling
+# boilerplate.  These supplement NOISE_FUNC_PREFIXES for cases where the
+# function doesn't match a prefix but is still infrastructure.
+NOISE_FUNC_NAMES = frozenset({
+    "vortex_expect",
+    "vortex_unwrap",
+    "panic_display",
+    "rust_begin_unwind",
+})
+
 
 def _is_noise_frame(func_name: str, path: str) -> bool:
     """Return True if this stack frame is panic/error-handling boilerplate.
@@ -183,8 +221,8 @@ def _is_noise_frame(func_name: str, path: str) -> bool:
        already excluded by the `at ./` regex — they have `at /rustc/...` paths,
        so the regex never matches them.
 
-    2. Frames whose path starts with an entry in NOISE_FRAME_PATHS. These are
-       project-local but are still infrastructure (e.g. vortex_expect,
+    2. Frames whose path matches NOISE_FRAME_PATHS (via _is_noise_path).
+       These are project-local but are still infrastructure (e.g. vortex_expect,
        vortex_unwrap in vortex-error/src/lib.rs).
 
     3. Closure wrappers like {closure#0} that appear in generic unwrap/expect
@@ -193,9 +231,23 @@ def _is_noise_frame(func_name: str, path: str) -> bool:
     clean = re.sub(r"<.*", "", func_name)
     if clean.startswith("{"):
         return True
-    if any(path.startswith(prefix) for prefix in NOISE_FRAME_PATHS):
+    if _is_noise_path(path):
         return True
     return False
+
+
+def _is_noise_func(func_name: str) -> bool:
+    """Return True if a function name is obviously infrastructure.
+
+    Used for stack trace formats that lack file paths (libfuzzer ``#N 0x…
+    in func``, dash ``N: 0x… - func``).  Checks both prefix-based rules
+    (NOISE_FUNC_PREFIXES) and exact-name rules (NOISE_FUNC_NAMES).
+    """
+    if func_name.startswith(NOISE_FUNC_PREFIXES):
+        return True
+    # Strip generics for exact match (regex already strips them, but be safe)
+    clean = re.sub(r"<.*", "", func_name)
+    return clean in NOISE_FUNC_NAMES
 
 
 def extract_stack_frames(log_content: str) -> list[str]:
@@ -223,18 +275,18 @@ def extract_stack_frames(log_content: str) -> list[str]:
         func = re.sub(r"<.*", "", func)
         frames.append(func)
 
-    # Fallback: "#N 0x... in function_name"
+    # Fallback: "#N 0x... in function_name" (libfuzzer format, no paths)
     if not frames:
         for match in re.finditer(r"#\d+\s+0x[a-f0-9]+\s+in\s+([^\s<(]+)", log_content):
             func = match.group(1)
-            if func.startswith(("vortex", "std", "core", "alloc")):
+            if not _is_noise_func(func):
                 frames.append(func)
 
-    # Fallback: "N: 0x... - function_name"
+    # Fallback: "N: 0x... - function_name" (dash format, no paths)
     if not frames:
         for match in re.finditer(r"\d+:\s+0x[a-f0-9]+\s+-\s+([^\s<(]+)", log_content):
             func = match.group(1)
-            if func.startswith(("vortex", "std", "core", "alloc")):
+            if not _is_noise_func(func):
                 frames.append(func)
 
     return frames[:10] if frames else ["unknown"]

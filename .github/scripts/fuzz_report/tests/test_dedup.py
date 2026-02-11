@@ -231,8 +231,11 @@ class TestCheckDuplicate:
 
 # Crash 1: mask/struct cast error — panics in run_fuzz_action because a
 # vortex_expect call in the mask operation fails.
+# NOTE: The `panicked at` line points at vortex-error/src/lib.rs (the
+# vortex_expect macro site), NOT the real caller. This is the actual
+# format from CI logs.
 MASK_STRUCT_CAST_LOG = """\
-thread 'main' panicked at fuzz/src/array/mod.rs:645:22:
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
 mask operation should succeed in fuzz test:
   Cannot add non-nullable field during struct cast
 stack backtrace:
@@ -258,8 +261,10 @@ stack backtrace:
 
 # Crash 2: decimal sum overflow — panics constructing a decimal Scalar
 # because the computed sum doesn't fit the declared precision.
+# NOTE: Same as crash 1, the `panicked at` line points at vortex-error,
+# not the real caller. This is the actual format from CI logs.
 DECIMAL_SUM_LOG = """\
-thread 'main' panicked at vortex-scalar/src/constructor.rs:61:10:
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
 unable to construct a decimal Scalar:
   Incompatible dtype decimal(76,75) with value decimal256(51612137)
 stack backtrace:
@@ -423,3 +428,174 @@ class TestEndToEndDedup:
         assert "panic_location" in result.debug["extraction"]
         assert "crash_location" in result.debug["extraction"]
         assert "stack_frames_top5" in result.debug["extraction"]
+
+
+# ── Real-world test from GitHub issue #6429 ──────────────────────────────
+# Two different fuzz targets (file_io and array_ops) hit the same
+# decimal Scalar construction bug via the same call path.  The dedup
+# should match them correctly on the real crash site, not on the
+# vortex-error/src/lib.rs boilerplate.
+
+ISSUE_6429_FILE_IO_LOG = """\
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
+unable to construct a decimal Scalar:
+  Incompatible dtype decimal(76,-74)? with value decimal256(-1699999)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/panicking.rs:80:14
+   2: panic_display<vortex_error::VortexError>
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/panicking.rs:259:5
+   3: {closure#1}<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at ./vortex-error/src/lib.rs:457:9
+   4: unwrap_or_else<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/result.rs:1622:23
+   5: vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at ./vortex-error/src/lib.rs:310:14
+   6: decimal
+             at ./vortex-scalar/src/constructor.rs:61:10
+   7: sum
+             at ./vortex-array/src/arrays/decimal/compute/sum.rs:57:32
+   8: invoke<vortex_array::arrays::decimal::vtable::DecimalVTable>
+             at ./vortex-array/src/compute/sum.rs:226:17
+   9: sum_impl
+             at ./vortex-array/src/compute/sum.rs:250:38
+  10: invoke
+             at ./vortex-array/src/compute/sum.rs:146:26
+  11: invoke
+             at ./vortex-array/src/compute/mod.rs:144:34
+  12: sum_with_accumulator
+             at ./vortex-array/src/compute/sum.rs:53:10
+  13: sum
+             at ./vortex-array/src/compute/sum.rs:70:5
+  14: compute_stat
+             at ./vortex-array/src/stats/array.rs:157:22
+  15: push_chunk
+             at ./vortex-layout/src/layouts/zoned/zone_map.rs:211:49
+  16: write
+             at ./vortex-file/src/writer.rs:385:22
+  17: __libfuzzer_sys_run
+             at ./fuzz/fuzz_targets/file_io.rs:73:10
+
+==12345== ERROR: libFuzzer: deadly signal
+"""
+
+ISSUE_6429_ARRAY_OPS_LOG = """\
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
+unable to construct a decimal Scalar:
+  Incompatible dtype decimal(76,75)? with value decimal256(51612137)
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/panicking.rs:80:14
+   2: panic_display<vortex_error::VortexError>
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/panicking.rs:259:5
+   3: {closure#1}<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at ./vortex-error/src/lib.rs:457:9
+   4: unwrap_or_else<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/result.rs:1622:23
+   5: vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at ./vortex-error/src/lib.rs:310:14
+   6: decimal
+             at ./vortex-scalar/src/constructor.rs:61:10
+   7: sum
+             at ./vortex-array/src/arrays/decimal/compute/sum.rs:57:32
+   8: invoke<vortex_array::arrays::decimal::vtable::DecimalVTable>
+             at ./vortex-array/src/compute/sum.rs:226:17
+   9: sum_impl
+             at ./vortex-array/src/compute/sum.rs:250:38
+  10: invoke
+             at ./vortex-array/src/compute/sum.rs:146:26
+  11: invoke
+             at ./vortex-array/src/compute/mod.rs:144:34
+  12: sum_with_accumulator
+             at ./vortex-array/src/compute/sum.rs:53:10
+  13: sum
+             at ./vortex-array/src/compute/sum.rs:70:5
+  14: sum_canonical_array
+             at ./fuzz/src/array/sum.rs:12:5
+  15: arbitrary
+             at ./fuzz/src/array/mod.rs:313:38
+
+==12345== ERROR: libFuzzer: deadly signal
+"""
+
+
+class TestIssue6429:
+    """End-to-end test for GitHub issue #6429.
+
+    Two targets (file_io, array_ops) crash in the same decimal Scalar
+    constructor bug. The dedup should:
+      - Extract the real crash site (constructor.rs:61), not vortex-error
+      - Match them as duplicates on panic_location or stack_trace
+      - Report the match reason referencing constructor.rs, not lib.rs
+    """
+
+    @pytest.fixture
+    def file_io_info(self, temp_dir):
+        p = temp_dir / "file_io.log"
+        p.write_text(ISSUE_6429_FILE_IO_LOG)
+        return extract_crash_info(str(p))
+
+    @pytest.fixture
+    def array_ops_info(self, temp_dir):
+        p = temp_dir / "array_ops.log"
+        p.write_text(ISSUE_6429_ARRAY_OPS_LOG)
+        return extract_crash_info(str(p))
+
+    def test_extraction_skips_vortex_error(self, file_io_info, array_ops_info):
+        """Neither crash should reference vortex-error in extracted fields."""
+        for info in (file_io_info, array_ops_info):
+            assert "vortex-error" not in info.panic_location
+            assert "vortex-error" not in info.crash_location
+            assert "vortex_expect" not in info.crash_location
+            assert "constructor.rs:61" in info.panic_location
+            assert "decimal" in info.crash_location
+
+    def test_no_noise_in_stack_frames(self, file_io_info, array_ops_info):
+        """Stack frames should not contain any noise."""
+        for info in (file_io_info, array_ops_info):
+            assert all("vortex_expect" not in f for f in info.stack_frames)
+            assert all("{closure" not in f for f in info.stack_frames)
+            assert "decimal" in info.stack_frames
+
+    def test_same_bug_matches_correctly(
+        self, file_io_info, array_ops_info, temp_dir
+    ):
+        """array_ops crash should match the file_io issue — same bug."""
+        issue_body = _build_issue_body(file_io_info)
+        issues_path = temp_dir / "issues.json"
+        issues_path.write_text(
+            json.dumps([{
+                "number": 6429,
+                "title": "Fuzzing Crash: VortexError in file_io",
+                "body": issue_body,
+                "url": "https://github.com/vortex-data/vortex/issues/6429",
+            }])
+        )
+
+        result = check_duplicate(array_ops_info, str(issues_path))
+        assert result.duplicate is True
+        assert result.confidence == "high"
+
+    def test_match_reason_references_real_site(
+        self, file_io_info, array_ops_info, temp_dir
+    ):
+        """The match reason must reference the real crash, not boilerplate."""
+        issue_body = _build_issue_body(file_io_info)
+        issues_path = temp_dir / "issues.json"
+        issues_path.write_text(
+            json.dumps([{
+                "number": 6429,
+                "title": "Fuzzing Crash: VortexError in file_io",
+                "body": issue_body,
+                "url": "https://github.com/vortex-data/vortex/issues/6429",
+            }])
+        )
+
+        result = check_duplicate(array_ops_info, str(issues_path))
+        assert "lib.rs:310" not in result.reason
+        if result.check == "panic_location":
+            assert "constructor.rs:61" in result.reason
