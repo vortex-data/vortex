@@ -239,7 +239,7 @@ impl Default for CompactCompressor {
             // the default strategy's number of rows per statistic, which allows
             // efficient pushdown in the case of scalar, non-nullable data (but
             // nothing enforces this).
-            pco_values_per_page: 2048,
+            pco_values_per_page: 8192,
             zstd_values_per_frame: 8192,
         }
     }
