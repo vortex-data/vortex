@@ -14,7 +14,7 @@ use crate::arrays::ListViewArray;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::TakeExecute;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
@@ -64,16 +64,11 @@ impl TakeExecute for ListViewVTable {
         // Since `take` returns nullable arrays, we simply cast it back to non-nullable (filled with
         // zeros to represent null lists).
         let new_offsets = match_each_integer_ptype!(nullable_new_offsets.dtype().as_ptype(), |O| {
-            compute::fill_null(
-                &nullable_new_offsets,
-                &Scalar::primitive(O::zero(), Nullability::NonNullable),
-            )?
+            nullable_new_offsets
+                .fill_null(Scalar::primitive(O::zero(), Nullability::NonNullable))?
         });
         let new_sizes = match_each_integer_ptype!(nullable_new_sizes.dtype().as_ptype(), |S| {
-            compute::fill_null(
-                &nullable_new_sizes,
-                &Scalar::primitive(S::zero(), Nullability::NonNullable),
-            )?
+            nullable_new_sizes.fill_null(Scalar::primitive(S::zero(), Nullability::NonNullable))?
         });
         // SAFETY: Take operation maintains all `ListViewArray` invariants:
         // - `new_offsets` and `new_sizes` are derived from existing valid child arrays.

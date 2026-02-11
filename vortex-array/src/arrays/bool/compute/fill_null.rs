@@ -47,10 +47,11 @@ mod tests {
     use vortex_buffer::bitbuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_scalar::Scalar;
 
     use crate::arrays::BoolArray;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::fill_null;
     use crate::validity::Validity;
 
     #[rstest]
@@ -61,7 +62,9 @@ mod tests {
             BitBuffer::from_iter([true, true, false, false]),
             Validity::from_iter([true, false, true, false]),
         );
-        let non_null_array = fill_null(bool_array.as_ref(), &fill_value.into())
+        let non_null_array = bool_array
+            .to_array()
+            .fill_null(Scalar::from(fill_value))
             .unwrap()
             .to_bool();
         assert_eq!(non_null_array.to_bit_buffer(), expected);

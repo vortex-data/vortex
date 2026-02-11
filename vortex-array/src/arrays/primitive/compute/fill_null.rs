@@ -55,14 +55,16 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::fill_null;
     use crate::validity::Validity;
 
     #[test]
     fn fill_null_leading_none() {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
-        let p = fill_null(arr.as_ref(), &Scalar::from(42u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(42u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]));
@@ -73,7 +75,9 @@ mod test {
     fn fill_null_all_none() {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
-        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]));
@@ -86,7 +90,9 @@ mod test {
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         );
-        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
@@ -96,9 +102,7 @@ mod test {
     #[test]
     fn fill_null_non_nullable() {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
-        let p = fill_null(&arr, &Scalar::from(255u8))
-            .unwrap()
-            .to_primitive();
+        let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
         assert!(p.validity_mask().unwrap().all_true());
     }

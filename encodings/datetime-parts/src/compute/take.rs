@@ -7,7 +7,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::fill_null;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::expr::stats::Stat;
 use vortex_array::expr::stats::StatsProvider;
 use vortex_dtype::Nullability;
@@ -68,7 +68,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
         .map(|s| s.into_inner())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.seconds().dtype())?;
-    let taken_seconds = fill_null(taken_seconds.as_ref(), &seconds_fill)?;
+    let taken_seconds = taken_seconds.fill_null(seconds_fill)?;
 
     let subseconds_fill = array
         .subseconds()
@@ -77,7 +77,7 @@ fn take_datetime_parts(array: &DateTimePartsArray, indices: &dyn Array) -> Vorte
         .map(|s| s.into_inner())
         .unwrap_or_else(|| Scalar::primitive(0i64, Nullability::NonNullable))
         .cast(array.subseconds().dtype())?;
-    let taken_subseconds = fill_null(taken_subseconds.as_ref(), &subseconds_fill)?;
+    let taken_subseconds = taken_subseconds.fill_null(subseconds_fill)?;
 
     Ok(
         DateTimePartsArray::try_new(dtype, taken_days, taken_seconds, taken_subseconds)?
