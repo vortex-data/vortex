@@ -1,0 +1,49 @@
+[package]
+name = "vortex-clickhouse"
+version = { workspace = true }
+description = "Vortex ClickHouse extension"
+homepage = { workspace = true }
+repository = { workspace = true }
+authors = { workspace = true }
+license = { workspace = true }
+publish = false
+keywords = { workspace = true }
+include = { workspace = true }
+edition = { workspace = true }
+rust-version = { workspace = true }
+categories = { workspace = true }
+readme = { workspace = true }
+
+# The `links` key enables DEP_CLICKHOUSE_* environment variables in dependent build scripts.
+# See: https://doc.rust-lang.org/cargo/reference/build-scripts.html#the-links-manifest-key
+links = "clickhouse"
+
+[lib]
+name = "vortex_clickhouse"
+path = "src/lib.rs"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+async-fs = { workspace = true }
+bitvec = { workspace = true }
+futures = { workspace = true }
+glob = { workspace = true }
+itertools = { workspace = true }
+num-traits = { workspace = true }
+object_store = { workspace = true, features = ["aws", "gcp", "azure", "http"] }
+parking_lot = { workspace = true }
+paste = { workspace = true }
+smol = { workspace = true }
+tracing = { workspace = true }
+url = { workspace = true }
+vortex = { workspace = true, features = ["files", "tokio", "object_store"] }
+vortex-utils = { workspace = true, features = ["dashmap"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
+
+[build-dependencies]
+walkdir = { workspace = true }

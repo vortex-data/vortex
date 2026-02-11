@@ -10338,6 +10338,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "vortex-clickhouse"
+version = "0.1.0"
+dependencies = [
+ "async-fs",
+ "bitvec",
+ "futures",
+ "glob",
+ "itertools 0.14.0",
+ "num-traits",
+ "object_store",
+ "parking_lot",
+ "paste",
+ "smol",
+ "tempfile",
+ "tracing",
+ "url",
+ "vortex",
+ "vortex-utils",
+ "walkdir",
+]
+
+[[package]]
 name = "vortex-compute"
 version = "0.1.0"
 dependencies = [
