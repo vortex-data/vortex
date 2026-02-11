@@ -19,7 +19,6 @@ use vortex_error::VortexError;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_scalar::PValue;
-use vortex_scalar::PrimitiveScalar;
 use vortex_scalar::Scalar;
 
 use crate::FoRArray;
@@ -33,7 +32,7 @@ impl CompareKernel for FoRVTable {
         operator: Operator,
     ) -> VortexResult<Option<ArrayRef>> {
         if let Some(constant) = rhs.as_constant()
-            && let Ok(constant) = PrimitiveScalar::try_from(&constant)
+            && let Some(constant) = constant.as_primitive_opt()
         {
             match_each_integer_ptype!(constant.ptype(), |T| {
                 return compare_constant(

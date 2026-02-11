@@ -97,12 +97,12 @@ pub(super) fn execute_sparse(array: &SparseArray) -> VortexResult<ArrayRef> {
             })
         }
         dtype @ DType::Utf8(..) => {
-            let fill_value = array.fill_scalar().as_utf8().value();
+            let fill_value = array.fill_scalar().as_utf8().value().cloned();
             let fill_value = fill_value.map(BufferString::into_inner);
             execute_varbin(array, dtype.clone(), fill_value)?
         }
         dtype @ DType::Binary(..) => {
-            let fill_value = array.fill_scalar().as_binary().value();
+            let fill_value = array.fill_scalar().as_binary().value().cloned();
             execute_varbin(array, dtype.clone(), fill_value)?
         }
         DType::List(values_dtype, nullability) => {
@@ -369,12 +369,12 @@ fn execute_sparse_struct(
     unresolved_patches: &Patches,
     len: usize,
 ) -> VortexResult<ArrayRef> {
-    let (fill_values, top_level_fill_validity) = match fill_struct.fields() {
+    let (fill_values, top_level_fill_validity) = match fill_struct.fields_iter() {
         Some(fill_values) => (fill_values.collect::<Vec<_>>(), Validity::AllValid),
         None => (
             struct_fields
                 .fields()
-                .map(Scalar::default_value)
+                .map(|f| Scalar::default_value(&f))
                 .collect::<Vec<_>>(),
             Validity::AllInvalid,
         ),

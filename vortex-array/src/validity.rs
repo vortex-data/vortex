@@ -22,6 +22,8 @@ use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
@@ -43,6 +45,16 @@ pub enum Validity {
     ///
     /// True values are valid, false values are invalid ("null").
     Array(ArrayRef),
+}
+
+impl Validity {
+    /// Make a step towards canonicalising validity if necessary
+    pub fn execute(self, ctx: &mut ExecutionCtx) -> VortexResult<Validity> {
+        match self {
+            v @ Validity::NonNullable | v @ Validity::AllValid | v @ Validity::AllInvalid => Ok(v),
+            Validity::Array(a) => Ok(Validity::Array(a.execute::<Canonical>(ctx)?.into_array())),
+        }
+    }
 }
 
 impl Validity {
@@ -217,12 +229,15 @@ impl Validity {
             AllOr::None => self.clone().into_nullable(),
             AllOr::Some(make_invalid) => match self {
                 Validity::NonNullable | Validity::AllValid => {
-                    Validity::Array(BoolArray::from(!make_invalid).into_array())
+                    Validity::from_bit_buffer(!make_invalid, Nullability::Nullable)
                 }
                 Validity::AllInvalid => Validity::AllInvalid,
                 Validity::Array(is_valid) => {
                     let is_valid = is_valid.to_bool();
-                    Validity::from(is_valid.to_bit_buffer() & !make_invalid)
+                    Validity::from_bit_buffer(
+                        is_valid.to_bit_buffer() & !make_invalid,
+                        Nullability::Nullable,
+                    )
                 }
             },
         }

@@ -13,6 +13,7 @@ use sysinfo::System;
 use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
+use tokio::io::AsyncWriteExt;
 use tracing::Instrument;
 use tracing::info;
 use tracing::trace;
@@ -200,4 +201,25 @@ pub async fn convert_parquet_directory_to_vortex(
         .await?;
 
     Ok(())
+}
+
+/// Convert a Parquet file to Vortex format with the specified compaction strategy.
+///
+/// Uses `idempotent_async` to skip conversion if the output file already exists.
+pub async fn write_parquet_as_vortex(
+    parquet_path: PathBuf,
+    vortex_path: &str,
+    compaction: CompactionStrategy,
+) -> anyhow::Result<PathBuf> {
+    idempotent_async(vortex_path, |output_fname| async move {
+        let mut output_file = File::create(&output_fname).await?;
+        let data = parquet_to_vortex_chunks(parquet_path).await?;
+        let write_options = compaction.apply_options(SESSION.write_options());
+        write_options
+            .write(&mut output_file, data.to_array_stream())
+            .await?;
+        output_file.flush().await?;
+        Ok(())
+    })
+    .await
 }

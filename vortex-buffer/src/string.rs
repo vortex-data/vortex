@@ -84,7 +84,26 @@ impl TryFrom<ByteBuffer> for BufferString {
             let err = simdutf8::compat::from_utf8(value.as_ref()).unwrap_err();
             vortex_err!("invalid utf-8: {err}")
         })?;
+
         Ok(Self(value))
+    }
+}
+
+impl TryFrom<&[u8]> for BufferString {
+    type Error = VortexError;
+
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        simdutf8::basic::from_utf8(value).map_err(|_| {
+            #[expect(
+                clippy::unwrap_used,
+                reason = "unwrap is intentional - the error was already detected"
+            )]
+            // run validation using `compat` package to get more detailed error message
+            let err = simdutf8::compat::from_utf8(value).unwrap_err();
+            vortex_err!("invalid utf-8: {err}")
+        })?;
+
+        Ok(Self(ByteBuffer::from(value.to_vec())))
     }
 }
 

@@ -7,7 +7,6 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use itertools::Itertools;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -116,8 +115,21 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty() {
-            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.iter().format("\n"));
+        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
+            // Unlike itertools `.format()` (panics in 0.14 on second format)
+            struct FmtOps<'a>(&'a [String]);
+            impl Display for FmtOps<'_> {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    for (i, op) in self.0.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str("\n")?;
+                        }
+                        f.write_str(op)?;
+                    }
+                    Ok(())
+                }
+            }
+            tracing::debug!("exec[{}] trace:\n{}", self.id, FmtOps(&self.ops));
         }
     }
 }

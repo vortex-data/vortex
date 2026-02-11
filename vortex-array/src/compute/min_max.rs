@@ -102,13 +102,17 @@ impl ComputeFnVTable for MinMax {
                     array.encoding_id()
                 );
 
-                // Update the stats set with the computed min/max
-                array
-                    .statistics()
-                    .set(Stat::Min, Precision::Exact(min.value().clone()));
-                array
-                    .statistics()
-                    .set(Stat::Max, Precision::Exact(max.value().clone()));
+                // Update the stats set with the computed min/max.
+                if let Some(min_value) = min.value() {
+                    array
+                        .statistics()
+                        .set(Stat::Min, Precision::Exact(min_value.clone()));
+                }
+                if let Some(max_value) = max.value() {
+                    array
+                        .statistics()
+                        .set(Stat::Max, Precision::Exact(max_value.clone()));
+                }
 
                 // Return the min/max as a struct scalar
                 Ok(Scalar::struct_(return_dtype, vec![min, max]).into())

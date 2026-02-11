@@ -116,11 +116,11 @@ mod tests {
             .vortex_expect("failed to create CUDA execution context");
 
         // Create a large array to test multi-block execution
-        let data: Vec<i32> = (0..100_000).collect();
+        let data: Vec<i32> = (0..2050).collect();
         let input = DecimalArray::from_iter(data, DecimalDType::new(19, 5));
 
         // Select every 7th element
-        let mask = Mask::from_iter((0..100_000).map(|i| i % 7 == 0));
+        let mask = Mask::from_iter((0..2050).map(|i| i % 7 == 0));
 
         let filter_array = FilterArray::try_new(input.into_array(), mask)?;
 

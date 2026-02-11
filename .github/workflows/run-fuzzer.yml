@@ -157,7 +157,7 @@ jobs:
         with:
           name: ${{ inputs.fuzz_target }}-crash-artifacts
           path: fuzz/artifacts
-          retention-days: 30
+          retention-days: 180
 
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
@@ -165,7 +165,7 @@ jobs:
         with:
           name: ${{ inputs.fuzz_target }}-logs
           path: fuzz_output.log
-          retention-days: 30
+          retention-days: 90
 
       - name: Persist corpus
         shell: bash

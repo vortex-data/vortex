@@ -32,8 +32,6 @@ pub mod compute2 {
 
 pub mod compressor {
     pub use vortex_btrblocks::BtrBlocksCompressor;
-    #[cfg(feature = "zstd")]
-    pub use vortex_layout::layouts::compact::CompactCompressor;
 }
 
 pub mod dtype {
@@ -201,7 +199,6 @@ mod test {
     use vortex_file::OpenOptionsSessionExt;
     use vortex_file::WriteOptionsSessionExt;
     use vortex_file::WriteStrategyBuilder;
-    use vortex_layout::layouts::compact::CompactCompressor;
     use vortex_session::VortexSession;
 
     use crate as vortex;
@@ -244,7 +241,6 @@ mod test {
     fn compress() -> VortexResult<()> {
         // [compress]
         use vortex::compressor::BtrBlocksCompressor;
-        use vortex::compressor::CompactCompressor;
 
         let array = PrimitiveArray::new(buffer![42u64; 100_000], Validity::NonNullable);
 
@@ -255,12 +251,6 @@ mod test {
             compressed.nbytes(),
             array.nbytes()
         );
-
-        // Or apply generally stronger compression with the compact compressor
-        let compressed = CompactCompressor::default()
-            .with_zstd_values_per_frame(8192)
-            .compress(array.as_ref())?;
-        println!("Compact size: {} / {}", compressed.nbytes(), array.nbytes());
         // [compress]
 
         Ok(())
@@ -319,7 +309,7 @@ mod test {
             .write_options()
             .with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_compressor(CompactCompressor::default())
+                    .with_compact_encodings()
                     .build(),
             )
             .write(

@@ -25,7 +25,10 @@ mod tests {
     use vortex_error::VortexExpect;
 
     use crate::Array;
+    use crate::Canonical;
     use crate::IntoArray as _;
+    use crate::LEGACY_SESSION;
+    use crate::VortexSessionExecute;
     use crate::arrays::BoolArray;
     use crate::arrays::PrimitiveArray;
     use crate::arrays::StructArray;
@@ -36,7 +39,6 @@ mod tests {
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
     use crate::compute::is_constant;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -44,7 +46,7 @@ mod tests {
         let struct_arr =
             StructArray::try_new(FieldNames::empty(), vec![], 10, Validity::NonNullable).unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr.take(indices.to_array()).unwrap();
 
         assert_arrays_eq!(
             taken,
@@ -58,12 +60,41 @@ mod tests {
     }
 
     #[test]
+    fn take_empty_struct_with_nullable_indices() {
+        let struct_arr = StructArray::try_from_iter_with_validity(
+            [("a", BoolArray::from_iter(Vec::<bool>::new()).into_array())],
+            Validity::AllValid,
+        )
+        .unwrap();
+        let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
+        let taken = struct_arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
+        assert_eq!(taken.len(), 1);
+        assert!(taken.into_array().all_invalid().unwrap());
+    }
+
+    #[test]
+    fn take_empty_primitive_with_nullable_indices() {
+        let arr = PrimitiveArray::from_iter(Vec::<u64>::new());
+        let indices = PrimitiveArray::from_option_iter([Option::<u64>::None]);
+        let taken = arr
+            .take(indices.to_array())
+            .unwrap()
+            .execute::<Canonical>(&mut LEGACY_SESSION.create_execution_ctx())
+            .unwrap();
+        assert_eq!(taken.len(), 1);
+    }
+
+    #[test]
     fn take_field_struct() {
         let struct_arr =
             StructArray::from_fields(&[("a", PrimitiveArray::from_iter(0..10).to_array())])
                 .unwrap();
         let indices = PrimitiveArray::from_option_iter([Some(1), None]);
-        let taken = take(struct_arr.as_ref(), indices.as_ref()).unwrap();
+        let taken = struct_arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(
             taken,
             StructArray::try_from_iter_with_validity(

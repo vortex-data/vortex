@@ -21,7 +21,7 @@ cargo-fuzz = true
 default = ["native"]
 native = ["libfuzzer-sys", "zstd", "vortex-file", "vortex/files"]
 wasmfuzz = []
-zstd = ["vortex/zstd"]
+zstd = ["vortex/zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
 cuda = ["vortex-cuda", "vortex/cuda", "tokio"]
 
 [dependencies]

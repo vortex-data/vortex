@@ -15,7 +15,6 @@ use crate::arrays::PrimitiveArray;
 use crate::arrays::TakeExecute;
 use crate::arrays::chunked::ChunkedArray;
 use crate::compute::cast;
-use crate::compute::take;
 use crate::executor::ExecutionCtx;
 use crate::validity::Validity;
 
@@ -47,10 +46,11 @@ fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<Array
                 indices_in_chunk.clone().freeze(),
                 Validity::from_mask(indices_mask.slice(start..stop), nullability),
             );
-            chunks.push(take(
-                array.chunk(prev_chunk_idx),
-                indices_in_chunk_array.as_ref(),
-            )?);
+            chunks.push(
+                array
+                    .chunk(prev_chunk_idx)
+                    .take(indices_in_chunk_array.into_array())?,
+            );
             indices_in_chunk.clear();
             start = stop;
         }
@@ -65,10 +65,11 @@ fn take_chunked(array: &ChunkedArray, indices: &dyn Array) -> VortexResult<Array
             indices_in_chunk.freeze(),
             Validity::from_mask(indices_mask.slice(start..stop), nullability),
         );
-        chunks.push(take(
-            array.chunk(prev_chunk_idx),
-            indices_in_chunk_array.as_ref(),
-        )?);
+        chunks.push(
+            array
+                .chunk(prev_chunk_idx)
+                .take(indices_in_chunk_array.into_array())?,
+        );
     }
 
     // SAFETY: take on chunks that all have same DType retains same DType
@@ -105,7 +106,6 @@ mod test {
     use crate::arrays::chunked::ChunkedArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
@@ -117,7 +117,7 @@ mod test {
         assert_eq!(arr.len(), 9);
         let indices = buffer![0u64, 0, 6, 4].into_array();
 
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let result = arr.take(indices.to_array()).unwrap();
         assert_arrays_eq!(result, PrimitiveArray::from_iter([1i32, 1, 1, 2]));
     }
 
@@ -129,11 +129,9 @@ mod test {
 
         let arr = ChunkedArray::from_iter(vec![struct_array.to_array(), struct_array.to_array()]);
 
-        let result = take(
-            arr.as_ref(),
-            PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).as_ref(),
-        )
-        .unwrap();
+        let result = arr
+            .take(PrimitiveArray::from_option_iter(vec![Some(0), None, Some(101)]).to_array())
+            .unwrap();
 
         let expect = StructArray::try_new(
             FieldNames::default(),
@@ -154,7 +152,7 @@ mod test {
         assert_eq!(arr.len(), 9);
 
         let indices = PrimitiveArray::empty::<u64>(Nullability::NonNullable);
-        let result = take(arr.as_ref(), indices.as_ref()).unwrap();
+        let result = arr.take(indices.to_array()).unwrap();
 
         assert!(result.is_empty());
         assert_eq!(result.dtype(), arr.dtype());

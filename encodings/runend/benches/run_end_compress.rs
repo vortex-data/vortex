@@ -7,8 +7,10 @@ use divan::Bencher;
 use itertools::repeat_n;
 use vortex_array::Array;
 use vortex_array::IntoArray;
+use vortex_array::LEGACY_SESSION;
+use vortex_array::RecursiveCanonical;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::PrimitiveArray;
-use vortex_array::compute::take;
 use vortex_array::compute::warm_up_vtables;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
@@ -96,6 +98,18 @@ fn take_indices(bencher: Bencher, (length, run_step): (usize, usize)) {
         .to_array();
 
     bencher
-        .with_inputs(|| (&source_array, &runend_array))
-        .bench_refs(|(array, indices)| take(array.as_ref(), indices.as_ref()).unwrap());
+        .with_inputs(|| {
+            (
+                &source_array,
+                &runend_array,
+                LEGACY_SESSION.create_execution_ctx(),
+            )
+        })
+        .bench_refs(|(array, indices, execution_ctx)| {
+            array
+                .take(indices.to_array())
+                .unwrap()
+                .execute::<RecursiveCanonical>(execution_ctx)
+                .unwrap()
+        });
 }

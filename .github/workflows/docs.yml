@@ -35,7 +35,7 @@ jobs:
           sync: false
           prune-cache: false
       - name: Generate changelog from GitHub releases
-        run: uv run docs/generate_changelog.py
+        run: uv run --no-project docs/generate_changelog.py
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Install Doxygen

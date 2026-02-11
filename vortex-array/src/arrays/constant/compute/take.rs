@@ -20,13 +20,13 @@ impl TakeReduce for ConstantVTable {
     fn take(array: &ConstantArray, indices: &dyn Array) -> VortexResult<Option<ArrayRef>> {
         let result = match indices.validity_mask()?.bit_buffer() {
             AllOr::All => {
-                let scalar = Scalar::new(
+                let scalar = Scalar::try_new(
                     array
                         .scalar()
                         .dtype()
                         .union_nullability(indices.dtype().nullability()),
-                    array.scalar().value().clone(),
-                );
+                    array.scalar().value().cloned(),
+                )?;
                 ConstantArray::new(scalar, indices.len()).into_array()
             }
             AllOr::None => ConstantArray::new(
@@ -72,21 +72,20 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::assert_arrays_eq;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
     use crate::validity::Validity;
 
     #[test]
     fn take_nullable_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(
-                buffer![0, 5, 7],
-                Validity::from_iter(vec![false, true, false]),
+        let taken = array
+            .take(
+                PrimitiveArray::new(
+                    buffer![0, 5, 7],
+                    Validity::from_iter(vec![false, true, false]),
+                )
+                .into_array(),
             )
-            .into_array(),
-        )
-        .unwrap();
+            .unwrap();
         let valid_indices: &[usize] = &[1usize];
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
@@ -108,11 +107,9 @@ mod tests {
     #[test]
     fn take_all_valid_indices() {
         let array = ConstantArray::new(42, 10).to_array();
-        let taken = take(
-            &array,
-            &PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array(),
-        )
-        .unwrap();
+        let taken = array
+            .take(PrimitiveArray::new(buffer![0, 5, 7], Validity::AllValid).into_array())
+            .unwrap();
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
@@ -128,7 +125,7 @@ mod tests {
     #[case(ConstantArray::new(42i32, 5))]
     #[case(ConstantArray::new(std::f64::consts::PI, 10))]
     #[case(ConstantArray::new(Scalar::from("hello"), 3))]
-    #[case(ConstantArray::new(Scalar::null_typed::<i64>(), 5))]
+    #[case(ConstantArray::new(Scalar::null_native::<i64>(), 5))]
     #[case(ConstantArray::new(true, 1))]
     fn test_take_constant_conformance(#[case] array: ConstantArray) {
         test_take_conformance(array.as_ref());

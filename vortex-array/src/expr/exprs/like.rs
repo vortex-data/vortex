@@ -159,7 +159,7 @@ impl VTable for Like {
         let src_min = src.stat_min(catalog)?;
         let src_max = src.stat_max(catalog)?;
 
-        match LikeVariant::from_str(&pat_str)? {
+        match LikeVariant::from_str(pat_str)? {
             LikeVariant::Exact(text) => {
                 // col LIKE 'exact' ==>  col.min > 'exact' || col.max < 'exact'
                 Some(or(gt(src_min, lit(text)), lt(src_max, lit(text))))

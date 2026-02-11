@@ -23,7 +23,6 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
 
     #[test]
     fn test_slice_nulls() {
@@ -37,7 +36,8 @@ mod test {
     #[test]
     fn test_take_nulls() {
         let nulls = NullArray::new(10);
-        let taken = take(nulls.as_ref(), &buffer![0u64, 2, 4, 6, 8].into_array())
+        let taken = nulls
+            .take(buffer![0u64, 2, 4, 6, 8].into_array())
             .unwrap()
             .to_null();
 

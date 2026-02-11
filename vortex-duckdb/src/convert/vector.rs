@@ -21,6 +21,7 @@ use vortex::buffer::Buffer;
 use vortex::buffer::BufferMut;
 use vortex::dtype::DType;
 use vortex::dtype::DecimalDType;
+use vortex::dtype::DecimalType;
 use vortex::dtype::FieldNames;
 use vortex::dtype::NativePType;
 use vortex::dtype::Nullability;
@@ -28,7 +29,6 @@ use vortex::dtype::datetime::TimeUnit;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::scalar::DecimalType;
 
 use crate::cpp::DUCKDB_TYPE;
 use crate::cpp::duckdb_date;

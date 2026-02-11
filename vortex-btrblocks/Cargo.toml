@@ -18,6 +18,7 @@ enum-iterator = { workspace = true }
 getrandom_v03 = { workspace = true }
 itertools = { workspace = true }
 num-traits = { workspace = true }
+pco = { workspace = true, optional = true }
 rand = { workspace = true }
 rustc-hash = { workspace = true }
 tracing = { workspace = true }
@@ -31,12 +32,14 @@ vortex-error = { workspace = true }
 vortex-fastlanes = { workspace = true }
 vortex-fsst = { workspace = true }
 vortex-mask = { workspace = true }
+vortex-pco = { workspace = true, optional = true }
 vortex-runend = { workspace = true }
 vortex-scalar = { workspace = true }
 vortex-sequence = { workspace = true }
 vortex-sparse = { workspace = true }
 vortex-utils = { workspace = true }
 vortex-zigzag = { workspace = true }
+vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
@@ -46,7 +49,9 @@ vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = []
+unstable_encodings = ["vortex-zstd?/unstable_encodings"]
+pco = ["dep:pco", "dep:vortex-pco"]
+zstd = ["dep:vortex-zstd"]
 
 [lints]
 workspace = true

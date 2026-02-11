@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::sync::LazyLock;
 
 // Compressed encodings from encoding crates
+// Canonical array encodings from vortex-array
 use vortex_alp::ALPRDVTable;
 use vortex_alp::ALPVTable;
-// Canonical array encodings from vortex-array
 use vortex_array::arrays::BoolVTable;
 use vortex_array::arrays::ChunkedVTable;
 use vortex_array::arrays::ConstantVTable;
@@ -26,6 +26,14 @@ use vortex_array::arrays::StructVTable;
 use vortex_array::arrays::VarBinVTable;
 use vortex_array::arrays::VarBinViewVTable;
 use vortex_array::session::ArrayRegistry;
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::BtrBlocksCompressorBuilder;
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::FloatCode;
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::IntCode;
+#[cfg(feature = "zstd")]
+use vortex_btrblocks::StringCode;
 use vortex_bytebool::ByteBoolVTable;
 use vortex_datetime_parts::DateTimePartsVTable;
 use vortex_decimal_byte_parts::DecimalBytePartsVTable;
@@ -54,6 +62,8 @@ use vortex_sequence::SequenceVTable;
 use vortex_sparse::SparseVTable;
 use vortex_utils::aliases::hash_map::HashMap;
 use vortex_zigzag::ZigZagVTable;
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+use vortex_zstd::ZstdBuffersVTable;
 #[cfg(feature = "zstd")]
 use vortex_zstd::ZstdVTable;
 
@@ -102,6 +112,8 @@ pub static ALLOWED_ENCODINGS: LazyLock<ArrayRegistry> = LazyLock::new(|| {
 
     #[cfg(feature = "zstd")]
     registry.register(ZstdVTable::ID, ZstdVTable);
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    registry.register(ZstdBuffersVTable::ID, ZstdBuffersVTable);
 
     registry
 });
@@ -161,6 +173,49 @@ impl WriteStrategyBuilder {
     /// Override the allowed array encodings for normalization.
     pub fn with_allow_encodings(mut self, allow_encodings: ArrayRegistry) -> Self {
         self.allow_encodings = Some(allow_encodings);
+        self
+    }
+
+    /// Configure a write strategy that emits only CUDA-compatible encodings.
+    ///
+    /// This configures BtrBlocks to exclude schemes without CUDA kernel support.
+    /// With the `unstable_encodings` feature, strings use buffer-level Zstd compression
+    /// (`ZstdBuffersArray`) which preserves the array buffer layout for zero-conversion
+    /// GPU decompression. Without it, strings use interleaved Zstd compression.
+    #[cfg(feature = "zstd")]
+    pub fn with_cuda_compatible_encodings(mut self) -> Self {
+        let mut builder = BtrBlocksCompressorBuilder::default()
+            .exclude_int([IntCode::Sparse, IntCode::Rle])
+            .exclude_float([FloatCode::AlpRd, FloatCode::Rle, FloatCode::Sparse])
+            .exclude_string([StringCode::Dict, StringCode::Fsst]);
+
+        #[cfg(feature = "unstable_encodings")]
+        {
+            builder = builder.include_string([StringCode::ZstdBuffers]);
+        }
+        #[cfg(not(feature = "unstable_encodings"))]
+        {
+            builder = builder.include_string([StringCode::Zstd]);
+        }
+
+        self.compressor = Some(Arc::new(builder.build()));
+        self
+    }
+
+    /// Configure a write strategy that uses compact encodings (Pco for numerics, Zstd for
+    /// strings/binary).
+    ///
+    /// This provides better compression ratios than the default BtrBlocks strategy,
+    /// especially for floating-point heavy datasets.
+    #[cfg(feature = "zstd")]
+    pub fn with_compact_encodings(mut self) -> Self {
+        let btrblocks = BtrBlocksCompressorBuilder::default()
+            .include_string([StringCode::Zstd])
+            .include_int([IntCode::Pco])
+            .include_float([FloatCode::Pco])
+            .build();
+
+        self.compressor = Some(Arc::new(btrblocks));
         self
     }
 

@@ -355,10 +355,10 @@ impl VarBinArray {
             self.len()
         );
 
-        self.offsets()
+        (&self
+            .offsets()
             .scalar_at(index)
-            .vortex_expect("offsets must support scalar_at")
-            .as_ref()
+            .vortex_expect("offsets must support scalar_at"))
             .try_into()
             .vortex_expect("Failed to convert offset to usize")
     }

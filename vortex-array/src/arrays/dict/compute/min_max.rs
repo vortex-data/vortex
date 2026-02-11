@@ -49,16 +49,16 @@ mod tests {
     fn assert_min_max(array: &dyn Array, expected: Option<(i32, i32)>) {
         match (min_max(array).unwrap(), expected) {
             (Some(result), Some((expected_min, expected_max))) => {
-                assert_eq!(i32::try_from(result.min).unwrap(), expected_min);
-                assert_eq!(i32::try_from(result.max).unwrap(), expected_max);
+                assert_eq!(i32::try_from(&result.min).unwrap(), expected_min);
+                assert_eq!(i32::try_from(&result.max).unwrap(), expected_max);
             }
             (None, None) => {}
             (got, expected) => panic!(
                 "min_max mismatch: expected {:?}, got {:?}",
                 expected,
                 got.as_ref().map(|r| (
-                    i32::try_from(r.min.clone()).ok(),
-                    i32::try_from(r.max.clone()).ok()
+                    i32::try_from(&r.min.clone()).ok(),
+                    i32::try_from(&r.max.clone()).ok()
                 ))
             ),
         }

@@ -222,13 +222,13 @@ impl RunEndArray {
 
         // Validate the offset and length are valid for the given ends and values
         if offset != 0 && length != 0 {
-            let first_run_end: usize = ends.scalar_at(0)?.as_ref().try_into()?;
+            let first_run_end = usize::try_from(&ends.scalar_at(0)?)?;
             if first_run_end <= offset {
                 vortex_bail!("First run end {first_run_end} must be bigger than offset {offset}");
             }
         }
 
-        let last_run_end: usize = ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?;
+        let last_run_end = usize::try_from(&ends.scalar_at(ends.len() - 1)?)?;
         let min_required_end = offset + length;
         if last_run_end < min_required_end {
             vortex_bail!("Last run end {last_run_end} must be >= offset+length {min_required_end}");
@@ -302,7 +302,7 @@ impl RunEndArray {
         let length: usize = if ends.is_empty() {
             0
         } else {
-            ends.scalar_at(ends.len() - 1)?.as_ref().try_into()?
+            usize::try_from(&ends.scalar_at(ends.len() - 1)?)?
         };
 
         Self::try_new_offset_length(ends, values, 0, length)

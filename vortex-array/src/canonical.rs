@@ -3,6 +3,8 @@
 
 //! Encodings that enable zero-copy sharing of data with Arrow.
 
+use std::sync::Arc;
+
 use vortex_buffer::Buffer;
 use vortex_dtype::DType;
 use vortex_dtype::NativePType;
@@ -18,23 +20,29 @@ use crate::Executable;
 use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::BoolArray;
+use crate::arrays::BoolArrayParts;
 use crate::arrays::BoolVTable;
 use crate::arrays::DecimalArray;
+use crate::arrays::DecimalArrayParts;
 use crate::arrays::DecimalVTable;
 use crate::arrays::ExtensionArray;
 use crate::arrays::ExtensionVTable;
 use crate::arrays::FixedSizeListArray;
 use crate::arrays::FixedSizeListVTable;
 use crate::arrays::ListViewArray;
+use crate::arrays::ListViewArrayParts;
 use crate::arrays::ListViewRebuildMode;
 use crate::arrays::ListViewVTable;
 use crate::arrays::NullArray;
 use crate::arrays::NullVTable;
 use crate::arrays::PrimitiveArray;
+use crate::arrays::PrimitiveArrayParts;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructArray;
+use crate::arrays::StructArrayParts;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewArray;
+use crate::arrays::VarBinViewArrayParts;
 use crate::arrays::VarBinViewVTable;
 use crate::arrays::constant_canonicalize;
 use crate::builders::builder_with_capacity;
@@ -495,6 +503,242 @@ impl Executable for Canonical {
                 canonical
             }
         })
+    }
+}
+
+/// Recursively execute the array until it reaches canonical form along with its validity.
+///
+/// Callers should prefer to execute into `Columnar` instead of this specific target.
+/// This target is useful when preparing arrays for writing.
+pub struct CanonicalValidity(pub Canonical);
+
+impl Executable for CanonicalValidity {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.execute::<Canonical>(ctx)? {
+            n @ Canonical::Null(_) => Ok(CanonicalValidity(n)),
+            Canonical::Bool(b) => {
+                let BoolArrayParts {
+                    bits,
+                    offset,
+                    len,
+                    validity,
+                } = b.into_parts();
+                Ok(CanonicalValidity(Canonical::Bool(
+                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                )))
+            }
+            Canonical::Primitive(p) => {
+                let PrimitiveArrayParts {
+                    ptype,
+                    buffer,
+                    validity,
+                } = p.into_parts();
+                Ok(CanonicalValidity(Canonical::Primitive(unsafe {
+                    PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
+                })))
+            }
+            Canonical::Decimal(d) => {
+                let DecimalArrayParts {
+                    decimal_dtype,
+                    values,
+                    values_type,
+                    validity,
+                } = d.into_parts();
+                Ok(CanonicalValidity(Canonical::Decimal(unsafe {
+                    DecimalArray::new_unchecked_handle(
+                        values,
+                        values_type,
+                        decimal_dtype,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::VarBinView(vbv) => {
+                let VarBinViewArrayParts {
+                    dtype,
+                    buffers,
+                    views,
+                    validity,
+                } = vbv.into_parts();
+                Ok(CanonicalValidity(Canonical::VarBinView(unsafe {
+                    VarBinViewArray::new_handle_unchecked(
+                        views,
+                        buffers,
+                        dtype,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::List(l) => {
+                let ListViewArrayParts {
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    ..
+                } = l.into_parts();
+                Ok(CanonicalValidity(Canonical::List(unsafe {
+                    ListViewArray::new_unchecked(elements, offsets, sizes, validity.execute(ctx)?)
+                })))
+            }
+            Canonical::FixedSizeList(fsl) => {
+                let list_size = fsl.list_size();
+                let len = fsl.len();
+                let (elements, validity, _) = fsl.into_parts();
+                Ok(CanonicalValidity(Canonical::FixedSizeList(
+                    FixedSizeListArray::new(elements, list_size, validity.execute(ctx)?, len),
+                )))
+            }
+            Canonical::Struct(st) => {
+                let len = st.len();
+                let StructArrayParts {
+                    struct_fields,
+                    fields,
+                    validity,
+                } = st.into_parts();
+                Ok(CanonicalValidity(Canonical::Struct(unsafe {
+                    StructArray::new_unchecked(fields, struct_fields, len, validity.execute(ctx)?)
+                })))
+            }
+            Canonical::Extension(ext) => Ok(CanonicalValidity(Canonical::Extension(
+                ExtensionArray::new(
+                    ext.ext_dtype().clone(),
+                    ext.storage()
+                        .clone()
+                        .execute::<CanonicalValidity>(ctx)?
+                        .0
+                        .into_array(),
+                ),
+            ))),
+        }
+    }
+}
+
+/// Recursively execute the array until all of its children are canonical.
+///
+/// This method is useful to guarantee that all operators are fully executed,
+/// callers should prefer an execution target that's suitable for their use case instead of this one.
+pub struct RecursiveCanonical(pub Canonical);
+
+impl Executable for RecursiveCanonical {
+    fn execute(array: ArrayRef, ctx: &mut ExecutionCtx) -> VortexResult<Self> {
+        match array.execute::<Canonical>(ctx)? {
+            n @ Canonical::Null(_) => Ok(RecursiveCanonical(n)),
+            Canonical::Bool(b) => {
+                let BoolArrayParts {
+                    bits,
+                    offset,
+                    len,
+                    validity,
+                } = b.into_parts();
+                Ok(RecursiveCanonical(Canonical::Bool(
+                    BoolArray::try_new_from_handle(bits, offset, len, validity.execute(ctx)?)?,
+                )))
+            }
+            Canonical::Primitive(p) => {
+                let PrimitiveArrayParts {
+                    ptype,
+                    buffer,
+                    validity,
+                } = p.into_parts();
+                Ok(RecursiveCanonical(Canonical::Primitive(unsafe {
+                    PrimitiveArray::new_unchecked_from_handle(buffer, ptype, validity.execute(ctx)?)
+                })))
+            }
+            Canonical::Decimal(d) => {
+                let DecimalArrayParts {
+                    decimal_dtype,
+                    values,
+                    values_type,
+                    validity,
+                } = d.into_parts();
+                Ok(RecursiveCanonical(Canonical::Decimal(unsafe {
+                    DecimalArray::new_unchecked_handle(
+                        values,
+                        values_type,
+                        decimal_dtype,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::VarBinView(vbv) => {
+                let VarBinViewArrayParts {
+                    dtype,
+                    buffers,
+                    views,
+                    validity,
+                } = vbv.into_parts();
+                Ok(RecursiveCanonical(Canonical::VarBinView(unsafe {
+                    VarBinViewArray::new_handle_unchecked(
+                        views,
+                        buffers,
+                        dtype,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::List(l) => {
+                let ListViewArrayParts {
+                    elements,
+                    offsets,
+                    sizes,
+                    validity,
+                    ..
+                } = l.into_parts();
+                Ok(RecursiveCanonical(Canonical::List(unsafe {
+                    ListViewArray::new_unchecked(
+                        elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                        offsets.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                        sizes.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::FixedSizeList(fsl) => {
+                let list_size = fsl.list_size();
+                let len = fsl.len();
+                let (elements, validity, _) = fsl.into_parts();
+                Ok(RecursiveCanonical(Canonical::FixedSizeList(
+                    FixedSizeListArray::new(
+                        elements.execute::<RecursiveCanonical>(ctx)?.0.into_array(),
+                        list_size,
+                        validity.execute(ctx)?,
+                        len,
+                    ),
+                )))
+            }
+            Canonical::Struct(st) => {
+                let len = st.len();
+                let StructArrayParts {
+                    struct_fields,
+                    fields,
+                    validity,
+                } = st.into_parts();
+                let executed_fields = fields
+                    .iter()
+                    .map(|f| Ok(f.clone().execute::<RecursiveCanonical>(ctx)?.0.into_array()))
+                    .collect::<VortexResult<Arc<[_]>>>()?;
+
+                Ok(RecursiveCanonical(Canonical::Struct(unsafe {
+                    StructArray::new_unchecked(
+                        executed_fields,
+                        struct_fields,
+                        len,
+                        validity.execute(ctx)?,
+                    )
+                })))
+            }
+            Canonical::Extension(ext) => Ok(RecursiveCanonical(Canonical::Extension(
+                ExtensionArray::new(
+                    ext.ext_dtype().clone(),
+                    ext.storage()
+                        .clone()
+                        .execute::<RecursiveCanonical>(ctx)?
+                        .0
+                        .into_array(),
+                ),
+            ))),
+        }
     }
 }
 

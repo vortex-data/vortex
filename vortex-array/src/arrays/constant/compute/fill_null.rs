@@ -37,7 +37,7 @@ mod test {
     #[test]
     fn test_null() {
         let actual = fill_null(
-            &ConstantArray::new(Scalar::from(None::<i32>), 3).into_array(),
+            &ConstantArray::new(Scalar::null_native::<i32>(), 3).into_array(),
             &Scalar::from(1),
         )
         .unwrap();

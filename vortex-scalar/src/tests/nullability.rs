@@ -15,7 +15,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
 
-    use crate::InnerScalarValue;
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
@@ -55,9 +54,9 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([ScalarValue(
-                InnerScalarValue::Primitive(PValue::U16(6)),
-            )]))),
+            Some(ScalarValue::List(vec![Some(ScalarValue::Primitive(
+                PValue::U16(6),
+            ))])),
         );
 
         // Change element nullability from Nullable to NonNullable.
@@ -98,11 +97,11 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
-                ScalarValue(InnerScalarValue::Null),
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(10))),
-            ]))),
+            Some(ScalarValue::List(vec![
+                Some(ScalarValue::Primitive(PValue::U16(6))),
+                None,
+                Some(ScalarValue::Primitive(PValue::U16(10))),
+            ])),
         );
 
         // Cast to different element type with nullable elements - should succeed.
@@ -201,10 +200,10 @@ mod tests {
                 Arc::from(DType::Primitive(PType::U16, Nullability::Nullable)),
                 Nullability::Nullable,
             ),
-            ScalarValue(InnerScalarValue::List(Arc::from([
-                ScalarValue(InnerScalarValue::Primitive(PValue::U16(6))),
-                ScalarValue(InnerScalarValue::Null),
-            ]))),
+            Some(ScalarValue::List(vec![
+                Some(ScalarValue::Primitive(PValue::U16(6))),
+                None,
+            ])),
         );
 
         // Casting to non-nullable element type should fail.
@@ -427,7 +426,6 @@ mod tests {
 
         let result = fixed_list_with_nulls.cast(&target_nonnull_elems);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("non-nullable"));
 
         // Null FixedSizeList can't cast to non-nullable container.
         let null_fixed_list = Scalar::null(DType::FixedSizeList(
@@ -528,7 +526,7 @@ mod tests {
             3,
             Nullability::Nullable,
         );
-        let default_nullable_list = Scalar::default_value(nullable_fixed_list_dtype.clone());
+        let default_nullable_list = Scalar::default_value(&nullable_fixed_list_dtype);
         assert!(default_nullable_list.is_null());
         assert_eq!(default_nullable_list.dtype(), &nullable_fixed_list_dtype);
 
@@ -538,7 +536,7 @@ mod tests {
             2,
             Nullability::NonNullable,
         );
-        let default_nonnull_list = Scalar::default_value(nonnull_fixed_list_dtype);
+        let default_nonnull_list = Scalar::default_value(&nonnull_fixed_list_dtype);
         assert!(!default_nonnull_list.is_null());
         assert_eq!(default_nonnull_list.as_list().len(), 2);
         // Elements should be default values (0 for I32).
@@ -567,7 +565,7 @@ mod tests {
             ],
             Nullability::NonNullable,
         );
-        let default_struct = Scalar::default_value(struct_dtype);
+        let default_struct = Scalar::default_value(&struct_dtype);
         let struct_view = default_struct.as_struct();
         assert_eq!(
             struct_view

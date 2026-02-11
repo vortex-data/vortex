@@ -75,10 +75,18 @@ impl PrimitiveArray {
 
         // If we can't cast to i64, then leave the array as its original type.
         // It's too big to downcast anyway.
-        let Ok(min) = min_max.min.cast(&PType::I64.into()).and_then(i64::try_from) else {
+        let Ok(min) = min_max
+            .min
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
             return Ok(self.clone());
         };
-        let Ok(max) = min_max.max.cast(&PType::I64.into()).and_then(i64::try_from) else {
+        let Ok(max) = min_max
+            .max
+            .cast(&PType::I64.into())
+            .and_then(|s| i64::try_from(&s))
+        else {
             return Ok(self.clone());
         };
 
