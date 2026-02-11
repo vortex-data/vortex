@@ -79,6 +79,11 @@ async fn main() -> anyhow::Result<()> {
             convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::Compact).await?;
         }
 
+        if args.formats.iter().any(|f| matches!(f, Format::VortexCuda)) {
+            convert_parquet_directory_to_vortex(&base_path, CompactionStrategy::CudaCompatible)
+                .await?;
+        }
+
         if args
             .formats
             .iter()

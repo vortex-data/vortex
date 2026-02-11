@@ -137,6 +137,9 @@ pub enum Format {
     #[clap(name = "vortex-compact")]
     #[serde(rename = "vortex-compact")]
     VortexCompact,
+    #[clap(name = "vortex-cuda")]
+    #[serde(rename = "vortex-cuda")]
+    VortexCuda,
     #[clap(name = "duckdb")]
     #[serde(rename = "duckdb")]
     OnDiskDuckDB,
@@ -176,6 +179,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex-file-compressed",
             Format::VortexCompact => "vortex-compact",
+            Format::VortexCuda => "vortex-cuda",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -188,6 +192,7 @@ impl Format {
             Format::Parquet => "parquet",
             Format::OnDiskVortex => "vortex",
             Format::VortexCompact => "vortex",
+            Format::VortexCuda => "vortex",
             Format::OnDiskDuckDB => "duckdb",
             Format::Lance => "lance",
         }
@@ -222,6 +227,7 @@ impl Display for Engine {
 #[derive(Debug, Clone, Copy, Default)]
 pub enum CompactionStrategy {
     Compact,
+    CudaCompatible,
     #[default]
     Default,
 }
@@ -232,6 +238,11 @@ impl CompactionStrategy {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
                     .with_compact_encodings()
+                    .build(),
+            ),
+            CompactionStrategy::CudaCompatible => options.with_strategy(
+                WriteStrategyBuilder::default()
+                    .with_cuda_compatible_encodings()
                     .build(),
             ),
             CompactionStrategy::Default => options,
