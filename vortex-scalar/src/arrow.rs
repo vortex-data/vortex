@@ -129,7 +129,7 @@ fn extension_to_arrow(scalar: ExtScalar<'_>) -> Result<Arc<dyn Datum>, VortexErr
         )
     };
 
-    let storage_scalar = scalar.storage();
+    let storage_scalar = scalar.to_storage_scalar();
     let primitive = storage_scalar
         .as_primitive_opt()
         .ok_or_else(|| vortex_err!("Expected primitive scalar"))?;

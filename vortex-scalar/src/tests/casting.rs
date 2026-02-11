@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(
             scalar
                 .as_extension()
-                .storage()
+                .to_storage_scalar()
                 .as_primitive()
                 .pvalue()
                 .unwrap(),
@@ -322,7 +322,7 @@ mod tests {
         // Verify the struct field was coerced
         let list_elems = scalar
             .as_extension()
-            .storage()
+            .to_storage_scalar()
             .as_struct()
             .fields_iter()
             .vortex_expect("non null")

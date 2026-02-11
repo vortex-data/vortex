@@ -3,7 +3,10 @@
 
 use crate::arrays::DictVTable;
 use crate::arrays::TakeExecuteAdaptor;
+use crate::compute::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
-pub(super) const PARENT_KERNELS: ParentKernelSet<DictVTable> =
-    ParentKernelSet::new(&[ParentKernelSet::lift(&TakeExecuteAdaptor(DictVTable))]);
+pub(super) const PARENT_KERNELS: ParentKernelSet<DictVTable> = ParentKernelSet::new(&[
+    ParentKernelSet::lift(&TakeExecuteAdaptor(DictVTable)),
+    ParentKernelSet::lift(&FillNullExecuteAdaptor(DictVTable)),
+]);

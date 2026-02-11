@@ -33,6 +33,9 @@ on:
         required: false
       gh_token:
         required: true
+      # incident.io alert source token from Alerts > Alert sources > Custom HTTP.
+      incident_io_alert_token:
+        required: false
 
 jobs:
   report:
@@ -126,3 +129,23 @@ jobs:
             -v "BRANCH=${{ inputs.branch }}" \
             -v "COMMIT=${{ inputs.commit }}" \
             -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
+
+      - name: Alert incident.io on validation failure
+        if: failure() && steps.report.outputs.validation_failed == 'true' && secrets.incident_io_alert_token != ''
+        uses: incident-io/github-action@v1
+        with:
+          api-key: ${{ secrets.incident_io_alert_token }}
+          alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
+          alert-title: "Fuzzer crash report failed: missing required variables"
+          alert-description: |
+            The fuzz_report pipeline failed because required variables were missing: ${{ steps.report.outputs.missing_variables }}.
+            The fuzzer found a crash but could not file a GitHub issue.
+          deduplication-key: fuzz-report-validation-${{ inputs.fuzz_target }}
+          source-url: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          custom-fields: |
+            {
+              "fuzz_target": "${{ inputs.fuzz_target }}",
+              "missing_variables": "${{ steps.report.outputs.missing_variables }}",
+              "branch": "${{ inputs.branch }}",
+              "commit": "${{ inputs.commit }}"
+            }

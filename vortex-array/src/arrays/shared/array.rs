@@ -62,10 +62,14 @@ impl SharedArray {
     }
 
     pub(super) fn canonicalize(&self, ctx: &mut ExecutionCtx) -> VortexResult<Canonical> {
-        if let Some(existing) = self.cached() {
-            return Ok(existing);
-        }
-        let canonical = self.as_source().execute::<Canonical>(ctx)?;
+        let source = {
+            let state = self.state.read();
+            match &*state {
+                SharedState::Cached(existing) => return Ok(existing.clone()),
+                SharedState::Source(source) => source.clone(),
+            }
+        };
+        let canonical = source.execute::<Canonical>(ctx)?;
         Ok(self.cache_or_return(canonical))
     }
 

@@ -82,7 +82,9 @@ impl<'py> IntoPyObject<'py> for PyVortex<&'_ Scalar> {
             DType::List(..) | DType::FixedSizeList(..) => {
                 PyVortex(self.0.as_list()).into_pyobject(py)
             }
-            DType::Extension(_) => PyVortex(&self.0.as_extension().storage()).into_pyobject(py),
+            DType::Extension(_) => {
+                PyVortex(&self.0.as_extension().to_storage_scalar()).into_pyobject(py)
+            }
         }
     }
 }

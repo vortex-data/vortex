@@ -115,7 +115,7 @@ impl TryToDataFusion<ScalarValue> for Scalar {
             DType::List(..) => todo!("list scalar conversion"),
             DType::FixedSizeList(..) => todo!("fixed-size list scalar conversion"),
             DType::Extension(ext) => {
-                let storage_scalar = self.as_extension().storage();
+                let storage_scalar = self.as_extension().to_storage_scalar();
 
                 let Some(temporal) = ext.metadata_opt::<AnyTemporal>() else {
                     // Unknown extension type: perform scalar conversion using the canonical
