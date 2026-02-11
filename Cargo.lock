@@ -10898,6 +10898,7 @@ dependencies = [
  "arrow-data",
  "arrow-schema",
  "async-trait",
+ "bindgen 0.72.1",
  "codspeed-criterion-compat-walltime",
  "cudarc",
  "fastlanes",
