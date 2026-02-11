@@ -43,8 +43,13 @@ pin_project! {
         inner_done: bool,
         coalesce_window: Option<CoalesceConfig>,
         state: State,
+        limit: PollSemaphore,
     }
 }
+
+/// A hard global limit on the number of outstanding IoRequests across all IoRequestStreams.
+static GLOBAL_IO_REQUEST_LIMIT: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::from(Semaphore::new(32)));
 
 impl<S> IoRequestStream<S> {
     // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
@@ -63,12 +68,10 @@ impl<S> IoRequestStream<S> {
             inner_done: false,
             coalesce_window,
             state: State::new(metrics, coalesced_buffer_alignment),
+            limit: PollSemaphore::new(GLOBAL_IO_REQUEST_LIMIT.clone()),
         }
     }
 }
-
-static GLOBAL_IO_REQUEST_LIMIT: LazyLock<Arc<Semaphore>> =
-    LazyLock::new(|| Arc::from(Semaphore::new(32)));
 
 impl<S> Stream for IoRequestStream<S>
 where
@@ -95,8 +98,7 @@ where
             }
         }
 
-        let mut limit = PollSemaphore::new(GLOBAL_IO_REQUEST_LIMIT.clone());
-        let permit = match limit.poll_acquire(cx) {
+        let permit = match self.limit.poll_acquire(cx) {
             Poll::Ready(Some(permit)) => permit,
             Poll::Ready(None) => {
                 println!("SEMAPHORE IS CLOSED??");
