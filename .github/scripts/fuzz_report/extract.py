@@ -71,38 +71,38 @@ def extract_panic_location(log_content: str) -> str:
 
 
 def extract_crash_location(log_content: str) -> str:
-    """Extract crash location as file:function_name from stack frames."""
-    # Look for first vortex frame in various stack trace formats
-    # Format 1: "#N 0x... in function_name"
-    # Format 2: "N: 0x... - function_name"
-    # Format 3: "#N 0x... in function_name /path/file.rs:line"
-    # Format 4: "N: function_name\n  at ./path/file.rs:line"
+    """Extract crash location as file:function_name from stack frames.
+
+    Prefers the Rust backtrace format (``N: func at ./path``) because it has
+    file paths that enable reliable noise filtering.  Falls back to the
+    libfuzzer and dash formats which only have function names.
+    """
     func_name = None
 
-    # Try "#N 0x... in func" format (libfuzzer), skip noise prefixes
-    for m in re.finditer(r"#\d+\s+0x[a-f0-9]+\s+in\s+([^\s<(]+)", log_content):
-        if not _is_noise_func(m.group(1)):
-            func_name = m.group(1)
-            break
+    # Best: "N: function_name\n  at ./path" format (Rust backtrace)
+    # The `at ./` regex excludes /rustc/ stdlib frames; _is_noise_frame()
+    # further excludes vortex-error boilerplate and closure wrappers.
+    for m in re.finditer(r"\s+\d+:\s+(\S+)\n\s+at\s+\./([^\n]+)", log_content):
+        name = m.group(1)
+        path = m.group(2)
+        if _is_noise_frame(name, path):
+            continue
+        func_name = re.sub(r"<.*", "", name)
+        break
 
-    # Try "N: 0x... - func" format (dash), skip noise prefixes
+    # Fallback: "#N 0x... in func" format (libfuzzer), skip noise prefixes
+    if not func_name:
+        for m in re.finditer(r"#\d+\s+0x[a-f0-9]+\s+in\s+([^\s<(]+)", log_content):
+            if not _is_noise_func(m.group(1)):
+                func_name = m.group(1)
+                break
+
+    # Fallback: "N: 0x... - func" format (dash), skip noise prefixes
     if not func_name:
         for m in re.finditer(r"\d+:\s+0x[a-f0-9]+\s+-\s+([^\s<(]+)", log_content):
             if not _is_noise_func(m.group(1)):
                 func_name = m.group(1)
                 break
-
-    # Try "N: function_name\n  at ./path" format (Rust backtrace)
-    # The `at ./` regex excludes /rustc/ stdlib frames; _is_noise_frame()
-    # further excludes vortex-error boilerplate and closure wrappers.
-    if not func_name:
-        for m in re.finditer(r"\s+\d+:\s+(\S+)\n\s+at\s+\./([^\n]+)", log_content):
-            name = m.group(1)
-            path = m.group(2)
-            if _is_noise_frame(name, path):
-                continue
-            func_name = re.sub(r"<.*", "", name)
-            break
 
     if func_name:
         panic_loc = extract_panic_location(log_content)
@@ -198,6 +198,7 @@ NOISE_FUNC_PREFIXES = (
     "std::",
     "core::",
     "alloc::",
+    "fuzzer::",  # libfuzzer C++ internals (e.g. fuzzer::PrintStackTrace)
     "__",  # sanitizer, fuzzer, and C runtime internals
 )
 
@@ -292,15 +293,36 @@ def extract_stack_frames(log_content: str) -> list[str]:
     return frames[:10] if frames else ["unknown"]
 
 
+# Maximum number of lines to keep in raw stack traces.  Deep async/futures
+# call chains produce 100+ frames with huge generic signatures that blow past
+# token limits in issue bodies and Claude analysis.  The first ~40 lines
+# always contain the crash site and immediate callers.
+_MAX_RAW_TRACE_LINES = 40
+
+
+def _truncate_trace(raw: str) -> str:
+    """Truncate a raw stack trace to _MAX_RAW_TRACE_LINES."""
+    lines = raw.splitlines()
+    if len(lines) <= _MAX_RAW_TRACE_LINES:
+        return raw
+    kept = lines[:_MAX_RAW_TRACE_LINES]
+    kept.append(f"   ... ({len(lines) - _MAX_RAW_TRACE_LINES} more frames truncated)")
+    return "\n".join(kept)
+
+
 def extract_stack_trace_raw(log_content: str) -> str:
-    """Extract the raw stack trace section from the log."""
+    """Extract the raw stack trace section from the log.
+
+    Truncated to ~40 lines to avoid enormous issue bodies and token-limit
+    failures in downstream Claude analysis.
+    """
     # Look for "stack backtrace:" section
     match = re.search(
         r"(stack backtrace:\n(?:.*\n)*?)(?:\n\n|==\d+==|note:)",
         log_content,
     )
     if match:
-        return match.group(1).strip()
+        return _truncate_trace(match.group(1).strip())
 
     # Look for "Backtrace:" section (vortex_error format)
     match = re.search(
@@ -308,7 +330,7 @@ def extract_stack_trace_raw(log_content: str) -> str:
         log_content,
     )
     if match:
-        return match.group(1).strip()
+        return _truncate_trace(match.group(1).strip())
 
     # Look for numbered frame lines with addresses
     lines = []
@@ -316,7 +338,7 @@ def extract_stack_trace_raw(log_content: str) -> str:
         if re.match(r"\s*#?\d+[:\s]+0x[a-f0-9]+", line):
             lines.append(line)
     if lines:
-        return "\n".join(lines)
+        return _truncate_trace("\n".join(lines))
 
     return ""
 

@@ -186,6 +186,12 @@ class TestIsNoiseFunc:
     def test_vortex_unwrap_is_noise(self):
         assert _is_noise_func("vortex_unwrap")
 
+    def test_fuzzer_print_stack_trace_is_noise(self):
+        assert _is_noise_func("fuzzer::PrintStackTrace")
+
+    def test_fuzzer_prefix_is_noise(self):
+        assert _is_noise_func("fuzzer::Fuzzer::ExecuteCallback")
+
     def test_vortex_func_is_not_noise(self):
         assert not _is_noise_func("vortex_array::compute::slice::slice_primitive")
 
@@ -275,6 +281,34 @@ index out of bounds
         assert "vortex_expect" not in loc
         # Result: the real crash site
         assert "decimal" in loc
+
+    def test_skips_fuzzer_print_stack_trace(self):
+        """libfuzzer inserts its own C++ frames like fuzzer::PrintStackTrace
+        early in the crash handler stack.  These must be skipped.
+        """
+        log = """\
+thread '<unnamed>' panicked at vortex-error/src/lib.rs:310:33:
+unable to construct a decimal Scalar
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/abc123/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/abc123/library/core/src/panicking.rs:80:14
+   2: vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
+             at ./vortex-error/src/lib.rs:310:14
+   3: decimal
+             at ./vortex-scalar/src/constructor.rs:61:10
+
+==12345== ERROR: libFuzzer: deadly signal
+   #0 0x55e0a0 in fuzzer::PrintStackTrace()
+   #1 0x55e0b0 in fuzzer::Fuzzer::CrashCallback()
+   #2 0x7f0000 in vortex_scalar::scalar::Scalar::from
+"""
+        loc = extract_crash_location(log)
+        assert "fuzzer::PrintStackTrace" not in loc
+        assert "fuzzer::Fuzzer" not in loc
+        assert "decimal" in loc
+        assert "constructor.rs:61" in loc
 
 
 class TestExtractPanicMessage:
