@@ -132,19 +132,9 @@ jobs:
           RUN_ID=$(echo "$ARTIFACT_URL" | grep -oP 'runs/\K[0-9]+')
           ARTIFACT_ID=$(echo "$ARTIFACT_URL" | grep -oP 'artifacts/\K[0-9]+')
 
-          # Map target name to artifact name (hardcoded in fuzz.yml)
+          # Artifact name matches run-fuzzer.yml upload: ${{ inputs.fuzz_target }}-crash-artifacts
           TARGET="${{ steps.extract.outputs.target }}"
-          case "$TARGET" in
-            file_io)
-              ARTIFACT_NAME="io-fuzzing-crash-artifacts"
-              ;;
-            array_ops)
-              ARTIFACT_NAME="operations-fuzzing-crash-artifacts"
-              ;;
-            *)
-              ARTIFACT_NAME="${TARGET}-fuzzing-crash-artifacts"
-              ;;
-          esac
+          ARTIFACT_NAME="${TARGET}-crash-artifacts"
 
           echo "Downloading artifact $ARTIFACT_NAME (ID: $ARTIFACT_ID) from run $RUN_ID"
 
