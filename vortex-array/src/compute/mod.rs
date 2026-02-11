@@ -45,6 +45,10 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::FillNullExecuteAdaptor;
+pub use crate::expr::FillNullKernel;
+pub use crate::expr::FillNullReduce;
+pub use crate::expr::FillNullReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
@@ -85,7 +89,7 @@ pub fn warm_up_vtables() {
     boolean::warm_up_vtable();
     cast::warm_up_vtable();
     compare::warm_up_vtable();
-    fill_null::warm_up_vtable();
+
     invert::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();

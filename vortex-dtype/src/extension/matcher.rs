@@ -15,7 +15,7 @@ pub trait Matcher {
         Self::try_match(item).is_some()
     }
 
-    /// Check if the given extension dtype matches this matcher.
+    /// Try to match the given extension type, returning the matched dtype if successful.
     fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>>;
 }
 

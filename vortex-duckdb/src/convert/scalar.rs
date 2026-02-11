@@ -172,7 +172,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
 
         let value = || {
-            self.storage()
+            self.to_storage_scalar()
                 .as_primitive_opt()
                 .ok_or_else(|| {
                     vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
@@ -205,7 +205,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
             }
             TemporalMetadata::Date(unit) => match unit {
                 TimeUnit::Days => self
-                    .storage()
+                    .to_storage_scalar()
                     .as_primitive_opt()
                     .ok_or_else(|| {
                         vortex_err!("temporal types must be backed by primitive scalars")

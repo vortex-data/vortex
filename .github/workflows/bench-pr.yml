@@ -75,7 +75,7 @@ jobs:
 
       - name: Setup Polar Signals
         if: github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@v0.7.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.benchmark.id }}"

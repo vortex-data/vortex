@@ -182,6 +182,11 @@ pub fn register_default_encodings(session: &mut VortexSession) {
         arrays.register(ZigZagVTable::ID, ZigZagVTable);
         #[cfg(feature = "zstd")]
         arrays.register(vortex_zstd::ZstdVTable::ID, vortex_zstd::ZstdVTable);
+        #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+        arrays.register(
+            vortex_zstd::ZstdBuffersVTable::ID,
+            vortex_zstd::ZstdBuffersVTable,
+        );
     }
 
     // Eventually all encodings crates should expose an initialize function. For now it's only
