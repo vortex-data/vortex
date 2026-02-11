@@ -72,14 +72,15 @@ def extract_crash_location(log_content: str) -> str:
             func_name = match.group(1)
 
     # Try "N: function_name\n  at ./path" format (Rust backtrace)
-    # Skip generic closures like {closure#0}; find the first real function
+    # The `at ./` regex excludes /rustc/ stdlib frames; _is_noise_frame()
+    # further excludes vortex-error boilerplate and closure wrappers.
     if not func_name:
         for m in re.finditer(r"\s+\d+:\s+(\S+)\n\s+at\s+\./([^\n]+)", log_content):
             name = m.group(1)
-            name_clean = re.sub(r"<.*", "", name)
-            if name_clean.startswith("{"):
+            path = m.group(2)
+            if _is_noise_frame(name, path):
                 continue
-            func_name = name_clean
+            func_name = re.sub(r"<.*", "", name)
             break
 
     if func_name:
@@ -162,6 +163,39 @@ def extract_error_variant(log_content: str) -> str:
     return "unknown"
 
 
+# Paths that are error-handling / panic infrastructure, not real crash sites.
+# Frames from /rustc/ stdlib are already excluded by the `at ./` regex (they
+# have `at /rustc/...` paths). This list covers project-local paths that still
+# match `at ./` but are boilerplate. Add new entries here as needed.
+NOISE_FRAME_PATHS = [
+    "vortex-error/src/lib.rs",
+]
+
+
+def _is_noise_frame(func_name: str, path: str) -> bool:
+    """Return True if this stack frame is panic/error-handling boilerplate.
+
+    Two layers of noise are filtered:
+
+    1. Frames from /rustc/ stdlib (rust_begin_unwind, panic_fmt, etc.) are
+       already excluded by the `at ./` regex — they have `at /rustc/...` paths,
+       so the regex never matches them.
+
+    2. Frames whose path starts with an entry in NOISE_FRAME_PATHS. These are
+       project-local but are still infrastructure (e.g. vortex_expect,
+       vortex_unwrap in vortex-error/src/lib.rs).
+
+    3. Closure wrappers like {closure#0} that appear in generic unwrap/expect
+       call chains.
+    """
+    clean = re.sub(r"<.*", "", func_name)
+    if clean.startswith("{"):
+        return True
+    if any(path.startswith(prefix) for prefix in NOISE_FRAME_PATHS):
+        return True
+    return False
+
+
 def extract_stack_frames(log_content: str) -> list[str]:
     """Extract stack trace frames (function names only).
 
@@ -171,9 +205,18 @@ def extract_stack_frames(log_content: str) -> list[str]:
     frames = []
 
     # Best: "N: function_name\n  at ./path" (Rust backtrace, most informative)
-    # The `at ./` path already confirms it's project code (not /rustc/ stdlib).
-    for match in re.finditer(r"\s+\d+:\s+(\S+)\n\s+at\s+\./", log_content):
+    #
+    # The `at ./` pattern provides the first layer of filtering: it only matches
+    # project-local paths, so /rustc/ stdlib frames (rust_begin_unwind, panic_fmt,
+    # unwrap_or_else, etc.) are never captured.
+    #
+    # _is_noise_frame() provides the second layer: it filters out project-local
+    # frames that are still boilerplate (vortex-error/src/lib.rs, closures).
+    for match in re.finditer(r"\s+\d+:\s+(\S+)\n\s+at\s+\./([^\n]+)", log_content):
         func = match.group(1)
+        path = match.group(2)
+        if _is_noise_frame(func, path):
+            continue
         # Strip generic parameters like <...>
         func = re.sub(r"<.*", "", func)
         frames.append(func)
