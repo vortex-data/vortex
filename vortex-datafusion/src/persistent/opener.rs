@@ -30,7 +30,6 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
-use tokio_stream::StreamExt;
 use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
