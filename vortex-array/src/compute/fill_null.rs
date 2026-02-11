@@ -41,11 +41,7 @@ pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRe
         !fill_value.is_null(),
         "fill_null requires a non-null fill value"
     );
-    let result = array
-        .to_array()
-        .fill_null(fill_value.clone())?
-        .to_canonical()?
-        .into_array();
+    let result = array.to_array().fill_null(fill_value.clone())?;
     debug_assert!(
         fill_value.dtype().is_nullable() || !result.dtype().is_nullable(),
         "fill_null with non-nullable fill value must produce a non-nullable result"
