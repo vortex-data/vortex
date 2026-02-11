@@ -48,6 +48,7 @@ fn main() {
     {
         println!("cargo:rerun-if-changed={}", entry.path().display());
     }
+
     generate_unpack::<u8>(&kernels_src, 32).expect("Failed to generate unpack for u8");
     generate_unpack::<u16>(&kernels_src, 32).expect("Failed to generate unpack for u16");
     generate_unpack::<u32>(&kernels_src, 32).expect("Failed to generate unpack for u32");

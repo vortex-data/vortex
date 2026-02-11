@@ -3,6 +3,8 @@
 
 //! CUDA support for Vortex arrays.
 
+extern crate core;
+
 use std::process::Command;
 
 pub mod arrow;
@@ -11,6 +13,7 @@ mod device_buffer;
 pub mod executor;
 mod host_to_device_allocator;
 mod kernel;
+mod launcher;
 mod session;
 mod stream;
 mod stream_pool;

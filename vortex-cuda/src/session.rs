@@ -17,6 +17,7 @@ use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
 use crate::kernel::KernelLoader;
+use crate::launcher::Module;
 use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
 
@@ -97,28 +98,9 @@ impl CudaSession {
         self.kernels.get(array_id).map(|entry| *entry.value())
     }
 
-    /// Loads a CUDA kernel function by module name and type suffixes.
-    ///
-    /// This is a lower-level version of `load_function` that accepts string suffixes
-    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
-    ///
-    /// The kernel name is generated as `{module_name}_{suffix[0]}_{suffix[1]}...`
-    ///
-    /// # Arguments
-    ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `type_suffixes` - List of type suffix strings to generate kernel name
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if PTX file cannot be read or kernel cannot be loaded.
-    pub fn load_function_with_suffixes(
-        &self,
-        module_name: &str,
-        type_suffixes: &[&str],
-    ) -> VortexResult<cudarc::driver::CudaFunction> {
-        self.kernel_loader
-            .load_function(module_name, type_suffixes, &self.context)
+    /// Load a PTX module by its file name.
+    pub fn load_module(&self, name: &str) -> VortexResult<Arc<Module>> {
+        self.kernel_loader.load_module(self.context.clone(), name)
     }
 
     /// Get a handle to the exporter that converts Vortex arrays to `ArrowDeviceArray`.

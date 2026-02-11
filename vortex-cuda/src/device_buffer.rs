@@ -101,6 +101,13 @@ impl CudaDeviceBuffer {
         }
     }
 
+    /// Get a device pointer to the buffer.
+    ///
+    /// The pointer can only be used while the buffer is kept alive.
+    pub fn device_ptr(&self) -> *mut std::ffi::c_void {
+        self.device_ptr as *mut std::ffi::c_void
+    }
+
     /// Returns a [`CudaView`] to the CUDA device buffer.
     pub fn as_view<T: DeviceRepr + 'static>(&self) -> CudaView<'_, T> {
         // Return a new &[T]
@@ -115,6 +122,12 @@ impl CudaDeviceBuffer {
                 .transmute::<T>(new_len)
                 .vortex_expect("Failed to transmute from CudaView<u8> to CudaView<T>")
         }
+    }
+}
+
+impl From<CudaDeviceBuffer> for BufferHandle {
+    fn from(value: CudaDeviceBuffer) -> Self {
+        BufferHandle::new_device(Arc::new(value))
     }
 }
 

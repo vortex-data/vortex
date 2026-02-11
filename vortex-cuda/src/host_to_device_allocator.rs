@@ -59,7 +59,7 @@ impl<T: VortexReadAt + Clone> VortexReadAt for CopyDeviceReadAt<T> {
 
             let host_buffer = handle.as_host().clone();
 
-            stream.copy_to_device(host_buffer)?.await
+            Ok(stream.copy_to_device(host_buffer)?.await?.into())
         }
         .boxed()
     }

@@ -6,8 +6,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_alp::ALPArray;
 use vortex_alp::ALPFloat;
 use vortex_alp::ALPVTable;
@@ -24,13 +22,53 @@ use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
-use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::patches::execute_patches;
-use crate::launch_cuda_kernel_impl;
+use crate::kernel::scalar_launch_config;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
+
+struct ALPArgs<T> {
+    input: CudaDeviceBuffer,
+    output: CudaDeviceBuffer,
+    f: T,
+    e: T,
+    len: u64,
+    _marker: std::marker::PhantomData<T>,
+}
+
+struct ALPKernel<T> {
+    function: Function,
+    _marker: std::marker::PhantomData<T>,
+}
+
+impl<T: ALPFloat> Kernel for ALPKernel<T> {
+    type Args = ALPArgs<T>;
+
+    fn new(function: Function) -> ALPKernel<T> {
+        Self {
+            function,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, mut args: ALPArgs<T>, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let len = args.len as usize;
+        let args = vec![
+            args.input.device_ptr(),
+            args.output.device_ptr(),
+            std::ptr::addr_of_mut!(args.len).cast(),
+        ];
+
+        // SAFETY: pointers are to valid memory at the time of the call.
+        unsafe { launcher.launch(self.function, scalar_launch_config(len), args) }
+    }
+}
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
@@ -71,14 +109,7 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_input: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
-
-    // Get CUDA view of input
-    let input_view = device_input.cuda_view::<A::ALPInt>()?;
+    let device_input = ensure_device_resident(buffer, ctx).await?;
 
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(array_len)?;
@@ -87,23 +118,23 @@ where
 
     let array_len_u64 = array_len as u64;
 
-    // Load kernel function
-    let kernel_ptypes = [A::ALPInt::PTYPE, A::PTYPE];
-    let cuda_function = ctx.load_function_ptype("alp", &kernel_ptypes)?;
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let module = ctx.load_module("alp")?;
+    let alp_kernel = module.load::<ALPKernel<A>>(format!("alp_{}", A::PTYPE))?;
 
-        // Build launch args: input, output, f, e, length
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
-        launch_builder.arg(&f);
-        launch_builder.arg(&e);
-        launch_builder.arg(&array_len_u64);
-
-        // Launch kernel
-        let _cuda_events =
-            launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
-    }
+    // wait for launch?
+    ctx.launch(
+        alp_kernel,
+        ALPArgs {
+            input: device_input,
+            // TODO(aduffy): this is gross. We should make this a futures-based API?
+            //  the output_buf is returned back when the kernel completes.
+            output: output_buf.clone(),
+            f,
+            e,
+            len: array_len_u64,
+            _marker: std::marker::PhantomData,
+        },
+    )?;
 
     // Check if there are any patches to decode here
     let output_buf = if let Some(patches) = array.patches() {

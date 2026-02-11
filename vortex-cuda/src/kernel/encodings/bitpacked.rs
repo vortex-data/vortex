@@ -2,14 +2,12 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use cudarc::driver::CudaFunction;
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::LaunchConfig;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
@@ -28,12 +26,46 @@ use vortex_fastlanes::BitPackedArrayParts;
 use vortex_fastlanes::BitPackedVTable;
 use vortex_fastlanes::unpack_iter::BitPacked;
 
-use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::arrow::ensure_device_resident;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::kernel::launch_cuda_kernel_with_config;
 use crate::kernel::patches::execute_patches;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
+
+/// A BP kernel targeting a certain output scalar A and bitwidth W.
+struct BPKernel<A> {
+    function: Function,
+    _marker: PhantomData<A>,
+}
+
+impl<A: BitPacked + NativePType> Kernel for BPKernel<A> {
+    type Args = BPArgs<A>;
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let launch_args = vec![args.input.device_ptr(), args.output.device_ptr()];
+
+        let cfg = bitpacked_cuda_launch_config(size_of::<A>() * 8, args.len)?;
+
+        unsafe { launcher.launch(self.function, cfg, launch_args) }
+    }
+}
+
+struct BPArgs<A> {
+    input: CudaDeviceBuffer,
+    output: CudaDeviceBuffer,
+    len: usize,
+    _marker: PhantomData<A>,
+}
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
@@ -63,18 +95,6 @@ impl CudaExecute for BitPackedExecutor {
 
 const fn bitpacked_thread_count(output_width: usize) -> u32 {
     if output_width == 64 { 16 } else { 32 }
-}
-
-pub fn bitpacked_cuda_kernel(
-    bit_width: u8,
-    output_width: usize,
-    ctx: &mut CudaExecutionCtx,
-) -> VortexResult<CudaFunction> {
-    // Load kernel function
-    // bit_unpack_{bits}_{bit_width}bw_{thread_count}t
-    let thread_count = bitpacked_thread_count(output_width);
-    let suffixes: [&str; _] = [&format!("{bit_width}bw"), &format!("{thread_count}t")];
-    ctx.load_function(&format!("bit_unpack_{}", output_width), &suffixes)
 }
 
 pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexResult<LaunchConfig> {
@@ -107,34 +127,33 @@ where
     vortex_ensure!(len > 0, "Non empty array");
     let offset = offset as usize;
 
-    let device_input: BufferHandle = if packed.is_on_device() {
-        packed
-    } else {
-        ctx.move_to_device(packed)?.await?
-    };
-
-    // Get CUDA view of input
-    let input_view = device_input.cuda_view::<A::Physical>()?;
+    let device_input = ensure_device_resident(packed, ctx).await?;
 
     // Allocate output buffer
     let output_slice = ctx.device_alloc::<A>(len.next_multiple_of(1024))?;
     let output_buf = CudaDeviceBuffer::new(output_slice);
-    let output_view = output_buf.as_view::<A>();
 
     let output_width = size_of::<A>() * 8;
-    let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, ctx)?;
 
-    {
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let module = ctx.load_module(&format!("bit_unpack_{output_width}"))?;
 
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
+    let thread_count = bitpacked_thread_count(output_width);
 
-        let config = bitpacked_cuda_launch_config(output_width, len)?;
+    let kernel = module.load::<BPKernel<A>>(format!(
+        "bit_unpack_{output_width}_{bit_width}bw_{thread_count}t"
+    ))?;
 
-        let _cuda_events =
-            launch_cuda_kernel_with_config(&mut launch_builder, config, CU_EVENT_DISABLE_TIMING)?;
-    }
+    ctx.launch(
+        kernel,
+        BPArgs {
+            input: device_input,
+            // TODO(aduffy): this is gross. But the ownership model is weird with the implicit
+            //  async stream operations.
+            output: output_buf.clone(),
+            len,
+            _marker: PhantomData,
+        },
+    )?;
 
     let output_handle = match patches {
         None => BufferHandle::new_device(output_buf.slice_typed::<A>(offset..(offset + len))),

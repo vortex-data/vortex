@@ -26,8 +26,13 @@ use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
+use crate::CudaDeviceBuffer;
 use crate::CudaSession;
 use crate::ExportDeviceArray;
+use crate::launcher::AsyncLauncher;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
+use crate::launcher::Module;
 use crate::session::CudaSessionExt;
 use crate::stream::VortexCudaStream;
 
@@ -57,65 +62,25 @@ pub struct CudaExecutionCtx {
     stream: VortexCudaStream,
     ctx: ExecutionCtx,
     cuda_session: CudaSession,
+    launcher: Arc<dyn Launcher>,
 }
 
 impl CudaExecutionCtx {
     /// Creates a new CUDA execution context.
     pub(crate) fn new(stream: VortexCudaStream, ctx: ExecutionCtx) -> Self {
+        let cu_stream = stream.0.clone();
         let cuda_session = ctx.session().cuda_session().clone();
         Self {
             stream,
             ctx,
             cuda_session,
+            launcher: Arc::new(AsyncLauncher::new(cu_stream)),
         }
     }
 
-    /// Loads a CUDA kernel function by module name and ptype(s).
-    ///
-    /// # Arguments
-    ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `ptypes` - List of ptype strings for the kernel name
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if kernel loading fails.
-    pub fn load_function_ptype(
-        &self,
-        module_name: &str,
-        ptypes: &[PType],
-    ) -> VortexResult<CudaFunction> {
-        let type_suffixes: Vec<String> = ptypes.iter().map(|ptype| ptype.to_string()).collect();
-        self.load_function(
-            module_name,
-            type_suffixes
-                .iter()
-                .map(|t| t.as_str())
-                .collect::<Vec<_>>()
-                .as_slice(),
-        )
-    }
-
-    /// Loads a CUDA kernel function by module name and type suffixes.
-    ///
-    /// This is a lower-level version of `load_function` that accepts string suffixes
-    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
-    ///
-    /// # Arguments
-    ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `type_suffixes` - List of type suffix strings for the kernel name
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if kernel loading fails.
-    pub fn load_function(
-        &self,
-        module_name: &str,
-        type_suffixes: &[&str],
-    ) -> VortexResult<CudaFunction> {
-        self.cuda_session
-            .load_function_with_suffixes(module_name, type_suffixes)
+    /// See [`CudaSession::load_module`]
+    pub fn load_module(&self, name: &str) -> VortexResult<Arc<Module>> {
+        self.cuda_session.load_module(name)
     }
 
     /// Returns a launch builder for a CUDA kernel function.
@@ -127,6 +92,10 @@ impl CudaExecutionCtx {
     /// * `func` - CUDA kernel function to launch
     pub fn launch_builder<'a>(&'a self, func: &'a CudaFunction) -> LaunchArgs<'a> {
         self.stream.0.launch_builder(func)
+    }
+
+    pub fn launch<K: Kernel>(&self, kernel: K, args: K::Args) -> VortexResult<()> {
+        unsafe { kernel.launch(args, &self.launcher) }
     }
 
     /// See `VortexCudaStream::device_alloc`.
@@ -141,7 +110,7 @@ impl CudaExecutionCtx {
     pub fn copy_to_device<T, D>(
         &self,
         data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    ) -> VortexResult<BoxFuture<'static, VortexResult<CudaDeviceBuffer>>>
     where
         T: DeviceRepr + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
@@ -153,7 +122,7 @@ impl CudaExecutionCtx {
     pub fn move_to_device(
         &self,
         handle: BufferHandle,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<CudaDeviceBuffer>>> {
         self.stream.move_to_device(handle)
     }
 

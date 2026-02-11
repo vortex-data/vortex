@@ -2,16 +2,15 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
-use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
@@ -21,11 +20,54 @@ use vortex_error::vortex_err;
 use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRVTable;
 
-use crate::CudaBufferExt;
+use crate::CudaDeviceBuffer;
+use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
+use crate::kernel::scalar_launch_config;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
+
+struct FORKernel<T> {
+    function: Function,
+    _marker: PhantomData<T>,
+}
+
+impl<T: NativePType> Kernel for FORKernel<T> {
+    type Args = FORArgs<T>;
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, mut args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let launch_args = vec![
+            args.input.device_ptr(),
+            std::ptr::addr_of_mut!(args.reference).cast(),
+            std::ptr::addr_of_mut!(args.len).cast(),
+        ];
+
+        unsafe {
+            launcher.launch(
+                self.function,
+                scalar_launch_config(args.len as usize),
+                launch_args,
+            )
+        }
+    }
+}
+
+struct FORArgs<T> {
+    input: CudaDeviceBuffer,
+    reference: T,
+    len: u64,
+    _marker: PhantomData<T>,
+}
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
@@ -70,33 +112,27 @@ where
         buffer, validity, ..
     } = primitive.into_parts();
 
-    let device_buffer: BufferHandle = if buffer.is_on_device() {
-        buffer
-    } else {
-        ctx.move_to_device(buffer)?.await?
-    };
+    let device_buffer = ensure_device_resident(buffer, ctx).await?;
 
     // Get CUDA view of the buffer
-    let cuda_view = device_buffer.cuda_view::<P>()?;
     let array_len_u64 = array_len as u64;
 
-    // Load kernel function
-    let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function_ptype("for", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let module = ctx.load_module("for")?;
+    let kernel = module.load::<FORKernel<P>>(format!("for_{}", P::PTYPE))?;
 
-    // Build launch args: buffer, reference, length
-    launch_builder.arg(&cuda_view);
-    launch_builder.arg(&reference);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch(
+        kernel,
+        FORArgs {
+            input: device_buffer.clone(),
+            reference,
+            len: array_len_u64,
+            _marker: PhantomData,
+        },
+    )?;
 
     // Build result - in-place reuses the same buffer
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        device_buffer,
+        device_buffer.into(),
         P::PTYPE,
         validity,
     )))

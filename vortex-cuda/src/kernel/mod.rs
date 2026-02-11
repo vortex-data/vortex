@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
 use cudarc::driver::CudaFunction;
-use cudarc::driver::CudaModule;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
@@ -34,6 +33,7 @@ pub use filter::FilterExecutor;
 pub use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;
+use crate::launcher::Module;
 
 /// Convenience macro to launch a CUDA kernel.
 ///
@@ -77,6 +77,24 @@ macro_rules! launch_cuda_kernel {
 
         $crate::launch_cuda_kernel_impl(&mut launch_builder, $event_recording, $len)?
     }};
+}
+
+/// Default scalar launch configuration
+pub(crate) fn scalar_launch_config(len: usize) -> LaunchConfig {
+    // Kernel launch configuration constants.
+    // Must match ELEMENTS_PER_THREAD in CUDA kernels (kernels/*.cu).
+    const THREADS_PER_BLOCK: u32 = 64; // 2 warps
+    const ELEMENTS_PER_THREAD: u32 = 32;
+    const ELEMENTS_PER_BLOCK: usize = (THREADS_PER_BLOCK * ELEMENTS_PER_THREAD) as usize; // 2048
+
+    let num_blocks =
+        u32::try_from(len.div_ceil(ELEMENTS_PER_BLOCK)).expect("num_blocks cannot exceed u32::MAX");
+
+    LaunchConfig {
+        grid_dim: (num_blocks, 1, 1),
+        block_dim: (THREADS_PER_BLOCK, 1, 1),
+        shared_mem_bytes: 0,
+    }
 }
 
 /// Launches a CUDA kernel with the passed launch builder.
@@ -153,9 +171,9 @@ pub fn launch_cuda_kernel_with_config(
 ///
 /// Handles loading PTX files, compiling modules, and loading functions.
 #[derive(Debug)]
-pub struct KernelLoader {
+pub(crate) struct KernelLoader {
     /// Cache of loaded CUDA modules, keyed by module name
-    modules: DashMap<String, Arc<CudaModule>>,
+    modules: DashMap<String, Arc<Module>>,
 }
 
 impl KernelLoader {
@@ -166,58 +184,20 @@ impl KernelLoader {
         }
     }
 
-    /// Loads CUDA function by module name and type suffixes.
-    ///
-    /// This is a lower-level version of `load_function` that accepts string suffixes
-    /// directly, useful for types that don't have a `PType` (e.g., i128, i256).
-    ///
-    /// # Arguments
-    ///
-    /// * `module_name` - Name of the module (`kernels/{module_name}.ptx`)
-    /// * `type_suffixes` - List of type suffix strings for the kernel name (`kernel_i128`)
-    /// * `cuda_context` - CUDA context for loading the module
-    pub fn load_function(
-        &self,
-        module_name: &str,
-        type_suffixes: &[&str],
-        cuda_context: &Arc<CudaContext>,
-    ) -> VortexResult<CudaFunction> {
-        // Kernel name pattern: `<module>_<type_1>_..<type_n>`.
-        let kernel_name = if type_suffixes.is_empty() {
-            module_name.to_string()
-        } else {
-            format!("{}_{}", module_name, type_suffixes.join("_"))
-        };
+    /// Get a handle to a module loader.
+    pub fn load_module(&self, ctx: Arc<CudaContext>, name: &str) -> VortexResult<Arc<Module>> {
+        // DashMap doesn't give back a naked &V, which is what we need...
+        if let Some(entry) = self.modules.get(name) {
+            return Ok(Arc::clone(entry.value()));
+        }
 
-        // Check if module is already cached
-        let module = if let Some(entry) = self.modules.get(module_name) {
-            Arc::clone(entry.value())
-        } else {
-            let ptx_path = Self::ptx_path_for_module(module_name);
+        // Load from PTX file
+        let ptx_path = Self::ptx_path_for_module(name);
+        let module = Arc::new(Module::from_ptx(ctx, ptx_path)?);
 
-            // Compile and load the CUDA module.
-            let module = cuda_context
-                .load_module(Ptx::from_file(&ptx_path))
-                .map_err(|e| {
-                    vortex_err!(
-                        "Failed to load CUDA module {}, ptx path {}: {}",
-                        module_name,
-                        ptx_path.display(),
-                        e
-                    )
-                })?;
+        self.modules.insert(name.to_string(), Arc::clone(&module));
 
-            // Cache the module
-            self.modules
-                .insert(module_name.to_string(), Arc::clone(&module));
-
-            module
-        };
-
-        // Load the CUDA function from the compiled module.
-        module
-            .load_function(&kernel_name)
-            .map_err(|e| vortex_err!("Failed to load kernel function '{}': {}", kernel_name, e))
+        Ok(module)
     }
 
     /// Returns the PTX file path for a given module name.

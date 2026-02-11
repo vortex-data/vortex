@@ -61,7 +61,7 @@ impl VortexCudaStream {
     pub fn copy_to_device<T, D>(
         &self,
         data: D,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>>
+    ) -> VortexResult<BoxFuture<'static, VortexResult<CudaDeviceBuffer>>>
     where
         T: DeviceRepr + Debug + Send + Sync + 'static,
         D: AsRef<[T]> + Send + 'static,
@@ -84,7 +84,7 @@ impl VortexCudaStream {
             // Keep source memory alive until copy completes.
             let _keep_alive = data;
 
-            Ok(BufferHandle::new_device(Arc::new(cuda_buf)))
+            Ok(cuda_buf)
         }))
     }
 
@@ -96,11 +96,11 @@ impl VortexCudaStream {
     ///
     /// # Returns
     ///
-    /// A future that resolves to the device buffer handle when the copy completes.
+    /// A future that resolves to the device buffer when completed.
     pub fn move_to_device(
         &self,
         handle: BufferHandle,
-    ) -> VortexResult<BoxFuture<'static, VortexResult<BufferHandle>>> {
+    ) -> VortexResult<BoxFuture<'static, VortexResult<CudaDeviceBuffer>>> {
         let host_buffer = handle
             .as_host_opt()
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?;
