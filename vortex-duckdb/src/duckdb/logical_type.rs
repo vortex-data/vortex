@@ -1,19 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::ffi::CStr;
 use std::ffi::CString;
 use std::fmt::Debug;
-use std::fmt::Display;
 use std::fmt::Formatter;
 
-use vortex::dtype::FieldName;
 use vortex::error::VortexExpect;
 use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
-use vortex::error::vortex_err;
 
 use crate::cpp::*;
+use crate::duckdb::ddb_string::DDBString;
 use crate::wrapper;
 
 wrapper!(
@@ -211,50 +208,6 @@ impl Debug for LogicalType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let debug = unsafe { DDBString::own(duckdb_vx_logical_type_stringify(self.as_ptr())) };
         write!(f, "{}", debug)
-    }
-}
-
-wrapper!(
-    #[derive(Debug)]
-    DDBString,
-    *mut std::ffi::c_char,
-    |ptr: *mut std::ffi::c_char| {
-        unsafe { CStr::from_ptr(ptr) }
-            .to_str()
-            .map_err(|e| vortex_err!("Failed to convert C string to str: {e}"))
-            .vortex_expect("DuckDB string should be valid UTF-8")
-    },
-    |ptr: &mut *mut std::ffi::c_char| unsafe { duckdb_free((*ptr).cast()) }
-);
-
-impl Display for DDBString {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref())
-    }
-}
-
-impl AsRef<str> for DDBString {
-    fn as_ref(&self) -> &str {
-        // SAFETY: The string have been validated on construction.
-        unsafe { str::from_utf8_unchecked(CStr::from_ptr(self.ptr).to_bytes()) }
-    }
-}
-
-impl PartialEq for DDBString {
-    fn eq(&self, other: &Self) -> bool {
-        self.as_ref() == other.as_ref()
-    }
-}
-
-impl PartialEq<str> for DDBString {
-    fn eq(&self, other: &str) -> bool {
-        self.as_ref() == other
-    }
-}
-
-impl From<DDBString> for FieldName {
-    fn from(value: DDBString) -> Self {
-        FieldName::from(value.as_ref())
     }
 }
 
