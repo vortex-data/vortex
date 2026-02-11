@@ -106,7 +106,6 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     }
 }
 
-#[allow(clippy::same_name_method)]
 impl ReduceNode for ScalarFnArray {
     fn as_any(&self) -> &dyn Any {
         self
@@ -116,6 +115,7 @@ impl ReduceNode for ScalarFnArray {
         Ok(self.dtype().clone())
     }
 
+    #[allow(clippy::same_name_method)]
     fn scalar_fn(&self) -> Option<&ScalarFn> {
         Some(ScalarFnArray::scalar_fn(self))
     }
