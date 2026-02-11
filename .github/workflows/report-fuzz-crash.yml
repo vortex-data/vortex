@@ -132,7 +132,7 @@ jobs:
 
       - name: Alert incident.io on validation failure
         if: failure() && steps.report.outputs.validation_failed == 'true' && secrets.incident_io_alert_token != ''
-        uses: incident-io/github-action@v0
+        uses: incident-io/github-action@v1
         with:
           api-key: ${{ secrets.incident_io_alert_token }}
           alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10

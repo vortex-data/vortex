@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Fire test alert
         id: fire
-        uses: incident-io/github-action@v0
+        uses: incident-io/github-action@v1
         with:
           api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
           alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
@@ -28,7 +28,7 @@ jobs:
           echo "Alert URL: ${{ steps.fire.outputs.alert-url }}"
 
       - name: Resolve test alert
-        uses: incident-io/github-action@v0
+        uses: incident-io/github-action@v1
         with:
           api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
           alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
