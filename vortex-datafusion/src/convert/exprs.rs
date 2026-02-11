@@ -113,26 +113,30 @@ impl DefaultExpressionConvertor {
     fn try_convert_scalar_function(&self, scalar_fn: &ScalarFunctionExpr) -> DFResult<Expression> {
         if let Some(get_field_fn) = ScalarFunctionExpr::try_downcast_func::<GetFieldFunc>(scalar_fn)
         {
-            let source_expr = get_field_fn
+            // DataFusion's GetFieldFunc flattens nested field access into a single call
+            // with multiple field name arguments. For example, `outer.inner.leaf` becomes
+            // get_field(Column("outer"), "inner", "leaf"). We build a chain of get_item
+            // calls for each field name in the path.
+            let (source_expr, field_names) = get_field_fn
                 .args()
-                .first()
-                .ok_or_else(|| exec_datafusion_err!("get_field missing source expression"))?
-                .as_ref();
-            let field_name_expr = get_field_fn
-                .args()
-                .get(1)
-                .ok_or_else(|| exec_datafusion_err!("get_field missing field name argument"))?;
-            let field_name = field_name_expr
-                .as_any()
-                .downcast_ref::<df_expr::Literal>()
-                .ok_or_else(|| exec_datafusion_err!("get_field field name must be a literal"))?
-                .value()
-                .try_as_str()
-                .flatten()
-                .ok_or_else(|| {
-                    exec_datafusion_err!("get_field field name must be a UTF-8 string")
-                })?;
-            return Ok(get_item(field_name.to_string(), self.convert(source_expr)?));
+                .split_first()
+                .ok_or_else(|| exec_datafusion_err!("get_field missing source expression"))?;
+
+            let mut result = self.convert(source_expr.as_ref())?;
+            for expr in field_names {
+                let field_name = expr
+                    .as_any()
+                    .downcast_ref::<df_expr::Literal>()
+                    .ok_or_else(|| exec_datafusion_err!("get_field field name must be a literal"))?
+                    .value()
+                    .try_as_str()
+                    .flatten()
+                    .ok_or_else(|| {
+                        exec_datafusion_err!("get_field field name must be a UTF-8 string")
+                    })?;
+                result = get_item(field_name.to_string(), result);
+            }
+            return Ok(result);
         }
 
         Err(exec_datafusion_err!(
