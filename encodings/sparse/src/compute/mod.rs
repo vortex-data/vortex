@@ -14,8 +14,8 @@ mod test {
     use vortex_array::ArrayRef;
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
-    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::binary_numeric::test_binary_numeric_array;
     use vortex_array::compute::conformance::mask::test_mask_conformance;
     use vortex_array::validity::Validity;

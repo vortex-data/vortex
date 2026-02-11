@@ -15,8 +15,23 @@ use vortex_session::VortexSession;
 use crate::AnyColumnar;
 use crate::Array;
 use crate::ArrayRef;
-use crate::array::IntoArray;
+use crate::CanonicalView;
+use crate::ColumnarView;
+use crate::ExecutionCtx;
+use crate::arrays::BoolVTable;
+use crate::arrays::ConstantArray;
+use crate::arrays::ConstantVTable;
+use crate::arrays::DecimalVTable;
+use crate::arrays::ExtensionVTable;
+use crate::arrays::FixedSizeListVTable;
+use crate::arrays::ListViewVTable;
+use crate::arrays::NullVTable;
+use crate::arrays::PrimitiveVTable;
+use crate::arrays::StructVTable;
+use crate::arrays::VarBinViewVTable;
 use crate::builtins::ArrayBuiltins;
+use crate::compute::CastKernel;
+use crate::compute::CastReduce;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -92,29 +107,26 @@ impl VTable for Cast {
             .pop()
             .vortex_expect("missing input for Cast expression");
 
-        match input.as_opt::<AnyColumnar>() {
-            None => {
-                // If the input is not columnar, execute it and try again
-                input
-                    .execute::<ArrayRef>(args.ctx)?
-                    .cast(target_dtype.clone())
-            }
-            Some(columnar) => {
-                let array: &dyn Array = columnar.as_ref();
-                // If already canonical and still here, no CastKernel handled it.
-                if array.is_canonical() {
-                    vortex_bail!(
+        let Some(columnar) = input.as_opt::<AnyColumnar>() else {
+            return input
+                .execute::<ArrayRef>(args.ctx)?
+                .cast(target_dtype.clone());
+        };
+
+        match columnar {
+            ColumnarView::Canonical(canonical) => {
+                match cast_canonical(canonical.clone(), target_dtype, args.ctx)? {
+                    Some(result) => Ok(result),
+                    None => vortex_bail!(
                         "No CastKernel to cast canonical array {} from {} to {}",
-                        array.encoding_id(),
-                        array.dtype(),
+                        canonical.as_ref().encoding_id(),
+                        canonical.as_ref().dtype(),
                         target_dtype,
-                    );
+                    ),
                 }
-                // Canonicalize and retry — the canonical type's CastKernel will handle it.
-                array
-                    .to_canonical()?
-                    .into_array()
-                    .cast(target_dtype.clone())
+            }
+            ColumnarView::Constant(constant) => {
+                Ok(cast_constant(constant, target_dtype)?.vortex_expect("cannot return none"))
             }
         }
     }
@@ -178,6 +190,31 @@ impl VTable for Cast {
     fn is_null_sensitive(&self, _instance: &DType) -> bool {
         true
     }
+}
+
+/// Cast a canonical array to the target dtype by dispatching to the appropriate
+/// [`CastReduce`] or [`CastKernel`] for each canonical encoding.
+fn cast_canonical(
+    canonical: CanonicalView<'_>,
+    dtype: &DType,
+    ctx: &mut ExecutionCtx,
+) -> VortexResult<Option<ArrayRef>> {
+    match canonical {
+        CanonicalView::Null(a) => <NullVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::Bool(a) => <BoolVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::Primitive(a) => <PrimitiveVTable as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Decimal(a) => <DecimalVTable as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::VarBinView(a) => <VarBinViewVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::List(a) => <ListViewVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::FixedSizeList(a) => <FixedSizeListVTable as CastReduce>::cast(a, dtype),
+        CanonicalView::Struct(a) => <StructVTable as CastKernel>::cast(a, dtype, ctx),
+        CanonicalView::Extension(a) => <ExtensionVTable as CastReduce>::cast(a, dtype),
+    }
+}
+
+/// Cast a constant array by dispatching to its [`CastReduce`] implementation.
+fn cast_constant(array: &ConstantArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+    <ConstantVTable as CastReduce>::cast(array, dtype)
 }
 
 /// Creates an expression that casts values to a target data type.
