@@ -28,15 +28,8 @@ use vortex_sqllogictest::duckdb::DuckDB;
 use vortex_sqllogictest::duckdb::DuckDBTestError;
 use vortex_sqllogictest::utils::list_files;
 
-fn main() -> anyhow::Result<()> {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(run_all())?;
-    Ok(())
-}
-
-async fn run_all() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
     if args.list {
