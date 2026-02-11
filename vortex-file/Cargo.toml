@@ -46,6 +46,7 @@ vortex-flatbuffers = { workspace = true, features = ["file"] }
 vortex-fsst = { workspace = true }
 vortex-io = { workspace = true }
 vortex-layout = { workspace = true }
+vortex-mask = { workspace = true }
 vortex-metrics = { workspace = true }
 vortex-pco = { workspace = true }
 vortex-runend = { workspace = true }
@@ -62,6 +63,7 @@ vortex-zstd = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 vortex-io = { workspace = true, features = ["tokio"] }
+vortex-layout = { workspace = true, features = ["_test-harness"] }
 vortex-scan = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
