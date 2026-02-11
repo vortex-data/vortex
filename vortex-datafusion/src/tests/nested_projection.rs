@@ -58,8 +58,7 @@ async fn test_nested_struct_leaf_projection(
     let ctx = TestSessionContext::new(projection_pushdown);
 
     let batch = make_nested_batch();
-    ctx.write_arrow_batch("files/nested.vortex", &batch)
-        .await?;
+    ctx.write_arrow_batch("files/nested.vortex", &batch).await?;
 
     let schema = batch.schema();
     let provider = ctx
@@ -101,8 +100,7 @@ async fn test_nested_struct_mid_level_projection(
     let ctx = TestSessionContext::new(projection_pushdown);
 
     let batch = make_nested_batch();
-    ctx.write_arrow_batch("files/nested.vortex", &batch)
-        .await?;
+    ctx.write_arrow_batch("files/nested.vortex", &batch).await?;
 
     let schema = batch.schema();
     let provider = ctx
