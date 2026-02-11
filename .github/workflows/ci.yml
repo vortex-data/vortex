@@ -750,6 +750,7 @@ jobs:
       - uses: runs-on/action@v2
         with:
           sccache: s3
+      - uses: actions/checkout@v6
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
