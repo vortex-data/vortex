@@ -48,8 +48,14 @@ pin_project! {
 }
 
 /// A hard global limit on the number of outstanding IoRequests across all IoRequestStreams.
-static GLOBAL_IO_REQUEST_LIMIT: LazyLock<Arc<Semaphore>> =
-    LazyLock::new(|| Arc::from(Semaphore::new(32)));
+static GLOBAL_IO_REQUEST_LIMIT: LazyLock<Arc<Semaphore>> = LazyLock::new(|| {
+    Arc::from(Semaphore::new(
+        std::env::var("VORTEX_GLOBAL_IO_REQUEST_LIMIT")
+            .unwrap_or("32".to_string())
+            .parse()
+            .unwrap_or(32),
+    ))
+});
 
 impl<S> IoRequestStream<S> {
     // FIXME(ngates): split this into coalesce_distance and max_read_size. We should keep
