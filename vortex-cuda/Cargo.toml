@@ -93,3 +93,7 @@ harness = false
 [[bench]]
 name = "bitpacked_cuda"
 harness = false
+
+[[bench]]
+name = "nested_decode_cuda"
+harness = false
