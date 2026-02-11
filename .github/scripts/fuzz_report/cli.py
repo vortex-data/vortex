@@ -130,12 +130,12 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
     # List all comments on the issue
     result = subprocess.run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{repo}/issues/{issue_number}/comments",
             "--paginate",
             "--jq",
-            f'.[] | select(.body | contains("{_RECURRENCE_MARKER}"))'
-            f" | {{id: .id, body: .body}}",
+            f'.[] | select(.body | contains("{_RECURRENCE_MARKER}")) | {{id: .id, body: .body}}',
         ],
         capture_output=True,
         text=True,
@@ -163,10 +163,13 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         # fuzz CI jobs are serialized)
         subprocess.run(
             [
-                "gh", "api",
+                "gh",
+                "api",
                 f"repos/{repo}/issues/comments/{existing_id}",
-                "-X", "PATCH",
-                "-f", f"body={body}",
+                "-X",
+                "PATCH",
+                "-f",
+                f"body={body}",
             ],
             check=True,
         )
@@ -174,9 +177,11 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         # Create new recurrence comment
         subprocess.run(
             [
-                "gh", "api",
+                "gh",
+                "api",
                 f"repos/{repo}/issues/{issue_number}/comments",
-                "-f", f"body={body}",
+                "-f",
+                f"body={body}",
             ],
             check=True,
         )

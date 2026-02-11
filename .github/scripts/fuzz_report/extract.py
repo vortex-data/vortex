@@ -205,12 +205,14 @@ NOISE_FUNC_PREFIXES = (
 # Exact function names (after stripping generics) that are error-handling
 # boilerplate.  These supplement NOISE_FUNC_PREFIXES for cases where the
 # function doesn't match a prefix but is still infrastructure.
-NOISE_FUNC_NAMES = frozenset({
-    "vortex_expect",
-    "vortex_unwrap",
-    "panic_display",
-    "rust_begin_unwind",
-})
+NOISE_FUNC_NAMES = frozenset(
+    {
+        "vortex_expect",
+        "vortex_unwrap",
+        "panic_display",
+        "rust_begin_unwind",
+    }
+)
 
 
 def _is_noise_frame(func_name: str, path: str) -> bool:

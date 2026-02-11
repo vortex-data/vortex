@@ -362,14 +362,16 @@ class TestEndToEndDedup:
         issue_body = _build_issue_body(crash1_info)
         issues_path = temp_dir / "issues.json"
         issues_path.write_text(
-            json.dumps([
-                {
-                    "number": 6048,
-                    "title": "Fuzzing Crash: VortexError in array_ops",
-                    "body": issue_body,
-                    "url": "https://github.com/vortex-data/vortex/issues/6048",
-                },
-            ])
+            json.dumps(
+                [
+                    {
+                        "number": 6048,
+                        "title": "Fuzzing Crash: VortexError in array_ops",
+                        "body": issue_body,
+                        "url": "https://github.com/vortex-data/vortex/issues/6048",
+                    },
+                ]
+            )
         )
 
         result = check_duplicate(crash2_info, str(issues_path))
@@ -379,26 +381,24 @@ class TestEndToEndDedup:
             assert result.check != "panic_location", (
                 f"False panic_location match! debug={result.debug}"
             )
-            assert result.check != "stack_trace", (
-                f"False stack_trace match! debug={result.debug}"
-            )
-            assert result.confidence != "exact", (
-                f"False exact match! debug={result.debug}"
-            )
+            assert result.check != "stack_trace", f"False stack_trace match! debug={result.debug}"
+            assert result.confidence != "exact", f"False exact match! debug={result.debug}"
 
     def test_same_crash_does_match(self, crash1_info, temp_dir):
         """A second occurrence of the SAME crash should still be detected."""
         issue_body = _build_issue_body(crash1_info)
         issues_path = temp_dir / "issues.json"
         issues_path.write_text(
-            json.dumps([
-                {
-                    "number": 6048,
-                    "title": "Fuzzing Crash: VortexError in array_ops",
-                    "body": issue_body,
-                    "url": "https://github.com/vortex-data/vortex/issues/6048",
-                },
-            ])
+            json.dumps(
+                [
+                    {
+                        "number": 6048,
+                        "title": "Fuzzing Crash: VortexError in array_ops",
+                        "body": issue_body,
+                        "url": "https://github.com/vortex-data/vortex/issues/6048",
+                    },
+                ]
+            )
         )
 
         result = check_duplicate(crash1_info, str(issues_path))
@@ -412,14 +412,16 @@ class TestEndToEndDedup:
         issue_body = _build_issue_body(crash1_info)
         issues_path = temp_dir / "issues.json"
         issues_path.write_text(
-            json.dumps([
-                {
-                    "number": 6048,
-                    "title": "Fuzzing Crash: VortexError in array_ops",
-                    "body": issue_body,
-                    "url": "https://github.com/vortex-data/vortex/issues/6048",
-                },
-            ])
+            json.dumps(
+                [
+                    {
+                        "number": 6048,
+                        "title": "Fuzzing Crash: VortexError in array_ops",
+                        "body": issue_body,
+                        "url": "https://github.com/vortex-data/vortex/issues/6048",
+                    },
+                ]
+            )
         )
 
         result = check_duplicate(crash2_info, str(issues_path))
@@ -561,38 +563,42 @@ class TestIssue6429:
             assert all("{closure" not in f for f in info.stack_frames)
             assert "decimal" in info.stack_frames
 
-    def test_same_bug_matches_correctly(
-        self, file_io_info, array_ops_info, temp_dir
-    ):
+    def test_same_bug_matches_correctly(self, file_io_info, array_ops_info, temp_dir):
         """array_ops crash should match the file_io issue — same bug."""
         issue_body = _build_issue_body(file_io_info)
         issues_path = temp_dir / "issues.json"
         issues_path.write_text(
-            json.dumps([{
-                "number": 6429,
-                "title": "Fuzzing Crash: VortexError in file_io",
-                "body": issue_body,
-                "url": "https://github.com/vortex-data/vortex/issues/6429",
-            }])
+            json.dumps(
+                [
+                    {
+                        "number": 6429,
+                        "title": "Fuzzing Crash: VortexError in file_io",
+                        "body": issue_body,
+                        "url": "https://github.com/vortex-data/vortex/issues/6429",
+                    }
+                ]
+            )
         )
 
         result = check_duplicate(array_ops_info, str(issues_path))
         assert result.duplicate is True
         assert result.confidence == "high"
 
-    def test_match_reason_references_real_site(
-        self, file_io_info, array_ops_info, temp_dir
-    ):
+    def test_match_reason_references_real_site(self, file_io_info, array_ops_info, temp_dir):
         """The match reason must reference the real crash, not boilerplate."""
         issue_body = _build_issue_body(file_io_info)
         issues_path = temp_dir / "issues.json"
         issues_path.write_text(
-            json.dumps([{
-                "number": 6429,
-                "title": "Fuzzing Crash: VortexError in file_io",
-                "body": issue_body,
-                "url": "https://github.com/vortex-data/vortex/issues/6429",
-            }])
+            json.dumps(
+                [
+                    {
+                        "number": 6429,
+                        "title": "Fuzzing Crash: VortexError in file_io",
+                        "body": issue_body,
+                        "url": "https://github.com/vortex-data/vortex/issues/6429",
+                    }
+                ]
+            )
         )
 
         result = check_duplicate(array_ops_info, str(issues_path))
