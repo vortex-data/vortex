@@ -9,21 +9,24 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for PrimitiveVTable {
-    fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &PrimitiveArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().to_bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
@@ -39,11 +42,9 @@ impl FillNullKernel for PrimitiveVTable {
                 })
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {

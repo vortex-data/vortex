@@ -6,24 +6,27 @@ use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for BoolVTable {
-    fn fill_null(&self, array: &BoolArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &BoolArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let fill = fill_value
             .as_bool()
             .value()
             .ok_or_else(|| vortex_err!("Fill value must be non null"))?;
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(v) => {
                 let bool_buffer = if fill {
                     array.to_bit_buffer() | &!v.to_bool().to_bit_buffer()
@@ -33,11 +36,9 @@ impl FillNullKernel for BoolVTable {
                 BoolArray::new(bool_buffer, fill_value.dtype().nullability().into()).into_array()
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(BoolVTable).lift());
 
 #[cfg(test)]
 mod tests {
