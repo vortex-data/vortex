@@ -66,12 +66,11 @@ pub type DataSourceRef = Arc<dyn DataSource>;
 ///
 /// The DataSource may be used multiple times to create multiple scans, whereas each scan and each
 /// split of a scan can only be consumed once.
-#[async_trait]
 pub trait DataSource: 'static + Send + Sync {
     /// Returns the dtype of the source.
     fn dtype(&self) -> &DType;
 
-    /// Returns an estimate of the row count of the source.
+    /// Returns an estimate of the row count of the un-filtered source.
     fn row_count_estimate(&self) -> Estimate<u64>;
 
     /// Serialize the [`DataSource`] to pass to a remote worker.
@@ -83,7 +82,7 @@ pub trait DataSource: 'static + Send + Sync {
     fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef>;
 
     /// Returns a scan over the source.
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
+    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef>;
 }
 
 /// A request to scan a data source.
@@ -111,8 +110,8 @@ pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
-    /// An estimate of the total number of splits.
-    fn splits_estimate(&self) -> Estimate<usize>;
+    /// Returns an estimate of the total number of splits the scan will produce.
+    fn split_count_estimate(&self) -> Estimate<usize>;
 
     /// Returns a stream of splits to be processed.
     fn splits(self: Box<Self>) -> SplitStream;

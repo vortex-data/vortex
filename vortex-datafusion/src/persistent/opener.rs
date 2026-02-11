@@ -30,6 +30,7 @@ use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
 use object_store::path::Path;
+use tokio_stream::StreamExt;
 use tracing::Instrument;
 use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
@@ -349,20 +350,7 @@ impl FileOpener for VortexOpener {
 
                 let scan = data_source
                     .scan(scan_request)
-                    .await
                     .map_err(|e| exec_datafusion_err!("Failed to create Vortex scan: {e}"))?;
-
-                let streams: Vec<_> = scan
-                    .splits()
-                    .collect::<Vec<_>>()
-                    .await
-                    .into_iter()
-                    .map(|split_result| {
-                        split_result.and_then(|split| split.execute()).map_err(|e| {
-                            exec_datafusion_err!("Failed to execute Vortex split: {e}")
-                        })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
 
                 // Spawn Vortex-to-Arrow conversion onto CPU threads so it doesn't
                 // block the polling thread. The inner scan stream already handles I/O
@@ -372,8 +360,9 @@ impl FileOpener for VortexOpener {
                 let num_workers = std::thread::available_parallelism()
                     .map(|n| n.get())
                     .unwrap_or(1);
-                stream::iter(streams)
-                    .flatten()
+                scan.splits()
+                    .map(|split| split.and_then(|s| s.execute()))
+                    .try_flatten()
                     .map(move |result| {
                         let session = session.clone();
                         let stream_schema = stream_schema.clone();

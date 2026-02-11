@@ -3,10 +3,12 @@
 
 use std::any::Any;
 use std::ops::Range;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 
-use async_trait::async_trait;
-use futures::stream;
+use futures::Stream;
 use futures::stream::StreamExt;
 use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
@@ -75,7 +77,6 @@ impl LayoutReaderDataSource {
     }
 }
 
-#[async_trait]
 impl DataSource for LayoutReaderDataSource {
     fn dtype(&self) -> &DType {
         self.reader.dtype()
@@ -85,7 +86,11 @@ impl DataSource for LayoutReaderDataSource {
         Estimate::exact(self.reader.row_count())
     }
 
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
+        vortex_bail!("LayoutReader splits are not yet serializable");
+    }
+
+    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
@@ -109,10 +114,6 @@ impl DataSource for LayoutReaderDataSource {
             split_size: self.split_size,
         }))
     }
-
-    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
-        vortex_bail!("LayoutReader splits are not yet serializable");
-    }
 }
 
 struct LayoutReaderScan {
@@ -134,56 +135,65 @@ impl DataSourceScan for LayoutReaderScan {
         &self.dtype
     }
 
-    fn splits_estimate(&self) -> Estimate<usize> {
-        if self.next_row >= self.end_row {
-            return Estimate::exact(0);
-        }
-        let remaining_rows = self.end_row - self.next_row;
-        let splits = remaining_rows.div_ceil(self.split_size);
-        Estimate {
-            lower: 0,
-            upper: Some(usize::try_from(splits).unwrap_or(usize::MAX)),
-        }
+    fn split_count_estimate(&self) -> Estimate<usize> {
+        let (lower, upper) = self.size_hint();
+        Estimate { lower, upper }
     }
 
     fn splits(self: Box<Self>) -> SplitStream {
-        stream::unfold(*self, |mut state| async move {
-            if state.next_row >= state.end_row {
-                return None;
-            }
+        (*self).boxed()
+    }
+}
 
-            if state.limit.is_some_and(|limit| limit == 0) {
-                return None;
-            }
+impl Stream for LayoutReaderScan {
+    type Item = VortexResult<SplitRef>;
 
-            let split_end = state
-                .next_row
-                .saturating_add(state.split_size)
-                .min(state.end_row);
-            let row_range = state.next_row..split_end;
-            let split_rows = split_end - state.next_row;
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
 
-            let split_limit = state.limit;
-            if let Some(ref mut limit) = state.limit {
-                *limit = limit.saturating_sub(split_rows);
-            }
+        if this.next_row >= this.end_row {
+            return Poll::Ready(None);
+        }
 
-            let split = Box::new(LayoutReaderSplit {
-                reader: state.reader.clone(),
-                session: state.session.clone(),
-                projection: state.projection.clone(),
-                filter: state.filter.clone(),
-                limit: split_limit,
-                row_range,
-                selection: state.selection.clone(),
-                metrics_registry: state.metrics_registry.clone(),
-            }) as SplitRef;
+        if this.limit.is_some_and(|limit| limit == 0) {
+            return Poll::Ready(None);
+        }
 
-            state.next_row = split_end;
+        let split_end = this
+            .next_row
+            .saturating_add(this.split_size)
+            .min(this.end_row);
+        let row_range = this.next_row..split_end;
+        let split_rows = split_end - this.next_row;
 
-            Some((Ok(split), state))
-        })
-        .boxed()
+        let split_limit = this.limit;
+        if let Some(ref mut limit) = this.limit {
+            *limit = limit.saturating_sub(split_rows);
+        }
+
+        let split = Box::new(LayoutReaderSplit {
+            reader: this.reader.clone(),
+            session: this.session.clone(),
+            projection: this.projection.clone(),
+            filter: this.filter.clone(),
+            limit: split_limit,
+            row_range,
+            selection: this.selection.clone(),
+            metrics_registry: this.metrics_registry.clone(),
+        }) as SplitRef;
+
+        this.next_row = split_end;
+
+        Poll::Ready(Some(Ok(split)))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        if self.next_row >= self.end_row {
+            return (0, Some(0));
+        }
+        let remaining_rows = self.end_row - self.next_row;
+        let splits = remaining_rows.div_ceil(self.split_size);
+        (0, Some(usize::try_from(splits).unwrap_or(usize::MAX)))
     }
 }
 

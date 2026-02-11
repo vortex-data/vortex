@@ -584,7 +584,7 @@ fn init_global_scan_api(
         ..Default::default()
     };
 
-    let scan = RUNTIME.block_on(Compat::new(multi_ds.scan(request)))?;
+    let scan = multi_ds.scan(request)?;
     let conversion_cache = Arc::new(ConversionCache::new(0));
 
     // Lazily pull splits, execute each into a stream, and feed into MultiScan.

@@ -124,7 +124,6 @@ impl MultiDataSource {
     }
 }
 
-#[async_trait]
 impl DataSource for MultiDataSource {
     fn dtype(&self) -> &DType {
         &self.dtype
@@ -158,7 +157,7 @@ impl DataSource for MultiDataSource {
         Estimate { lower, upper }
     }
 
-    async fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
@@ -252,11 +251,11 @@ impl DataSourceScan for MultiDataSourceScan {
         &self.dtype
     }
 
-    fn splits_estimate(&self) -> Estimate<usize> {
+    fn split_count_estimate(&self) -> Estimate<usize> {
         let current_estimate = self
             .current
             .as_ref()
-            .map_or_else(|| Estimate::exact(0), |s| s.splits_estimate());
+            .map_or_else(|| Estimate::exact(0), |s| s.split_count_estimate());
 
         let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
         if remaining_sources == 0 {
@@ -323,7 +322,7 @@ impl DataSourceScan for MultiDataSourceScan {
 
                     let mut child_request = s.request.clone();
                     child_request.limit = s.remaining_limit;
-                    let child_scan = match source.scan(child_request).await {
+                    let child_scan = match source.scan(child_request) {
                         Ok(scan) => scan,
                         Err(e) => return Some((Err(e), (None, None))),
                     };
