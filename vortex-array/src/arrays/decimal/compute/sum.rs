@@ -41,14 +41,12 @@ impl SumKernel for DecimalVTable {
             .vortex_expect("cannot be null");
 
         let mask = array.validity_mask()?;
-        if matches!(&mask, Mask::AllFalse(_)) {
-            vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
-        }
-
         let validity = match &mask {
             Mask::AllTrue(_) => None,
             Mask::Values(mask_values) => Some(mask_values.bit_buffer()),
-            Mask::AllFalse(_) => unreachable!("handled above"),
+            Mask::AllFalse(_) => {
+                vortex_bail!("invalid state, all-null array should be checked by top-level sum fn")
+            }
         };
 
         let values_type = DecimalType::smallest_decimal_value_type(&return_decimal_dtype);
