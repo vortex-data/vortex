@@ -31,6 +31,10 @@ use crate::api::ScanRequest;
 use crate::api::SplitRef;
 use crate::api::SplitStream;
 
+// FIXME(ngates): this is the wrong abstraction. We should have a MultiFileDataSource in
+//  vortex-file that knows about files, and globs, and uses object store for file listing etc.
+//  It should also avoid building a layout tree at all when the dtype is an empty struct.
+
 /// An async factory that produces a [`DataSource`].
 ///
 /// Implementations handle engine-specific concerns like file opening, caching, and

@@ -12,7 +12,10 @@ use arrow_schema::SchemaRef;
 use async_trait::async_trait;
 use datafusion_catalog::Session;
 use datafusion_catalog::TableProvider;
+use datafusion_common::ColumnStatistics;
 use datafusion_common::Result as DFResult;
+use datafusion_common::Statistics;
+use datafusion_common::stats::Precision;
 use datafusion_expr::Expr;
 use datafusion_expr::Operator as DFOperator;
 use datafusion_expr::TableProviderFilterPushDown;
@@ -23,6 +26,7 @@ use vortex::compute::LikeOptions;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
+use vortex::encodings::fastlanes::bitpack_decompress::unpack_single;
 use vortex::expr::Binary;
 use vortex::expr::Expression;
 use vortex::expr::Like;
@@ -242,5 +246,32 @@ impl TableProvider for VortexTable {
             projected_schema,
             self.session.clone(),
         )))
+    }
+
+    fn statistics(&self) -> Option<Statistics> {
+        let row_count_est = self.data_source.row_count_estimate();
+        let num_rows = match row_count_est.upper {
+            Some(upper) if row_count_est.lower == upper => usize::try_from(upper)
+                .map(Precision::Exact)
+                .unwrap_or_default(),
+            _ => Precision::Absent,
+        };
+
+        let byte_size_est = self.data_source.row_count_estimate();
+        let total_byte_size = match byte_size_est.upper {
+            Some(upper) if byte_size_est.lower == upper => usize::try_from(upper)
+                .map(Precision::Exact)
+                .unwrap_or_default(),
+            _ => Precision::Absent,
+        };
+
+        let column_statistics =
+            vec![ColumnStatistics::new_unknown(); self.arrow_schema.fields.len()];
+
+        Some(Statistics {
+            num_rows,
+            total_byte_size,
+            column_statistics,
+        })
     }
 }

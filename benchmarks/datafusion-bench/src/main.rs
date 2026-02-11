@@ -27,7 +27,9 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::error::VortexExpect;
 use vortex::file::OpenOptionsSessionExt;
+use vortex::file::v2::FileStatsLayoutReader;
 use vortex::scan::api::DataSourceRef;
 use vortex::scan::layout::LayoutReaderDataSource;
 use vortex::scan::multi::DataSourceFactory;
@@ -288,7 +290,10 @@ struct VortexFileFactory {
 impl DataSourceFactory for VortexFileFactory {
     async fn open(&self) -> vortex::error::VortexResult<Option<DataSourceRef>> {
         let file = SESSION.open_options().open_path(&self.path).await?;
-        let reader = file.layout_reader()?;
+        let mut reader = file.layout_reader()?;
+        if let Some(stats) = file.file_stats().cloned() {
+            reader = Arc::new(FileStatsLayoutReader::new(reader, stats, SESSION.clone()));
+        }
         Ok(Some(Arc::new(LayoutReaderDataSource::new(
             reader,
             SESSION.clone(),
@@ -302,46 +307,47 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
+    use futures::TryStreamExt;
     use vortex_datafusion::v2::VortexTable;
 
-    let base_path = benchmark
-        .data_url()
-        .to_file_path()
-        .map_err(|_| anyhow::anyhow!("V2 path requires local file:// URL"))?
-        .join(format.name());
-
-    let dir_entries: Vec<_> = std::fs::read_dir(&base_path)?.collect::<Result<Vec<_>, _>>()?;
+    let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
+        let table_url = ListingTableUrl::try_new(benchmark_base.clone(), pattern)?;
 
-        // Find files matching this table's glob pattern.
-        let mut matching_paths: Vec<PathBuf> = dir_entries
-            .iter()
-            .filter(|entry| {
-                let filename = entry.file_name();
-                let filename_str = filename.to_str().unwrap_or("");
-                match &pattern {
-                    Some(p) => p.matches(filename_str),
-                    None => filename_str == format!("{}.{}", table.name, format.ext()),
-                }
-            })
-            .map(|entry| entry.path())
-            .collect();
-        matching_paths.sort();
+        // Use the same ListingTableUrl file discovery as v1.
+        let state = session.state();
+        let store = state.runtime_env().object_store(table_url.object_store())?;
+        let mut file_metas: Vec<_> = table_url
+            .list_all_files(&state, store.as_ref(), format.ext())
+            .await?
+            .try_collect()
+            .await?;
+        file_metas.sort_by(|a, b| a.location.cmp(&b.location));
 
         anyhow::ensure!(
-            !matching_paths.is_empty(),
+            !file_metas.is_empty(),
             "no files found for table {}",
             table.name
         );
 
+        // Convert object store paths to absolute local file paths.
+        // Object store locations are relative (e.g. "path/to/file.vortex"), so prepend "/".
+        let matching_paths: Vec<PathBuf> = file_metas
+            .iter()
+            .map(|meta| PathBuf::from(format!("/{}", meta.location)))
+            .collect();
+
         // Open the first file eagerly to get the dtype/schema.
         let first_file = SESSION.open_options().open_path(&matching_paths[0]).await?;
         let arrow_schema = Arc::new(first_file.dtype().to_arrow_schema()?);
-        let first_reader = first_file.layout_reader()?;
-        let first_source: DataSourceRef =
-            Arc::new(LayoutReaderDataSource::new(first_reader, SESSION.clone()));
+        let first_source = VortexFileFactory {
+            path: matching_paths[0].clone(),
+        }
+        .open()
+        .await?
+        .vortex_expect("Missing first file");
 
         // Create lazy factories for remaining files.
         let remaining: Vec<Arc<dyn DataSourceFactory>> = matching_paths[1..]

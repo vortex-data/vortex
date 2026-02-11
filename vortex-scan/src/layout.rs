@@ -9,10 +9,16 @@ use std::task::Context;
 use std::task::Poll;
 
 use futures::Stream;
+use futures::stream;
 use futures::stream::StreamExt;
+use vortex_array::Canonical;
+use vortex_array::IntoArray;
 use vortex_array::expr::Expression;
+use vortex_array::expr::root;
+use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
+use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_layout::LayoutReaderRef;
@@ -86,6 +92,10 @@ impl DataSource for LayoutReaderDataSource {
         Estimate::exact(self.reader.row_count())
     }
 
+    fn byte_size_estimate(&self) -> Estimate<u64> {
+        Estimate::default()
+    }
+
     fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
         vortex_bail!("LayoutReader splits are not yet serializable");
     }
@@ -94,17 +104,37 @@ impl DataSource for LayoutReaderDataSource {
         let total_rows = self.reader.row_count();
         let row_range = scan_request.row_range.unwrap_or(0..total_rows);
 
-        let dtype = if let Some(proj) = &scan_request.projection {
-            proj.return_dtype(self.reader.dtype())?
-        } else {
-            self.reader.dtype().clone()
-        };
+        let projection = scan_request.projection.unwrap_or_else(root);
+        let dtype = projection.return_dtype(self.reader.dtype())?;
+
+        // If the dtype is an empty struct, and there is no filter, we can return a special
+        // length-only scan.
+        if let DType::Struct(fields, Nullability::NonNullable) = &dtype
+            && fields.nfields() == 0
+            && scan_request.filter.is_none()
+        {
+            let row_count = row_range.end - row_range.start;
+            let row_count = match scan_request.selection {
+                Selection::All => row_count,
+                Selection::IncludeByIndex(idx) => idx.len() as u64,
+                Selection::ExcludeByIndex(idx) => row_count - idx.len() as u64,
+            };
+
+            // Apply the limit.
+            let row_count = if let Some(limit) = scan_request.limit {
+                row_count.min(limit)
+            } else {
+                row_count
+            };
+
+            return Ok(Box::new(Empty { dtype, row_count }));
+        }
 
         Ok(Box::new(LayoutReaderScan {
             reader: self.reader.clone(),
             session: self.session.clone(),
             dtype,
-            projection: scan_request.projection,
+            projection,
             filter: scan_request.filter,
             limit: scan_request.limit,
             selection: scan_request.selection,
@@ -120,7 +150,7 @@ struct LayoutReaderScan {
     reader: LayoutReaderRef,
     session: VortexSession,
     dtype: DType,
-    projection: Option<Expression>,
+    projection: Expression,
     filter: Option<Expression>,
     limit: Option<u64>,
     selection: Selection,
@@ -200,7 +230,7 @@ impl Stream for LayoutReaderScan {
 struct LayoutReaderSplit {
     reader: LayoutReaderRef,
     session: VortexSession,
-    projection: Option<Expression>,
+    projection: Expression,
     filter: Option<Expression>,
     limit: Option<u64>,
     row_range: Range<u64>,
@@ -213,27 +243,6 @@ impl Split for LayoutReaderSplit {
         self
     }
 
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        let mut builder = ScanBuilder::new(self.session, self.reader)
-            .with_row_range(self.row_range)
-            .with_selection(self.selection);
-
-        if let Some(proj) = self.projection {
-            builder = builder.with_projection(proj);
-        }
-        if let Some(filter) = self.filter {
-            builder = builder.with_filter(filter);
-        }
-        if let Some(limit) = self.limit {
-            builder = builder.with_limit(limit);
-        }
-        if let Some(metrics) = self.metrics_registry {
-            builder = builder.with_metrics_registry(metrics);
-        }
-
-        Ok(Box::pin(builder.into_array_stream()?))
-    }
-
     fn row_count_estimate(&self) -> Estimate<u64> {
         Estimate {
             lower: 0,
@@ -243,5 +252,57 @@ impl Split for LayoutReaderSplit {
 
     fn byte_size_estimate(&self) -> Estimate<u64> {
         Estimate::default()
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        let builder = ScanBuilder::new(self.session, self.reader)
+            .with_row_range(self.row_range)
+            .with_selection(self.selection)
+            .with_projection(self.projection)
+            .with_some_filter(self.filter)
+            .with_some_limit(self.limit)
+            .with_some_metrics_registry(self.metrics_registry);
+
+        Ok(Box::pin(builder.into_array_stream()?))
+    }
+}
+
+/// A scan that produces no data, only empty arrays with the correct row count.
+struct Empty {
+    dtype: DType,
+    row_count: u64,
+}
+
+impl DataSourceScan for Empty {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn split_count_estimate(&self) -> Estimate<usize> {
+        Estimate::exact(1)
+    }
+
+    fn splits(self: Box<Self>) -> SplitStream {
+        stream::iter([Ok(self as _)]).boxed()
+    }
+}
+
+impl Split for Empty {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn row_count_estimate(&self) -> Estimate<u64> {
+        Estimate::exact(self.row_count)
+    }
+
+    fn byte_size_estimate(&self) -> Estimate<u64> {
+        Estimate::exact(0)
+    }
+
+    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+        Ok(ArrayStreamExt::boxed(
+            Canonical::empty(&self.dtype).into_array().to_array_stream(),
+        ))
     }
 }

@@ -71,7 +71,14 @@ pub trait DataSource: 'static + Send + Sync {
     fn dtype(&self) -> &DType;
 
     /// Returns an estimate of the row count of the un-filtered source.
-    fn row_count_estimate(&self) -> Estimate<u64>;
+    fn row_count_estimate(&self) -> Estimate<u64> {
+        Estimate::default()
+    }
+
+    /// Returns an estimate of the byte size of the un-filtered source.
+    fn byte_size_estimate(&self) -> Estimate<u64> {
+        Estimate::default()
+    }
 
     /// Serialize the [`DataSource`] to pass to a remote worker.
     fn serialize(&self) -> VortexResult<Option<Vec<u8>>> {
