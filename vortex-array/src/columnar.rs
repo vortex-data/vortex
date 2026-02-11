@@ -128,7 +128,7 @@ pub struct AnyColumnar;
 impl Matcher for AnyColumnar {
     type Match<'a> = ColumnarView<'a>;
 
-    fn try_match_into<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         if let Some(constant) = array.as_opt::<ConstantVTable>() {
             Some(ColumnarView::Constant(constant))
         } else {

@@ -203,7 +203,7 @@ pub struct AnyScalarFn;
 impl Matcher for AnyScalarFn {
     type Match<'a> = &'a ScalarFnArray;
 
-    fn try_match_into(array: &dyn Array) -> Option<Self::Match<'_>> {
+    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
         array.as_opt::<ScalarFnVTable>()
     }
 }
@@ -223,7 +223,7 @@ impl<F: expr::VTable> Matcher for ExactScalarFn<F> {
         }
     }
 
-    fn try_match_into(array: &dyn Array) -> Option<Self::Match<'_>> {
+    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
         let scalar_fn_array = array.as_opt::<ScalarFnVTable>()?;
         let scalar_fn_vtable = scalar_fn_array
             .scalar_fn

@@ -80,7 +80,7 @@ impl<V: VTable, K: ArrayParentReduceRule<V>> DynArrayParentReduceRule<V>
         parent: &ArrayRef,
         child_idx: usize,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = K::Parent::try_match_into(parent) else {
+        let Some(parent_view) = K::Parent::try_match(parent) else {
             return Ok(None);
         };
         self.rule.reduce_parent(child, parent_view, child_idx)

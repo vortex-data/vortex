@@ -109,7 +109,7 @@ impl<V: VTable, K: ExecuteParentKernel<V>> DynParentKernel<V> for ParentKernelAd
         child_idx: usize,
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
-        let Some(parent_view) = K::Parent::try_match_into(parent) else {
+        let Some(parent_view) = K::Parent::try_match(parent) else {
             return Ok(None);
         };
         self.kernel

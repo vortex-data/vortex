@@ -929,7 +929,7 @@ impl Matcher for AnyCanonical {
             || array.is::<ExtensionVTable>()
     }
 
-    fn try_match_into<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         if let Some(a) = array.as_opt::<NullVTable>() {
             Some(CanonicalView::Null(a))
         } else if let Some(a) = array.as_opt::<BoolVTable>() {

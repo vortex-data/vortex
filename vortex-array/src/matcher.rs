@@ -9,11 +9,11 @@ pub trait Matcher {
 
     /// Check if the given array matches this matcher type
     fn matches(array: &dyn Array) -> bool {
-        Self::try_match_into(array).is_some()
+        Self::try_match(array).is_some()
     }
 
-    /// Try to match the given array, returning the matched view type if successful
-    fn try_match_into<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>>;
+    /// Try to match the given array, returning the matched view type if successful.
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>>;
 }
 
 /// Matches any array type (wildcard matcher)
@@ -29,7 +29,7 @@ impl Matcher for AnyArray {
     }
 
     #[inline(always)]
-    fn try_match_into(array: &dyn Array) -> Option<Self::Match<'_>> {
+    fn try_match(array: &dyn Array) -> Option<Self::Match<'_>> {
         Some(array)
     }
 }

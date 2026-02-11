@@ -20,7 +20,7 @@ pub struct AnyTemporal;
 impl Matcher for AnyTemporal {
     type Match<'a> = TemporalMetadata<'a>;
 
-    fn try_match_into<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
         if let Some(opts) = item.metadata_opt::<Timestamp>() {
             return Some(TemporalMetadata::Timestamp(&opts.unit, &opts.tz));
         }

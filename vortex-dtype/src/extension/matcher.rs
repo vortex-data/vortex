@@ -12,11 +12,11 @@ pub trait Matcher {
 
     /// Check if the given extension dtype matches this matcher.
     fn matches(item: &ExtDTypeRef) -> bool {
-        Self::try_match_into(item).is_some()
+        Self::try_match(item).is_some()
     }
 
-    /// Check if the given extension dtype matches this matcher.
-    fn try_match_into<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>>;
+    /// Try to match the given extension type, returning the matched dtype if successful.
+    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>>;
 }
 
 impl<V: ExtDTypeVTable> Matcher for V {
@@ -26,7 +26,7 @@ impl<V: ExtDTypeVTable> Matcher for V {
         item.0.as_any().is::<ExtDTypeAdapter<V>>()
     }
 
-    fn try_match_into<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(item: &'a ExtDTypeRef) -> Option<Self::Match<'a>> {
         item.0
             .as_any()
             .downcast_ref::<ExtDTypeAdapter<V>>()

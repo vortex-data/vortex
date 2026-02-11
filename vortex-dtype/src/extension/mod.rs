@@ -163,7 +163,7 @@ impl ExtDTypeRef {
 
     /// Extract the metadata of the ExtDType per the given [`Matcher`].
     pub fn metadata_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match_into(self)
+        M::try_match(self)
     }
 
     /// Extract the metadata of the ExtDType per the given [`Matcher`].

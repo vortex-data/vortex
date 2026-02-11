@@ -293,7 +293,7 @@ impl dyn Array + '_ {
 
     /// Returns the array downcast by the given matcher.
     pub fn as_opt<M: Matcher>(&self) -> Option<M::Match<'_>> {
-        M::try_match_into(self)
+        M::try_match(self)
     }
 
     /// Returns the array downcast to the given `A` as an owned object.
@@ -778,7 +778,7 @@ impl<V: VTable> Matcher for V {
         array.as_any().is::<ArrayAdapter<V>>()
     }
 
-    fn try_match_into<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
+    fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
         array
             .as_any()
             .downcast_ref::<ArrayAdapter<V>>()
