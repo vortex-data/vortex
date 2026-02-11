@@ -71,7 +71,9 @@ fn sum_scalar(
         DType::Decimal(decimal_dtype, _) => {
             sum_decimal(scalar.as_decimal(), len, *decimal_dtype, accumulator)
         }
-        DType::Extension(_) => sum_scalar(&scalar.as_extension().storage(), len, accumulator),
+        DType::Extension(_) => {
+            sum_scalar(&scalar.as_extension().to_storage_scalar(), len, accumulator)
+        }
         dtype => vortex_bail!("Unsupported dtype for sum: {}", dtype),
     }
 }
