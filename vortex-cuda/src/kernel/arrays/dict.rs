@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -31,10 +32,15 @@ use vortex_error::vortex_bail;
 
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
+use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
+use crate::kernel::scalar_launch_config;
 use crate::launch_cuda_kernel_impl;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
 
 /// CUDA executor for dictionary-encoded arrays.
 #[derive(Debug)]
@@ -84,6 +90,41 @@ async fn execute_dict_prim(dict: DictArray, ctx: &mut CudaExecutionCtx) -> Vorte
     })
 }
 
+struct PrimDictKernel<Values, Codes> {
+    function: Function,
+    _marker: PhantomData<(Values, Codes)>,
+}
+
+impl<Values: NativePType, Codes: NativePType> Kernel for PrimDictKernel<Values, Codes> {
+    type Args = (CudaDeviceBuffer, u64, CudaDeviceBuffer, CudaDeviceBuffer);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (codes, mut codes_len, values, output) = args;
+
+        let launch_args = vec![
+            codes.device_ptr(),
+            std::ptr::addr_of_mut!(codes_len).cast(),
+            values.device_ptr(),
+            output.device_ptr(),
+        ];
+
+        unsafe {
+            launcher.launch(
+                self.function,
+                scalar_launch_config(codes_len as usize),
+                launch_args,
+            )
+        }
+    }
+}
+
 async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + NativePType>(
     values: PrimitiveArray,
     codes: PrimitiveArray,
@@ -105,40 +146,33 @@ async fn execute_dict_prim_typed<V: DeviceRepr + NativePType, I: DeviceRepr + Na
     } = codes.into_parts();
 
     // Get device buffers for values and codes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ensure_device_resident(values_buffer, ctx).await?;
+    let codes_device = ensure_device_resident(codes_buffer, ctx).await?;
 
     // Allocate output buffer on device
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
     let output_device = CudaDeviceBuffer::new(output_slice);
-
-    // Get views for kernel launch
-    let values_view = values_device.cuda_view::<V>()?;
-    let codes_view = codes_device.cuda_view::<I>()?;
-    let output_view = output_device.as_view::<V>();
-
     let codes_len_u64 = codes_len as u64;
-    // Launch the dict kernel
-    let _cuda_events = crate::launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "dict",
-        ptypes: &[value_ptype, I::PTYPE],
-        launch_args: [codes_view, codes_len_u64, values_view, output_view],
-        event_recording: cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        array_len: codes_len
-    );
+
+    // How can we create the specific kernel invocation type?
+    // We should generate different entrypoints based on the kernel type.
+    // The idea is that the Kernel describes statically how to fetch itself.
+    let kernel = ctx
+        .load_module("dict")?
+        .load::<PrimDictKernel<V, I>>(format!("dict_{}_{}", V::PTYPE, I::PTYPE))?;
+
+    ctx.launch(
+        kernel,
+        (
+            codes_device,
+            codes_len_u64,
+            values_device,
+            output_device.clone(),
+        ),
+    )?;
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        output_device.into(),
         value_ptype,
         output_validity,
     )))
@@ -174,6 +208,42 @@ async fn execute_dict_decimal(
     })
 }
 
+struct DecimalDictKernel<Values, Codes> {
+    function: Function,
+    _marker: PhantomData<(Values, Codes)>,
+}
+
+impl<Values: NativeDecimalType, Codes: NativePType> Kernel for DecimalDictKernel<Values, Codes> {
+    // values buffer, codes buffer, codes len as u64
+    type Args = (CudaDeviceBuffer, u64, CudaDeviceBuffer, CudaDeviceBuffer);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (codes, mut codes_len, values, output) = args;
+
+        let launch_args = vec![
+            codes.device_ptr(),
+            std::ptr::addr_of_mut!(codes_len).cast(),
+            values.device_ptr(),
+            output.device_ptr(),
+        ];
+
+        unsafe {
+            launcher.launch(
+                self.function,
+                scalar_launch_config(codes_len as usize),
+                launch_args,
+            )
+        }
+    }
+}
+
 /// Type-parameterized decimal dict execution for a specific code type.
 async fn execute_dict_decimal_typed<
     V: DeviceRepr + NativeDecimalType,
@@ -204,51 +274,69 @@ async fn execute_dict_decimal_typed<
 
     // Copy buffers to device if needed
     // Note: We use u8 for the buffer type since we're treating these as raw bytes
-    let values_device = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ensure_device_resident(values_buffer, ctx).await?;
+    let codes_device = ensure_device_resident(codes_buffer, ctx).await?;
 
     // Allocate output buffer on device (codes_len * value_byte_width bytes)
     let output_slice = ctx.device_alloc::<V>(codes_len)?;
     let output_device = CudaDeviceBuffer::new(output_slice);
 
-    // Get views for kernel launch
-    let values_view = values_device.cuda_view::<V>()?;
-    let codes_view = codes_device.cuda_view::<C>()?;
-    let output_view = output_device.as_view::<V>();
-
     // Load kernel function using string suffixes
-    let cuda_function = ctx.load_function(
-        "dict",
-        &[&V::DECIMAL_TYPE.to_string(), &C::PTYPE.to_string()],
-    )?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let kernel = ctx
+        .load_module("dict")?
+        .load::<DecimalDictKernel<V, C>>(format!("dict_{}_{}", V::DECIMAL_TYPE, C::PTYPE))?;
 
-    launch_builder.arg(&codes_view);
-    launch_builder.arg(&codes_len);
-    launch_builder.arg(&values_view);
-    launch_builder.arg(&output_view);
-
-    let _cuda_events = launch_cuda_kernel_impl(
-        &mut launch_builder,
-        cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-        codes_len,
+    ctx.launch(
+        kernel,
+        (
+            codes_device,
+            codes_len as u64,
+            values_device,
+            output_device.clone(),
+        ),
     )?;
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(
-        BufferHandle::new_device(Arc::new(output_device)),
+        output_device.into(),
         V::DECIMAL_TYPE,
         output_dtype.into_decimal_opt().vortex_expect("is decimal"),
         output_validity,
     )))
+}
+
+struct StringDictKernel<Codes> {
+    function: Function,
+    _marker: PhantomData<Codes>,
+}
+
+impl<Codes: NativePType> Kernel for StringDictKernel<Codes> {
+    type Args = (CudaDeviceBuffer, u64, CudaDeviceBuffer, CudaDeviceBuffer);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (codes, mut codes_len, values, output) = args;
+
+        let launch_args = vec![
+            codes.device_ptr(),
+            std::ptr::addr_of_mut!(codes_len).cast(),
+            values.device_ptr(),
+            output.device_ptr(),
+        ];
+
+        unsafe {
+            launcher.launch(
+                self.function,
+                scalar_launch_config(codes_len as usize),
+                launch_args,
+            )
+        }
+    }
 }
 
 /// Dictionary array decompression for string (UTF-8/Binary) values.
@@ -286,17 +374,8 @@ async fn execute_dict_varbinview(
     } = codes_prim.into_parts();
 
     // Move buffers to device if needed.
-    let values_device = if values_views_handle.is_on_device() {
-        values_views_handle
-    } else {
-        ctx.move_to_device(values_views_handle)?.await?
-    };
-
-    let codes_device = if codes_buffer.is_on_device() {
-        codes_buffer
-    } else {
-        ctx.move_to_device(codes_buffer)?.await?
-    };
+    let values_device = ensure_device_resident(values_views_handle, ctx).await?;
+    let codes_device = ensure_device_resident(codes_buffer, ctx).await?;
 
     // Allocate output: one i128 per code.
     let output_slice = ctx.device_alloc::<i128>(codes_len)?;
@@ -305,24 +384,19 @@ async fn execute_dict_varbinview(
     // Dispatch by code type, reusing the existing dict_i128_<code_type> kernel.
     // BinaryView is repr(C, align(16)) and 16 bytes — identical layout to i128.
     match_each_integer_ptype!(codes_ptype, |C| {
-        let values_view = values_device.cuda_view::<i128>()?;
-        let codes_view = codes_device.cuda_view::<C>()?;
-        let output_view = output_device.as_view::<i128>();
-
-        let codes_ptype_str = C::PTYPE.to_string();
-        let cuda_function = ctx.load_function("dict", &["i128", &codes_ptype_str])?;
-        let mut launch_builder = ctx.launch_builder(&cuda_function);
+        let kernel = ctx
+            .load_module("dict")?
+            .load::<StringDictKernel<C>>(format!("dict_i128_{}", C::PTYPE))?;
 
         let codes_len_u64 = codes_len as u64;
-        launch_builder.arg(&codes_view);
-        launch_builder.arg(&codes_len_u64);
-        launch_builder.arg(&values_view);
-        launch_builder.arg(&output_view);
-
-        let _cuda_events = launch_cuda_kernel_impl(
-            &mut launch_builder,
-            cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING,
-            codes_len,
+        ctx.launch(
+            kernel,
+            (
+                codes_device,
+                codes_len_u64,
+                values_device,
+                output_device.clone(),
+            ),
         )?;
     });
 
@@ -331,7 +405,7 @@ async fn execute_dict_varbinview(
     // and inlined views are self-contained within the 16-byte view.
     Ok(Canonical::VarBinView(unsafe {
         VarBinViewArray::new_handle_unchecked(
-            BufferHandle::new_device(Arc::new(output_device)),
+            output_device.into(),
             values_data_buffers,
             dtype,
             output_validity,
