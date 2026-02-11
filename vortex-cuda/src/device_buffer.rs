@@ -101,6 +101,11 @@ impl CudaDeviceBuffer {
         }
     }
 
+    /// Returns the raw CUDA device pointer for the start of this buffer (including offset).
+    pub fn device_ptr(&self) -> u64 {
+        self.device_ptr + self.offset as u64
+    }
+
     /// Returns a [`CudaView`] to the CUDA device buffer.
     pub fn as_view<T: DeviceRepr + 'static>(&self) -> CudaView<'_, T> {
         // Return a new &[T]
@@ -159,7 +164,7 @@ impl CudaBufferExt for BufferHandle {
             .as_any()
             .downcast_ref::<CudaDeviceBuffer>()
             .ok_or_else(|| vortex_err!("expected CudaDeviceBuffer"))?
-            .device_ptr;
+            .device_ptr();
 
         Ok(ptr)
     }
