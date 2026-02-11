@@ -71,15 +71,14 @@ impl FlatLayoutStrategy {
     }
 }
 
-fn truncate_scalar_stat<F: Fn(Scalar) -> (Option<Scalar>, bool)>(
+fn truncate_scalar_stat<F: Fn(Scalar) -> Option<(Scalar, bool)>>(
     statistics: StatsSetRef<'_>,
     stat: Stat,
     truncation: F,
 ) {
     if let Some(sv) = statistics.get(stat) {
-        let (value, truncated) = truncation(sv.into_inner());
-        if let Some(upper_bound) = value {
-            if truncated && let Some(v) = upper_bound.into_value() {
+        if let Some((truncated_value, truncated)) = truncation(sv.into_inner()) {
+            if truncated && let Some(v) = truncated_value.into_value() {
                 statistics.set(stat, Precision::Inexact(v));
             }
         } else {
