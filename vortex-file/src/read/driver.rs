@@ -107,14 +107,12 @@ where
         let permit = match this.limit.poll_acquire(cx) {
             Poll::Ready(Some(permit)) => permit,
             Poll::Ready(None) => {
-                println!("SEMAPHORE IS CLOSED??");
-                return Poll::Pending;
+                panic!("semaphore should never be closed.");
             }
             Poll::Pending => {
                 return Poll::Pending;
             }
         };
-        // println!("I have a permit!");
         let permit = Some(permit);
 
         // Try to get a coalesced request
@@ -216,11 +214,6 @@ impl State {
                             .update(num_requests as f64);
                     }
                 };
-                println!(
-                    "requesting: {:?} {}",
-                    request,
-                    permit.as_ref().unwrap().semaphore().available_permits()
-                );
                 IoRequest::new_coalesced(request, permit)
             }),
         }
