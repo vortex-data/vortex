@@ -2327,6 +2327,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrow-ipc",
+ "async-trait",
  "clap",
  "custom-labels",
  "datafusion 52.1.0",
@@ -2342,6 +2343,7 @@ dependencies = [
  "parking_lot",
  "tokio",
  "url",
+ "vortex",
  "vortex-bench",
  "vortex-cuda",
  "vortex-datafusion",

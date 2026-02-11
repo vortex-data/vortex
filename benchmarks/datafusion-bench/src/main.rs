@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
+use async_trait::async_trait;
 use clap::Parser;
 use clap::value_parser;
 use custom_labels::asynchronous::Label;
@@ -26,6 +27,11 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::file::OpenOptionsSessionExt;
+use vortex::scan::api::DataSourceRef;
+use vortex::scan::layout::LayoutReaderDataSource;
+use vortex::scan::multi::DataSourceFactory;
+use vortex::scan::multi::MultiDataSource;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
 use vortex_bench::CompactionStrategy;
@@ -33,6 +39,7 @@ use vortex_bench::Engine;
 use vortex_bench::Format;
 use vortex_bench::Opt;
 use vortex_bench::Opts;
+use vortex_bench::SESSION;
 use vortex_bench::conversions::convert_parquet_directory_to_vortex;
 use vortex_bench::create_benchmark;
 use vortex_bench::create_output_writer;
@@ -220,6 +227,10 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn use_v2() -> bool {
+    std::env::var("VORTEX_DATAFUSION_V2").is_ok_and(|v| v == "1")
+}
+
 async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
@@ -227,6 +238,9 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 ) -> anyhow::Result<()> {
     match format {
         Format::Arrow => register_arrow_tables(session, benchmark).await,
+        _ if use_v2() && matches!(format, Format::OnDiskVortex | Format::VortexCompact) => {
+            register_v2_tables(session, benchmark, format).await
+        }
         _ => {
             let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
             let file_format = format_to_df_format(format);
@@ -263,6 +277,89 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
             Ok(())
         }
     }
+}
+
+/// A [`DataSourceFactory`] that lazily opens a single Vortex file.
+struct VortexFileFactory {
+    path: PathBuf,
+}
+
+#[async_trait]
+impl DataSourceFactory for VortexFileFactory {
+    async fn open(&self) -> vortex::error::VortexResult<Option<DataSourceRef>> {
+        let file = SESSION.open_options().open_path(&self.path).await?;
+        let reader = file.layout_reader()?;
+        Ok(Some(Arc::new(LayoutReaderDataSource::new(
+            reader,
+            SESSION.clone(),
+        ))))
+    }
+}
+
+/// Register tables using the V2 `VortexTable` + `MultiDataSource` path.
+async fn register_v2_tables<B: Benchmark + ?Sized>(
+    session: &SessionContext,
+    benchmark: &B,
+    format: Format,
+) -> anyhow::Result<()> {
+    use vortex_datafusion::v2::VortexTable;
+
+    let base_path = benchmark
+        .data_url()
+        .to_file_path()
+        .map_err(|_| anyhow::anyhow!("V2 path requires local file:// URL"))?
+        .join(format.name());
+
+    let dir_entries: Vec<_> = std::fs::read_dir(&base_path)?.collect::<Result<Vec<_>, _>>()?;
+
+    for table in benchmark.table_specs().iter() {
+        let pattern = benchmark.pattern(table.name, format);
+
+        // Find files matching this table's glob pattern.
+        let mut matching_paths: Vec<PathBuf> = dir_entries
+            .iter()
+            .filter(|entry| {
+                let filename = entry.file_name();
+                let filename_str = filename.to_str().unwrap_or("");
+                match &pattern {
+                    Some(p) => p.matches(filename_str),
+                    None => filename_str == format!("{}.{}", table.name, format.ext()),
+                }
+            })
+            .map(|entry| entry.path())
+            .collect();
+        matching_paths.sort();
+
+        anyhow::ensure!(
+            !matching_paths.is_empty(),
+            "no files found for table {}",
+            table.name
+        );
+
+        // Open the first file eagerly to get the dtype/schema.
+        let first_file = SESSION.open_options().open_path(&matching_paths[0]).await?;
+        let arrow_schema = Arc::new(first_file.dtype().to_arrow_schema()?);
+        let first_reader = first_file.layout_reader()?;
+        let first_source: DataSourceRef =
+            Arc::new(LayoutReaderDataSource::new(first_reader, SESSION.clone()));
+
+        // Create lazy factories for remaining files.
+        let remaining: Vec<Arc<dyn DataSourceFactory>> = matching_paths[1..]
+            .iter()
+            .map(|path| Arc::new(VortexFileFactory { path: path.clone() }) as _)
+            .collect();
+
+        let data_source: DataSourceRef = if remaining.is_empty() {
+            first_source
+        } else {
+            Arc::new(MultiDataSource::lazy(first_source, remaining, &SESSION))
+        };
+
+        let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));
+        session.register_table(table.name, table_provider)?;
+    }
+
+    Ok(())
 }
 
 /// Load Arrow IPC files into in-memory DataFusion tables.

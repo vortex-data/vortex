@@ -17,6 +17,7 @@ publish = false
 [dependencies]
 anyhow = { workspace = true }
 arrow-ipc.workspace = true
+async-trait = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 custom-labels = { workspace = true }
 datafusion = { workspace = true, features = [
@@ -36,6 +37,7 @@ opentelemetry_sdk.workspace = true
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 url = { workspace = true }
+vortex = { workspace = true, features = ["object_store", "files", "tokio"] }
 vortex-bench = { workspace = true }
 vortex-cuda = { workspace = true, optional = true }
 vortex-datafusion = { workspace = true }
