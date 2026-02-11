@@ -92,7 +92,7 @@ stack backtrace:
              at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/panicking.rs:259:5
    3: {closure#1}<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
              at ./vortex-error/src/lib.rs:457:9
-   4: unwrap_or_else<vortex_scalar::scalar::Scalar, vortex_error::VortexError, vortex_error::{impl#11}::vortex_expect::{closure_env#1}<vortex_scalar::scalar::Scalar, vortex_error::VortexError>>
+   4: unwrap_or_else<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
              at /rustc/9e79395f92bff6a8f536430e42a4beae69f60ff8/library/core/src/result.rs:1622:23
    5: vortex_expect<vortex_scalar::scalar::Scalar, vortex_error::VortexError>
              at ./vortex-error/src/lib.rs:310:14
@@ -150,6 +150,23 @@ class TestExtractPanicLocation:
 
     def test_unknown_when_missing(self):
         assert extract_panic_location("no panic here") == "unknown"
+
+    def test_fallback_skips_noise_paths(self):
+        """When the `panicked at` line is absent, the fallback regex scans for
+        vortex paths in the log. It must skip NOISE_FRAME_PATHS like
+        vortex-error/src/lib.rs and return the real crash site instead.
+        """
+        # Log WITHOUT a `panicked at` line — only a stack trace
+        log = """\
+stack backtrace:
+   5: vortex_expect
+             at ./vortex-error/src/lib.rs:310:14
+   6: decimal
+             at ./vortex-scalar/src/constructor.rs:61:10
+"""
+        loc = extract_panic_location(log)
+        assert "lib.rs" not in loc
+        assert "constructor.rs:61" in loc
 
 
 class TestExtractCrashLocation:

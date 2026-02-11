@@ -245,6 +245,7 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
     print(f"  panic_message:  {crash_info.panic_message}", file=sys.stderr)
     print(f"  crash_type:     {crash_info.crash_type}", file=sys.stderr)
     print(f"  seed_hash:      {crash_info.seed_hash}", file=sys.stderr)
+    print(f"  stack_frames:   {crash_info.stack_frames[:5]}", file=sys.stderr)
     print(file=sys.stderr)
 
     # Step 2: Dedup (if issues file provided)
@@ -261,6 +262,8 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
             print(f"  confidence: {dedup_result.confidence}", file=sys.stderr)
             print(f"  issue:      #{dedup_result.issue_number}", file=sys.stderr)
             print(f"  reason:     {dedup_result.reason}", file=sys.stderr)
+        if dedup_result.debug:
+            print(f"  debug:      {json.dumps(dedup_result.debug, indent=4)}", file=sys.stderr)
         print(file=sys.stderr)
 
     # Write dedup to temp file so _determine_action can read it

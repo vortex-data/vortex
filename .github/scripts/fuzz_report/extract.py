@@ -43,10 +43,12 @@ def extract_panic_location(log_content: str) -> str:
     if match:
         return match.group(1)
 
-    # Extract from vortex path in log
-    match = re.search(r"(vortex[^/]+/src/[^:]+:\d+)", log_content)
-    if match:
-        return match.group(1)
+    # Extract from vortex path in log, skipping noise paths (NOISE_FRAME_PATHS)
+    for match in re.finditer(r"(vortex[^/]+/src/[^:]+:\d+)", log_content):
+        loc = match.group(1)
+        if any(loc.startswith(prefix) or prefix in loc for prefix in NOISE_FRAME_PATHS):
+            continue
+        return loc
 
     return "unknown"
 
