@@ -33,6 +33,9 @@ use vortex_session::VortexSession;
 
 use crate::Selection;
 
+/// A sendable stream of splits.
+pub type SplitStream = BoxStream<'static, VortexResult<SplitRef>>;
+
 /// Opens a Vortex [`DataSource`] from a URI.
 ///
 /// Configuration can be passed via the URI query parameters, similar to JDBC / ADBC.
@@ -104,22 +107,16 @@ pub struct ScanRequest {
 pub type DataSourceScanRef = Box<dyn DataSourceScan>;
 
 /// A data source scan produces splits that can be executed to read data from the source.
-#[async_trait]
 pub trait DataSourceScan: 'static + Send {
     /// The returned dtype of the scan.
     fn dtype(&self) -> &DType;
 
-    /// An estimate of the remaining splits.
-    fn remaining_splits_estimate(&self) -> Estimate<usize>;
+    /// An estimate of the total number of splits.
+    fn splits_estimate(&self) -> Estimate<usize>;
 
-    /// Returns the next batch of splits to be processed.
-    ///
-    /// This should not return _more_ than `max_splits` splits, but may return fewer.
-    async fn next_splits(&mut self, max_splits: usize) -> VortexResult<Vec<SplitRef>>;
+    /// Returns a stream of splits to be processed.
+    fn splits(self: Box<Self>) -> SplitStream;
 }
-
-/// A stream of splits.
-pub type SplitStream = BoxStream<'static, VortexResult<SplitRef>>;
 
 /// A reference-counted split.
 pub type SplitRef = Box<dyn Split>;

@@ -35,7 +35,6 @@ use vortex::array::ArrayRef;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::error::VortexError;
-use vortex::error::VortexResult;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::io::InstrumentedReadAt;
 use vortex::io::session::RuntimeSessionExt;
@@ -348,21 +347,22 @@ impl FileOpener for VortexOpener {
                 let data_source = LayoutReaderDataSource::new(layout_reader, session.clone())
                     .with_some_metrics_registry(Some(metrics_registry));
 
-                let mut scan = data_source
+                let scan = data_source
                     .scan(scan_request)
                     .await
                     .map_err(|e| exec_datafusion_err!("Failed to create Vortex scan: {e}"))?;
 
-                let splits = scan
-                    .next_splits(usize::MAX)
+                let streams: Vec<_> = scan
+                    .splits()
+                    .collect::<Vec<_>>()
                     .await
-                    .map_err(|e| exec_datafusion_err!("Failed to get Vortex splits: {e}"))?;
-
-                let streams: Vec<_> = splits
                     .into_iter()
-                    .map(|split| split.execute())
-                    .collect::<VortexResult<Vec<_>>>()
-                    .map_err(|e| exec_datafusion_err!("Failed to execute Vortex split: {e}"))?;
+                    .map(|split_result| {
+                        split_result.and_then(|split| split.execute()).map_err(|e| {
+                            exec_datafusion_err!("Failed to execute Vortex split: {e}")
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
 
                 // Spawn Vortex-to-Arrow conversion onto CPU threads so it doesn't
                 // block the polling thread. The inner scan stream already handles I/O

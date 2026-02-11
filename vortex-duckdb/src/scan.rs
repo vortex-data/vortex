@@ -587,31 +587,16 @@ fn init_global_scan_api(
     let scan = RUNTIME.block_on(Compat::new(multi_ds.scan(request)))?;
     let conversion_cache = Arc::new(ConversionCache::new(0));
 
-    // Lazily pull batches of splits, execute each into a stream, and feed into MultiScan.
-    let scan_streams = stream::unfold((scan, false), move |(mut scan, errored)| {
+    // Lazily pull splits, execute each into a stream, and feed into MultiScan.
+    let scan_streams = scan.splits().map(move |split_result| {
         let cache = conversion_cache.clone();
-        Compat::new(async move {
-            if errored {
-                return None;
-            }
-            match scan.next_splits(num_workers).await {
-                Ok(splits) if splits.is_empty() => None,
-                Ok(splits) => {
-                    let streams: Vec<VortexResult<BoxStream<'_, VortexResult<_>>>> = splits
-                        .into_iter()
-                        .map(|split| {
-                            let cache = cache.clone();
-                            let s = split.execute()?;
-                            Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
-                        })
-                        .collect();
-                    Some((stream::iter(streams).boxed(), (scan, false)))
-                }
-                Err(e) => Some((stream::once(async { Err(e) }).boxed(), (scan, true))),
-            }
-        })
-    })
-    .flatten();
+        let stream: VortexResult<BoxStream<'_, VortexResult<_>>> = (|| {
+            let split = split_result?;
+            let s = split.execute()?;
+            Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
+        })();
+        stream
+    });
 
     Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {
         streams: scan_streams.boxed(),

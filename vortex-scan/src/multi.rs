@@ -11,6 +11,8 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -27,6 +29,7 @@ use crate::api::DataSourceScanRef;
 use crate::api::Estimate;
 use crate::api::ScanRequest;
 use crate::api::SplitRef;
+use crate::api::SplitStream;
 
 /// An async factory that produces a [`DataSource`].
 ///
@@ -244,17 +247,16 @@ impl MultiDataSourceScan {
     }
 }
 
-#[async_trait]
 impl DataSourceScan for MultiDataSourceScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn remaining_splits_estimate(&self) -> Estimate<usize> {
+    fn splits_estimate(&self) -> Estimate<usize> {
         let current_estimate = self
             .current
             .as_ref()
-            .map_or_else(|| Estimate::exact(0), |s| s.remaining_splits_estimate());
+            .map_or_else(|| Estimate::exact(0), |s| s.splits_estimate());
 
         let remaining_sources = self.ready.len() + self.opening.len() + self.deferred.len();
         if remaining_sources == 0 {
@@ -268,55 +270,68 @@ impl DataSourceScan for MultiDataSourceScan {
         }
     }
 
-    async fn next_splits(&mut self, max_splits: usize) -> VortexResult<Vec<SplitRef>> {
-        let mut splits = Vec::new();
+    fn splits(self: Box<Self>) -> SplitStream {
+        stream::unfold(
+            (Some(*self), None::<SplitStream>),
+            |(mut state, mut current_stream)| async move {
+                loop {
+                    // Try to pull from the current child's split stream.
+                    if let Some(ref mut child_stream) = current_stream {
+                        match child_stream.next().await {
+                            Some(Ok(split)) => {
+                                if let Some(ref mut s) = state
+                                    && let Some(ref mut limit) = s.remaining_limit
+                                {
+                                    let est = split.row_count_estimate();
+                                    *limit = limit.saturating_sub(est.upper.unwrap_or(est.lower));
+                                }
+                                return Some((Ok(split), (state, current_stream)));
+                            }
+                            Some(Err(e)) => {
+                                return Some((Err(e), (None, None)));
+                            }
+                            None => {
+                                // Current child exhausted, move to next.
+                                drop(current_stream.take());
+                            }
+                        }
+                    }
 
-        while splits.len() < max_splits {
-            if self.remaining_limit.is_some_and(|l| l == 0) {
-                break;
-            }
+                    let s = state.as_mut()?;
 
-            // Ensure we have a current scan.
-            if self.current.is_none() {
-                let Some(source) = self.next_source().await? else {
-                    break;
-                };
+                    if s.remaining_limit.is_some_and(|l| l == 0) {
+                        return None;
+                    }
 
-                if source.dtype() != &self.dtype {
-                    vortex_bail!(
-                        "MultiDataSource dtype mismatch: expected {}, got {}",
-                        self.dtype,
-                        source.dtype()
-                    );
+                    // Get the next data source.
+                    let source = match s.next_source().await {
+                        Ok(Some(source)) => source,
+                        Ok(None) => return None,
+                        Err(e) => return Some((Err(e), (None, None))),
+                    };
+
+                    if source.dtype() != &s.dtype {
+                        return Some((
+                            Err(vortex_err!(
+                                "MultiDataSource dtype mismatch: expected {}, got {}",
+                                s.dtype,
+                                source.dtype()
+                            )),
+                            (None, None),
+                        ));
+                    }
+
+                    let mut child_request = s.request.clone();
+                    child_request.limit = s.remaining_limit;
+                    let child_scan = match source.scan(child_request).await {
+                        Ok(scan) => scan,
+                        Err(e) => return Some((Err(e), (None, None))),
+                    };
+
+                    current_stream = Some(child_scan.splits());
                 }
-
-                let mut child_request = self.request.clone();
-                child_request.limit = self.remaining_limit;
-                self.current = Some(source.scan(child_request).await?);
-            }
-
-            let scan = self
-                .current
-                .as_mut()
-                .ok_or_else(|| vortex_err!("expected active scan"))?;
-
-            let child_splits = scan.next_splits(max_splits - splits.len()).await?;
-
-            if child_splits.is_empty() {
-                self.current = None;
-                continue;
-            }
-
-            if let Some(ref mut limit) = self.remaining_limit {
-                for split in &child_splits {
-                    let est = split.row_count_estimate();
-                    *limit = limit.saturating_sub(est.upper.unwrap_or(est.lower));
-                }
-            }
-
-            splits.extend(child_splits);
-        }
-
-        Ok(splits)
+            },
+        )
+        .boxed()
     }
 }

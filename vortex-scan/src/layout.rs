@@ -6,6 +6,8 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::stream;
+use futures::stream::StreamExt;
 use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
@@ -24,6 +26,7 @@ use crate::api::Estimate;
 use crate::api::ScanRequest;
 use crate::api::Split;
 use crate::api::SplitRef;
+use crate::api::SplitStream;
 
 /// An implementation of a [`DataSource`] that reads data from a [`LayoutReaderRef`].
 pub struct LayoutReaderDataSource {
@@ -126,13 +129,12 @@ struct LayoutReaderScan {
     split_size: u64,
 }
 
-#[async_trait]
 impl DataSourceScan for LayoutReaderScan {
     fn dtype(&self) -> &DType {
         &self.dtype
     }
 
-    fn remaining_splits_estimate(&self) -> Estimate<usize> {
+    fn splits_estimate(&self) -> Estimate<usize> {
         if self.next_row >= self.end_row {
             return Estimate::exact(0);
         }
@@ -144,45 +146,44 @@ impl DataSourceScan for LayoutReaderScan {
         }
     }
 
-    async fn next_splits(&mut self, max_splits: usize) -> VortexResult<Vec<SplitRef>> {
-        let mut splits = Vec::new();
-
-        for _ in 0..max_splits {
-            if self.next_row >= self.end_row {
-                break;
+    fn splits(self: Box<Self>) -> SplitStream {
+        stream::unfold(*self, |mut state| async move {
+            if state.next_row >= state.end_row {
+                return None;
             }
 
-            if self.limit.is_some_and(|limit| limit == 0) {
-                break;
+            if state.limit.is_some_and(|limit| limit == 0) {
+                return None;
             }
 
-            let split_end = self
+            let split_end = state
                 .next_row
-                .saturating_add(self.split_size)
-                .min(self.end_row);
-            let row_range = self.next_row..split_end;
-            let split_rows = split_end - self.next_row;
+                .saturating_add(state.split_size)
+                .min(state.end_row);
+            let row_range = state.next_row..split_end;
+            let split_rows = split_end - state.next_row;
 
-            let split_limit = self.limit;
-            if let Some(ref mut limit) = self.limit {
+            let split_limit = state.limit;
+            if let Some(ref mut limit) = state.limit {
                 *limit = limit.saturating_sub(split_rows);
             }
 
-            splits.push(Box::new(LayoutReaderSplit {
-                reader: self.reader.clone(),
-                session: self.session.clone(),
-                projection: self.projection.clone(),
-                filter: self.filter.clone(),
+            let split = Box::new(LayoutReaderSplit {
+                reader: state.reader.clone(),
+                session: state.session.clone(),
+                projection: state.projection.clone(),
+                filter: state.filter.clone(),
                 limit: split_limit,
                 row_range,
-                selection: self.selection.clone(),
-                metrics_registry: self.metrics_registry.clone(),
-            }) as SplitRef);
+                selection: state.selection.clone(),
+                metrics_registry: state.metrics_registry.clone(),
+            }) as SplitRef;
 
-            self.next_row = split_end;
-        }
+            state.next_row = split_end;
 
-        Ok(splits)
+            Some((Ok(split), state))
+        })
+        .boxed()
     }
 }
 
