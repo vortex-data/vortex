@@ -303,8 +303,16 @@ impl ValidityChild<DecimalBytePartsVTable> for DecimalBytePartsVTable {
 impl VisitorVTable<DecimalBytePartsVTable> for DecimalBytePartsVTable {
     fn visit_buffers(_array: &DecimalBytePartsArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &DecimalBytePartsArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &DecimalBytePartsArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("msp", &array.msp);
+    }
+
+    fn nchildren(_array: &DecimalBytePartsArray) -> usize {
+        1
     }
 }
 

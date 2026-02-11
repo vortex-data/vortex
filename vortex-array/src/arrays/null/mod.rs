@@ -171,6 +171,14 @@ impl VisitorVTable<NullVTable> for NullVTable {
     fn visit_buffers(_array: &NullArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &NullArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &NullArray) -> usize {
+        0
+    }
+
+    fn nth_child(_array: &NullArray, _idx: usize) -> Option<ArrayRef> {
+        None
+    }
 }
 
 impl OperationsVTable<NullVTable> for NullVTable {
