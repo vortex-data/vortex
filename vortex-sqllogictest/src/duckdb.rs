@@ -10,12 +10,9 @@ use datafusion_sqllogictest::DFColumnType;
 use indicatif::ProgressBar;
 use sqllogictest::DBOutput;
 use sqllogictest::runner::AsyncDB;
-use tempfile::TempDir;
-use tempfile::tempdir;
 use vortex::error::VortexError;
 use vortex_duckdb::LogicalType;
 use vortex_duckdb::Value;
-use vortex_duckdb::duckdb::Config;
 use vortex_duckdb::duckdb::Connection;
 use vortex_duckdb::duckdb::Database;
 use vortex_duckdb::register_table_functions;
@@ -38,7 +35,6 @@ impl std::fmt::Display for DuckDBTestError {
 struct Inner {
     conn: Connection,
     _db: Database,
-    _dir: TempDir,
 }
 
 unsafe impl Send for Inner {}
@@ -51,20 +47,14 @@ pub struct DuckDB {
 
 impl DuckDB {
     pub fn try_new(pb: ProgressBar) -> Result<Self, DuckDBTestError> {
-        let dir = tempdir().map_err(|e| DuckDBTestError::Other(e.to_string()))?;
-        let config = Config::new()?;
-        let db = Database::open_with_config(dir.path().join("duckdb.db"), config)?;
+        let db = Database::open_in_memory()?;
         db.register_vortex_scan_replacement()?;
         let conn = db.connect()?;
 
         register_table_functions(&conn)?;
         Ok(Self {
             pb,
-            inner: Arc::new(Inner {
-                conn,
-                _db: db,
-                _dir: dir,
-            }),
+            inner: Arc::new(Inner { conn, _db: db }),
         })
     }
 
