@@ -75,6 +75,7 @@ impl PartialOrd for PrimitiveScalar<'_> {
 }
 
 impl<'a> PrimitiveScalar<'a> {
+    // TODO(connor): This panics if the value is not a primitive value.
     /// Creates a new primitive scalar from a data type and scalar value.
     ///
     /// # Errors

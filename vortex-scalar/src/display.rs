@@ -42,6 +42,7 @@ mod tests {
     use vortex_dtype::datetime::Time;
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
+    use vortex_dtype::datetime::TimestampOptions;
 
     use crate::PValue;
     use crate::Scalar;
@@ -197,18 +198,17 @@ mod tests {
             DType::Extension(Time::new(TimeUnit::Seconds, Nullable).erased())
         }
 
+        let storage_dtype = dtype().as_extension().storage_dtype().clone();
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
-        assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(
-                    dtype(),
-                    Some(ScalarValue::Primitive(PValue::I32(3 * MINUTES + 25)))
-                )
-            ),
-            "00:03:25"
+        let storage_scalar = Scalar::new(
+            storage_dtype,
+            Some(ScalarValue::Primitive(PValue::I32(3 * MINUTES + 25))),
         );
+        let ext_scalar = Scalar::extension::<Time>(TimeUnit::Seconds, storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+
+        assert_eq!(format!("{ext_scalar}"), "00:03:25");
     }
 
     #[test]
@@ -217,85 +217,101 @@ mod tests {
             DType::Extension(Date::new(TimeUnit::Days, Nullable).erased())
         }
 
+        let storage_dtype = dtype().as_extension().storage_dtype().clone();
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
-        assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(25))))
-            ),
-            "1970-01-26"
+        let storage_scalar = Scalar::new(
+            storage_dtype.clone(),
+            Some(ScalarValue::Primitive(PValue::I32(25))),
         );
+        let ext_scalar = Scalar::extension::<Date>(TimeUnit::Days, storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+        assert_eq!(format!("{ext_scalar}"), "1970-01-26");
 
-        assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(365))))
-            ),
-            "1971-01-01"
+        let storage_scalar = Scalar::new(
+            storage_dtype.clone(),
+            Some(ScalarValue::Primitive(PValue::I32(365))),
         );
+        let ext_scalar = Scalar::extension::<Date>(TimeUnit::Days, storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+        assert_eq!(format!("{ext_scalar}"), "1971-01-01");
 
-        assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I32(365 * 4))))
-            ),
-            "1973-12-31"
+        let storage_scalar = Scalar::new(
+            storage_dtype,
+            Some(ScalarValue::Primitive(PValue::I32(365 * 4))),
         );
+        let ext_scalar = Scalar::extension::<Date>(TimeUnit::Days, storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+        assert_eq!(format!("{ext_scalar}"), "1973-12-31");
     }
 
     #[test]
     fn display_local_timestamp() {
+        fn timestamp_options() -> TimestampOptions {
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: None,
+            }
+        }
+
         fn dtype() -> DType {
             DType::Extension(Timestamp::new(TimeUnit::Seconds, Nullable).erased())
         }
 
+        let storage_dtype = dtype().as_extension().storage_dtype().clone();
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
-        assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(
-                    dtype(),
-                    Some(ScalarValue::Primitive(PValue::I64(
-                        (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64
-                    )))
-                )
-            ),
-            "1970-01-04T02:05:10"
+        let storage_scalar = Scalar::new(
+            storage_dtype,
+            Some(ScalarValue::Primitive(PValue::I64(
+                (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64,
+            ))),
         );
+        let ext_scalar = Scalar::extension::<Timestamp>(timestamp_options(), storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+
+        assert_eq!(format!("{ext_scalar}"), "1970-01-04T02:05:10Z");
     }
 
-    #[cfg_attr(miri, ignore)]
     #[test]
     fn display_zoned_timestamp() {
-        fn dtype() -> DType {
-            DType::Extension(
-                Timestamp::new_with_tz(TimeUnit::Seconds, Some("Pacific/Guam".into()), Nullable)
-                    .erased(),
-            )
+        fn timestamp_options() -> TimestampOptions {
+            TimestampOptions {
+                unit: TimeUnit::Seconds,
+                tz: Some("Pacific/Guam".into()),
+            }
         }
 
+        fn dtype() -> DType {
+            DType::Extension(Timestamp::new_with_options(timestamp_options(), Nullable).erased())
+        }
+
+        let storage_dtype = dtype().as_extension().storage_dtype().clone();
         assert_eq!(format!("{}", Scalar::null(dtype())), "null");
 
+        let storage_scalar = Scalar::new(
+            storage_dtype.clone(),
+            Some(ScalarValue::Primitive(PValue::I64(0i64))),
+        );
+        let ext_scalar = Scalar::extension::<Timestamp>(timestamp_options(), storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+
         assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(dtype(), Some(ScalarValue::Primitive(PValue::I64(0i64))))
-            ),
+            format!("{ext_scalar}"),
             "1970-01-01T10:00:00+10:00[Pacific/Guam]"
         );
 
+        let storage_scalar = Scalar::new(
+            storage_dtype,
+            Some(ScalarValue::Primitive(PValue::I64(
+                (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64,
+            ))),
+        );
+        let ext_scalar = Scalar::extension::<Timestamp>(timestamp_options(), storage_scalar);
+        assert_eq!(ext_scalar.dtype(), &dtype());
+
         assert_eq!(
-            format!(
-                "{}",
-                Scalar::new(
-                    dtype(),
-                    Some(ScalarValue::Primitive(PValue::I64(
-                        (3 * DAYS + 2 * HOURS + 5 * MINUTES + 10) as i64
-                    )))
-                )
-            ),
+            format!("{ext_scalar}"),
             "1970-01-04T12:05:10+10:00[Pacific/Guam]"
         );
     }

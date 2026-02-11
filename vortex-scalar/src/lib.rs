@@ -18,6 +18,7 @@
 #[cfg(feature = "arbitrary")]
 pub mod arbitrary;
 mod arrow;
+mod extension;
 
 mod cast;
 mod constructor;
@@ -25,6 +26,7 @@ mod convert;
 mod display;
 mod downcast;
 mod proto;
+mod session;
 
 mod scalar;
 mod scalar_value;

@@ -11,11 +11,16 @@ use itertools::Itertools;
 use vortex_buffer::BufferString;
 use vortex_buffer::ByteBuffer;
 use vortex_dtype::DType;
+use vortex_dtype::ExtDTypeRef;
+use vortex_error::VortexResult;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::DecimalValue;
-// use crate::ExtScalarValueRef;
 use crate::PValue;
+use crate::extension::ExtScalarValueRef;
+use crate::session::ScalarSessionExt;
 
 /// The value stored in a [`Scalar`][crate::Scalar].
 ///
@@ -35,11 +40,11 @@ pub enum ScalarValue {
     Binary(ByteBuffer),
     /// A list of potentially null scalar values.
     List(Vec<Option<ScalarValue>>),
-    // /// An extension value reference.
-    // ///
-    // /// This internally contains a `ScalarValue` and an vtable that implements
-    // /// [`ExtScalarVTable`](crate::ExtScalarVTable)
-    // Extension(ExtScalarValueRef),
+    /// An extension value reference.
+    ///
+    /// This internally contains a `ScalarValue` and an vtable that implements
+    /// [`ExtScalarVTable`](crate::ExtScalarVTable)
+    Extension(ExtScalarValueRef),
 }
 
 impl ScalarValue {
@@ -83,7 +88,14 @@ impl ScalarValue {
                     .collect();
                 Self::List(field_values)
             }
-            DType::Extension(ext_dtype) => Self::zero_value(ext_dtype.storage_dtype()), // TODO(connor): Fix this!
+            DType::Extension(ext_dtype) => {
+                // Since we have no way to define a "zero" extension value (since we have no idea
+                // what the semantics of the extension is), a best effort attempt is to just use the
+                // zero storage value and try to make an extension scalar from that.
+                let zero_storage_value = Self::zero_value(ext_dtype.storage_dtype());
+
+                Self::extension_value(ext_dtype, zero_storage_value, session)
+            }
         }
     }
 
@@ -117,65 +129,37 @@ impl ScalarValue {
             DType::Extension(ext_dtype) => Self::default_value(ext_dtype.storage_dtype())?, // TODO(connor): Fix this!
         })
     }
-}
 
-impl ScalarValue {
-    /// Returns the boolean value, panicking if the value is not a [`Bool`][ScalarValue::Bool].
-    pub fn as_bool(&self) -> bool {
-        match self {
-            ScalarValue::Bool(b) => *b,
-            _ => vortex_panic!("ScalarValue is not a Bool"),
-        }
+    /// Creates an extension [`ScalarValue`] from a storage value and an extension dtype.
+    ///
+    /// This looks up the appropriate [`ExtScalarVTable`](crate::ExtScalarVTable) for the given
+    /// extension dtype in the session's scalar registry, and uses it to wrap the storage value
+    /// into an [`ExtScalarValueRef`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the extension type's scalar vtable is not found in the session's
+    /// registry, or if creating the [`ExtScalarValueRef`] fails.
+    pub fn extension_value(
+        ext_dtype: &ExtDTypeRef,
+        storage_value: ScalarValue,
+        session: &VortexSession,
+    ) -> VortexResult<ScalarValue> {
+        let ext_scalar_registry = session.scalars();
+        let dyn_scalar_vtable = ext_scalar_registry
+            .registry()
+            .find(&ext_dtype.id())
+            .ok_or_else(|| {
+                vortex_err!(
+                    "extension type scalar {} did not exist in the registry",
+                    ext_dtype.id()
+                )
+            })?;
+
+        let ext_value = dyn_scalar_vtable.build(ext_dtype.clone(), storage_value)?;
+
+        Ok(ScalarValue::Extension(ext_value))
     }
-
-    /// Returns the primitive value, panicking if the value is not a
-    /// [`Primitive`][ScalarValue::Primitive].
-    pub fn as_primitive(&self) -> &PValue {
-        match self {
-            ScalarValue::Primitive(p) => p,
-            _ => vortex_panic!("ScalarValue is not a Primitive"),
-        }
-    }
-
-    /// Returns the decimal value, panicking if the value is not a
-    /// [`Decimal`][ScalarValue::Decimal].
-    pub fn as_decimal(&self) -> &DecimalValue {
-        match self {
-            ScalarValue::Decimal(d) => d,
-            _ => vortex_panic!("ScalarValue is not a Decimal"),
-        }
-    }
-
-    /// Returns the UTF-8 string value, panicking if the value is not a [`Utf8`][ScalarValue::Utf8].
-    pub fn as_utf8(&self) -> &BufferString {
-        match self {
-            ScalarValue::Utf8(s) => s,
-            _ => vortex_panic!("ScalarValue is not a Utf8"),
-        }
-    }
-
-    /// Returns the binary value, panicking if the value is not a [`Binary`][ScalarValue::Binary].
-    pub fn as_binary(&self) -> &ByteBuffer {
-        match self {
-            ScalarValue::Binary(b) => b,
-            _ => vortex_panic!("ScalarValue is not a Binary"),
-        }
-    }
-
-    /// Returns the list elements, panicking if the value is not a [`List`][ScalarValue::List].
-    pub fn as_list(&self) -> &[Option<ScalarValue>] {
-        match self {
-            ScalarValue::List(elements) => elements,
-            _ => vortex_panic!("ScalarValue is not a List"),
-        }
-    }
-
-    // pub fn as_extension(&self) -> &ExtScalarValueRef {
-    //     match self {
-    //         ScalarValue::Extension(e) => e,
-    //         _ => vortex_panic!("ScalarValue is not an Extension"),
-    //     }
-    // }
 }
 
 impl PartialOrd for ScalarValue {
@@ -236,8 +220,15 @@ impl Display for ScalarValue {
                     }
                 }
                 write!(f, "]")
-            } //
-              // ScalarValue::Extension(e) => write!(f, "{}", e),
+            }
+            ScalarValue::Extension(ext_scalar_value_ref) => {
+                write!(
+                    f,
+                    "(ext<{}> storage) {}",
+                    ext_scalar_value_ref.id(),
+                    ext_scalar_value_ref.storage_value()
+                )
+            }
         }
     }
 }

@@ -10,7 +10,9 @@ use std::hash::Hasher;
 use vortex_dtype::DType;
 use vortex_dtype::NativeDType;
 use vortex_dtype::PType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_ensure_eq;
 use vortex_error::vortex_panic;
@@ -102,11 +104,7 @@ impl Scalar {
     ///
     /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
     pub fn try_new(dtype: DType, value: Option<ScalarValue>) -> VortexResult<Self> {
-        vortex_ensure!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
+        Self::validate(&dtype, value.as_ref())?;
 
         Ok(Self { dtype, value })
     }
@@ -119,11 +117,14 @@ impl Scalar {
     /// The caller must ensure that the given [`DType`] and [`ScalarValue`] are compatible per the
     /// rules defined in [`Self::is_compatible`].
     pub unsafe fn new_unchecked(dtype: DType, value: Option<ScalarValue>) -> Self {
-        debug_assert!(
-            Self::is_compatible(&dtype, value.as_ref()),
-            "Incompatible dtype {dtype} with value {}",
-            value.map(|v| format!("{}", v)).unwrap_or_default()
-        );
+        #[cfg(debug_assertions)]
+        if let Err(e) = Self::validate(&dtype, value.as_ref()) {
+            let value_str = value
+                .as_ref()
+                .map(|v| format!("{}", v))
+                .unwrap_or_else(|| "none".to_string());
+            vortex_panic!("Incompatible dtype {dtype} with value {value_str}: {e}");
+        }
 
         Self { dtype, value }
     }
@@ -155,16 +156,27 @@ impl Scalar {
 
     // Other methods.
 
-    /// Check if the given [`ScalarValue`] is compatible with the given [`DType`].
-    pub fn is_compatible(dtype: &DType, value: Option<&ScalarValue>) -> bool {
+    /// Validate that the given [`ScalarValue`] is compatible with the given [`DType`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the given [`DType`] and [`ScalarValue`] are incompatible.
+    pub fn validate(dtype: &DType, value: Option<&ScalarValue>) -> VortexResult<()> {
         let Some(value) = value else {
-            return dtype.is_nullable();
+            vortex_ensure!(
+                dtype.is_nullable(),
+                "Cannot use null value with non-nullable dtype {dtype}"
+            );
+            return Ok(());
         };
         // From here on, we know that the value is not null.
 
         match dtype {
-            DType::Null => false,
-            DType::Bool(_) => matches!(value, ScalarValue::Bool(_)),
+            DType::Null => vortex_bail!("Cannot use non-null value with DType::Null"),
+            DType::Bool(_) => vortex_ensure!(
+                matches!(value, ScalarValue::Bool(_)),
+                "Expected Bool scalar value for dtype {dtype}, got {value}"
+            ),
             DType::Primitive(ptype, _) => {
                 if let ScalarValue::Primitive(pvalue) = value {
                     // Note that this is a backwards compatibility check for poor design in the
@@ -174,61 +186,96 @@ impl Scalar {
                     let f16_backcompat_still_works =
                         matches!(ptype, &PType::F16) && matches!(pvalue, PValue::U64(_));
 
-                    f16_backcompat_still_works || pvalue.ptype() == *ptype
+                    vortex_ensure!(
+                        f16_backcompat_still_works || pvalue.ptype() == *ptype,
+                        "Expected primitive type {ptype} for dtype {dtype}, got {}",
+                        pvalue.ptype()
+                    );
                 } else {
-                    false
+                    vortex_bail!("Expected Primitive scalar value for dtype {dtype}, got {value}");
                 }
             }
             DType::Decimal(dec_dtype, _) => {
                 if let ScalarValue::Decimal(dvalue) = value {
-                    dvalue.fits_in_precision(*dec_dtype)
+                    vortex_ensure!(
+                        dvalue.fits_in_precision(*dec_dtype),
+                        "Decimal value {dvalue} does not fit in precision of {dec_dtype}"
+                    );
                 } else {
-                    false
+                    vortex_bail!("Expected Decimal scalar value for dtype {dtype}, got {value}");
                 }
             }
-            DType::Utf8(_) => matches!(value, ScalarValue::Utf8(_)),
-            DType::Binary(_) => matches!(value, ScalarValue::Binary(_)),
+            DType::Utf8(_) => vortex_ensure!(
+                matches!(value, ScalarValue::Utf8(_)),
+                "Expected Utf8 scalar value for dtype {dtype}, got {value}"
+            ),
+            DType::Binary(_) => vortex_ensure!(
+                matches!(value, ScalarValue::Binary(_)),
+                "Expected Binary scalar value for dtype {dtype}, got {value}"
+            ),
             DType::List(elem_dtype, _) => {
                 if let ScalarValue::List(elements) = value {
-                    elements
-                        .iter()
-                        .all(|element| Self::is_compatible(elem_dtype.as_ref(), element.as_ref()))
+                    for (i, element) in elements.iter().enumerate() {
+                        Self::validate(elem_dtype.as_ref(), element.as_ref()).map_err(|e| {
+                            vortex_error::vortex_err!("List element {i} incompatible: {e}")
+                        })?;
+                    }
                 } else {
-                    false
+                    vortex_bail!("Expected List scalar value for dtype {dtype}, got {value}");
                 }
             }
             DType::FixedSizeList(elem_dtype, size, _) => {
                 if let ScalarValue::List(elements) = value {
-                    if elements.len() != *size as usize {
-                        return false;
+                    vortex_ensure!(
+                        elements.len() == *size as usize,
+                        "Expected {} elements for FixedSizeList, got {}",
+                        size,
+                        elements.len()
+                    );
+                    for (i, element) in elements.iter().enumerate() {
+                        Self::validate(elem_dtype.as_ref(), element.as_ref()).map_err(|e| {
+                            vortex_error::vortex_err!("FixedSizeList element {i} incompatible: {e}")
+                        })?;
                     }
-                    elements
-                        .iter()
-                        .all(|element| Self::is_compatible(elem_dtype.as_ref(), element.as_ref()))
                 } else {
-                    false
+                    vortex_bail!(
+                        "Expected List scalar value for FixedSizeList dtype {dtype}, got {value}"
+                    );
                 }
             }
             DType::Struct(fields, _) => {
                 if let ScalarValue::List(values) = value {
-                    if values.len() != fields.nfields() {
-                        return false;
+                    vortex_ensure!(
+                        values.len() == fields.nfields(),
+                        "Expected {} fields for Struct, got {}",
+                        fields.nfields(),
+                        values.len()
+                    );
+                    for (i, (field, field_value)) in fields.fields().zip(values.iter()).enumerate()
+                    {
+                        Self::validate(&field, field_value.as_ref()).map_err(|e| {
+                            vortex_error::vortex_err!("Struct field {i} incompatible: {e}")
+                        })?;
                     }
-                    for (field, field_value) in fields.fields().zip(values.iter()) {
-                        if !Self::is_compatible(&field, field_value.as_ref()) {
-                            return false;
-                        }
-                    }
-                    true
                 } else {
-                    false
+                    vortex_bail!(
+                        "Expected List scalar value for Struct dtype {dtype}, got {value}"
+                    );
                 }
             }
             DType::Extension(ext_dtype) => {
-                // TODO(connor): Fix this when adding the correct extension scalars!
-                Self::is_compatible(ext_dtype.storage_dtype(), Some(value))
+                if let ScalarValue::Extension(ext_scalar_value_ref) = value {
+                    ext_scalar_value_ref.validate(ext_dtype)?;
+                } else {
+                    vortex_bail!(
+                        "Expected Extension scalar value for dtype {dtype}, \
+                            got non-extension value {value}"
+                    );
+                }
             }
         }
+
+        Ok(())
     }
 
     /// Check if two scalars are equal, ignoring nullability of the [`DType`].

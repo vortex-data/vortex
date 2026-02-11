@@ -14,14 +14,20 @@ use vortex_dtype::ExtDTypeRef;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::PType;
-use vortex_dtype::extension::ExtDTypeVTable;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
+use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
+use vortex_session::VortexSession;
 
 use crate::DecimalValue;
 use crate::PValue;
 use crate::Scalar;
 use crate::ScalarValue;
+use crate::extension::ExtScalarVTable;
+use crate::extension::ExtScalarValue;
+use crate::session::ScalarSessionExt;
 
 // TODO(connor): Really, we want `try_` constructors that return errors instead of just panic.
 impl Scalar {
@@ -170,27 +176,60 @@ impl Scalar {
             .vortex_expect("unable to construct a list `Scalar`")
     }
 
-    /// Creates a new extension scalar wrapping the given storage value.
-    pub fn extension<V: ExtDTypeVTable + Default>(options: V::Metadata, value: Scalar) -> Self {
-        let ext_dtype = ExtDType::<V>::try_new(options, value.dtype().clone())
-            .vortex_expect("Failed to create extension dtype");
-        Self::try_new(DType::Extension(ext_dtype.erased()), value.into_value())
-            .vortex_expect("unable to construct an extension `Scalar`")
-    }
-
+    // TODO(connor): This needs to return a `VortexResult` instead.
     /// Creates a new extension scalar wrapping the given storage value.
     ///
     /// # Panics
     ///
-    /// Panics if the storage dtype of `ext_dtype` does not match `value`'s dtype.
-    pub fn extension_ref(ext_dtype: ExtDTypeRef, value: Scalar) -> Self {
-        assert_eq!(ext_dtype.storage_dtype(), value.dtype());
-        Self::try_new(DType::Extension(ext_dtype), value.into_value())
+    /// Panics if the storage dtype is incompatible with the extension type, or if the storage
+    /// value fails validation.
+    pub fn extension<V: ExtScalarVTable + Default>(
+        metadata: V::Metadata,
+        storage_scalar: Scalar,
+    ) -> Self {
+        let ext_dtype = ExtDType::<V>::try_new(metadata, storage_scalar.dtype().clone())
+            .vortex_expect("Failed to create extension dtype");
+        let storage_value = storage_scalar.into_value();
+
+        let ext_value = storage_value.map(|sv| {
+            let owned = ExtScalarValue::<V>::try_new(ext_dtype.clone(), sv)
+                .vortex_expect("unable to construct an extension `Scalar`");
+            ScalarValue::Extension(owned.erased())
+        });
+
+        Self::try_new(DType::Extension(ext_dtype.erased()), ext_value)
             .vortex_expect("unable to construct an extension `Scalar`")
+    }
+
+    /// TODO docs.
+    pub fn extension_ref(
+        ext_dtype: ExtDTypeRef,
+        storage_scalar: Scalar,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        let (storage_dtype, storage_value) = storage_scalar.into_parts();
+        Self::extension_ref_from_value(ext_dtype, &storage_dtype, storage_value, session)
+    }
+
+    /// TODO docs.
+    pub fn extension_ref_from_value(
+        ext_dtype: ExtDTypeRef,
+        storage_dtype: &DType,
+        storage_value: Option<ScalarValue>,
+        session: &VortexSession,
+    ) -> VortexResult<Self> {
+        vortex_ensure_eq!(ext_dtype.storage_dtype(), storage_dtype);
+
+        let ext_value = Self::extension_value(&ext_dtype, storage_value, session)?;
+
+        Ok(
+            // SAFETY: `create_ext_scalar_value_ref` validates that the scalar value is compatible.
+            unsafe { Scalar::new_unchecked(DType::Extension(ext_dtype), ext_value) },
+        )
     }
 }
 
-/// A helper enum for creating a [`ListScalar`].
+/// A helper enum for creating a list scalar.
 enum ListKind {
     /// Variable-length list.
     Variable,

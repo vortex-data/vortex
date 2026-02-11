@@ -5,6 +5,7 @@
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Display;
     use std::sync::Arc;
 
     use vortex_dtype::DType;
@@ -18,51 +19,92 @@ mod tests {
     use vortex_dtype::half::f16;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
+    use vortex_error::vortex_err;
 
     use crate::PValue;
     use crate::Scalar;
     use crate::ScalarValue;
+    use crate::extension::ExtScalarVTable;
 
     #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-    struct Apples;
+    struct MultiplyVTable;
 
-    impl ExtDTypeVTable for Apples {
+    impl ExtDTypeVTable for MultiplyVTable {
         type Metadata = usize;
 
         fn id(&self) -> ExtID {
-            ExtID::new_ref("apples")
+            ExtID::new_ref("simple_ext")
         }
 
         fn validate_dtype(
             &self,
             _options: &Self::Metadata,
-            _storage_dtype: &DType,
+            storage_dtype: &DType,
         ) -> VortexResult<()> {
-            Ok(())
+            match storage_dtype {
+                DType::Primitive(..) => Ok(()),
+                _ => Err(vortex_err!("Expected primitive dtype for simple extension")),
+            }
         }
     }
 
-    impl Apples {
-        fn new() -> ExtDType<Apples> {
-            ExtDType::try_new(0, DType::Primitive(PType::U16, Nullability::NonNullable))
-                .vortex_expect("valid apples dtype")
+    impl ExtScalarVTable for MultiplyVTable {
+        type Value<'a> = usize;
+
+        fn unpack<'a>(
+            &self,
+            metadata: &'a <Self as ExtDTypeVTable>::Metadata,
+            _storage_dtype: &'a DType,
+            storage_value: &'a ScalarValue,
+        ) -> Self::Value<'a> {
+            let pvalue = storage_value
+                .as_primitive_opt()
+                .vortex_expect("storage value was not a primitive");
+
+            let raw_value = match *pvalue {
+                PValue::U8(v) => v as usize,
+                PValue::U16(v) => v as usize,
+                PValue::U32(v) => v as usize,
+                PValue::U64(v) => usize::try_from(v).vortex_expect("unable to convert to usize"),
+                PValue::I8(v) => v as usize,
+                PValue::I16(v) => v as usize,
+                PValue::I32(v) => v as usize,
+                PValue::I64(v) => usize::try_from(v).vortex_expect("unable to convert to usize"),
+                _ => panic!("Expected an integer PValue"),
+            };
+
+            raw_value * metadata
+        }
+
+        fn validate_scalar_value(
+            &self,
+            _metadata: &<Self as ExtDTypeVTable>::Metadata,
+            _storage_dtype: &DType,
+            _storage_value: &ScalarValue,
+        ) -> VortexResult<()> {
+            // Any primitive type is fine so we don't need to verify this.
+            Ok(())
         }
     }
 
     #[test]
     fn cast_to_from_extension_types() {
-        let apples = Apples::new();
+        // Multiply all values by 42.
+        let simple_ext = ExtDType::<MultiplyVTable>::try_new(
+            42,
+            DType::Primitive(PType::U16, Nullability::NonNullable),
+        )
+        .unwrap();
 
-        let ext_dtype = DType::Extension(apples.clone().erased());
-        let ext_scalar = Scalar::new(
-            ext_dtype.clone(),
-            Some(ScalarValue::Primitive(PValue::U16(1000))),
-        );
-
+        let ext_dtype = DType::Extension(simple_ext.clone().erased());
         let storage_scalar = Scalar::new(
-            DType::clone(apples.storage_dtype()),
+            DType::clone(simple_ext.storage_dtype()),
             Some(ScalarValue::Primitive(PValue::U16(1000))),
         );
+
+        // Multiply all values by 42.
+        let ext_scalar = Scalar::extension::<MultiplyVTable>(42, storage_scalar.clone());
+        assert_eq!(ext_scalar.dtype(), &ext_dtype);
 
         // to self
         let expected_dtype = &ext_dtype;
@@ -75,15 +117,18 @@ mod tests {
         assert_eq!(actual.dtype(), expected_dtype);
 
         // cast to the storage type
-        let expected_dtype = apples.storage_dtype();
+        let expected_dtype = simple_ext.storage_dtype();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
 
         // cast to the storage type, nullable
-        let expected_dtype = &apples.storage_dtype().as_nullable();
+        let expected_dtype = &simple_ext.storage_dtype().as_nullable();
         let actual = ext_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
 
+        // TODO(connor): This is not possible without giving the cast method a session so it can
+        // look up the vtable of the extension type it wants to cast to.
+        /*
         // cast from storage type to extension
         let expected_dtype = &ext_dtype;
         let actual = storage_scalar.cast(expected_dtype).unwrap();
@@ -93,12 +138,15 @@ mod tests {
         let expected_dtype = &ext_dtype.as_nullable();
         let actual = storage_scalar.cast(expected_dtype).unwrap();
         assert_eq!(actual.dtype(), expected_dtype);
+        */
 
         // cast from *incompatible* storage type to extension
-        let apples_u8 =
-            ExtDType::<Apples>::try_new(0, DType::Primitive(PType::U8, Nullability::NonNullable))
-                .unwrap();
-        let expected_dtype = &DType::Extension(apples_u8.erased());
+        let simple_ext_u8 = ExtDType::<MultiplyVTable>::try_new(
+            0,
+            DType::Primitive(PType::U8, Nullability::NonNullable),
+        )
+        .unwrap();
+        let expected_dtype = &DType::Extension(simple_ext_u8.erased());
         let result = storage_scalar.cast(expected_dtype);
         assert!(
             result
@@ -245,17 +293,48 @@ mod tests {
             }
         }
 
+        struct Nothing;
+
+        impl Display for Nothing {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "Nothing")
+            }
+        }
+
+        impl ExtScalarVTable for F16Ext {
+            type Value<'a> = Nothing;
+
+            fn unpack<'a>(
+                &self,
+                _metadata: &'a <Self as ExtDTypeVTable>::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> Self::Value<'a> {
+                Nothing
+            }
+
+            fn validate_scalar_value(
+                &self,
+                _metadata: &<Self as ExtDTypeVTable>::Metadata,
+                _storage_dtype: &DType,
+                _storage_value: &ScalarValue,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
         let storage_dtype = DType::Primitive(PType::F16, Nullability::NonNullable);
-        let ext_dtype = ExtDType::<F16Ext>::try_new(0, storage_dtype).unwrap();
 
         // Test f16 value stored as u64 gets coerced through extension type
         let f16_value = f16::from_f32(0.42);
         let u64_bits = f16_value.to_bits() as u64;
 
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erased()),
+        let storage_scalar = Scalar::new(
+            storage_dtype,
             Some(ScalarValue::Primitive(PValue::U64(u64_bits))),
         );
+
+        let scalar = Scalar::extension::<F16Ext>(0, storage_scalar);
 
         // Verify the value was coerced to f16
         assert_eq!(
@@ -290,6 +369,36 @@ mod tests {
             }
         }
 
+        struct Nothing;
+
+        impl Display for Nothing {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "Nothing")
+            }
+        }
+
+        impl ExtScalarVTable for StructExt {
+            type Value<'a> = Nothing;
+
+            fn unpack<'a>(
+                &self,
+                _metadata: &'a <Self as ExtDTypeVTable>::Metadata,
+                _storage_dtype: &'a DType,
+                _storage_value: &'a ScalarValue,
+            ) -> Self::Value<'a> {
+                Nothing
+            }
+
+            fn validate_scalar_value(
+                &self,
+                _metadata: &<Self as ExtDTypeVTable>::Metadata,
+                _storage_dtype: &DType,
+                _storage_value: &ScalarValue,
+            ) -> VortexResult<()> {
+                Ok(())
+            }
+        }
+
         let struct_dtype = DType::Struct(
             StructFields::from_iter([
                 (
@@ -303,7 +412,6 @@ mod tests {
             ]),
             Nullability::NonNullable,
         );
-        let ext_dtype = ExtDType::<StructExt>::try_new(0, struct_dtype).unwrap();
 
         // Create struct value with f16 stored as u64
         let f16_value = f16::from_f32(1.5);
@@ -314,10 +422,9 @@ mod tests {
             ))),
         ];
 
-        let scalar = Scalar::new(
-            DType::Extension(ext_dtype.erased()),
-            Some(ScalarValue::List(field_values)),
-        );
+        let storage_scalar = Scalar::new(struct_dtype, Some(ScalarValue::List(field_values)));
+
+        let scalar = Scalar::extension::<StructExt>(0, storage_scalar);
 
         // Verify the struct field was coerced
         let list_elems = scalar

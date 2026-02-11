@@ -8,6 +8,7 @@ mod consistency;
 mod nested;
 mod nullability;
 mod primitives;
+mod proto;
 mod round_trip;
 
 use std::sync::LazyLock;
@@ -15,5 +16,10 @@ use std::sync::LazyLock;
 use vortex_dtype::session::DTypeSession;
 use vortex_session::VortexSession;
 
-pub(crate) static SESSION: LazyLock<VortexSession> =
-    LazyLock::new(|| VortexSession::empty().with::<DTypeSession>());
+use crate::session::ScalarSession;
+
+pub(crate) static SESSION: LazyLock<VortexSession> = LazyLock::new(|| {
+    VortexSession::empty()
+        .with::<DTypeSession>()
+        .with::<ScalarSession>()
+});

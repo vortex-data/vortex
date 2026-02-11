@@ -18,7 +18,7 @@
 mod binary;
 mod bool;
 mod decimal;
-mod extension;
+mod ext;
 mod list;
 mod primitive;
 mod struct_;
@@ -27,7 +27,7 @@ mod utf8;
 pub use binary::*;
 pub use bool::*;
 pub use decimal::*;
-pub use extension::*;
+pub use ext::*;
 pub use list::*;
 pub use primitive::*;
 pub use struct_::*;

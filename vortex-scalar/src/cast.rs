@@ -45,6 +45,19 @@ impl Scalar {
         // If the target is an extension type, then we want to cast to its storage type.
         if let Some(ext_dtype) = target_dtype.as_extension_opt() {
             let cast_storage_scalar_value = self.cast(ext_dtype.storage_dtype())?.into_value();
+
+            // NEED A SESSION!
+            // let ext_scalar_registry = session.scalars();
+            // let dyn_scalar_vtable = ext_scalar_registry
+            //     .registry()
+            //     .find(&ext_dtype.id())
+            //     .ok_or_else(|| {
+            //         vortex_err!(
+            //             "extension type scalar {} did not exist in the registry",
+            //             ext_dtype.id()
+            //         )
+            //     })?;
+
             return Scalar::try_new(target_dtype.clone(), cast_storage_scalar_value);
         }
 

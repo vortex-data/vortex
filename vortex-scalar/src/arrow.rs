@@ -202,9 +202,6 @@ mod tests {
     use vortex_dtype::datetime::TimeUnit;
     use vortex_dtype::datetime::Timestamp;
     use vortex_dtype::datetime::TimestampOptions;
-    use vortex_dtype::extension::ExtDTypeVTable;
-    use vortex_error::VortexResult;
-    use vortex_error::vortex_bail;
 
     use crate::DecimalValue;
     use crate::Scalar;
@@ -443,45 +440,6 @@ mod tests {
         Arc::<dyn Datum>::try_from(&list_scalar).unwrap();
     }
 
-    #[test]
-    #[should_panic(expected = "Cannot convert extension scalar")]
-    fn test_non_temporal_extension_to_arrow_todo() {
-        use vortex_dtype::ExtID;
-
-        #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
-        struct SomeExt;
-        impl ExtDTypeVTable for SomeExt {
-            type Metadata = String;
-
-            fn id(&self) -> ExtID {
-                ExtID::new_ref("some_ext")
-            }
-
-            fn serialize(&self, _options: &Self::Metadata) -> VortexResult<Vec<u8>> {
-                vortex_bail!("not implemented")
-            }
-
-            fn deserialize(&self, _data: &[u8]) -> VortexResult<Self::Metadata> {
-                vortex_bail!("not implemented")
-            }
-
-            fn validate_dtype(
-                &self,
-                _options: &Self::Metadata,
-                _storage_dtype: &DType,
-            ) -> VortexResult<()> {
-                Ok(())
-            }
-        }
-
-        let scalar = Scalar::extension::<SomeExt>(
-            "".into(),
-            Scalar::primitive(42i32, Nullability::NonNullable),
-        );
-
-        Arc::<dyn Datum>::try_from(&scalar).unwrap();
-    }
-
     #[rstest]
     #[case(TimeUnit::Nanoseconds, PType::I64, 123456789i64)]
     #[case(TimeUnit::Microseconds, PType::I64, 123456789i64)]
@@ -553,7 +511,7 @@ mod tests {
     #[rstest]
     #[case(TimeUnit::Nanoseconds, "UTC", 1234567890000000000i64)]
     #[case(TimeUnit::Microseconds, "EST", 1234567890000000i64)]
-    #[case(TimeUnit::Milliseconds, "ABC", 1234567890000i64)]
+    #[case(TimeUnit::Milliseconds, "CET", 1234567890000i64)]
     #[case(TimeUnit::Seconds, "UTC", 1234567890i64)]
     fn test_temporal_timestamp_tz_to_arrow(
         #[case] time_unit: TimeUnit,
