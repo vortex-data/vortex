@@ -5,6 +5,7 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
+use crate::Array;
 use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -53,13 +54,13 @@ pub trait FillNullKernel: VTable {
 ///
 /// Returns `Some(result)` if the precondition short-circuits the fill_null operation,
 /// or `None` if fill_null should proceed with the encoding-specific implementation.
-fn precondition<V: VTable>(
-    array: &V::Array,
+pub(super) fn precondition(
+    array: &dyn Array,
     fill_value: &Scalar,
 ) -> VortexResult<Option<ArrayRef>> {
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
     if !array.dtype().is_nullable() || array.all_valid()? {
-        return cast(&**array, fill_value.dtype()).map(Some);
+        return cast(array, fill_value.dtype()).map(Some);
     }
 
     // If all values are null, replace the entire array with the fill value.
@@ -98,7 +99,7 @@ where
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        if let Some(result) = precondition::<V>(array, &fill_value)? {
+        if let Some(result) = precondition(&**array, &fill_value)? {
             return Ok(Some(result));
         }
         <V as FillNullReduce>::fill_null(array, &fill_value)
@@ -132,7 +133,7 @@ where
         let fill_value = scalar_fn_array.children()[1]
             .as_constant()
             .vortex_expect("fill_null fill_value must be constant");
-        if let Some(result) = precondition::<V>(array, &fill_value)? {
+        if let Some(result) = precondition(&**array, &fill_value)? {
             return Ok(Some(result));
         }
         <V as FillNullKernel>::fill_null(array, &fill_value, ctx)
