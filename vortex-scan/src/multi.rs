@@ -6,6 +6,12 @@
 //! Splits from all children are interleaved, enabling parallel execution across files.
 //! Children can be pre-opened (eager) or opened lazily via [`DataSourceFactory`] implementations,
 //! with spawned prefetching to overlap file-opening I/O with split execution.
+//!
+//! # Future Work
+//!
+//! This data source should evolve to support hive-style partitioning columns, different strategies
+//! for unifying schemas, more flexible prefetching configurations, and more robust error handling
+//! (e.g., skip failed sources instead of aborting the entire scan).
 
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -33,10 +39,6 @@ use crate::api::ScanRequest;
 use crate::api::SplitRef;
 use crate::api::SplitStream;
 
-// FIXME(ngates): this is the wrong abstraction. We should have a MultiFileDataSource in
-//  vortex-file that knows about files, and globs, and uses object store for file listing etc.
-//  It should also avoid building a layout tree at all when the dtype is an empty struct.
-
 /// An async factory that produces a [`DataSource`].
 ///
 /// Implementations handle engine-specific concerns like file opening, caching, and
@@ -56,19 +58,19 @@ const DEFAULT_PREFETCH: usize = 8;
 /// Children may be pre-opened or deferred via [`DataSourceFactory`]. During scanning,
 /// deferred children are opened in the background using spawned tasks on the session's runtime,
 /// keeping the I/O pipeline full while the engine processes splits from already-open sources.
+///
+/// Once a deferred child is successfully opened, it is promoted to [`MultiChild::Opened`] so
+/// that subsequent scans reuse the opened source without re-opening.
 pub struct MultiDataSource {
     dtype: DType,
-    children: Vec<MultiChild>,
+    children: Arc<Mutex<Vec<MultiChild>>>,
     handle: Handle,
     prefetch: usize,
 }
 
 enum MultiChild {
     Opened(DataSourceRef),
-    Deferred {
-        factory: Arc<dyn DataSourceFactory>,
-        cache: Arc<Mutex<Option<DataSourceRef>>>,
-    },
+    Deferred(Arc<dyn DataSourceFactory>),
 }
 
 impl MultiDataSource {
@@ -94,7 +96,9 @@ impl MultiDataSource {
 
         Ok(Self {
             dtype,
-            children: children.into_iter().map(MultiChild::Opened).collect(),
+            children: Arc::new(Mutex::new(
+                children.into_iter().map(MultiChild::Opened).collect(),
+            )),
             handle: session.handle(),
             prefetch: std::thread::available_parallelism()
                 .map(|v| v.get())
@@ -115,14 +119,11 @@ impl MultiDataSource {
         let dtype = first.dtype().clone();
         let mut children = Vec::with_capacity(1 + remaining.len());
         children.push(MultiChild::Opened(first));
-        children.extend(remaining.into_iter().map(|factory| MultiChild::Deferred {
-            factory,
-            cache: Arc::new(Mutex::new(None)),
-        }));
+        children.extend(remaining.into_iter().map(MultiChild::Deferred));
 
         Self {
             dtype,
-            children,
+            children: Arc::new(Mutex::new(children)),
             handle: session.handle(),
             prefetch: DEFAULT_PREFETCH,
         }
@@ -148,7 +149,8 @@ impl DataSource for MultiDataSource {
         let mut upper: Option<u64> = Some(0);
         let mut has_deferred = false;
 
-        for child in &self.children {
+        let children = self.children.lock();
+        for child in children.iter() {
             match child {
                 MultiChild::Opened(ds) => {
                     let est = ds.row_count_estimate();
@@ -158,18 +160,8 @@ impl DataSource for MultiDataSource {
                         _ => None,
                     };
                 }
-                MultiChild::Deferred { cache, .. } => {
-                    let guard = cache.lock();
-                    if let Some(ds) = guard.as_ref() {
-                        let est = ds.row_count_estimate();
-                        lower = lower.saturating_add(est.lower);
-                        upper = match (upper, est.upper) {
-                            (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                            _ => None,
-                        };
-                    } else {
-                        has_deferred = true;
-                    }
+                MultiChild::Deferred(_) => {
+                    has_deferred = true;
                 }
             }
         }
@@ -189,20 +181,14 @@ impl DataSource for MultiDataSource {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
 
-        for child in &self.children {
+        let children = self.children.lock();
+        for (i, child) in children.iter().enumerate() {
             match child {
                 MultiChild::Opened(ds) => ready.push_back(ds.clone()),
-                MultiChild::Deferred { factory, cache } => {
-                    let guard = cache.lock();
-                    if let Some(ds) = guard.as_ref() {
-                        ready.push_back(ds.clone());
-                    } else {
-                        drop(guard);
-                        deferred.push_back((factory.clone(), cache.clone()));
-                    }
-                }
+                MultiChild::Deferred(factory) => deferred.push_back((i, factory.clone())),
             }
         }
+        drop(children);
 
         let remaining_limit = scan_request.limit;
 
@@ -213,6 +199,7 @@ impl DataSource for MultiDataSource {
             ready,
             opening: VecDeque::new(),
             deferred,
+            children: Arc::clone(&self.children),
             handle: self.handle.clone(),
             prefetch: self.prefetch,
             remaining_limit,
@@ -232,14 +219,12 @@ struct MultiDataSourceScan {
     current: Option<DataSourceScanRef>,
     /// Pre-opened sources ready to be scanned.
     ready: VecDeque<DataSourceRef>,
-    /// In-flight spawned opens. Tasks run on the session's runtime independently,
-    /// so they make progress even when we're not polling them.
-    opening: VecDeque<Task<VortexResult<Option<DataSourceRef>>>>,
-    /// Remaining factories not yet spawned, paired with their cache slots.
-    deferred: VecDeque<(
-        Arc<dyn DataSourceFactory>,
-        Arc<Mutex<Option<DataSourceRef>>>,
-    )>,
+    /// In-flight spawned opens. Each task yields `(child_index, source)` on success.
+    opening: VecDeque<Task<VortexResult<Option<(usize, DataSourceRef)>>>>,
+    /// Remaining factories not yet spawned, paired with their child index.
+    deferred: VecDeque<(usize, Arc<dyn DataSourceFactory>)>,
+    /// Shared children vec for promoting Deferred → Opened.
+    children: Arc<Mutex<Vec<MultiChild>>>,
     /// Runtime handle for spawning prefetch tasks.
     handle: Handle,
     /// Target number of in-flight + ready sources.
@@ -253,19 +238,15 @@ impl MultiDataSourceScan {
     /// Spawns open tasks for deferred factories up to the prefetch target.
     fn fill_pipeline(&mut self) {
         while self.opening.len() + self.ready.len() < self.prefetch {
-            let Some((factory, cache)) = self.deferred.pop_front() else {
+            let Some((idx, factory)) = self.deferred.pop_front() else {
                 break;
             };
             self.opening.push_back(self.handle.spawn(async move {
-                let result = factory
+                let source = factory
                     .open()
                     .instrument(tracing::info_span!("DataSourceFactory::open"))
                     .await?;
-                // Cache the opened source for reuse across scans.
-                if let Some(ref source) = result {
-                    *cache.lock() = Some(source.clone());
-                }
-                Ok(result)
+                Ok(source.map(|s| (idx, s)))
             }));
         }
     }
@@ -280,7 +261,11 @@ impl MultiDataSourceScan {
             if let Some(task) = self.opening.pop_front() {
                 self.fill_pipeline();
                 match task.await? {
-                    Some(source) => return Ok(Some(source)),
+                    Some((idx, source)) => {
+                        // Promote Deferred → Opened so future scans reuse this source.
+                        self.children.lock()[idx] = MultiChild::Opened(source.clone());
+                        return Ok(Some(source));
+                    }
                     None => continue, // pruned, try next
                 }
             }
