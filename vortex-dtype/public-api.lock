@@ -310,6 +310,7 @@ pub const vortex_dtype::DType::BYTES: Self
 pub fn vortex_dtype::DType::as_any_size_list_element_opt(&self) -> core::option::Option<&alloc::sync::Arc<vortex_dtype::DType>>
 pub fn vortex_dtype::DType::as_decimal_opt(&self) -> core::option::Option<&vortex_dtype::DecimalDType>
 pub fn vortex_dtype::DType::as_extension(&self) -> &vortex_dtype::extension::ExtDTypeRef
+pub fn vortex_dtype::DType::as_extension_opt(&self) -> core::option::Option<&vortex_dtype::extension::ExtDTypeRef>
 pub fn vortex_dtype::DType::as_fixed_size_list_element_opt(&self) -> core::option::Option<&alloc::sync::Arc<vortex_dtype::DType>>
 pub fn vortex_dtype::DType::as_list_element_opt(&self) -> core::option::Option<&alloc::sync::Arc<vortex_dtype::DType>>
 pub fn vortex_dtype::DType::as_nonnullable(&self) -> Self
@@ -413,6 +414,8 @@ pub fn vortex_dtype::DecimalType::is_valid(value: i32) -> bool
 impl core::clone::Clone for vortex_dtype::DecimalType
 pub fn vortex_dtype::DecimalType::clone(&self) -> vortex_dtype::DecimalType
 impl core::cmp::Eq for vortex_dtype::DecimalType
+impl core::cmp::Ord for vortex_dtype::DecimalType
+pub fn vortex_dtype::DecimalType::cmp(&self, other: &vortex_dtype::DecimalType) -> core::cmp::Ordering
 impl core::cmp::PartialEq for vortex_dtype::DecimalType
 pub fn vortex_dtype::DecimalType::eq(&self, other: &vortex_dtype::DecimalType) -> bool
 impl core::cmp::PartialOrd for vortex_dtype::DecimalType

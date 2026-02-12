@@ -41,6 +41,22 @@ pub fn vortex_file::BlockingWriter<'_, '_, B>::buffered_bytes(&self) -> u64
 pub fn vortex_file::BlockingWriter<'_, '_, B>::bytes_written(&self) -> u64
 pub fn vortex_file::BlockingWriter<'_, '_, B>::finish(self) -> vortex_error::VortexResult<vortex_file::WriteSummary>
 pub fn vortex_file::BlockingWriter<'_, '_, B>::push(&mut self, chunk: vortex_array::array::ArrayRef) -> vortex_error::VortexResult<()>
+pub struct vortex_file::FileStatistics
+impl vortex_file::FileStatistics
+pub fn vortex_file::FileStatistics::dtypes(&self) -> &alloc::sync::Arc<[vortex_dtype::dtype::DType]>
+pub fn vortex_file::FileStatistics::from_flatbuffer<'a>(fb: &vortex_flatbuffers::footer::FileStatistics<'a>, file_dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<Self>
+pub fn vortex_file::FileStatistics::get(&self, field_idx: usize) -> (&vortex_array::stats::stats_set::StatsSet, &vortex_dtype::dtype::DType)
+pub fn vortex_file::FileStatistics::new(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, dtypes: alloc::sync::Arc<[vortex_dtype::dtype::DType]>) -> Self
+pub fn vortex_file::FileStatistics::new_with_dtype(stats: alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>, file_dtype: &vortex_dtype::dtype::DType) -> Self
+pub fn vortex_file::FileStatistics::stats_sets(&self) -> &alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>
+impl core::clone::Clone for vortex_file::FileStatistics
+pub fn vortex_file::FileStatistics::clone(&self) -> vortex_file::FileStatistics
+impl core::fmt::Debug for vortex_file::FileStatistics
+pub fn vortex_file::FileStatistics::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl vortex_flatbuffers::FlatBufferRoot for vortex_file::FileStatistics
+impl vortex_flatbuffers::WriteFlatBuffer for vortex_file::FileStatistics
+pub type vortex_file::FileStatistics::Target<'a> = vortex_flatbuffers::footer::FileStatistics<'a>
+pub fn vortex_file::FileStatistics::write_flatbuffer<'fb>(&self, fbb: &mut flatbuffers::builder::FlatBufferBuilder<'fb>) -> vortex_error::VortexResult<flatbuffers::primitives::WIPOffset<Self::Target>>
 pub struct vortex_file::Footer
 impl vortex_file::Footer
 pub fn vortex_file::Footer::deserializer(eof_buffer: vortex_buffer::ByteBuffer, session: vortex_session::VortexSession) -> vortex_file::FooterDeserializer
@@ -49,7 +65,7 @@ pub fn vortex_file::Footer::into_serializer(self) -> vortex_file::FooterSerializ
 pub fn vortex_file::Footer::layout(&self) -> &vortex_layout::layout::LayoutRef
 pub fn vortex_file::Footer::row_count(&self) -> u64
 pub fn vortex_file::Footer::segment_map(&self) -> &alloc::sync::Arc<[vortex_file::SegmentSpec]>
-pub fn vortex_file::Footer::statistics(&self) -> core::option::Option<&alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>>
+pub fn vortex_file::Footer::statistics(&self) -> core::option::Option<&vortex_file::FileStatistics>
 impl core::clone::Clone for vortex_file::Footer
 pub fn vortex_file::Footer::clone(&self) -> vortex_file::Footer
 impl core::fmt::Debug for vortex_file::Footer
@@ -88,7 +104,7 @@ pub struct vortex_file::VortexFile
 impl vortex_file::VortexFile
 pub fn vortex_file::VortexFile::can_prune(&self, filter: &vortex_array::expr::expression::Expression) -> vortex_error::VortexResult<bool>
 pub fn vortex_file::VortexFile::dtype(&self) -> &vortex_dtype::dtype::DType
-pub fn vortex_file::VortexFile::file_stats(&self) -> core::option::Option<&alloc::sync::Arc<[vortex_array::stats::stats_set::StatsSet]>>
+pub fn vortex_file::VortexFile::file_stats(&self) -> core::option::Option<&vortex_file::FileStatistics>
 pub fn vortex_file::VortexFile::footer(&self) -> &vortex_file::Footer
 pub fn vortex_file::VortexFile::layout_reader(&self) -> vortex_error::VortexResult<alloc::sync::Arc<dyn vortex_layout::reader::LayoutReader>>
 pub fn vortex_file::VortexFile::row_count(&self) -> u64

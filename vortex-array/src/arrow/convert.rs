@@ -68,11 +68,11 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::NativePType;
 use vortex_dtype::PType;
 use vortex_dtype::datetime::TimeUnit;
+use vortex_dtype::i256;
 use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_panic;
-use vortex_scalar::i256;
 
 use crate::ArrayRef;
 use crate::IntoArray;

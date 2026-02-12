@@ -90,11 +90,10 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnConstantRule {
 struct ScalarFnAbstractReduceRule;
 impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
     fn reduce(&self, array: &ScalarFnArray) -> VortexResult<Option<ArrayRef>> {
-        if let Some(reduced) = array.scalar_fn.reduce(
-            // Blergh, re-boxing
-            &array.to_array(),
-            &ArrayReduceCtx { len: array.len },
-        )? {
+        if let Some(reduced) = array
+            .scalar_fn
+            .reduce(array, &ArrayReduceCtx { len: array.len })?
+        {
             return Ok(Some(
                 reduced
                     .as_any()
@@ -104,6 +103,29 @@ impl ArrayReduceRule<ScalarFnVTable> for ScalarFnAbstractReduceRule {
             ));
         }
         Ok(None)
+    }
+}
+
+impl ReduceNode for ScalarFnArray {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn node_dtype(&self) -> VortexResult<DType> {
+        Ok(self.dtype().clone())
+    }
+
+    #[allow(clippy::same_name_method)]
+    fn scalar_fn(&self) -> Option<&ScalarFn> {
+        Some(ScalarFnArray::scalar_fn(self))
+    }
+
+    fn child(&self, idx: usize) -> ReduceNodeRef {
+        Arc::new(self.children()[idx].clone())
+    }
+
+    fn child_count(&self) -> usize {
+        self.children.len()
     }
 }
 
@@ -121,7 +143,10 @@ impl ReduceNode for ArrayRef {
     }
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
-        Arc::new(<dyn Array>::children(self)[idx].clone())
+        Arc::new(
+            self.nth_child(idx)
+                .vortex_expect("child index out of bounds"),
+        )
     }
 
     fn child_count(&self) -> usize {

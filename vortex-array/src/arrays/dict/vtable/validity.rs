@@ -10,7 +10,6 @@ use crate::Array;
 use crate::IntoArray;
 use crate::arrays::dict::DictArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::fill_null;
 use crate::validity::Validity;
 use crate::vtable::ValidityVTable;
 
@@ -41,10 +40,8 @@ impl ValidityVTable<DictVTable> for DictVTable {
                     let values_valid_mask =
                         unsafe { DictArray::new_unchecked(array.codes().clone(), values_validity) }
                             .into_array();
-                    let values_valid_mask = fill_null(
-                        &values_valid_mask,
-                        &Scalar::bool(false, Nullability::NonNullable),
-                    )?;
+                    let values_valid_mask = values_valid_mask
+                        .fill_null(Scalar::bool(false, Nullability::NonNullable))?;
 
                     Validity::Array(values_valid_mask)
                 }

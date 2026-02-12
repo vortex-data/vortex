@@ -5,16 +5,6 @@ use vortex_scalar::Scalar;
 
 use crate::stats::ArrayStats;
 
-/// Protobuf-encoded metadata for [`ConstantArray`].
-///
-/// When the serialized scalar value is small enough (see `CONSTANT_INLINE_THRESHOLD`),
-/// it is inlined directly in the metadata to avoid a device-to-host copy on GPU.
-#[derive(Clone, prost::Message)]
-pub struct ConstantMetadata {
-    #[prost(optional, bytes, tag = "1")]
-    pub(super) scalar_value: Option<Vec<u8>>,
-}
-
 #[derive(Clone, Debug)]
 pub struct ConstantArray {
     pub(super) scalar: Scalar,
@@ -47,21 +37,69 @@ impl ConstantArray {
 
 #[cfg(test)]
 mod tests {
-    use vortex_scalar::ScalarValue;
+    use rstest::rstest;
+    use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
+    use vortex_scalar::Scalar;
+    use vortex_session::VortexSession;
 
-    use super::ConstantMetadata;
-    use crate::ProstMetadata;
-    use crate::test_harness::check_metadata;
+    use crate::arrays::ConstantArray;
+    use crate::arrays::constant::vtable::CONSTANT_INLINE_THRESHOLD;
+    use crate::arrays::constant::vtable::ConstantVTable;
+    use crate::vtable::VTable;
 
-    #[cfg_attr(miri, ignore)]
-    #[test]
-    fn test_constant_metadata() {
-        let scalar_bytes: Vec<u8> = ScalarValue::from(i32::MAX).to_protobytes();
-        check_metadata(
-            "constant.metadata",
-            ProstMetadata(ConstantMetadata {
-                scalar_value: Some(scalar_bytes),
-            }),
+    #[rstest]
+    #[case::below_threshold(CONSTANT_INLINE_THRESHOLD - 1, true)]
+    #[case::at_threshold(CONSTANT_INLINE_THRESHOLD, true)]
+    #[case::above_threshold(CONSTANT_INLINE_THRESHOLD + 1, false)]
+    fn test_metadata_inlining(
+        #[case] nbytes: usize,
+        #[case] should_inline: bool,
+    ) -> VortexResult<()> {
+        // UTF-8 scalar `nbytes` equals the string length.
+        let string = "x".repeat(nbytes);
+        let array = ConstantArray::new(Scalar::from(string.as_str()), 10);
+        let metadata = ConstantVTable::metadata(&array)?;
+
+        assert_eq!(
+            metadata.is_some(),
+            should_inline,
+            "scalar of {nbytes} bytes: expected inlined={should_inline}"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_metadata_round_trips() -> VortexResult<()> {
+        let scalar = Scalar::from(42i64);
+        let array = ConstantArray::new(scalar.clone(), 5);
+        let metadata = ConstantVTable::metadata(&array)?;
+
+        // Serialize and deserialize the metadata.
+        let bytes =
+            ConstantVTable::serialize(metadata)?.expect("serialize should produce Some bytes");
+        let session = VortexSession::empty();
+        let deserialized = ConstantVTable::deserialize(
+            &bytes,
+            &vortex_dtype::DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
+            5,
+            &session,
+        )?;
+
+        assert_eq!(deserialized.unwrap(), scalar);
+        Ok(())
+    }
+
+    #[test]
+    fn test_empty_bytes_deserializes_to_none() -> VortexResult<()> {
+        let session = VortexSession::empty();
+        let metadata = ConstantVTable::deserialize(
+            &[],
+            &vortex_dtype::DType::Primitive(vortex_dtype::PType::I32, Nullability::NonNullable),
+            10,
+            &session,
+        )?;
+        assert!(metadata.is_none(), "empty bytes should deserialize to None");
+        Ok(())
     }
 }

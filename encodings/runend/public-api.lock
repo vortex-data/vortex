@@ -62,10 +62,6 @@ impl vortex_array::compute::cast::CastKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::cast(&self, array: &vortex_runend::RunEndArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::compare::CompareKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::compare(&self, lhs: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, operator: vortex_array::compute::compare::Operator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::fill_null::FillNullKernel for vortex_runend::RunEndVTable
-pub fn vortex_runend::RunEndVTable::fill_null(&self, array: &vortex_runend::RunEndArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
-impl vortex_array::compute::invert::InvertKernel for vortex_runend::RunEndVTable
-pub fn vortex_runend::RunEndVTable::invert(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 impl vortex_array::compute::is_constant::IsConstantKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::is_constant(&self, array: &Self::Array, opts: &vortex_array::compute::is_constant::IsConstantOpts) -> vortex_error::VortexResult<core::option::Option<bool>>
 impl vortex_array::compute::is_sorted::IsSortedKernel for vortex_runend::RunEndVTable
@@ -74,7 +70,9 @@ pub fn vortex_runend::RunEndVTable::is_strict_sorted(&self, array: &vortex_runen
 impl vortex_array::compute::min_max::MinMaxKernel for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::min_max(&self, array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::min_max::MinMaxResult>>
 impl vortex_array::compute::numeric::NumericKernel for vortex_runend::RunEndVTable
-pub fn vortex_runend::RunEndVTable::numeric(&self, array: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, op: vortex_scalar::primitive::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+pub fn vortex_runend::RunEndVTable::numeric(&self, array: &vortex_runend::RunEndArray, rhs: &dyn vortex_array::array::Array, op: vortex_scalar::typed_view::primitive::numeric_operator::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
+impl vortex_array::expr::exprs::fill_null::kernel::FillNullReduce for vortex_runend::RunEndVTable
+pub fn vortex_runend::RunEndVTable::fill_null(array: &vortex_runend::RunEndArray, fill_value: &vortex_scalar::scalar::Scalar) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::vtable::VTable for vortex_runend::RunEndVTable
 pub type vortex_runend::RunEndVTable::Array = vortex_runend::RunEndArray
 pub type vortex_runend::RunEndVTable::ArrayVTable = vortex_runend::RunEndVTable
@@ -102,6 +100,8 @@ pub fn vortex_runend::RunEndVTable::scalar_at(array: &vortex_runend::RunEndArray
 impl vortex_array::vtable::validity::ValidityVTable<vortex_runend::RunEndVTable> for vortex_runend::RunEndVTable
 pub fn vortex_runend::RunEndVTable::validity(array: &vortex_runend::RunEndArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_runend::RunEndVTable> for vortex_runend::RunEndVTable
+pub fn vortex_runend::RunEndVTable::nbuffers(_array: &vortex_runend::RunEndArray) -> usize
+pub fn vortex_runend::RunEndVTable::nchildren(_array: &vortex_runend::RunEndArray) -> usize
 pub fn vortex_runend::RunEndVTable::visit_buffers(_array: &vortex_runend::RunEndArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_runend::RunEndVTable::visit_children(array: &vortex_runend::RunEndArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub fn vortex_runend::initialize(session: &mut vortex_session::VortexSession)

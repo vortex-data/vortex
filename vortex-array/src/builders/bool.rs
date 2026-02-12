@@ -11,7 +11,6 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 use vortex_mask::Mask;
-use vortex_scalar::BoolScalar;
 use vortex_scalar::Scalar;
 
 use crate::Array;
@@ -105,8 +104,7 @@ impl ArrayBuilder for BoolBuilder {
             scalar.dtype()
         );
 
-        let bool_scalar = BoolScalar::try_from(scalar)?;
-        match bool_scalar.value() {
+        match scalar.as_bool().value() {
             Some(value) => self.append_value(value),
             None => self.append_null(),
         }

@@ -43,13 +43,14 @@ vortex-zstd = { workspace = true, optional = true }
 
 [dev-dependencies]
 divan = { workspace = true }
+rstest = { workspace = true }
 test-with = { workspace = true }
 tracing-subscriber = { workspace = true }
 vortex-array = { workspace = true, features = ["_test-harness"] }
 
 [features]
 # This feature enabled unstable encodings for which we don't guarantee stability.
-unstable_encodings = []
+unstable_encodings = ["vortex-zstd?/unstable_encodings"]
 pco = ["dep:pco", "dep:vortex-pco"]
 zstd = ["dep:vortex-zstd"]
 

@@ -34,9 +34,17 @@ use vortex_session::VortexSession;
 impl VisitorVTable<RunEndVTable> for RunEndVTable {
     fn visit_buffers(_array: &RunEndArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &RunEndArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &RunEndArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("ends", array.ends());
         visitor.visit_child("values", array.values());
+    }
+
+    fn nchildren(_array: &RunEndArray) -> usize {
+        2
     }
 }
 

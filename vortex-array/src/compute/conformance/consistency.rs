@@ -35,6 +35,7 @@ use crate::compute::Operator;
 use crate::compute::and;
 use crate::compute::cast;
 use crate::compute::compare;
+#[expect(deprecated)]
 use crate::compute::invert;
 use crate::compute::mask;
 use crate::compute::or;
@@ -687,6 +688,7 @@ fn test_large_array_consistency(array: &dyn Array) {
 /// Comparison operations must maintain logical consistency across encodings.
 /// This test catches bugs where an encoding might implement one comparison
 /// correctly but fail on its logical inverse.
+#[expect(deprecated)]
 fn test_comparison_inverse_consistency(array: &dyn Array) {
     let len = array.len();
     if len == 0 {
@@ -887,6 +889,7 @@ fn test_comparison_symmetry_consistency(array: &dyn Array) {
 /// Boolean operations must maintain logical consistency across encodings.
 /// This test catches bugs where encodings might optimize boolean operations
 /// incorrectly, breaking fundamental logical properties.
+#[expect(deprecated)]
 fn test_boolean_demorgan_consistency(array: &dyn Array) {
     if !matches!(array.dtype(), DType::Bool(_)) {
         return;

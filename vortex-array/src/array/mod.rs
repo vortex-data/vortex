@@ -452,7 +452,8 @@ impl<V: VTable> Array for ArrayAdapter<V> {
                         stat,
                         Stat::IsConstant | Stat::IsSorted | Stat::IsStrictSorted
                     ) && value.as_ref().as_exact().is_some_and(|v| {
-                        Scalar::new(DType::Bool(Nullability::NonNullable), v.clone())
+                        Scalar::try_new(DType::Bool(Nullability::NonNullable), Some(v.clone()))
+                            .vortex_expect("A stat that was expected to be a boolean stat was not")
                             .as_bool()
                             .value()
                             .unwrap_or_default()
@@ -633,8 +634,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             children: Vec<ArrayRef>,
         }
 
-        impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+        impl ArrayChildVisitorUnnamed for ChildrenCollector {
+            fn visit_child(&mut self, array: &ArrayRef) {
                 self.children.push(array.clone());
             }
         }
@@ -642,12 +643,16 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         let mut collector = ChildrenCollector {
             children: Vec::new(),
         };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children_unnamed(&self.0, &mut collector);
         collector.children
     }
 
     fn nchildren(&self) -> usize {
         <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        <V::VisitorVTable as VisitorVTable<V>>::nth_child(&self.0, idx)
     }
 
     fn children_names(&self) -> Vec<String> {

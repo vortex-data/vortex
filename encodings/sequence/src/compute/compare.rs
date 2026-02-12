@@ -9,7 +9,6 @@ use vortex_array::compute::CompareKernel;
 use vortex_array::compute::Operator;
 use vortex_array::validity::Validity;
 use vortex_buffer::BitBuffer;
-use vortex_dtype::DType;
 use vortex_dtype::NativePType;
 use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
@@ -58,11 +57,7 @@ impl CompareKernel for SequenceVTable {
             Ok(Some(BoolArray::new(buffer, validity).to_array()))
         } else {
             Ok(Some(
-                ConstantArray::new(
-                    Scalar::new(DType::Bool(nullability), false.into()),
-                    lhs.len(),
-                )
-                .to_array(),
+                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).to_array(),
             ))
         }
     }

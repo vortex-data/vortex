@@ -70,6 +70,7 @@ pub vortex_btrblocks::StringCode::Fsst
 pub vortex_btrblocks::StringCode::Sparse
 pub vortex_btrblocks::StringCode::Uncompressed
 pub vortex_btrblocks::StringCode::Zstd
+pub vortex_btrblocks::StringCode::ZstdBuffers
 impl core::clone::Clone for vortex_btrblocks::StringCode
 pub fn vortex_btrblocks::StringCode::clone(&self) -> vortex_btrblocks::StringCode
 impl core::cmp::Eq for vortex_btrblocks::StringCode

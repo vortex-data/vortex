@@ -1,0 +1,21 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+include ./setup.slt
+
+query I
+COPY (values (1, 2), (3, 4)) TO '$__TEST_DIR__/create.vortex';
+----
+2
+
+statement ok
+CREATE VIEW foo AS SELECT * FROM '$__TEST_DIR__/create.vortex';
+
+query II
+SELECT * FROM foo;
+----
+1 2
+3 4
+
+statement ok
+DROP VIEW IF EXISTS foo;

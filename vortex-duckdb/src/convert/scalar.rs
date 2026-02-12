@@ -172,7 +172,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
         };
 
         let value = || {
-            self.storage()
+            self.to_storage_scalar()
                 .as_primitive_opt()
                 .ok_or_else(|| {
                     vortex_err!("Cannot have a temporal time type not packed by a primitive scalar")
@@ -205,7 +205,7 @@ impl ToDuckDBScalar for ExtScalar<'_> {
             }
             TemporalMetadata::Date(unit) => match unit {
                 TimeUnit::Days => self
-                    .storage()
+                    .to_storage_scalar()
                     .as_primitive_opt()
                     .ok_or_else(|| {
                         vortex_err!("temporal types must be backed by primitive scalars")
@@ -261,39 +261,57 @@ impl<'a> TryFrom<ValueRef<'a>> for Scalar {
             ExtractedValue::Blob(b) => Ok(Scalar::binary(b, Nullable)),
             ExtractedValue::Date(days) => Ok(Scalar::extension::<Date>(
                 TimeUnit::Days,
-                Scalar::new(DType::Primitive(I32, Nullable), ScalarValue::from(days)),
+                Scalar::try_new(
+                    DType::Primitive(I32, Nullable),
+                    Some(ScalarValue::from(days)),
+                )?,
             )),
             ExtractedValue::Time(micros) => Ok(Scalar::extension::<Time>(
                 TimeUnit::Microseconds,
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(micros)),
+                )?,
             )),
             ExtractedValue::TimestampNs(nanos) => Ok(Scalar::extension::<Timestamp>(
                 TimestampOptions {
                     unit: TimeUnit::Nanoseconds,
                     tz: None,
                 },
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(nanos)),
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(nanos)),
+                )?,
             )),
             ExtractedValue::Timestamp(micros) => Ok(Scalar::extension::<Timestamp>(
                 TimestampOptions {
                     unit: TimeUnit::Microseconds,
                     tz: None,
                 },
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(micros)),
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(micros)),
+                )?,
             )),
             ExtractedValue::TimestampMs(millis) => Ok(Scalar::extension::<Timestamp>(
                 TimestampOptions {
                     unit: TimeUnit::Milliseconds,
                     tz: None,
                 },
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(millis)),
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(millis)),
+                )?,
             )),
             ExtractedValue::TimestampS(seconds) => Ok(Scalar::extension::<Timestamp>(
                 TimestampOptions {
                     unit: TimeUnit::Seconds,
                     tz: None,
                 },
-                Scalar::new(DType::Primitive(I64, Nullable), ScalarValue::from(seconds)),
+                Scalar::try_new(
+                    DType::Primitive(I64, Nullable),
+                    Some(ScalarValue::from(seconds)),
+                )?,
             )),
             ExtractedValue::Decimal(precision, scale, value) => Ok(Scalar::decimal(
                 DecimalValue::I128(value),
@@ -374,10 +392,11 @@ mod tests {
                     unit: time_unit,
                     tz: None,
                 },
-                Scalar::new(
+                Scalar::try_new(
                     DType::Primitive(PType::I64, Nullability::NonNullable),
-                    ScalarValue::from(timestamp_value),
-                ),
+                    Some(ScalarValue::from(timestamp_value)),
+                )
+                .unwrap(),
             );
 
             let duckdb_value = original_scalar.try_to_duckdb_scalar().unwrap();

@@ -126,6 +126,8 @@ pub const ALL_STRING_SCHEMES: &[&dyn StringScheme] = &[
     &NullDominated,
     #[cfg(feature = "zstd")]
     &ZstdScheme,
+    #[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+    &ZstdBuffersScheme,
 ];
 
 /// [`Compressor`] for strings.
@@ -216,6 +218,11 @@ pub struct NullDominated;
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct ZstdScheme;
 
+/// Zstd buffer-level compression preserving array layout for GPU decompression.
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct ZstdBuffersScheme;
+
 /// Unique identifier for string compression schemes.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Sequence, Ord, PartialOrd)]
 pub enum StringCode {
@@ -231,6 +238,8 @@ pub enum StringCode {
     Sparse,
     /// Zstd compression without dictionaries.
     Zstd,
+    /// Zstd buffer-level compression preserving array layout.
+    ZstdBuffers,
 }
 
 impl Scheme for UncompressedScheme {
@@ -532,6 +541,26 @@ impl Scheme for ZstdScheme {
             vortex_zstd::ZstdArray::from_var_bin_view_without_dict(&compacted, 3, 8192)?
                 .into_array(),
         )
+    }
+}
+
+#[cfg(all(feature = "zstd", feature = "unstable_encodings"))]
+impl Scheme for ZstdBuffersScheme {
+    type StatsType = StringStats;
+    type CodeType = StringCode;
+
+    fn code(&self) -> StringCode {
+        StringCode::ZstdBuffers
+    }
+
+    fn compress(
+        &self,
+        _compressor: &BtrBlocksCompressor,
+        stats: &Self::StatsType,
+        _ctx: CompressorContext,
+        _excludes: &[StringCode],
+    ) -> VortexResult<ArrayRef> {
+        Ok(vortex_zstd::ZstdBuffersArray::compress(&stats.source().to_array(), 3)?.into_array())
     }
 }
 

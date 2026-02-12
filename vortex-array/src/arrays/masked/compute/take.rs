@@ -11,7 +11,7 @@ use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::TakeExecute;
-use crate::compute::fill_null;
+use crate::builtins::ArrayBuiltins;
 use crate::vtable::ValidityHelper;
 
 impl TakeExecute for MaskedVTable {
@@ -21,12 +21,14 @@ impl TakeExecute for MaskedVTable {
         _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let taken_child = if !indices.all_valid()? {
-            // This is safe because we'll mask out these positions in the validity
-            let filled_take = fill_null(
-                indices,
-                &Scalar::default_value(indices.dtype().clone().as_nonnullable()),
-            )?;
-            array.child.take(filled_take)?.to_canonical()?.into_array()
+            // This is safe because we'll mask out these positions in the validity.
+            let fill_scalar = Scalar::zero_value(indices.dtype());
+            let filled_take_indices = indices.to_array().fill_null(fill_scalar)?;
+            array
+                .child
+                .take(filled_take_indices)?
+                .to_canonical()?
+                .into_array()
         } else {
             array
                 .child

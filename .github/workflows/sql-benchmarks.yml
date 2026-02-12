@@ -175,7 +175,7 @@ jobs:
 
       - name: Setup Polar Signals
         if: inputs.mode != 'pr' || github.event.pull_request.head.repo.fork == false
-        uses: polarsignals/gh-actions-ps-profiling@v0.7.0
+        uses: polarsignals/gh-actions-ps-profiling@v0.8.1
         with:
           polarsignals_cloud_token: ${{ secrets.POLAR_SIGNALS_API_KEY }}
           labels: "branch=${{ github.ref_name }};gh_run_id=${{ github.run_id }};benchmark=${{ matrix.id }}"
@@ -267,3 +267,11 @@ jobs:
         shell: bash
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
+
+      - name: Alert incident.io
+        if: failure() && inputs.mode == 'develop'
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.name }} SQL benchmark failed on develop"
+          deduplication-key: ci-sql-bench-${{ matrix.id }}-failure

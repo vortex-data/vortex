@@ -33,8 +33,13 @@ impl core::convert::From<usize> for vortex_buffer::Alignment
 pub fn vortex_buffer::Alignment::from(value: usize) -> Self
 impl core::convert::From<vortex_buffer::Alignment> for u16
 pub fn u16::from(value: vortex_buffer::Alignment) -> Self
+impl core::convert::From<vortex_buffer::Alignment> for u32
+pub fn u32::from(value: vortex_buffer::Alignment) -> Self
 impl core::convert::From<vortex_buffer::Alignment> for usize
 pub fn usize::from(value: vortex_buffer::Alignment) -> Self
+impl core::convert::TryFrom<u32> for vortex_buffer::Alignment
+pub type vortex_buffer::Alignment::Error = vortex_error::VortexError
+pub fn vortex_buffer::Alignment::try_from(value: u32) -> core::result::Result<Self, Self::Error>
 impl core::fmt::Debug for vortex_buffer::Alignment
 pub fn vortex_buffer::Alignment::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::fmt::Display for vortex_buffer::Alignment
@@ -391,6 +396,9 @@ impl core::convert::From<alloc::string::String> for vortex_buffer::BufferString
 pub fn vortex_buffer::BufferString::from(value: alloc::string::String) -> Self
 impl core::convert::From<vortex_buffer::BufferString> for vortex_buffer::ByteBuffer
 pub fn vortex_buffer::ByteBuffer::from(value: vortex_buffer::BufferString) -> Self
+impl core::convert::TryFrom<&[u8]> for vortex_buffer::BufferString
+pub type vortex_buffer::BufferString::Error = vortex_error::VortexError
+pub fn vortex_buffer::BufferString::try_from(value: &[u8]) -> core::result::Result<Self, Self::Error>
 impl core::convert::TryFrom<vortex_buffer::Buffer<u8>> for vortex_buffer::BufferString
 pub type vortex_buffer::BufferString::Error = vortex_error::VortexError
 pub fn vortex_buffer::BufferString::try_from(value: vortex_buffer::ByteBuffer) -> core::result::Result<Self, Self::Error>

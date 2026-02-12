@@ -66,6 +66,8 @@ pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::scalar_at(array: &vort
 impl vortex_array::vtable::validity::ValidityChild<vortex_decimal_byte_parts::DecimalBytePartsVTable> for vortex_decimal_byte_parts::DecimalBytePartsVTable
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::validity_child(array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> &vortex_array::array::ArrayRef
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_decimal_byte_parts::DecimalBytePartsVTable> for vortex_decimal_byte_parts::DecimalBytePartsVTable
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nbuffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
+pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::nchildren(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray) -> usize
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::visit_buffers(_array: &vortex_decimal_byte_parts::DecimalBytePartsArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_decimal_byte_parts::DecimalBytePartsVTable::visit_children(array: &vortex_decimal_byte_parts::DecimalBytePartsArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub struct vortex_decimal_byte_parts::DecimalBytesPartsMetadata

@@ -83,6 +83,8 @@ pub fn vortex_fsst::FSSTVTable::scalar_at(array: &vortex_fsst::FSSTArray, index:
 impl vortex_array::vtable::validity::ValidityChild<vortex_fsst::FSSTVTable> for vortex_fsst::FSSTVTable
 pub fn vortex_fsst::FSSTVTable::validity_child(array: &vortex_fsst::FSSTArray) -> &vortex_array::array::ArrayRef
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_fsst::FSSTVTable> for vortex_fsst::FSSTVTable
+pub fn vortex_fsst::FSSTVTable::nbuffers(_array: &vortex_fsst::FSSTArray) -> usize
+pub fn vortex_fsst::FSSTVTable::nchildren(array: &vortex_fsst::FSSTArray) -> usize
 pub fn vortex_fsst::FSSTVTable::visit_buffers(array: &vortex_fsst::FSSTArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_fsst::FSSTVTable::visit_children(array: &vortex_fsst::FSSTArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub fn vortex_fsst::fsst_compress<A: vortex_array::accessor::ArrayAccessor<[u8]> + core::convert::AsRef<dyn vortex_array::array::Array>>(strings: A, compressor: &fsst::Compressor) -> vortex_fsst::FSSTArray

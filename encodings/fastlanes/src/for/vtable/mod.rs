@@ -2,13 +2,10 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
-use std::fmt::Formatter;
 
 use vortex_array::ArrayRef;
-use vortex_array::DeserializeMetadata;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
-use vortex_array::SerializeMetadata;
 use vortex_array::buffer::BufferHandle;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::vtable;
@@ -41,7 +38,7 @@ vtable!(FoR);
 impl VTable for FoRVTable {
     type Array = FoRArray;
 
-    type Metadata = ScalarValueMetadata;
+    type Metadata = Scalar;
 
     type ArrayVTable = Self;
     type OperationsVTable = Self;
@@ -68,22 +65,22 @@ impl VTable for FoRVTable {
     }
 
     fn metadata(array: &FoRArray) -> VortexResult<Self::Metadata> {
-        Ok(ScalarValueMetadata(
-            array.reference_scalar().value().clone(),
-        ))
+        Ok(array.reference_scalar().clone())
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        // Note that we **only** serialize the optional scalar value (not including the dtype).
+        Ok(Some(ScalarValue::to_proto_bytes(metadata.value())))
     }
 
     fn deserialize(
         bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
-        ScalarValueMetadata::deserialize(bytes)
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        Scalar::try_new(dtype.clone(), scalar_value)
     }
 
     fn build(
@@ -101,9 +98,8 @@ impl VTable for FoRVTable {
         }
 
         let encoded = children.get(0, dtype, len)?;
-        let reference = Scalar::new(dtype.clone(), metadata.0.clone());
 
-        FoRArray::try_new(encoded, reference)
+        FoRArray::try_new(encoded, metadata.clone())
     }
 
     fn reduce_parent(
@@ -133,28 +129,4 @@ pub struct FoRVTable;
 
 impl FoRVTable {
     pub const ID: ArrayId = ArrayId::new_ref("fastlanes.for");
-}
-
-#[derive(Clone)]
-pub struct ScalarValueMetadata(pub ScalarValue);
-
-impl SerializeMetadata for ScalarValueMetadata {
-    fn serialize(self) -> Vec<u8> {
-        self.0.to_protobytes()
-    }
-}
-
-impl DeserializeMetadata for ScalarValueMetadata {
-    type Output = ScalarValueMetadata;
-
-    fn deserialize(metadata: &[u8]) -> VortexResult<Self::Output> {
-        let scalar_value = ScalarValue::from_protobytes(metadata)?;
-        Ok(ScalarValueMetadata(scalar_value))
-    }
-}
-
-impl Debug for ScalarValueMetadata {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", &self.0)
-    }
 }

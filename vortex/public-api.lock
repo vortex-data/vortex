@@ -7,6 +7,7 @@ pub mod vortex::buffer
 pub use vortex::buffer::<<vortex_buffer::*>>
 pub mod vortex::compressor
 pub use vortex::compressor::BtrBlocksCompressor
+pub use vortex::compressor::BtrBlocksCompressorBuilder
 pub mod vortex::compute2
 pub use vortex::compute2::<<vortex_compute::*>>
 pub mod vortex::dtype

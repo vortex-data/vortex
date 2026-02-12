@@ -87,5 +87,7 @@ pub fn vortex_pco::PcoVTable::stats(array: &vortex_pco::PcoArray) -> vortex_arra
 impl vortex_array::vtable::operations::OperationsVTable<vortex_pco::PcoVTable> for vortex_pco::PcoVTable
 pub fn vortex_pco::PcoVTable::scalar_at(array: &vortex_pco::PcoArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_pco::PcoVTable> for vortex_pco::PcoVTable
+pub fn vortex_pco::PcoVTable::nbuffers(array: &vortex_pco::PcoArray) -> usize
+pub fn vortex_pco::PcoVTable::nchildren(array: &vortex_pco::PcoArray) -> usize
 pub fn vortex_pco::PcoVTable::visit_buffers(array: &vortex_pco::PcoArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_pco::PcoVTable::visit_children(array: &vortex_pco::PcoArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)

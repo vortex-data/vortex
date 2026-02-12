@@ -74,6 +74,7 @@ export const ENGINE_RENAMES = {
   "duckdb:duckdb": "duckdb:duckdb",
   "duckdb:vortex-compact": "duckdb:vortex-compact",
   "vortex-tokio-local-disk": "vortex-nvme",
+  "vortex-compact-tokio-local-disk": "vortex-compact-nvme",
   "lance-tokio-local-disk": "lance-nvme",
   "parquet-tokio-local-disk": "parquet-nvme",
   lance: "lance",
@@ -89,6 +90,7 @@ const BESPOKE_CONFIGS = [
     name: "Random Access",
     renamedDatasets: {
       "vortex-tokio-local-disk": "vortex-nvme",
+      "vortex-compact-tokio-local-disk": "vortex-compact-nvme",
       "lance-tokio-local-disk": "lance-nvme",
       "parquet-tokio-local-disk": "parquet-nvme",
     },
@@ -242,6 +244,7 @@ export const ENGINE_LABELS = {
 // Series color map
 export const SERIES_COLOR_MAP = {
   "vortex-nvme": "#19a508",
+  "vortex-compact-nvme": "#15850a",
   "parquet-nvme": "#ef7f1d",
   "lance-nvme": "#3B82F6",
   "datafusion:arrow": "#7a27b1",

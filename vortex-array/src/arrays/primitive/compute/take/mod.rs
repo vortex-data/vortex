@@ -153,12 +153,12 @@ mod test {
         // position 3 is null
         assert_eq!(
             actual.scalar_at(1).vortex_expect("no fail"),
-            Scalar::null_typed::<i32>()
+            Scalar::null_native::<i32>()
         );
         // the third index is null
         assert_eq!(
             actual.scalar_at(2).vortex_expect("no fail"),
-            Scalar::null_typed::<i32>()
+            Scalar::null_native::<i32>()
         );
     }
 

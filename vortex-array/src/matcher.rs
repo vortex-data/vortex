@@ -12,7 +12,7 @@ pub trait Matcher {
         Self::try_match(array).is_some()
     }
 
-    /// Try to match the given array, returning the matched view type if successful
+    /// Try to match the given array, returning the matched view type if successful.
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>>;
 }
 

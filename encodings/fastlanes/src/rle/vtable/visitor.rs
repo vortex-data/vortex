@@ -13,10 +13,18 @@ impl VisitorVTable<RLEVTable> for RLEVTable {
         // RLE stores all data in child arrays, no direct buffers
     }
 
+    fn nbuffers(_array: &RLEArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &RLEArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("values", array.values());
         visitor.visit_child("indices", array.indices());
         visitor.visit_child("values_idx_offsets", array.values_idx_offsets());
         // Don't call visit_validity since the nullability is stored in the indices array.
+    }
+
+    fn nchildren(_array: &RLEArray) -> usize {
+        3
     }
 }

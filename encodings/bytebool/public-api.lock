@@ -62,5 +62,7 @@ pub fn vortex_bytebool::ByteBoolVTable::stats(array: &vortex_bytebool::ByteBoolA
 impl vortex_array::vtable::operations::OperationsVTable<vortex_bytebool::ByteBoolVTable> for vortex_bytebool::ByteBoolVTable
 pub fn vortex_bytebool::ByteBoolVTable::scalar_at(array: &vortex_bytebool::ByteBoolArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_bytebool::ByteBoolVTable> for vortex_bytebool::ByteBoolVTable
+pub fn vortex_bytebool::ByteBoolVTable::nbuffers(_array: &vortex_bytebool::ByteBoolArray) -> usize
+pub fn vortex_bytebool::ByteBoolVTable::nchildren(array: &vortex_bytebool::ByteBoolArray) -> usize
 pub fn vortex_bytebool::ByteBoolVTable::visit_buffers(array: &vortex_bytebool::ByteBoolArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_bytebool::ByteBoolVTable::visit_children(array: &vortex_bytebool::ByteBoolArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)

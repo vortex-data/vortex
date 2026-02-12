@@ -91,6 +91,8 @@ pub fn vortex_datetime_parts::DateTimePartsVTable::scalar_at(array: &vortex_date
 impl vortex_array::vtable::validity::ValidityChild<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
 pub fn vortex_datetime_parts::DateTimePartsVTable::validity_child(array: &vortex_datetime_parts::DateTimePartsArray) -> &vortex_array::array::ArrayRef
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_datetime_parts::DateTimePartsVTable> for vortex_datetime_parts::DateTimePartsVTable
+pub fn vortex_datetime_parts::DateTimePartsVTable::nbuffers(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
+pub fn vortex_datetime_parts::DateTimePartsVTable::nchildren(_array: &vortex_datetime_parts::DateTimePartsArray) -> usize
 pub fn vortex_datetime_parts::DateTimePartsVTable::visit_buffers(_array: &vortex_datetime_parts::DateTimePartsArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_datetime_parts::DateTimePartsVTable::visit_children(array: &vortex_datetime_parts::DateTimePartsArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub struct vortex_datetime_parts::TemporalParts

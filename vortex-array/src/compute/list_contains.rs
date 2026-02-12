@@ -31,6 +31,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::ListViewArray;
 use crate::arrays::PrimitiveArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::BinaryArgs;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
@@ -232,14 +233,12 @@ fn constant_list_scalar_contains(
     let false_scalar = Scalar::bool(false, nullability);
 
     for element in elements {
-        let res = compute::fill_null(
-            &compute::compare(
-                ConstantArray::new(element, len).as_ref(),
-                values,
-                Operator::Eq,
-            )?,
-            &false_scalar,
-        )?;
+        let res = compute::compare(
+            ConstantArray::new(element, len).as_ref(),
+            values,
+            Operator::Eq,
+        )?
+        .fill_null(false_scalar.clone())?;
         if let Some(acc) = result {
             result = Some(compute::or(&acc, &res)?)
         } else {

@@ -271,9 +271,21 @@ async function refresh() {
       }
       if (!groups[group]) continue;
 
-      const [query, series] = b.name.split("/");
-      const seriesName = rename(series || "default");
-      const chartName = formatQuery(query);
+      // Random access names have the form: random-access/{dataset}/{pattern}/{format}
+      // Historical random access names: random-access/{format}
+      // Other benchmarks use: {query}/{series}
+      let seriesName, chartName;
+      const parts = b.name.split("/");
+      if (group === "Random Access" && parts.length === 4) {
+        chartName = `${parts[1]}/${parts[2]}`.toUpperCase().replace(/[_-]/g, " ");
+        seriesName = rename(parts[3] || "default");
+      } else if (group === "Random Access" && parts.length === 2) {
+        chartName = "RANDOM ACCESS";
+        seriesName = rename(parts[1] || "default");
+      } else {
+        seriesName = rename(parts[1] || "default");
+        chartName = formatQuery(parts[0]);
+      }
       if (chartName.includes("PARQUET-UNC")) continue;
 
       // Skip throughput metrics (keep only time/size)
@@ -286,7 +298,7 @@ async function refresh() {
         else unit = "ns";
       }
 
-      const sortPos = query.match(/q(\d+)$/i)?.[1]
+      const sortPos = parts[0].match(/q(\d+)$/i)?.[1]
         ? parseInt(RegExp.$1, 10)
         : 0;
       const idx = commitIdx.get(commit.id);

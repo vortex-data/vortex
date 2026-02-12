@@ -1,13 +1,13 @@
 pub mod vortex_sequence
 pub struct vortex_sequence::SequenceArray
 impl vortex_sequence::SequenceArray
-pub fn vortex_sequence::SequenceArray::base(&self) -> vortex_scalar::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::base(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
 pub fn vortex_sequence::SequenceArray::into_parts(self) -> vortex_sequence::SequenceArrayParts
-pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_scalar::pvalue::PValue
-pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_scalar::pvalue::PValue
-pub fn vortex_sequence::SequenceArray::new(base: vortex_scalar::pvalue::PValue, multiplier: vortex_scalar::pvalue::PValue, ptype: vortex_dtype::ptype::PType, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::SequenceArray::last(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::multiplier(&self) -> vortex_scalar::typed_view::primitive::pvalue::PValue
+pub fn vortex_sequence::SequenceArray::new(base: vortex_scalar::typed_view::primitive::pvalue::PValue, multiplier: vortex_scalar::typed_view::primitive::pvalue::PValue, ptype: vortex_dtype::ptype::PType, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 pub fn vortex_sequence::SequenceArray::ptype(&self) -> vortex_dtype::ptype::PType
-pub fn vortex_sequence::SequenceArray::typed_new<T: vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
+pub fn vortex_sequence::SequenceArray::typed_new<T: vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::typed_view::primitive::pvalue::PValue>>(base: T, multiplier: T, nullability: vortex_dtype::nullability::Nullability, length: usize) -> vortex_error::VortexResult<Self>
 impl core::clone::Clone for vortex_sequence::SequenceArray
 pub fn vortex_sequence::SequenceArray::clone(&self) -> vortex_sequence::SequenceArray
 impl core::convert::AsRef<dyn vortex_array::array::Array> for vortex_sequence::SequenceArray
@@ -22,9 +22,9 @@ pub fn vortex_sequence::SequenceArray::deref(&self) -> &Self::Target
 impl vortex_array::array::IntoArray for vortex_sequence::SequenceArray
 pub fn vortex_sequence::SequenceArray::into_array(self) -> vortex_array::array::ArrayRef
 pub struct vortex_sequence::SequenceArrayParts
-pub vortex_sequence::SequenceArrayParts::base: vortex_scalar::pvalue::PValue
+pub vortex_sequence::SequenceArrayParts::base: vortex_scalar::typed_view::primitive::pvalue::PValue
 pub vortex_sequence::SequenceArrayParts::len: usize
-pub vortex_sequence::SequenceArrayParts::multiplier: vortex_scalar::pvalue::PValue
+pub vortex_sequence::SequenceArrayParts::multiplier: vortex_scalar::typed_view::primitive::pvalue::PValue
 pub vortex_sequence::SequenceArrayParts::nullability: vortex_dtype::nullability::Nullability
 pub vortex_sequence::SequenceArrayParts::ptype: vortex_dtype::ptype::PType
 pub struct vortex_sequence::SequenceVTable
@@ -76,6 +76,8 @@ pub fn vortex_sequence::SequenceVTable::scalar_at(array: &vortex_sequence::Seque
 impl vortex_array::vtable::validity::ValidityVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
 pub fn vortex_sequence::SequenceVTable::validity(_array: &vortex_sequence::SequenceArray) -> vortex_error::VortexResult<vortex_array::validity::Validity>
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_sequence::SequenceVTable> for vortex_sequence::SequenceVTable
+pub fn vortex_sequence::SequenceVTable::nbuffers(_array: &vortex_sequence::SequenceArray) -> usize
+pub fn vortex_sequence::SequenceVTable::nchildren(_array: &vortex_sequence::SequenceArray) -> usize
 pub fn vortex_sequence::SequenceVTable::visit_buffers(_array: &vortex_sequence::SequenceArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_sequence::SequenceVTable::visit_children(_array: &vortex_sequence::SequenceArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub fn vortex_sequence::sequence_encode(primitive_array: &vortex_array::arrays::primitive::array::PrimitiveArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>

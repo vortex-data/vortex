@@ -28,7 +28,7 @@ impl PyExtensionScalar {
     /// Return the underlying storage scalar.
     pub fn storage(self_: PyRef<'_, Self>) -> PyResult<Py<PyAny>> {
         let scalar = self_.as_scalar_ref();
-        let storage = scalar.storage();
+        let storage = scalar.to_storage_scalar();
         PyVortex(&storage)
             .into_pyobject(self_.py())
             .map(|v| v.into())

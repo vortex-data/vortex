@@ -5,20 +5,15 @@ use std::fmt::Debug;
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::DeserializeMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
-use crate::ProstMetadata;
-use crate::SerializeMetadata;
 use crate::arrays::ConstantArray;
-use crate::arrays::constant::ConstantMetadata;
 use crate::arrays::constant::compute::rules::PARENT_RULES;
 use crate::arrays::constant::vtable::canonical::constant_canonicalize;
 use crate::buffer::BufferHandle;
@@ -44,12 +39,20 @@ impl ConstantVTable {
 
 /// Maximum size (in bytes) of a protobuf-encoded scalar value that will be inlined
 /// into the array metadata. Values larger than this are stored only in the buffer.
-const CONSTANT_INLINE_THRESHOLD: usize = 1024;
+pub(crate) const CONSTANT_INLINE_THRESHOLD: usize = 1024;
 
 impl VTable for ConstantVTable {
     type Array = ConstantArray;
 
-    type Metadata = ProstMetadata<ConstantMetadata>;
+    /// Optional inlined scalar constant.
+    ///
+    /// When the scalar value is small enough (<= `CONSTANT_INLINE_THRESHOLD` bytes), it is stored
+    /// directly in the metadata to avoid an extra buffer allocation and potential
+    /// device-to-host copy during deserialization.
+    ///
+    /// Currently, scalars are **always** stored in a separate buffer, regardless of if we inline a
+    /// small scalar into the metadata.
+    type Metadata = Option<Scalar>;
 
     type ArrayVTable = Self;
     type OperationsVTable = Self;
@@ -61,27 +64,34 @@ impl VTable for ConstantVTable {
     }
 
     fn metadata(array: &ConstantArray) -> VortexResult<Self::Metadata> {
-        let proto_bytes: Vec<u8> = array.scalar().value().to_protobytes();
-        let scalar_value = (proto_bytes.len() <= CONSTANT_INLINE_THRESHOLD).then_some(proto_bytes);
-        Ok(ProstMetadata(ConstantMetadata { scalar_value }))
+        let constant = array.scalar();
+
+        // If the scalar is small enough, we can simply carry it around as metadata.
+        Ok((constant.nbytes() <= CONSTANT_INLINE_THRESHOLD).then_some(constant.clone()))
     }
 
     fn serialize(metadata: Self::Metadata) -> VortexResult<Option<Vec<u8>>> {
-        Ok(Some(metadata.serialize()))
+        // If we do not have a scalar to serialize, just return empty bytes.
+        Ok(Some(metadata.map_or_else(Vec::new, |c| {
+            // Note that we **only** serialize the optional scalar value (not including the dtype).
+            ScalarValue::to_proto_bytes(c.value())
+        })))
     }
 
     fn deserialize(
         bytes: &[u8],
-        _dtype: &DType,
+        dtype: &DType,
         _len: usize,
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         // Empty bytes indicates an old writer that didn't produce metadata.
         if bytes.is_empty() {
-            return Ok(ProstMetadata(ConstantMetadata { scalar_value: None }));
+            return Ok(None);
         }
-        let metadata = <Self::Metadata as DeserializeMetadata>::deserialize(bytes)?;
-        Ok(ProstMetadata(metadata))
+
+        // Otherwise, deserialize the constant scalar from the metadata.
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        Some(Scalar::try_new(dtype.clone(), scalar_value)).transpose()
     }
 
     fn build(
@@ -92,16 +102,23 @@ impl VTable for ConstantVTable {
         _children: &dyn ArrayChildren,
     ) -> VortexResult<ConstantArray> {
         // Prefer reading the scalar from inlined metadata to avoid device-to-host copies.
-        let sv = if let Some(ref proto_bytes) = metadata.scalar_value {
-            ScalarValue::from_protobytes(proto_bytes)?
-        } else {
-            if buffers.len() != 1 {
-                vortex_bail!("Expected 1 buffer, got {}", buffers.len());
-            }
-            let buffer = buffers[0].clone().try_to_host_sync()?;
-            ScalarValue::from_protobytes(&buffer)?
-        };
-        let scalar = Scalar::new(dtype.clone(), sv);
+        if let Some(constant) = metadata {
+            return Ok(ConstantArray::new(constant.clone(), len));
+        }
+
+        // Otherwise, get the constant scalar from the buffers.
+        vortex_ensure!(
+            buffers.len() == 1,
+            "Expected 1 buffer, got {}",
+            buffers.len()
+        );
+
+        let buffer = buffers[0].clone().try_to_host_sync()?;
+        let bytes: &[u8] = buffer.as_ref();
+
+        let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
+        let scalar = Scalar::try_new(dtype.clone(), scalar_value)?;
+
         Ok(ConstantArray::new(scalar, len))
     }
 

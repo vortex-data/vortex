@@ -88,17 +88,19 @@ mod tests {
 
         assert_eq!(
             min,
-            Scalar::new(
+            Scalar::try_new(
                 Utf8(NonNullable),
-                BufferString::from("hello world".to_string()).into(),
+                Some(BufferString::from("hello world".to_string()).into()),
             )
+            .unwrap()
         );
         assert_eq!(
             max,
-            Scalar::new(
+            Scalar::try_new(
                 Utf8(NonNullable),
-                BufferString::from("hello world this is a long string".to_string()).into()
+                Some(BufferString::from("hello world this is a long string".to_string()).into()),
             )
+            .unwrap()
         );
     }
 

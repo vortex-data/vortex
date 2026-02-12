@@ -60,7 +60,7 @@ mod tests {
             buffer![2u64, 9, 15].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array()
@@ -80,7 +80,7 @@ mod tests {
             buffer![0u64].into_array(),
             PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
             1,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 
@@ -94,7 +94,7 @@ mod tests {
             buffer![0_u64, 3, 6].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array();
@@ -109,7 +109,7 @@ mod tests {
             buffer![1u64, 3].into_array(),
             PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
             4,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 

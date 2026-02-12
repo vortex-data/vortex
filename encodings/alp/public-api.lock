@@ -109,6 +109,8 @@ pub fn vortex_alp::ALPRDVTable::scalar_at(array: &vortex_alp::ALPRDArray, index:
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
 pub fn vortex_alp::ALPRDVTable::validity_child(array: &vortex_alp::ALPRDArray) -> &vortex_array::array::ArrayRef
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_alp::ALPRDVTable> for vortex_alp::ALPRDVTable
+pub fn vortex_alp::ALPRDVTable::nbuffers(_array: &vortex_alp::ALPRDArray) -> usize
+pub fn vortex_alp::ALPRDVTable::nchildren(array: &vortex_alp::ALPRDArray) -> usize
 pub fn vortex_alp::ALPRDVTable::visit_buffers(_array: &vortex_alp::ALPRDArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_alp::ALPRDVTable::visit_children(array: &vortex_alp::ALPRDArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub struct vortex_alp::ALPVTable
@@ -158,6 +160,8 @@ pub fn vortex_alp::ALPVTable::scalar_at(array: &vortex_alp::ALPArray, index: usi
 impl vortex_array::vtable::validity::ValidityChild<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
 pub fn vortex_alp::ALPVTable::validity_child(array: &vortex_alp::ALPArray) -> &vortex_array::array::ArrayRef
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_alp::ALPVTable> for vortex_alp::ALPVTable
+pub fn vortex_alp::ALPVTable::nbuffers(_array: &vortex_alp::ALPArray) -> usize
+pub fn vortex_alp::ALPVTable::nchildren(array: &vortex_alp::ALPArray) -> usize
 pub fn vortex_alp::ALPVTable::visit_buffers(_array: &vortex_alp::ALPArray, _visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_alp::ALPVTable::visit_children(array: &vortex_alp::ALPArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub struct vortex_alp::Exponents
@@ -182,7 +186,7 @@ pub fn vortex_alp::RDEncoder::encode(&self, array: &vortex_array::arrays::primit
 pub fn vortex_alp::RDEncoder::from_parts(right_bit_width: u8, codes: alloc::vec::Vec<u16>) -> Self
 pub fn vortex_alp::RDEncoder::new<T>(sample: &[T]) -> Self where T: vortex_alp::ALPRDFloat + vortex_dtype::ptype::NativePType, <T as vortex_alp::ALPRDFloat>::UINT: vortex_dtype::ptype::NativePType
 pub trait vortex_alp::ALPFloat: vortex_alp::alp::private::Sealed + num_traits::float::Float + core::fmt::Display + vortex_dtype::ptype::NativePType
-pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::pvalue::PValue>
+pub type vortex_alp::ALPFloat::ALPInt: num_traits::int::PrimInt + core::fmt::Display + num_traits::cast::ToPrimitive + core::marker::Copy + vortex_dtype::ptype::NativePType + core::convert::Into<vortex_scalar::typed_view::primitive::pvalue::PValue>
 pub const vortex_alp::ALPFloat::F10: &'static [Self]
 pub const vortex_alp::ALPFloat::FRACTIONAL_BITS: u8
 pub const vortex_alp::ALPFloat::IF10: &'static [Self]

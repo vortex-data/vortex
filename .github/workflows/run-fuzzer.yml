@@ -43,6 +43,9 @@ on:
       R2_FUZZ_SECRET_ACCESS_KEY:
         required: true
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   fuzz:
     name: "Run ${{ inputs.fuzz_target }}"
@@ -68,7 +71,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install llvm
         uses: aminya/setup-cpp@v1
@@ -119,7 +122,7 @@ jobs:
             FEATURES_FLAG="--features ${{ inputs.extra_features }}"
           fi
           RUSTFLAGS="--cfg vortex_nightly" RUST_BACKTRACE=1 \
-            cargo +nightly fuzz run --release --debug-assertions \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz run --release --debug-assertions \
             $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} -- \
             -max_total_time=${{ inputs.max_time }} -rss_limit_mb=0 \
@@ -157,7 +160,7 @@ jobs:
         with:
           name: ${{ inputs.fuzz_target }}-crash-artifacts
           path: fuzz/artifacts
-          retention-days: 30
+          retention-days: 180
 
       - name: Archive fuzzer output log
         if: steps.check.outputs.crashes_found == 'true'
@@ -165,7 +168,7 @@ jobs:
         with:
           name: ${{ inputs.fuzz_target }}-logs
           path: fuzz_output.log
-          retention-days: 30
+          retention-days: 90
 
       - name: Persist corpus
         shell: bash

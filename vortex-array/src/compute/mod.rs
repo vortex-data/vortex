@@ -21,7 +21,8 @@ pub use cast::*;
 pub use compare::*;
 pub use fill_null::*;
 pub use filter::*;
-pub use invert::*;
+#[expect(deprecated)]
+pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
 use itertools::Itertools;
@@ -45,6 +46,14 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
+pub use crate::expr::FillNullExecuteAdaptor;
+pub use crate::expr::FillNullKernel;
+pub use crate::expr::FillNullReduce;
+pub use crate::expr::FillNullReduceAdaptor;
+pub use crate::expr::NotExecuteAdaptor;
+pub use crate::expr::NotKernel;
+pub use crate::expr::NotReduce;
+pub use crate::expr::NotReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;
@@ -85,8 +94,6 @@ pub fn warm_up_vtables() {
     boolean::warm_up_vtable();
     cast::warm_up_vtable();
     compare::warm_up_vtable();
-    fill_null::warm_up_vtable();
-    invert::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
     like::warm_up_vtable();

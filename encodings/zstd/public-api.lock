@@ -36,6 +36,20 @@ pub vortex_zstd::ZstdArrayParts::slice_stop: usize
 pub vortex_zstd::ZstdArrayParts::validity: vortex_array::validity::Validity
 impl core::fmt::Debug for vortex_zstd::ZstdArrayParts
 pub fn vortex_zstd::ZstdArrayParts::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub struct vortex_zstd::ZstdBuffersMetadata
+pub vortex_zstd::ZstdBuffersMetadata::buffer_alignments: alloc::vec::Vec<u32>
+pub vortex_zstd::ZstdBuffersMetadata::inner_encoding_id: alloc::string::String
+pub vortex_zstd::ZstdBuffersMetadata::inner_metadata: alloc::vec::Vec<u8>
+pub vortex_zstd::ZstdBuffersMetadata::uncompressed_sizes: alloc::vec::Vec<u64>
+impl core::clone::Clone for vortex_zstd::ZstdBuffersMetadata
+pub fn vortex_zstd::ZstdBuffersMetadata::clone(&self) -> vortex_zstd::ZstdBuffersMetadata
+impl core::default::Default for vortex_zstd::ZstdBuffersMetadata
+pub fn vortex_zstd::ZstdBuffersMetadata::default() -> Self
+impl core::fmt::Debug for vortex_zstd::ZstdBuffersMetadata
+pub fn vortex_zstd::ZstdBuffersMetadata::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl prost::message::Message for vortex_zstd::ZstdBuffersMetadata
+pub fn vortex_zstd::ZstdBuffersMetadata::clear(&mut self)
+pub fn vortex_zstd::ZstdBuffersMetadata::encoded_len(&self) -> usize
 pub struct vortex_zstd::ZstdFrameMetadata
 pub vortex_zstd::ZstdFrameMetadata::n_values: u64
 pub vortex_zstd::ZstdFrameMetadata::uncompressed_size: u64
@@ -93,6 +107,8 @@ pub fn vortex_zstd::ZstdVTable::stats(array: &vortex_zstd::ZstdArray) -> vortex_
 impl vortex_array::vtable::operations::OperationsVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
 pub fn vortex_zstd::ZstdVTable::scalar_at(array: &vortex_zstd::ZstdArray, index: usize) -> vortex_error::VortexResult<vortex_scalar::scalar::Scalar>
 impl vortex_array::vtable::visitor::VisitorVTable<vortex_zstd::ZstdVTable> for vortex_zstd::ZstdVTable
+pub fn vortex_zstd::ZstdVTable::nbuffers(array: &vortex_zstd::ZstdArray) -> usize
+pub fn vortex_zstd::ZstdVTable::nchildren(array: &vortex_zstd::ZstdArray) -> usize
 pub fn vortex_zstd::ZstdVTable::visit_buffers(array: &vortex_zstd::ZstdArray, visitor: &mut dyn vortex_array::array::visitor::ArrayBufferVisitor)
 pub fn vortex_zstd::ZstdVTable::visit_children(array: &vortex_zstd::ZstdArray, visitor: &mut dyn vortex_array::array::visitor::ArrayChildVisitor)
 pub fn vortex_zstd::reconstruct_views(buffer: &vortex_buffer::ByteBuffer) -> vortex_buffer::buffer::Buffer<vortex_vector::binaryview::view::BinaryView>

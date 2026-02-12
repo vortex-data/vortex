@@ -12,6 +12,7 @@ use vortex_session::VortexSession;
 use crate::ArrayBufferVisitor;
 use crate::ArrayChildVisitor;
 use crate::ArrayRef;
+use crate::Canonical;
 use crate::EmptyMetadata;
 use crate::ExecutionCtx;
 use crate::IntoArray;
@@ -96,7 +97,9 @@ impl VTable for SharedVTable {
     }
 
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
-        Ok(array.canonicalize(ctx)?.into_array())
+        Ok(array
+            .get_or_compute(|source| source.clone().execute::<Canonical>(ctx))?
+            .into_array())
     }
 }
 
@@ -143,5 +146,16 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
 
     fn visit_children(array: &SharedArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("source", &array.current_array_ref());
+    }
+
+    fn nchildren(_array: &SharedArray) -> usize {
+        1
+    }
+
+    fn nth_child(array: &SharedArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.current_array_ref()),
+            _ => None,
+        }
     }
 }

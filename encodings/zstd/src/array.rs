@@ -38,6 +38,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::Alignment;
 use vortex_buffer::Buffer;
 use vortex_buffer::BufferMut;
@@ -914,7 +915,15 @@ impl VisitorVTable<ZstdVTable> for ZstdVTable {
         }
     }
 
+    fn nbuffers(array: &ZstdArray) -> usize {
+        array.dictionary.is_some() as usize + array.frames.len()
+    }
+
     fn visit_children(array: &ZstdArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
+    }
+
+    fn nchildren(array: &ZstdArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
     }
 }
