@@ -96,6 +96,7 @@ impl VTable for SparseVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(SparseMetadata::decode(bytes)?))

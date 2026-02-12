@@ -74,6 +74,7 @@ impl VTable for FilterVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Filter array is not serializable")

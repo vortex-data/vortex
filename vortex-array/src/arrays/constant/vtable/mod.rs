@@ -82,6 +82,7 @@ impl VTable for ConstantVTable {
         bytes: &[u8],
         dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         // Empty bytes indicates an old writer that didn't produce metadata.

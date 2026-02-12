@@ -83,6 +83,7 @@ mod tests {
             &bytes,
             &vortex_dtype::DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
             5,
+            &[],
             &session,
         )?;
 
@@ -97,6 +98,7 @@ mod tests {
             &[],
             &vortex_dtype::DType::Primitive(vortex_dtype::PType::I32, Nullability::NonNullable),
             10,
+            &[],
             &session,
         )?;
         assert!(metadata.is_none(), "empty bytes should deserialize to None");

@@ -77,6 +77,7 @@ impl VTable for FoRVTable {
         bytes: &[u8],
         dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         let scalar_value = ScalarValue::from_proto_bytes(bytes, dtype)?;
