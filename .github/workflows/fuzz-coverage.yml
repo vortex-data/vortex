@@ -5,6 +5,9 @@ on:
     - cron: "0 6 * * *"  # daily at 6am UTC
   workflow_dispatch: { }
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   coverage:
     name: "Coverage: ${{ matrix.fuzz_target }}"
@@ -29,16 +32,16 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
           components: clippy, rustfmt, llvm-tools
 
       - name: Ensure llvm-tools are installed
         run: |
-          rustup component add llvm-tools --toolchain nightly || \
-            rustup component add llvm-tools-preview --toolchain nightly
+          rustup component add llvm-tools --toolchain $NIGHTLY_TOOLCHAIN || \
+            rustup component add llvm-tools-preview --toolchain $NIGHTLY_TOOLCHAIN
 
           # Verify llvm-profdata is accessible (cargo-fuzz needs it for coverage merging)
-          LLVM_PROFDATA="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin/llvm-profdata"
+          LLVM_PROFDATA="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin/llvm-profdata"
           if [ ! -f "$LLVM_PROFDATA" ]; then
             echo "ERROR: llvm-profdata not found at $LLVM_PROFDATA"
             echo "Listing bin directory:"
@@ -72,7 +75,7 @@ jobs:
       - name: Generate coverage data
         run: |
           RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +nightly fuzz coverage --release --debug-assertions \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz coverage --release --debug-assertions \
             ${{ matrix.fuzz_target }} \
             -- -rss_limit_mb=4096
 
@@ -81,9 +84,9 @@ jobs:
           COVERAGE_DIR="fuzz/coverage/${{ matrix.fuzz_target }}"
 
           # llvm tools are installed via rustup's llvm-tools component
-          LLVM_TOOLS_BIN="$(rustc +nightly --print sysroot)/lib/rustlib/$(rustc +nightly -vV | sed -n 's|host: ||p')/bin"
+          LLVM_TOOLS_BIN="$(rustc +$NIGHTLY_TOOLCHAIN --print sysroot)/lib/rustlib/$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')/bin"
 
-          TARGET_TRIPLE=$(rustc +nightly -vV | sed -n 's|host: ||p')
+          TARGET_TRIPLE=$(rustc +$NIGHTLY_TOOLCHAIN -vV | sed -n 's|host: ||p')
 
           # cargo-fuzz coverage places the binary at:
           #   target/<triple>/coverage/<triple>/release/<fuzz_target>
