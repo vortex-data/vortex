@@ -74,6 +74,14 @@ impl Filter<Mask> for &mut VectorMut {
     }
 }
 
+impl Filter<[(usize, usize)]> for &Vector {
+    type Output = Vector;
+
+    fn filter(self, selection: &[(usize, usize)]) -> Self::Output {
+        match_each_vector!(self, |v| { v.filter(selection).into() })
+    }
+}
+
 impl<const NB: usize> Filter<BitView<'_, NB>> for &Vector {
     type Output = Vector;
 
@@ -86,6 +94,14 @@ impl<const NB: usize> Filter<BitView<'_, NB>> for &mut VectorMut {
     type Output = ();
 
     fn filter(self, selection: &BitView<'_, NB>) -> Self::Output {
+        match_each_vector_mut!(self, |v| { v.filter(selection) })
+    }
+}
+
+impl Filter<[(usize, usize)]> for &mut VectorMut {
+    type Output = ();
+
+    fn filter(self, selection: &[(usize, usize)]) -> Self::Output {
         match_each_vector_mut!(self, |v| { v.filter(selection) })
     }
 }

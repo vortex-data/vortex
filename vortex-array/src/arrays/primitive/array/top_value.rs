@@ -8,7 +8,6 @@ use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scalar::PValue;
 use vortex_utils::aliases::hash_map::HashMap;
@@ -41,20 +40,19 @@ where
 {
     let mut distinct_values: HashMap<NativeValue<T>, usize, FxBuildHasher> =
         HashMap::with_hasher(FxBuildHasher);
-    match mask.indices() {
-        AllOr::All => {
-            for value in values.iter().copied() {
-                *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
-            }
+
+    if let Some(mask_values) = mask.values() {
+        for i in mask_values.bit_buffer().set_indices() {
+            *distinct_values
+                .entry(NativeValue(unsafe { *values.get_unchecked(i) }))
+                .or_insert(0) += 1
         }
-        AllOr::None => unreachable!("All invalid arrays should be handled earlier"),
-        AllOr::Some(idxs) => {
-            for &i in idxs {
-                *distinct_values
-                    .entry(NativeValue(unsafe { *values.get_unchecked(i) }))
-                    .or_insert(0) += 1
-            }
+    } else if mask.all_true() {
+        for value in values.iter().copied() {
+            *distinct_values.entry(NativeValue(value)).or_insert(0) += 1;
         }
+    } else {
+        unreachable!("All invalid arrays should be handled earlier")
     }
 
     let (&top_value, &top_count) = distinct_values

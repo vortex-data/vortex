@@ -43,7 +43,27 @@ impl<T: Copy> Filter<MaskValues> for &mut [T] {
         // We choose to _always_ use slices here because iterating over indices will have strictly
         // more loop iterations than slices (more branches), and the overhead over batched
         // `ptr::copy(len)` is not that high.
-        self.filter(mask_values.slices())
+        let mut write_pos = 0;
+
+        // For each range in the selection, copy all of the elements to the current write position.
+        for (start, end) in mask_values.bit_buffer().set_slices() {
+            // Note that we could add an if statement here that checks `if start != write_pos`, but
+            // it's probably better to just avoid the branch misprediction.
+            let len = end - start;
+
+            // SAFETY: Slices should be within bounds.
+            unsafe {
+                ptr::copy(
+                    self.as_ptr().add(start),
+                    self.as_mut_ptr().add(write_pos),
+                    len,
+                )
+            };
+
+            write_pos += len;
+        }
+
+        &mut self[..write_pos]
     }
 }
 

@@ -100,33 +100,6 @@ fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) 
             .collect()
     };
 
-    // // Use threshold_iter to choose the optimal representation based on density.
-    // let expanded_slices = match selection_mask.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
-    //     MaskIter::Slices(slices) => {
-    //         // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
-    //         slices
-    //             .iter()
-    //             .map(|&(start, end)| (start * list_size, end * list_size))
-    //             .collect()
-    //     }
-    //     MaskIter::Indices(indices) => {
-    //         // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
-    //         // times.
-    //         //
-    //         // Note that in the worst case, it is possible that we create only a few slices with a
-    //         // small range (for example, when list_size <= 2). This could be further optimized,
-    //         // but we choose simplicity for now.
-    //         indices
-    //             .iter()
-    //             .map(|&idx| {
-    //                 let start = idx * list_size;
-    //                 let end = (idx + 1) * list_size;
-    //                 (start, end)
-    //             })
-    //             .collect()
-    //     }
-    // };
-
     Mask::from_slices(expanded_len, expanded_slices)
 }
 

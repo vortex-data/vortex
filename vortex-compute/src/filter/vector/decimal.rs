@@ -21,6 +21,7 @@ where
     for<'a> &'a DVector<i64>: Filter<M, Output = DVector<i64>>,
     for<'a> &'a DVector<i128>: Filter<M, Output = DVector<i128>>,
     for<'a> &'a DVector<i256>: Filter<M, Output = DVector<i256>>,
+    M: ?Sized,
 {
     type Output = DecimalVector;
 
@@ -37,6 +38,7 @@ where
     for<'a> &'a mut DVectorMut<i64>: Filter<M, Output = ()>,
     for<'a> &'a mut DVectorMut<i128>: Filter<M, Output = ()>,
     for<'a> &'a mut DVectorMut<i256>: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

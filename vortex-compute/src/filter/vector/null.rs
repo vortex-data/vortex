@@ -16,6 +16,32 @@ impl Filter<Mask> for &NullVector {
     }
 }
 
+impl Filter<[(usize, usize)]> for &NullVector {
+    type Output = NullVector;
+
+    fn filter(self, selection: &[(usize, usize)]) -> Self::Output {
+        NullVector::new(
+            selection
+                .iter()
+                .map(|(start, end)| start + end)
+                .sum::<usize>(),
+        )
+    }
+}
+
+impl Filter<[(usize, usize)]> for &mut NullVectorMut {
+    type Output = ();
+
+    fn filter(self, selection: &[(usize, usize)]) -> Self::Output {
+        *self = NullVectorMut::new(
+            selection
+                .iter()
+                .map(|(start, end)| start + end)
+                .sum::<usize>(),
+        )
+    }
+}
+
 impl<const NB: usize> Filter<BitView<'_, NB>> for &NullVector {
     type Output = NullVector;
 

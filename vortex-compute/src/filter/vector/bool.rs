@@ -16,6 +16,7 @@ impl<M> Filter<M> for &BoolVector
 where
     for<'a> &'a BitBuffer: Filter<M, Output = BitBuffer>,
     for<'a> &'a Mask: Filter<M, Output = Mask>,
+    M: ?Sized,
 {
     type Output = BoolVector;
 
@@ -34,6 +35,7 @@ impl<M> Filter<M> for &mut BoolVectorMut
 where
     for<'a> &'a mut BitBufferMut: Filter<M, Output = ()>,
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

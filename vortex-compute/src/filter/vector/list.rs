@@ -18,6 +18,7 @@ impl<M> Filter<M> for &ListViewVector
 where
     for<'a> &'a PrimitiveVector: Filter<M, Output = PrimitiveVector>,
     for<'a> &'a Mask: Filter<M, Output = Mask>,
+    M: ?Sized,
 {
     type Output = ListViewVector;
 
@@ -37,6 +38,7 @@ impl<M> Filter<M> for &mut ListViewVectorMut
 where
     for<'a> &'a mut PrimitiveVectorMut: Filter<M, Output = ()>,
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

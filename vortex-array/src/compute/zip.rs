@@ -3,6 +3,8 @@
 
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
+use vortex_error::vortex_bail;
+use vortex_error::vortex_err;
 use vortex_mask::AllOr;
 use vortex_mask::Mask;
 
@@ -59,20 +61,34 @@ fn zip_impl_with_builder(
     mask: &Mask,
     mut builder: Box<dyn ArrayBuilder>,
 ) -> VortexResult<ArrayRef> {
-    match mask.slices() {
-        AllOr::All => Ok(if_true.to_array()),
-        AllOr::None => Ok(if_false.to_array()),
-        AllOr::Some(slices) => {
-            for (start, end) in slices {
-                builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
-                builder.extend_from_array(&if_true.slice(*start..*end)?);
-            }
-            if builder.len() < if_false.len() {
-                builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
-            }
-            Ok(builder.finish())
+    if let Some(values) = mask.values() {
+        for (start, end) in values.bit_buffer().set_slices() {
+            builder.extend_from_array(&if_false.slice(builder.len()..start)?);
+            builder.extend_from_array(&if_true.slice(start..end)?);
         }
+        if builder.len() < if_false.len() {
+            builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+        }
+        Ok(builder.finish())
+    } else if mask.all_true() {
+        Ok(if_true.to_array())
+    } else {
+        Ok(if_false.to_array())
     }
+    // match mask.slices() {
+    //     AllOr::All => Ok(if_true.to_array()),
+    //     AllOr::None => Ok(if_false.to_array()),
+    //     AllOr::Some(slices) => {
+    //         for (start, end) in slices {
+    //             builder.extend_from_array(&if_false.slice(builder.len()..*start)?);
+    //             builder.extend_from_array(&if_true.slice(*start..*end)?);
+    //         }
+    //         if builder.len() < if_false.len() {
+    //             builder.extend_from_array(&if_false.slice(builder.len()..if_false.len())?);
+    //         }
+    //         Ok(builder.finish())
+    //     }
+    // }
 }
 
 #[cfg(test)]

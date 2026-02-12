@@ -21,6 +21,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
 use vortex_dtype::match_each_unsigned_integer_ptype;
 use vortex_error::VortexError;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
@@ -582,20 +583,21 @@ impl Patches {
             );
         }
 
-        match mask.indices() {
-            AllOr::All => Ok(Some(self.clone())),
-            AllOr::None => Ok(None),
-            AllOr::Some(mask_indices) => {
-                let flat_indices = self.indices().to_primitive();
-                match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
-                    filter_patches_with_mask(
-                        flat_indices.as_slice::<I>(),
-                        self.offset(),
-                        self.values(),
-                        mask_indices,
-                    )
-                })
-            }
+        if mask.all_true() {
+            return Ok(Some(self.clone()));
+        } else if mask.all_false() {
+            Ok(None)
+        } else {
+            let mask_values = mask.values().vortex_expect("trust me");
+            let flat_indices = self.indices().to_primitive();
+            match_each_unsigned_integer_ptype!(flat_indices.ptype(), |I| {
+                filter_patches_with_mask(
+                    flat_indices.as_slice::<I>(),
+                    self.offset(),
+                    self.values(),
+                    &mask_values.bit_buffer().set_indices().collect::<Vec<_>>(),
+                )
+            })
         }
     }
 

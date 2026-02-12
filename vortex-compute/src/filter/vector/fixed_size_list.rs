@@ -4,7 +4,6 @@
 use std::sync::Arc;
 
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 use vortex_mask::MaskMut;
 use vortex_vector::Vector;
 use vortex_vector::VectorMut;
@@ -27,7 +26,8 @@ const MASK_EXPANSION_DENSITY_THRESHOLD: f64 = 0.05;
 impl<M> Filter<M> for &FixedSizeListVector
 where
     for<'a> &'a Mask: Filter<M, Output = Mask>,
-    for<'a> &'a Vector: Filter<Mask, Output = Vector>,
+    for<'a> &'a Vector: Filter<[(usize, usize)], Output = Vector>,
+    M: ?Sized,
 {
     type Output = FixedSizeListVector;
 
@@ -40,7 +40,7 @@ where
             let elements_mask = compute_fsl_elements_mask(&filtered_validity, list_size as usize);
 
             // Filter the child elements vector.
-            self.elements().as_ref().filter(&elements_mask)
+            self.elements().as_ref().filter(elements_mask.as_slice())
         } else {
             debug_assert!(
                 self.elements().is_empty(),
@@ -68,7 +68,8 @@ where
 impl<M> Filter<M> for &mut FixedSizeListVectorMut
 where
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
-    for<'a> &'a mut VectorMut: Filter<Mask, Output = ()>,
+    for<'a> &'a mut VectorMut: Filter<[(usize, usize)], Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 
@@ -93,7 +94,7 @@ where
             // SAFETY: The expanded mask has the correct length (`validity.len() * list_size`),
             // which maintains the invariant after filtering.
             unsafe {
-                self.elements_mut().filter(&elements_mask);
+                self.elements_mut().filter(elements_mask.as_slice());
             }
 
             debug_assert_eq!(
@@ -137,41 +138,32 @@ where
 /// `list_size` times.
 ///
 /// The output [`Mask`] is guaranteed to have a length equal to `selection_mask.len() * list_size`.
-fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Mask {
-    let expanded_len = selection_mask.len() * list_size;
+fn compute_fsl_elements_mask(selection_mask: &Mask, list_size: usize) -> Vec<(usize, usize)> {
+    // let expanded_len = selection_mask.len() * list_size;
 
     let values = match selection_mask {
-        Mask::AllTrue(_) => return Mask::AllTrue(expanded_len),
-        Mask::AllFalse(_) => return Mask::AllFalse(expanded_len),
+        Mask::AllTrue(_) => return vec![(0, selection_mask.len() * list_size)],
+        Mask::AllFalse(_) => return vec![],
         Mask::Values(values) => values,
     };
 
-    // Use threshold_iter to choose the optimal representation based on density.
-    let expanded_slices = match values.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
-        MaskIter::Slices(slices) => {
-            // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
-            slices
-                .iter()
-                .map(|&(start, end)| (start * list_size, end * list_size))
-                .collect()
-        }
-        MaskIter::Indices(indices) => {
-            // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
-            // times.
-            //
-            // Note that in the worst case, it is possible that we create only a few slices with a
-            // small range (for example, when list_size <= 2). This could be further optimized,
-            // but we choose simplicity for now.
-            indices
-                .iter()
-                .map(|&idx| {
-                    let start = idx * list_size;
-                    let end = (idx + 1) * list_size;
-                    (start, end)
-                })
-                .collect()
-        }
+    let expanded_slices = if values.density() >= MASK_EXPANSION_DENSITY_THRESHOLD {
+        values
+            .bit_buffer()
+            .set_slices()
+            .map(|(start, end)| (start * list_size, end * list_size))
+            .collect()
+    } else {
+        values
+            .bit_buffer()
+            .set_indices()
+            .map(|idx| {
+                let start = idx * list_size;
+                let end = (idx + 1) * list_size;
+                (start, end)
+            })
+            .collect()
     };
 
-    Mask::from_slices(expanded_len, expanded_slices)
+    expanded_slices
 }

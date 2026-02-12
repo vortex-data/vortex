@@ -55,57 +55,57 @@ impl ZipKernel for VarBinViewVTable {
         let true_validity = if_true.validity_mask()?;
         let false_validity = if_false.validity_mask()?;
 
-        match mask.slices() {
-            AllOr::All => push_range(
+        if let Some(values) = mask.values() {
+            let mut pos = 0;
+            for (start, end) in values.bit_buffer().set_slices() {
+                if pos < start {
+                    push_range(
+                        if_false,
+                        &false_lookup,
+                        &false_validity,
+                        pos..start,
+                        &mut views_builder,
+                        &mut validity_builder,
+                    );
+                }
+                push_range(
+                    if_true,
+                    &true_lookup,
+                    &true_validity,
+                    start..end,
+                    &mut views_builder,
+                    &mut validity_builder,
+                );
+                pos = end;
+            }
+            if pos < len {
+                push_range(
+                    if_false,
+                    &false_lookup,
+                    &false_validity,
+                    pos..len,
+                    &mut views_builder,
+                    &mut validity_builder,
+                );
+            }
+        } else if mask.all_true() {
+            push_range(
                 if_true,
                 &true_lookup,
                 &true_validity,
                 0..len,
                 &mut views_builder,
                 &mut validity_builder,
-            ),
-            AllOr::None => push_range(
+            )
+        } else {
+            push_range(
                 if_false,
                 &false_lookup,
                 &false_validity,
                 0..len,
                 &mut views_builder,
                 &mut validity_builder,
-            ),
-            AllOr::Some(slices) => {
-                let mut pos = 0;
-                for (start, end) in slices {
-                    if pos < *start {
-                        push_range(
-                            if_false,
-                            &false_lookup,
-                            &false_validity,
-                            pos..*start,
-                            &mut views_builder,
-                            &mut validity_builder,
-                        );
-                    }
-                    push_range(
-                        if_true,
-                        &true_lookup,
-                        &true_validity,
-                        *start..*end,
-                        &mut views_builder,
-                        &mut validity_builder,
-                    );
-                    pos = *end;
-                }
-                if pos < len {
-                    push_range(
-                        if_false,
-                        &false_lookup,
-                        &false_validity,
-                        pos..len,
-                        &mut views_builder,
-                        &mut validity_builder,
-                    );
-                }
-            }
+            )
         }
 
         let validity = validity_builder.finish_with_nullability(dtype.nullability());

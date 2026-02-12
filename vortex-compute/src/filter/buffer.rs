@@ -106,6 +106,7 @@ impl<const NB: usize, T: Copy> Filter<BitView<'_, NB>> for &Buffer<T> {
 impl<M, T> Filter<M> for &mut BufferMut<T>
 where
     for<'a> &'a mut [T]: Filter<M, Output = &'a mut [T]>,
+    M: ?Sized,
 {
     type Output = ();
 

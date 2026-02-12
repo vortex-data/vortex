@@ -52,7 +52,6 @@ use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 use vortex_error::vortex_err;
 use vortex_error::vortex_panic;
-use vortex_mask::AllOr;
 use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
@@ -251,27 +250,25 @@ fn collect_valid_primitive(parray: &PrimitiveArray) -> VortexResult<PrimitiveArr
 
 fn collect_valid_vbv(vbv: &VarBinViewArray) -> VortexResult<(ByteBuffer, Vec<usize>)> {
     let mask = vbv.validity_mask()?;
-    let buffer_and_value_byte_indices = match mask.bit_buffer() {
-        AllOr::None => (Buffer::empty(), Vec::new()),
-        _ => {
-            let mut buffer = BufferMut::with_capacity(
-                usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
-                    + mask.true_count() * size_of::<ViewLen>(),
-            );
-            let mut value_byte_indices = Vec::new();
-            vbv.with_iterator(|iterator| {
-                // by flattening, we should omit nulls
-                for value in iterator.flatten() {
-                    value_byte_indices.push(buffer.len());
-                    // here's where we write the string lengths
-                    buffer
-                        .extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
-                    buffer.extend_from_slice(value);
-                }
-                Ok::<_, VortexError>(())
-            })?;
-            (buffer.freeze(), value_byte_indices)
-        }
+    let buffer_and_value_byte_indices = if mask.all_false() {
+        (Buffer::empty(), Vec::new())
+    } else {
+        let mut buffer = BufferMut::with_capacity(
+            usize::try_from(vbv.nbytes()).vortex_expect("must fit into buffer")
+                + mask.true_count() * size_of::<ViewLen>(),
+        );
+        let mut value_byte_indices = Vec::new();
+        vbv.with_iterator(|iterator| {
+            // by flattening, we should omit nulls
+            for value in iterator.flatten() {
+                value_byte_indices.push(buffer.len());
+                // here's where we write the string lengths
+                buffer.extend_trusted(ViewLen::try_from(value.len())?.to_le_bytes().into_iter());
+                buffer.extend_from_slice(value);
+            }
+            Ok::<_, VortexError>(())
+        })?;
+        (buffer.freeze(), value_byte_indices)
     };
     Ok(buffer_and_value_byte_indices)
 }
@@ -719,57 +716,59 @@ impl ZstdArray {
                 Ok(primitive.into_array())
             }
             DType::Binary(_) | DType::Utf8(_) => {
-                match slice_validity.to_mask(slice_n_rows).indices() {
-                    AllOr::All => {
-                        // the decompressed buffer is a bunch of interleaved u32 lengths
-                        // and strings of those lengths, we need to reconstruct the
-                        // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(&decompressed).slice(
-                            slice_value_idx_start - n_skipped_values
-                                ..slice_value_idx_stop - n_skipped_values,
-                        );
+                let mask = slice_validity.to_mask(slice_n_rows);
+                if mask.all_true() {
+                    // the decompressed buffer is a bunch of interleaved u32 lengths
+                    // and strings of those lengths, we need to reconstruct the
+                    // views into those strings by passing through the buffer.
+                    let valid_views = reconstruct_views(&decompressed).slice(
+                        slice_value_idx_start - n_skipped_values
+                            ..slice_value_idx_stop - n_skipped_values,
+                    );
 
-                        // SAFETY: we properly construct the views inside `reconstruct_views`
-                        Ok(unsafe {
-                            VarBinViewArray::new_unchecked(
-                                valid_views,
-                                Arc::from([decompressed]),
-                                self.dtype.clone(),
-                                slice_validity,
-                            )
-                        }
-                        .into_array())
+                    // SAFETY: we properly construct the views inside `reconstruct_views`
+                    Ok(unsafe {
+                        VarBinViewArray::new_unchecked(
+                            valid_views,
+                            Arc::from([decompressed]),
+                            self.dtype.clone(),
+                            slice_validity,
+                        )
                     }
-                    AllOr::None => Ok(ConstantArray::new(
-                        Scalar::null(self.dtype.clone()),
-                        slice_n_rows,
+                    .into_array())
+                } else if mask.all_false() {
+                    Ok(
+                        ConstantArray::new(Scalar::null(self.dtype.clone()), slice_n_rows)
+                            .into_array(),
                     )
-                    .into_array()),
-                    AllOr::Some(valid_indices) => {
-                        // the decompressed buffer is a bunch of interleaved u32 lengths
-                        // and strings of those lengths, we need to reconstruct the
-                        // views into those strings by passing through the buffer.
-                        let valid_views = reconstruct_views(&decompressed).slice(
-                            slice_value_idx_start - n_skipped_values
-                                ..slice_value_idx_stop - n_skipped_values,
-                        );
+                } else {
+                    let mask_values = mask.values().unwrap();
+                    // the decompressed buffer is a bunch of interleaved u32 lengths
+                    // and strings of those lengths, we need to reconstruct the
+                    // views into those strings by passing through the buffer.
+                    let valid_views = reconstruct_views(&decompressed).slice(
+                        slice_value_idx_start - n_skipped_values
+                            ..slice_value_idx_stop - n_skipped_values,
+                    );
 
-                        let mut views = BufferMut::<BinaryView>::zeroed(slice_n_rows);
-                        for (view, index) in valid_views.into_iter().zip_eq(valid_indices) {
-                            views[*index] = view
-                        }
-
-                        // SAFETY: we properly construct the views inside `reconstruct_views`
-                        Ok(unsafe {
-                            VarBinViewArray::new_unchecked(
-                                views.freeze(),
-                                Arc::from([decompressed]),
-                                self.dtype.clone(),
-                                slice_validity,
-                            )
-                        }
-                        .into_array())
+                    let mut views = BufferMut::<BinaryView>::zeroed(slice_n_rows);
+                    for (view, index) in valid_views
+                        .into_iter()
+                        .zip_eq(mask_values.bit_buffer().set_indices())
+                    {
+                        views[index] = view
                     }
+
+                    // SAFETY: we properly construct the views inside `reconstruct_views`
+                    Ok(unsafe {
+                        VarBinViewArray::new_unchecked(
+                            views.freeze(),
+                            Arc::from([decompressed]),
+                            self.dtype.clone(),
+                            slice_validity,
+                        )
+                    }
+                    .into_array())
                 }
             }
             _ => vortex_panic!("Unsupported dtype for Zstd array: {}", self.dtype),

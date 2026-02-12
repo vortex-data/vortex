@@ -41,7 +41,7 @@ impl FilterKernel for RunEndVTable {
         if runs_ratio < FILTER_TAKE_THRESHOLD || mask_values.true_count() < 25 {
             Ok(Some(take_indices_unchecked(
                 array,
-                mask_values.indices(),
+                mask_values.bit_buffer().set_indices(),
                 &Validity::NonNullable,
             )?))
         } else {

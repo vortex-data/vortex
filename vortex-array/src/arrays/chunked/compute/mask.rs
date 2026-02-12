@@ -30,15 +30,6 @@ use crate::validity::Validity;
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
-        // let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-        //     AllOr::All => unreachable!("handled in top-level mask"),
-        //     AllOr::None => unreachable!("handled in top-level mask"),
-        //     AllOr::Some(MaskIter::Indices(indices)) => mask_indices(array, indices, &new_dtype),
-        //     AllOr::Some(MaskIter::Slices(slices)) => {
-        //         mask_slices(array, slices.iter().cloned(), &new_dtype)
-        //     }
-        // }?;
-
         let mask_values = mask.values().vortex_expect("handled in top-level mask");
 
         let new_chunks = if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {

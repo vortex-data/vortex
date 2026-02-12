@@ -38,7 +38,16 @@ impl Filter<MaskValues> for &BitBuffer {
             "Selection mask length must equal the mask length"
         );
 
-        self.filter(mask_values.indices())
+        let bools = self.inner().as_slice();
+        let bit_offset = self.offset();
+
+        BitBufferMut::from_iter(
+            mask_values
+                .bit_buffer()
+                .set_indices()
+                .map(|idx| get_bit(bools, bit_offset + idx)),
+        )
+        .freeze()
     }
 }
 
@@ -125,7 +134,15 @@ impl Filter<MaskValues> for &mut BitBufferMut {
         );
 
         // BitBufferMut filtering always uses indices for simplicity.
-        self.filter(mask_values.indices())
+        let bools = self.inner().as_slice();
+        let bit_offset = self.offset();
+
+        *self = BitBufferMut::from_iter(
+            mask_values
+                .bit_buffer()
+                .set_indices()
+                .map(|idx| get_bit(bools, bit_offset + idx)),
+        );
     }
 }
 

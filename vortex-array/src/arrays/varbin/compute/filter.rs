@@ -52,17 +52,6 @@ fn filter_select_var_bin(arr: &VarBinArray, mask: &Mask) -> VortexResult<VarBinA
             mask.true_count(),
         )
     }
-
-    // match mask
-    //     .values()
-    //     .vortex_expect("AllTrue and AllFalse are handled by filter fn")
-    //     .threshold_iter(0.5)
-    // {
-    //     MaskIter::Indices(indices) => {
-    //         filter_select_var_bin_by_index(arr, indices, mask.true_count())
-    //     }
-    //     MaskIter::Slices(slices) => filter_select_var_bin_by_slice(arr, slices, mask.true_count()),
-    // }
 }
 
 fn filter_select_var_bin_by_slice(

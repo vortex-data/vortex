@@ -124,8 +124,8 @@ impl FilterKernel for ListVTable {
 
                 let mut offset = O::zero();
                 unsafe { new_offsets.push_unchecked(offset) };
-                for idx in selection.indices() {
-                    let size = offsets[idx + 1] - offsets[*idx];
+                for idx in selection.bit_buffer().set_indices() {
+                    let size = offsets[idx + 1] - offsets[idx];
                     offset += size;
                     unsafe { new_offsets.push_unchecked(offset) };
                 }

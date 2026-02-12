@@ -18,6 +18,7 @@ impl<M, T: BinaryViewType> Filter<M> for &BinaryViewVector<T>
 where
     for<'a> &'a Mask: Filter<M, Output = Mask>,
     for<'a> &'a Buffer<BinaryView>: Filter<M, Output = Buffer<BinaryView>>,
+    M: ?Sized,
 {
     type Output = BinaryViewVector<T>;
 
@@ -34,6 +35,7 @@ impl<M, T: BinaryViewType> Filter<M> for &mut BinaryViewVectorMut<T>
 where
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
     for<'a> &'a mut BufferMut<BinaryView>: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

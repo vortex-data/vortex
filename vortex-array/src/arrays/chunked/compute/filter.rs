@@ -31,13 +31,6 @@ impl FilterKernel for ChunkedVTable {
             .values()
             .vortex_expect("AllTrue and AllFalse are handled by filter fn");
 
-        // Based on filter selectivity, we take the values between a range of slices, or
-        // we take individual indices.
-        // let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-        //     MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
-        //     MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
-        // }?;
-
         let chunks = if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {
             filter_slices(array, mask_values.bit_buffer().set_slices())?
         } else {

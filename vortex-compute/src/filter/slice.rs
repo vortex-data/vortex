@@ -47,7 +47,13 @@ impl<T: Copy> Filter<MaskValues> for &[T] {
 
         if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {
             // High density: use slices (contiguous ranges)
-            self.filter(mask_values.slices())
+
+            let mut out = BufferMut::<T>::empty();
+            for (start, end) in mask_values.bit_buffer().set_slices() {
+                out.extend_from_slice(&self[start..end]);
+            }
+
+            out.freeze()
         } else {
             // Low density: stream indices directly from bitmap without allocatingExpand commentComment on line R52Resolved
             let mut out = BufferMut::<T>::with_capacity(mask_values.true_count());

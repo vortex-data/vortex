@@ -49,14 +49,19 @@ impl TakeExecute for RunEndVTable {
                 .collect::<VortexResult<Vec<_>>>()?
         });
 
-        take_indices_unchecked(array, &checked_indices, primitive_indices.validity()).map(Some)
+        take_indices_unchecked(
+            array,
+            checked_indices.into_iter(),
+            primitive_indices.validity(),
+        )
+        .map(Some)
     }
 }
 
 /// Perform a take operation on a RunEndArray by binary searching for each of the indices.
-pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
+pub fn take_indices_unchecked<T: AsPrimitive<usize>, I: Iterator<Item = T>>(
     array: &RunEndArray,
-    indices: &[T],
+    indices: I,
     validity: &Validity,
 ) -> VortexResult<ArrayRef> {
     let ends = array.ends().to_primitive();
@@ -66,7 +71,6 @@ pub fn take_indices_unchecked<T: AsPrimitive<usize>>(
     let physical_indices = match_each_integer_ptype!(ends.ptype(), |I| {
         let end_slices = ends.as_slice::<I>();
         let physical_indices_vec: Vec<u64> = indices
-            .iter()
             .map(|idx| idx.as_() + array.offset())
             .map(|idx| {
                 match <I as NumCast>::from(idx) {

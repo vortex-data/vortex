@@ -26,6 +26,7 @@ where
     for<'a> &'a PVector<f16>: Filter<M, Output = PVector<f16>>,
     for<'a> &'a PVector<f32>: Filter<M, Output = PVector<f32>>,
     for<'a> &'a PVector<f64>: Filter<M, Output = PVector<f64>>,
+    M: ?Sized,
 {
     type Output = PrimitiveVector;
 
@@ -47,6 +48,7 @@ where
     for<'a> &'a mut PVectorMut<f16>: Filter<M, Output = ()>,
     for<'a> &'a mut PVectorMut<f32>: Filter<M, Output = ()>,
     for<'a> &'a mut PVectorMut<f64>: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

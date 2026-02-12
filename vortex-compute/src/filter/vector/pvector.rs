@@ -17,6 +17,7 @@ impl<M, T: NativePType> Filter<M> for &PVector<T>
 where
     for<'a> &'a Buffer<T>: Filter<M, Output = Buffer<T>>,
     for<'a> &'a Mask: Filter<M, Output = Mask>,
+    M: ?Sized,
 {
     type Output = PVector<T>;
 
@@ -34,6 +35,7 @@ impl<M, T: NativePType> Filter<M> for &mut PVectorMut<T>
 where
     for<'a> &'a mut BufferMut<T>: Filter<M, Output = ()>,
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

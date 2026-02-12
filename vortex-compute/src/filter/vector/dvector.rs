@@ -17,6 +17,7 @@ impl<M, D: NativeDecimalType> Filter<M> for &DVector<D>
 where
     for<'a> &'a Buffer<D>: Filter<M, Output = Buffer<D>>,
     for<'a> &'a Mask: Filter<M, Output = Mask>,
+    M: ?Sized,
 {
     type Output = DVector<D>;
 
@@ -32,6 +33,7 @@ impl<M, D: NativeDecimalType> Filter<M> for &mut DVectorMut<D>
 where
     for<'a> &'a mut BufferMut<D>: Filter<M, Output = ()>,
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 

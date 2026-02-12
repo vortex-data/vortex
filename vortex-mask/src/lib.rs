@@ -21,13 +21,13 @@ use std::fmt::Formatter;
 use std::ops::Bound;
 use std::ops::RangeBounds;
 use std::sync::Arc;
-use std::sync::OnceLock;
 
 use itertools::Itertools;
 pub use mask_mut::*;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::set_bit_unchecked;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_panic;
 
@@ -130,10 +130,10 @@ pub struct MaskValues {
 
     // We cached the indices and slices representations, since it can be faster than iterating
     // the bit-mask over and over again.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    indices: OnceLock<Vec<usize>>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    slices: OnceLock<Vec<(usize, usize)>>,
+    // #[cfg_attr(feature = "serde", serde(skip))]
+    // indices: OnceLock<Vec<usize>>,
+    // #[cfg_attr(feature = "serde", serde(skip))]
+    // slices: OnceLock<Vec<(usize, usize)>>,
 
     // Pre-computed values.
     true_count: usize,
@@ -177,8 +177,8 @@ impl Mask {
 
         Self::Values(Arc::new(MaskValues {
             buffer,
-            indices: Default::default(),
-            slices: Default::default(),
+            // indices: Default::default(),
+            // slices: Default::default(),
             true_count,
             density: true_count as f64 / len as f64,
         }))
@@ -208,8 +208,8 @@ impl Mask {
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.freeze(),
-            indices: OnceLock::from(indices),
-            slices: Default::default(),
+            // indices: OnceLock::from(indices),
+            // slices: Default::default(),
             true_count,
             density: true_count as f64 / len as f64,
         }))
@@ -237,8 +237,8 @@ impl Mask {
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.freeze(),
-            indices: Default::default(),
-            slices: Default::default(),
+            // indices: Default::default(),
+            // slices: Default::default(),
             true_count,
             density: true_count as f64 / len as f64,
         }))
@@ -271,8 +271,8 @@ impl Mask {
 
         Self::Values(Arc::new(MaskValues {
             buffer: buf.freeze(),
-            indices: Default::default(),
-            slices: OnceLock::from(slices),
+            // indices: Default::default(),
+            // slices: OnceLock::from(slices),
             true_count,
             density: true_count as f64 / len as f64,
         }))
@@ -411,15 +411,7 @@ impl Mask {
         match &self {
             Self::AllTrue(len) => (*len > 0).then_some(0),
             Self::AllFalse(_) => None,
-            Self::Values(values) => {
-                if let Some(indices) = values.indices.get() {
-                    return indices.first().copied();
-                }
-                if let Some(slices) = values.slices.get() {
-                    return slices.first().map(|(start, _)| *start);
-                }
-                values.buffer.set_indices().next()
-            }
+            Self::Values(values) => values.buffer.set_indices().next(),
         }
     }
 
@@ -435,7 +427,12 @@ impl Mask {
             Self::AllTrue(_) => n,
             Self::AllFalse(_) => unreachable!("no true values in all-false mask"),
             // TODO(joe): optimize this function
-            Self::Values(values) => values.indices()[n],
+            Self::Values(values) => values
+                .bit_buffer()
+                .set_indices()
+                .take(n + 1)
+                .last()
+                .vortex_expect("validated within range"),
         }
     }
 
@@ -499,34 +496,34 @@ impl Mask {
     }
 
     /// Return the indices representation of the mask.
-    #[inline]
-    pub fn indices(&self) -> AllOr<&[usize]> {
-        match &self {
-            Self::AllTrue(_) => AllOr::All,
-            Self::AllFalse(_) => AllOr::None,
-            Self::Values(values) => AllOr::Some(values.indices()),
-        }
-    }
+    // #[inline]
+    // pub fn indices(&self) -> AllOr<&[usize]> {
+    //     match &self {
+    //         Self::AllTrue(_) => AllOr::All,
+    //         Self::AllFalse(_) => AllOr::None,
+    //         Self::Values(values) => AllOr::Some(values.indices()),
+    //     }
+    // }
 
     /// Return the slices representation of the mask.
-    #[inline]
-    pub fn slices(&self) -> AllOr<&[(usize, usize)]> {
-        match &self {
-            Self::AllTrue(_) => AllOr::All,
-            Self::AllFalse(_) => AllOr::None,
-            Self::Values(values) => AllOr::Some(values.slices()),
-        }
-    }
+    // #[inline]
+    // pub fn slices(&self) -> AllOr<&[(usize, usize)]> {
+    //     match &self {
+    //         Self::AllTrue(_) => AllOr::All,
+    //         Self::AllFalse(_) => AllOr::None,
+    //         Self::Values(values) => AllOr::Some(values.slices()),
+    //     }
+    // }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
-    #[inline]
-    pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter<'_>> {
-        match &self {
-            Self::AllTrue(_) => AllOr::All,
-            Self::AllFalse(_) => AllOr::None,
-            Self::Values(values) => AllOr::Some(values.threshold_iter(threshold)),
-        }
-    }
+    // #[inline]
+    // pub fn threshold_iter(&self, threshold: f64) -> AllOr<MaskIter<'_>> {
+    //     match &self {
+    //         Self::AllTrue(_) => AllOr::All,
+    //         Self::AllFalse(_) => AllOr::None,
+    //         Self::Values(values) => AllOr::Some(values.threshold_iter(threshold)),
+    //     }
+    // }
 
     /// Return [`MaskValues`] if the mask is not all true or all false.
     #[inline]
@@ -673,54 +670,54 @@ impl MaskValues {
         self.buffer.value(index)
     }
 
-    /// Constructs an indices vector from one of the other representations.
-    pub fn indices(&self) -> &[usize] {
-        self.indices.get_or_init(|| {
-            if self.true_count == 0 {
-                return vec![];
-            }
+    // /// Constructs an indices vector from one of the other representations.
+    // pub fn indices(&self) -> &[usize] {
+    //     self.indices.get_or_init(|| {
+    //         if self.true_count == 0 {
+    //             return vec![];
+    //         }
 
-            if self.true_count == self.len() {
-                return (0..self.len()).collect();
-            }
+    //         if self.true_count == self.len() {
+    //             return (0..self.len()).collect();
+    //         }
 
-            if let Some(slices) = self.slices.get() {
-                let mut indices = Vec::with_capacity(self.true_count);
-                indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
-                debug_assert!(indices.is_sorted());
-                assert_eq!(indices.len(), self.true_count);
-                return indices;
-            }
+    //         if let Some(slices) = self.slices.get() {
+    //             let mut indices = Vec::with_capacity(self.true_count);
+    //             indices.extend(slices.iter().flat_map(|(start, end)| *start..*end));
+    //             debug_assert!(indices.is_sorted());
+    //             assert_eq!(indices.len(), self.true_count);
+    //             return indices;
+    //         }
 
-            let mut indices = Vec::with_capacity(self.true_count);
-            indices.extend(self.buffer.set_indices());
-            debug_assert!(indices.is_sorted());
-            assert_eq!(indices.len(), self.true_count);
-            indices
-        })
-    }
+    //         let mut indices = Vec::with_capacity(self.true_count);
+    //         indices.extend(self.buffer.set_indices());
+    //         debug_assert!(indices.is_sorted());
+    //         assert_eq!(indices.len(), self.true_count);
+    //         indices
+    //     })
+    // }
 
     /// Constructs a slices vector from one of the other representations.
-    #[inline]
-    pub fn slices(&self) -> &[(usize, usize)] {
-        self.slices.get_or_init(|| {
-            if self.true_count == self.len() {
-                return vec![(0, self.len())];
-            }
+    // #[inline]
+    // pub fn slices(&self) -> &[(usize, usize)] {
+    //     self.slices.get_or_init(|| {
+    //         if self.true_count == self.len() {
+    //             return vec![(0, self.len())];
+    //         }
 
-            self.buffer.set_slices().collect()
-        })
-    }
+    //         self.buffer.set_slices().collect()
+    //     })
+    // }
 
     /// Return an iterator over either indices or slices of the mask based on a density threshold.
-    #[inline]
-    pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
-        if self.density >= threshold {
-            MaskIter::Slices(self.slices())
-        } else {
-            MaskIter::Indices(self.indices())
-        }
-    }
+    // #[inline]
+    // pub fn threshold_iter(&self, threshold: f64) -> MaskIter<'_> {
+    //     if self.density >= threshold {
+    //         MaskIter::Slices(self.slices())
+    //     } else {
+    //         MaskIter::Indices(self.indices())
+    //     }
+    // }
 
     /// Extracts the internal [`BitBuffer`].
     pub(crate) fn into_buffer(self) -> BitBuffer {

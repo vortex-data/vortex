@@ -44,7 +44,6 @@ use vortex_error::VortexExpect as _;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 use vortex_scalar::ScalarValue;
@@ -311,23 +310,16 @@ impl SparseArray {
         } else if mask.false_count() as f64 > (0.9 * mask.len() as f64) {
             // Array is dominated by NULL but has non-NULL values
             let non_null_values = filter(array, &mask)?;
-            let non_null_indices = match mask.indices() {
-                AllOr::All => {
-                    // We already know that the mask is 90%+ false
-                    unreachable!("Mask is mostly null")
-                }
-                AllOr::None => {
-                    // we know there are some non-NULL values
-                    unreachable!("Mask is mostly null but not all null")
-                }
-                AllOr::Some(values) => {
-                    let buffer: Buffer<u32> = values
-                        .iter()
-                        .map(|&v| v.try_into().vortex_expect("indices must fit in u32"))
-                        .collect();
+            let non_null_indices = if let Some(mask_values) = mask.values() {
+                let buffer: Buffer<u32> = mask_values
+                    .bit_buffer()
+                    .set_indices()
+                    .map(|v| v.try_into().vortex_expect("indices must fit in u32"))
+                    .collect();
 
-                    buffer.into_array()
-                }
+                buffer.into_array()
+            } else {
+                unreachable!()
             };
 
             return Ok(SparseArray::try_new(
@@ -370,7 +362,11 @@ impl SparseArray {
                 // All values are equal to the top value
                 return Ok(fill_array);
             }
-            Mask::Values(values) => values.indices().iter().map(|v| *v as u64).collect(),
+            Mask::Values(values) => values
+                .bit_buffer()
+                .set_indices()
+                .map(|v| v as u64)
+                .collect(),
         };
 
         SparseArray::try_new(indices.into_array(), non_top_values, array.len(), fill)

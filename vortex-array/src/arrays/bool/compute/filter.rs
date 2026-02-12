@@ -45,19 +45,6 @@ impl FilterKernel for BoolVTable {
             )
         };
 
-        // let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
-        //     MaskIter::Indices(indices) => filter_indices(
-        //         &array.to_bit_buffer(),
-        //         mask.true_count(),
-        //         indices.iter().copied(),
-        //     ),
-        //     MaskIter::Slices(slices) => filter_slices(
-        //         &array.to_bit_buffer(),
-        //         mask.true_count(),
-        //         slices.iter().copied(),
-        //     ),
-        // };
-
         Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }
 }

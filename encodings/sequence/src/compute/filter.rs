@@ -37,7 +37,7 @@ fn filter_impl<T: NativePType>(mul: T, base: T, mask: &Mask, validity: Validity)
         .values()
         .vortex_expect("FilterKernel precondition: mask is Mask::Values");
     let mut buffer = BufferMut::<T>::with_capacity(mask_values.true_count());
-    buffer.extend(mask_values.indices().iter().map(|&idx| {
+    buffer.extend(mask_values.bit_buffer().set_indices().map(|idx| {
         let i = T::from_usize(idx).vortex_expect("all valid indices fit");
         base + i * mul
     }));

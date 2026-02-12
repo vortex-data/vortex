@@ -18,6 +18,7 @@ impl<M> Filter<M> for &StructVector
 where
     for<'a> &'a Mask: Filter<M, Output = Mask>,
     for<'a> &'a Vector: Filter<M, Output = Vector>,
+    M: ?Sized,
 {
     type Output = StructVector;
 
@@ -40,6 +41,7 @@ impl<M> Filter<M> for &mut StructVectorMut
 where
     for<'a> &'a mut MaskMut: Filter<M, Output = ()>,
     for<'a> &'a mut VectorMut: Filter<M, Output = ()>,
+    M: ?Sized,
 {
     type Output = ();
 
