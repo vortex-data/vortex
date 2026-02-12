@@ -58,7 +58,7 @@ impl CudaExecute for BitPackedExecutor {
             Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected BitPackedArray"))?;
 
         match_each_integer_ptype!(array.ptype(), |A| {
-            decode_bitpacked::<A>(array, ctx).await
+            decode_bitpacked::<A>(array, 0, ctx).await
         })
     }
 }
@@ -91,6 +91,7 @@ pub fn bitpacked_cuda_launch_config(output_width: usize, len: usize) -> VortexRe
 
 pub(crate) async fn decode_bitpacked<A>(
     array: BitPackedArray,
+    reference: A,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<Canonical>
 where
@@ -128,7 +129,7 @@ where
     let config = bitpacked_cuda_launch_config(output_width, len)?;
 
     ctx.launch_kernel_config(&cuda_function, config, len, |args| {
-        args.arg(&input_view).arg(&output_view);
+        args.arg(&input_view).arg(&output_view).arg(&reference);
     })?;
 
     let output_handle = match patches {

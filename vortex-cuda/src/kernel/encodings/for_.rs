@@ -9,22 +9,23 @@ use cudarc::driver::PushKernelArg;
 use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
-use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::PrimitiveArrayParts;
+use vortex_array::arrays::{PrimitiveArray, SliceVTable};
 use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
-use vortex_dtype::NativePType;
 use vortex_dtype::match_each_native_simd_ptype;
+use vortex_dtype::{NativePType, match_each_integer_ptype, match_each_native_ptype};
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_fastlanes::FoRArray;
 use vortex_fastlanes::FoRVTable;
+use vortex_fastlanes::{BitPackedVTable, FoRArray};
 
 use crate::CudaBufferExt;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
+use crate::kernel::encodings::bitpacked::decode_bitpacked;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
@@ -49,6 +50,29 @@ impl CudaExecute for FoRExecutor {
     ) -> VortexResult<Canonical> {
         let array = Self::try_specialize(array).ok_or_else(|| vortex_err!("Expected FoRArray"))?;
 
+        // Fuse: FOR/BP
+        if let Some(bitpacked) = array.encoded().as_opt::<BitPackedVTable>() {
+            match_each_integer_ptype!(array.ptype(), |P| {
+                let reference: P = P::try_from(array.reference_scalar())?;
+                return decode_bitpacked(bitpacked.clone(), reference, ctx).await;
+            });
+        }
+
+        // Fuse FOR/BP/Slice
+        if let Some(sliced) = array.encoded().as_opt::<SliceVTable>()
+            && let Some(bitpacked) = sliced.child().as_opt::<BitPackedVTable>()
+        {
+            match_each_integer_ptype!(array.ptype(), |P| {
+                let reference: P = P::try_from(array.reference_scalar())?;
+                return decode_bitpacked(bitpacked.clone(), reference, ctx)
+                    .await?
+                    .into_primitive()
+                    .slice(sliced.slice_range().clone())?
+                    .to_canonical();
+            });
+        }
+
+        // Fallback: execute child then apply frame-of-reference offset
         match_each_native_simd_ptype!(array.ptype(), |P| { decode_for::<P>(array, ctx).await })
     }
 }
