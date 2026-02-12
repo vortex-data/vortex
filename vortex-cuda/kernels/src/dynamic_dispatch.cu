@@ -55,6 +55,8 @@ __device__ __forceinline__ void dynamic_source_op(const T *__restrict input, T *
         const uint32_t packed_words_per_fl_block = LANES_PER_FL_BLOCK * bit_width;
         const uint64_t first_fl_block = chunk_start / ELEMENTS_PER_FL_BLOCK;
 
+        static_assert((ELEMENTS_PER_BLOCK % ELEMENTS_PER_FL_BLOCK) == 0);
+
         #pragma unroll
         for (uint32_t blk = 0; blk < ELEMENTS_PER_BLOCK / ELEMENTS_PER_FL_BLOCK; ++blk) {
             const T *packed_fl = input + (first_fl_block + blk) * packed_words_per_fl_block;
