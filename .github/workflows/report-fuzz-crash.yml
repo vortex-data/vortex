@@ -135,7 +135,7 @@ jobs:
             -v "ARTIFACT_URL=${{ inputs.artifact_url }}"
 
       - name: Alert incident.io on validation failure
-        if: failure() && steps.report.outputs.validation_failed == 'true' && ${{ secrets.incident_io_alert_token != '' }}
+        if: failure() && steps.report.outputs.validation_failed == 'true'
         uses: incident-io/github-action@v1
         with:
           api-key: ${{ secrets.incident_io_alert_token }}
