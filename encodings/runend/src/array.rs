@@ -16,6 +16,8 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::stats::Precision as StatPrecision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::search_sorted::SearchSorted;
 use vortex_array::search_sorted::SearchSortedSide;
 use vortex_array::serde::ArrayChildren;
@@ -215,6 +217,11 @@ impl RunEndArray {
             return Ok(());
         }
 
+        // Run ends must be strictly sorted for binary search to work correctly.
+        if let Some(is_strict_sorted) = ends.statistics().compute_is_strict_sorted() {
+            vortex_ensure!(is_strict_sorted, "run ends must be strictly sorted");
+        }
+
         // Skip host-only validation when ends are not host-resident.
         if !ends.is_host() {
             return Ok(());
@@ -318,6 +325,13 @@ impl RunEndArray {
         length: usize,
     ) -> VortexResult<Self> {
         Self::validate(&ends, &values, offset, length)?;
+
+        // Run ends are always strictly sorted (and therefore sorted) by invariant.
+        // Cache this so downstream consumers don't need to recompute it.
+        ends.statistics()
+            .set(Stat::IsStrictSorted, StatPrecision::Exact(true.into()));
+        ends.statistics()
+            .set(Stat::IsSorted, StatPrecision::Exact(true.into()));
 
         Ok(Self {
             ends,
@@ -485,10 +499,14 @@ pub(super) fn run_end_canonicalize(
 mod tests {
     use vortex_array::IntoArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision as StatPrecision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_buffer::buffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
     use vortex_dtype::PType;
+    use vortex_error::VortexResult;
 
     use crate::RunEndArray;
 
@@ -509,5 +527,44 @@ mod tests {
         // 5, 6, 7, 8, 9 => 3
         let expected = buffer![1, 1, 2, 2, 2, 3, 3, 3, 3, 3].into_array();
         assert_arrays_eq!(arr.to_array(), expected);
+    }
+
+    #[test]
+    fn unsorted_ends_rejected() {
+        let result = RunEndArray::try_new(
+            buffer![5u32, 2, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn duplicate_ends_rejected() {
+        let result = RunEndArray::try_new(
+            buffer![2u32, 2, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn ends_have_sorted_stats() -> VortexResult<()> {
+        let arr = RunEndArray::new(
+            buffer![2u32, 5, 10].into_array(),
+            buffer![1i32, 2, 3].into_array(),
+        );
+
+        let is_strict_sorted = arr
+            .ends()
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+
+        let is_sorted = arr
+            .ends()
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+        Ok(())
     }
 }
