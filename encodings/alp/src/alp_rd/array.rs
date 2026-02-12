@@ -348,10 +348,18 @@ impl ALPRDArray {
                 }
                 // TODO(ngates): assert the DType, don't cast it.
                 // TODO(joe): assert the DType, don't cast it in the next PR.
-                let mut patches = patches.cast_values(left_parts.dtype())?;
-                // Force execution of the lazy cast so patch values are materialized
-                // before serialization.
-                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                // let mut patches = patches.cast_values(left_parts.dtype())?;
+                // // Force execution of the lazy cast so patch values are materialized
+                // // before serialization.
+                // *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                // Ok(patches)
+                assert_eq!(
+                    patches.values().dtype(),
+                    left_parts.dtype(),
+                    "patches dtype {}, left_parts dtype {}",
+                    patches.values().dtype(),
+                    left_parts.dtype()
+                );
                 Ok(patches)
             })
             .transpose()?;
