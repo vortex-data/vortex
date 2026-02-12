@@ -123,20 +123,21 @@ cudarc = { version = "0.18.2", features = [
 ] }
 custom-labels = "0.4.4"
 dashmap = "6.1.0"
-datafusion = { version = "52", default-features = false, features = ["sql"] }
-datafusion-catalog = { version = "52" }
-datafusion-common = { version = "52" }
-datafusion-common-runtime = { version = "52" }
-datafusion-datasource = { version = "52", default-features = false }
-datafusion-execution = { version = "52" }
-datafusion-expr = { version = "52" }
-datafusion-functions = { version = "52" }
-datafusion-physical-expr = { version = "52" }
-datafusion-physical-expr-adapter = { version = "52" }
-datafusion-physical-expr-common = { version = "52" }
-datafusion-physical-plan = { version = "52" }
-datafusion-pruning = { version = "52" }
-datafusion-sqllogictest = { version = "52" }
+# DataDog's datafusion fork - version 52 with DataDog patches
+datafusion = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion", default-features = false, features = ["sql"] }
+datafusion-catalog = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-catalog" }
+datafusion-common = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-common" }
+datafusion-common-runtime = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-common-runtime" }
+datafusion-datasource = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-datasource", default-features = false }
+datafusion-execution = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-execution" }
+datafusion-expr = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-expr" }
+datafusion-functions = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-functions" }
+datafusion-physical-expr = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-physical-expr" }
+datafusion-physical-expr-adapter = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-physical-expr-adapter" }
+datafusion-physical-expr-common = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-physical-expr-common" }
+datafusion-physical-plan = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-physical-plan" }
+datafusion-pruning = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-pruning" }
+datafusion-sqllogictest = { git = "https://github.com/DataDog/datafusion", rev = "a4a36cf3aad913c7ca6d69526f0e51559448bc1b", package = "datafusion-sqllogictest" }
 dirs = "6.0.0"
 divan = { package = "codspeed-divan-compat", version = "4.0.4" }
 enum-iterator = "2.0.0"
