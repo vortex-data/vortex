@@ -62,7 +62,6 @@ mod tests {
     use rstest::rstest;
     use vortex_buffer::buffer;
     use vortex_dtype::Nullability;
-    use vortex_mask::AllOr;
     use vortex_scalar::Scalar;
 
     use crate::Array;
@@ -86,7 +85,6 @@ mod tests {
                 .into_array(),
             )
             .unwrap();
-        let valid_indices: &[usize] = &[1usize];
         assert_eq!(
             &array.dtype().with_nullability(Nullability::Nullable),
             taken.dtype()
@@ -98,10 +96,14 @@ mod tests {
                 Validity::from_iter([false, true, false])
             )
         );
-        assert_eq!(
-            taken.validity_mask().unwrap().indices(),
-            AllOr::Some(valid_indices)
-        );
+        let mask = taken.validity_mask().unwrap();
+        let indices: Vec<usize> = mask
+            .values()
+            .expect("Expected values from mask")
+            .bit_buffer()
+            .set_indices()
+            .collect();
+        assert_eq!(indices, [1]);
     }
 
     #[test]
@@ -118,7 +120,7 @@ mod tests {
             taken.to_primitive(),
             PrimitiveArray::new(buffer![42i32, 42, 42], Validity::AllValid)
         );
-        assert_eq!(taken.validity_mask().unwrap().indices(), AllOr::All);
+        assert!(taken.validity_mask().unwrap().all_true());
     }
 
     #[rstest]

@@ -243,8 +243,6 @@ mod test {
     use vortex_dtype::UnsignedPType;
     use vortex_error::VortexExpect;
     use vortex_error::VortexResult;
-    use vortex_error::vortex_panic;
-    use vortex_mask::AllOr;
 
     use crate::Array;
     use crate::ArrayRef;
@@ -271,9 +269,12 @@ mod test {
         )
         .unwrap();
         let mask = dict.validity_mask().unwrap();
-        let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
-        };
+        let indices: Vec<usize> = mask
+            .values()
+            .expect("Expected values from mask")
+            .bit_buffer()
+            .set_indices()
+            .collect();
         assert_eq!(indices, [0, 2, 4]);
     }
 
@@ -289,9 +290,12 @@ mod test {
         )
         .unwrap();
         let mask = dict.validity_mask().unwrap();
-        let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
-        };
+        let indices: Vec<usize> = mask
+            .values()
+            .expect("Expected values from mask")
+            .bit_buffer()
+            .set_indices()
+            .collect();
         assert_eq!(indices, [0]);
     }
 
@@ -311,9 +315,12 @@ mod test {
         )
         .unwrap();
         let mask = dict.validity_mask().unwrap();
-        let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
-        };
+        let indices: Vec<usize> = mask
+            .values()
+            .expect("Expected values from mask")
+            .bit_buffer()
+            .set_indices()
+            .collect();
         assert_eq!(indices, [2, 4]);
     }
 
@@ -329,9 +336,12 @@ mod test {
         )
         .unwrap();
         let mask = dict.validity_mask().unwrap();
-        let AllOr::Some(indices) = mask.indices() else {
-            vortex_panic!("Expected indices from mask")
-        };
+        let indices: Vec<usize> = mask
+            .values()
+            .expect("Expected values from mask")
+            .bit_buffer()
+            .set_indices()
+            .collect();
         assert_eq!(indices, [0, 2, 4]);
     }
 
