@@ -105,7 +105,7 @@ impl CudaDeviceBuffer {
     ///
     /// The pointer can only be used while the buffer is kept alive.
     pub fn device_ptr(&self) -> *mut std::ffi::c_void {
-        self.device_ptr as *mut std::ffi::c_void
+        (self.device_ptr + self.len as u64) as *mut std::ffi::c_void
     }
 
     /// Returns a [`CudaView`] to the CUDA device buffer.
