@@ -4,11 +4,13 @@
 use vortex_array::Canonical;
 use vortex_array::arrays::VarBinViewArray;
 use vortex_array::arrays::VarBinViewArrayParts;
+use vortex_array::buffer::BufferHandle;
 use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
 use crate::CudaExecutionCtx;
+use crate::arrow::ensure_device_resident;
 use crate::kernel::filter::filter_sized;
 
 pub(super) async fn filter_varbinview(
@@ -25,11 +27,7 @@ pub(super) async fn filter_varbinview(
 
     let filtered_validity = validity.filter(&mask)?;
 
-    let d_views = if views.is_on_device() {
-        views
-    } else {
-        ctx.move_to_device(views)?.await?
-    };
+    let d_views: BufferHandle = ensure_device_resident(views, ctx).await?.into();
 
     let filtered_views = filter_sized::<i128>(d_views, mask, ctx).await?;
 

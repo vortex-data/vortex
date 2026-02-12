@@ -11,7 +11,6 @@ use vortex_array::arrays::DecimalArrayParts;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::arrays::StructArray;
 use vortex_array::arrays::StructArrayParts;
-use vortex_array::buffer::BufferHandle;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DecimalType;
 use vortex_dtype::datetime::AnyTemporal;
@@ -19,6 +18,7 @@ use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
 
+use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::arrow::ArrowArray;
 use crate::arrow::ArrowDeviceArray;
@@ -140,6 +140,8 @@ fn export_canonical(
 
                 check_validity_empty(&validity)?;
 
+                let bits = ensure_device_resident(bits, ctx).await?;
+
                 export_fixed_size(bits, len, offset, ctx)
             }
             Canonical::VarBinView(varbinview) => {
@@ -155,7 +157,7 @@ fn export_canonical(
                 let buffers = vec![None, Some(offsets), Some(bytes)];
                 let mut private_data = PrivateData::new(buffers, vec![], ctx)?;
                 let sync_event = private_data.sync_event();
-                //
+
                 let arrow_array = ArrowArray {
                     length: len as i64,
                     null_count: 0,
@@ -220,16 +222,11 @@ async fn export_struct(
 
 /// Export fixed-size array data that owns a single buffer of values.
 fn export_fixed_size(
-    buffer: BufferHandle,
+    buffer: CudaDeviceBuffer,
     len: usize,
     offset: usize,
     ctx: &mut CudaExecutionCtx,
 ) -> VortexResult<(ArrowArray, SyncEvent)> {
-    vortex_ensure!(
-        buffer.is_on_device(),
-        "buffer must already be copied to device before calling"
-    );
-
     // TODO(aduffy): currently the null buffer is always None, in the future we will need
     //  to pass it.
     let mut private_data = PrivateData::new(vec![None, Some(buffer)], vec![], ctx)?;

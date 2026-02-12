@@ -22,6 +22,7 @@ use vortex_array::arrays::StructArray;
 use vortex_array::arrays::StructArrayParts;
 use vortex_array::arrays::StructVTable;
 use vortex_array::buffer::BufferHandle;
+use vortex_buffer::ByteBuffer;
 use vortex_dtype::PType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -95,6 +96,7 @@ impl CudaExecutionCtx {
     }
 
     pub fn launch<K: Kernel>(&self, kernel: K, args: K::Args) -> VortexResult<()> {
+        // Do we need to set the current stream arg?
         unsafe { kernel.launch(args, &self.launcher) }
     }
 
@@ -124,6 +126,14 @@ impl CudaExecutionCtx {
         handle: BufferHandle,
     ) -> VortexResult<BoxFuture<'static, VortexResult<CudaDeviceBuffer>>> {
         self.stream.move_to_device(handle)
+    }
+
+    /// Copy a device buffer to a new host buffer with default alignment (256 bytes).
+    pub fn copy_to_host(
+        &self,
+        buffer: &CudaDeviceBuffer,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        self.stream.copy_to_host(buffer)
     }
 
     /// Returns a reference to the underlying CUDA stream.

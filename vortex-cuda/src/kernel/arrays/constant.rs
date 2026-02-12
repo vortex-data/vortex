@@ -2,12 +2,11 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::fmt::Debug;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::PushKernelArg;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::ArrayRef;
 use vortex_array::Canonical;
 use vortex_array::arrays::ConstantArray;
@@ -31,7 +30,10 @@ use vortex_error::vortex_err;
 use crate::CudaDeviceBuffer;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
-use crate::launch_cuda_kernel_impl;
+use crate::kernel::scalar_launch_config;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
 
 /// CUDA executor for constant arrays with numeric types.
 ///
@@ -84,6 +86,39 @@ impl CudaExecute for ConstantNumericExecutor {
     }
 }
 
+struct ConstantKernel<P> {
+    function: Function,
+    _marker: PhantomData<P>,
+}
+
+impl<P: NativePType> Kernel for ConstantKernel<P> {
+    type Args = (CudaDeviceBuffer, P, u64);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (output, mut constant, mut array_len) = args;
+
+        let cfg = scalar_launch_config(array_len as usize);
+        unsafe {
+            launcher.launch(
+                self.function,
+                cfg,
+                vec![
+                    output.device_ptr(),
+                    std::ptr::addr_of_mut!(constant).cast(),
+                    std::ptr::addr_of_mut!(array_len).cast(),
+                ],
+            )
+        }
+    }
+}
+
 async fn materialize_constant_primitive<P>(
     array: ConstantArray,
     validity: Validity,
@@ -108,25 +143,16 @@ where
 
     // Allocate output buffer on device
     let output_buffer = ctx.device_alloc::<P>(array_len)?;
-    let output_view = output_buffer.as_view();
+    let device_buffer = CudaDeviceBuffer::new(output_buffer);
     let array_len_u64 = array_len as u64;
 
-    // Load kernel function
-    let kernel_ptypes = [P::PTYPE];
-    let cuda_function = ctx.load_function_ptype("constant_numeric", &kernel_ptypes)?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let kernel = ctx
+        .load_module("constant_numeric")?
+        .load::<ConstantKernel<P>>(format!("constant_numeric_{}", P::PTYPE))?;
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch(kernel, (device_buffer.clone(), value, array_len_u64))?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
     Ok(Canonical::Primitive(PrimitiveArray::from_buffer_handle(
@@ -134,6 +160,39 @@ where
         P::PTYPE,
         validity,
     )))
+}
+
+struct ConstantDecimal<D> {
+    function: Function,
+    _marker: PhantomData<D>,
+}
+
+impl<D: NativeDecimalType> Kernel for ConstantDecimal<D> {
+    type Args = (CudaDeviceBuffer, D, u64);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (output, mut constant, mut array_len) = args;
+
+        let cfg = scalar_launch_config(array_len as usize);
+        unsafe {
+            launcher.launch(
+                self.function,
+                cfg,
+                vec![
+                    output.device_ptr(),
+                    std::ptr::addr_of_mut!(constant).cast(),
+                    std::ptr::addr_of_mut!(array_len).cast(),
+                ],
+            )
+        }
+    }
 }
 
 async fn materialize_constant_decimal<D>(
@@ -169,24 +228,16 @@ where
 
     // Allocate output buffer on device
     let output_buffer = ctx.device_alloc::<D>(array_len)?;
-    let output_view = output_buffer.as_view();
+    let device_buffer = CudaDeviceBuffer::new(output_buffer);
     let array_len_u64 = array_len as u64;
 
-    // Load kernel function
-    let cuda_function = ctx.load_function("constant_numeric", &[&D::DECIMAL_TYPE.to_string()])?;
-    let mut launch_builder = ctx.launch_builder(&cuda_function);
+    let kernel = ctx
+        .load_module("constant_numeric")?
+        .load::<ConstantDecimal<D>>(format!("constant_numeric_{}", D::DECIMAL_TYPE))?;
 
-    // Build launch args: output, value, length
-    launch_builder.arg(&output_view);
-    launch_builder.arg(&value);
-    launch_builder.arg(&array_len_u64);
-
-    // Launch kernel
-    let _cuda_events =
-        launch_cuda_kernel_impl(&mut launch_builder, CU_EVENT_DISABLE_TIMING, array_len)?;
+    ctx.launch(kernel, (device_buffer.clone(), value, array_len_u64))?;
 
     // Wrap the CudaSlice in a CudaDeviceBuffer and then BufferHandle
-    let device_buffer = CudaDeviceBuffer::new(output_buffer);
     let buffer_handle = BufferHandle::new_device(Arc::new(device_buffer));
 
     Ok(Canonical::Decimal(DecimalArray::new_handle(

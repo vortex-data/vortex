@@ -84,7 +84,7 @@ pub(crate) struct ArrowArray {
     offset: i64,
     n_buffers: i64,
     n_children: i64,
-    buffers: *mut sys::CUdeviceptr,
+    buffers: *mut *mut c_void,
     children: *mut *mut ArrowArray,
     // NOTE: we don't support exporting dictionary arrays, so we leave this as an opaque pointer.
     dictionary: *mut (),
@@ -127,10 +127,10 @@ pub(crate) struct PrivateData {
     /// has been dropped.
     pub(crate) cuda_stream: Arc<CudaStream>,
     /// The single boxed slice which owns all buffers that the Rust code allocated on the device.
-    pub(crate) buffers: Box<[Option<BufferHandle>]>,
+    pub(crate) buffers: Box<[Option<CudaDeviceBuffer>]>,
     /// Boxed slice of buffer pointers. We return a pointer to the start of this allocation over
     /// the interface, so we hold it here so the Box contents are not freed.
-    pub(crate) buffer_ptrs: Box<[sys::CUdeviceptr]>,
+    pub(crate) buffer_ptrs: Box<[*mut c_void]>,
     pub(crate) cuda_event: CudaEvent,
     pub(crate) cuda_event_ptr: cudaEvent_t,
     pub(crate) children: Box<[*mut ArrowArray]>,
@@ -138,23 +138,23 @@ pub(crate) struct PrivateData {
 
 impl PrivateData {
     pub(crate) fn new(
-        buffers: Vec<Option<BufferHandle>>,
+        buffers: Vec<Option<CudaDeviceBuffer>>,
         children: Vec<ArrowArray>,
         ctx: &mut CudaExecutionCtx,
     ) -> VortexResult<Box<Self>> {
         let buffers = buffers.into_boxed_slice();
-        let buffer_ptrs: Box<[sys::CUdeviceptr]> = buffers
+        let buffer_ptrs: Box<[*mut c_void]> = buffers
             .iter()
             .map(|buf| {
                 match buf {
                     None => {
                         // null pointer
-                        Ok(sys::CUdeviceptr::default())
+                        std::ptr::null_mut()
                     }
-                    Some(handle) => handle.cuda_device_ptr(),
+                    Some(handle) => handle.device_ptr(),
                 }
             })
-            .collect::<VortexResult<Vec<_>>>()?
+            .collect::<Vec<_>>()
             .into_boxed_slice();
 
         let children = children

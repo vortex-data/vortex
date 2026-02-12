@@ -9,11 +9,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use cudarc::driver::CudaContext;
-use cudarc::driver::CudaFunction;
 use cudarc::driver::LaunchArgs;
 use cudarc::driver::LaunchConfig;
 use cudarc::driver::sys::CUevent_flags;
-use cudarc::nvrtc::Ptx;
 use vortex_cuda_macros::cuda_tests;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;

@@ -15,6 +15,9 @@ use cudarc::driver::result::stream;
 use futures::future::BoxFuture;
 use kanal::Sender;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::buffer::DeviceBuffer;
+use vortex_buffer::ALIGNMENT_TO_HOST_COPY;
+use vortex_buffer::ByteBuffer;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 
@@ -106,6 +109,14 @@ impl VortexCudaStream {
             .ok_or_else(|| vortex_err!("Buffer is not on host"))?;
 
         self.copy_to_device(host_buffer.clone())
+    }
+
+    /// Copy a device buffer to a new host byte buffer with default alignment (256 bytes).
+    pub fn copy_to_host(
+        &self,
+        device: &CudaDeviceBuffer,
+    ) -> VortexResult<BoxFuture<'static, VortexResult<ByteBuffer>>> {
+        device.copy_to_host(ALIGNMENT_TO_HOST_COPY)
     }
 }
 

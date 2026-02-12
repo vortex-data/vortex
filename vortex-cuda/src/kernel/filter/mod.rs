@@ -95,14 +95,14 @@ async fn filter_sized<T: DeviceRepr + CubFilterable + Debug + Send + Sync + 'sta
     let d_input = if input.is_on_device() {
         input
     } else {
-        ctx.move_to_device(input)?.await?
+        ctx.move_to_device(input)?.await?.into()
     };
 
     // Construct the inputs for the cub::DeviceSelect::Flagged call.
     let output_len = mask.true_count();
     let (offset, len, flags) = mask.into_bit_buffer().into_inner();
 
-    let d_flags = ctx.copy_to_device(flags.to_vec())?.await?;
+    let d_flags: BufferHandle = ctx.copy_to_device(flags.to_vec())?.await?.into();
 
     let offset = offset as u64;
     let len = len as i64;

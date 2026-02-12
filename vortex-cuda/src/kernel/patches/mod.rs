@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use std::marker::PhantomData;
+use std::sync::Arc;
+
 use cudarc::driver::DeviceRepr;
 use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::arrays::PrimitiveArrayParts;
@@ -15,8 +18,47 @@ use vortex_error::vortex_ensure;
 use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
+use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
+use crate::kernel::scalar_launch_config;
 use crate::launch_cuda_kernel;
+use crate::launcher::Function;
+use crate::launcher::Kernel;
+use crate::launcher::Launcher;
+
+struct PatchesKernel<Values, Indices> {
+    function: Function,
+    _marker: PhantomData<(Values, Indices)>,
+}
+
+impl<Values: NativePType, Indices: NativePType> Kernel for PatchesKernel<Values, Indices> {
+    type Args = (CudaDeviceBuffer, CudaDeviceBuffer, CudaDeviceBuffer, u64);
+
+    fn new(function: Function) -> Self {
+        Self {
+            function,
+            _marker: PhantomData,
+        }
+    }
+
+    unsafe fn launch(self, args: Self::Args, launcher: &Arc<dyn Launcher>) -> VortexResult<()> {
+        let (target, indices, values, mut array_len) = args;
+        let cfg = scalar_launch_config(array_len as usize);
+
+        unsafe {
+            launcher.launch(
+                self.function,
+                cfg,
+                vec![
+                    target.device_ptr(),
+                    indices.device_ptr(),
+                    values.device_ptr(),
+                    std::ptr::addr_of_mut!(array_len).cast(),
+                ],
+            )
+        }
+    }
+}
 
 /// Apply a set of patches in-place onto a [`CudaDeviceBuffer`] holding `ValuesT`.
 pub(crate) async fn execute_patches<
@@ -70,36 +112,26 @@ pub(crate) async fn execute_patches<
         ..
     } = values.into_parts();
 
-    let d_patch_indices = if indices_buffer.is_on_device() {
-        indices_buffer
-    } else {
-        ctx.move_to_device(indices_buffer)?.await?
-    };
+    let d_patch_indices = ensure_device_resident(indices_buffer, ctx).await?;
+    let d_patch_values = ensure_device_resident(values_buffer, ctx).await?;
 
-    let d_patch_values = if values_buffer.is_on_device() {
-        values_buffer
-    } else {
-        ctx.move_to_device(values_buffer)?.await?
-    };
+    let kernel = ctx
+        .load_module("patches")?
+        .load::<PatchesKernel<ValuesT, IndicesT>>(format!(
+            "patches_{}_{}",
+            ValuesT::PTYPE,
+            IndicesT::PTYPE
+        ))?;
 
-    let d_target_view = target.as_view::<ValuesT>();
-    let d_patch_indices_view = d_patch_indices.cuda_view::<IndicesT>()?;
-    let d_patch_values_view = d_patch_values.cuda_view::<ValuesT>()?;
-
-    // kernel arg order for patches is values, patchIndices, patchValues, patchesLen
-    let _events = launch_cuda_kernel!(
-        execution_ctx: ctx,
-        module: "patches",
-        ptypes: &[ValuesT::PTYPE, IndicesT::PTYPE],
-        launch_args: [
-            d_target_view,
-            d_patch_indices_view,
-            d_patch_values_view,
+    ctx.launch(
+        kernel,
+        (
+            target.clone(),
+            d_patch_indices,
+            d_patch_values,
             patches_len_u64,
-        ],
-        event_recording: CU_EVENT_DISABLE_TIMING,
-        array_len: patches_len
-    );
+        ),
+    )?;
 
     Ok(target)
 }
