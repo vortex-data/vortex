@@ -28,7 +28,6 @@ impl MaskFuture {
     where
         F: Future<Output = VortexResult<Mask>> + Send + 'static,
     {
-        dbg!(len);
         Self {
             inner: fut
                 .inspect(move |r| {
