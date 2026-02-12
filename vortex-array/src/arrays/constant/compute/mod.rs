@@ -2,14 +2,13 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 mod binary_numeric;
-mod boolean;
 mod cast;
 mod compare;
 mod fill_null;
 mod filter;
-mod invert;
 mod mask;
 mod min_max;
+mod not;
 pub(crate) mod rules;
 mod slice;
 mod sum;

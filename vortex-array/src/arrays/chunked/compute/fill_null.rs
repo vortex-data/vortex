@@ -32,11 +32,12 @@ mod tests {
     use vortex_buffer::BitBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_scalar::Scalar;
 
     use crate::array::Array;
     use crate::arrays::BoolArray;
     use crate::arrays::ChunkedArray;
-    use crate::compute::fill_null;
+    use crate::builtins::ArrayBuiltins;
     use crate::validity::Validity;
 
     #[test]
@@ -50,7 +51,7 @@ mod tests {
         )
         .unwrap();
 
-        let filled = fill_null(chunked.as_ref(), &false.into()).unwrap();
+        let filled = chunked.to_array().fill_null(Scalar::from(false)).unwrap();
         assert_eq!(*filled.dtype(), DType::Bool(Nullability::NonNullable));
     }
 }

@@ -460,7 +460,7 @@ impl WriteSummary {
         self.size
     }
 
-    /// The footer of the written Vortex file.
+    /// The total number of rows in the written Vortex file.
     pub fn row_count(&self) -> u64 {
         self.footer.row_count()
     }

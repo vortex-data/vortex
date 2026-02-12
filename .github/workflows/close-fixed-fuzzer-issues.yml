@@ -15,6 +15,9 @@ permissions:
   contents: read
   actions: read
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   close-fixed:
     name: "Retest ${{ matrix.target }}"
@@ -40,7 +43,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install llvm
         uses: aminya/setup-cpp@v1

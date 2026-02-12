@@ -23,7 +23,7 @@ use crate::builtins::ArrayBuiltins;
 /// let array = fill_null(array.as_ref(), &Scalar::from(42i32)).unwrap();
 /// assert_eq!(array.display_values().to_string(), "[0i32, 42i32, 1i32, 42i32, 2i32]");
 /// ```
-// TODO(joe): deprecate me.
+#[deprecated(note = "use array.fill_null(scalar) via ArrayBuiltins instead")]
 pub fn fill_null(array: &dyn Array, fill_value: &Scalar) -> VortexResult<ArrayRef> {
     vortex_ensure!(
         !fill_value.is_null(),

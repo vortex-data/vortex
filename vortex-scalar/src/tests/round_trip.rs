@@ -11,6 +11,7 @@
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
     use vortex_buffer::ByteBuffer;
     use vortex_dtype::DType;
     use vortex_dtype::DecimalDType;
@@ -21,6 +22,7 @@ mod tests {
 
     use crate::DecimalValue;
     use crate::Scalar;
+    use crate::ScalarValue;
     use crate::tests::SESSION;
 
     // Test that primitive scalars round-trip through ScalarValue
@@ -291,5 +293,39 @@ mod tests {
         // Try to convert a boolean to a decimal.
         let bool_scalar = Scalar::bool(true, Nullability::NonNullable);
         assert!(bool_scalar.as_decimal_opt().is_none());
+    }
+
+    /// Verifies that [`Scalar::nbytes`] matches the length of the proto-serialized scalar value.
+    #[rstest]
+    #[case::null_i32(Scalar::null(DType::Primitive(PType::I32, Nullability::Nullable)))]
+    #[case::bool_true(Scalar::from(true))]
+    #[case::bool_false(Scalar::from(false))]
+    #[case::i8(Scalar::from(i8::MAX))]
+    #[case::i16(Scalar::from(i16::MAX))]
+    #[case::i32(Scalar::from(i32::MAX))]
+    #[case::i64(Scalar::from(i64::MAX))]
+    #[case::u8(Scalar::from(u8::MAX))]
+    #[case::u16(Scalar::from(u16::MAX))]
+    #[case::u32(Scalar::from(u32::MAX))]
+    #[case::u64(Scalar::from(u64::MAX))]
+    #[case::f32(Scalar::from(f32::MAX))]
+    #[case::f64(Scalar::from(f64::MAX))]
+    #[case::utf8_empty(Scalar::from(""))]
+    #[case::utf8_short(Scalar::from("hello"))]
+    #[case::utf8_long(Scalar::from("x".repeat(2048).as_str()))]
+    #[case::binary_empty(Scalar::binary(Vec::<u8>::new(), Nullability::NonNullable))]
+    #[case::binary_short(Scalar::binary(vec![1u8, 2, 3], Nullability::NonNullable))]
+    fn test_nbytes_approx_eq_to_proto_bytes(#[case] scalar: Scalar) {
+        let proto_bytes: Vec<u8> = ScalarValue::to_proto_bytes(scalar.value());
+        let diff = (scalar.nbytes() as isize - proto_bytes.len() as isize).abs();
+
+        // NOTE: THE 4 HERE IS COMPLETELY ARBITRARY!!!
+        assert!(
+            diff <= 4,
+            "nbytes() should be within 4 of proto-serialized length for {:?}, got {} vs {}",
+            scalar,
+            scalar.nbytes(),
+            proto_bytes.len(),
+        );
     }
 }

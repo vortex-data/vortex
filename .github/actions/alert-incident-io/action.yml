@@ -1,0 +1,38 @@
+name: "Alert incident.io"
+description: "Send an alert to the shared incident.io alert source"
+
+inputs:
+  api-key:
+    required: true
+    description: "incident.io alert source API key"
+  alert-title:
+    required: true
+    description: "Alert title"
+  alert-description:
+    required: false
+    description: "Alert description"
+    default: ""
+  deduplication-key:
+    required: true
+    description: "Stable key for alert deduplication"
+  source-url:
+    required: false
+    description: "URL to the source (e.g. workflow run)"
+    default: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+  custom-fields:
+    required: false
+    description: "JSON object of custom fields"
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - uses: incident-io/github-action@v1
+      with:
+        api-key: ${{ inputs.api-key }}
+        alert-source-id: 01KH4EYTH3HA4PDZPRAPEV1Q10
+        alert-title: ${{ inputs.alert-title }}
+        alert-description: ${{ inputs.alert-description }}
+        deduplication-key: ${{ inputs.deduplication-key }}
+        source-url: ${{ inputs.source-url }}
+        custom-fields: ${{ inputs.custom-fields }}

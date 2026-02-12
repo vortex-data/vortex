@@ -35,10 +35,12 @@ pub enum Operator {
     /// Boolean AND (∧).
     And,
     /// Boolean OR (∨).
+    // TODO(joe): rename to KleeneOr
     Or,
     /// The sum of the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
+    // TODO(joe): rename to KleeneAnd
     Add,
     /// The difference between the arguments.
     ///
@@ -211,5 +213,19 @@ impl TryInto<compute::Operator> for Operator {
             Operator::Lte => compute::Operator::Lte,
             _ => vortex_bail!("Not a compute operator: {}", self),
         })
+    }
+}
+
+impl TryFrom<compute::BooleanOperator> for Operator {
+    type Error = VortexError;
+
+    fn try_from(value: compute::BooleanOperator) -> VortexResult<Self> {
+        match value {
+            compute::BooleanOperator::AndKleene => Ok(Operator::And),
+            compute::BooleanOperator::OrKleene => Ok(Operator::Or),
+            other => vortex_bail!(
+                "Non-Kleene boolean operator {other:?} cannot be represented as an expression Operator"
+            ),
+        }
     }
 }
