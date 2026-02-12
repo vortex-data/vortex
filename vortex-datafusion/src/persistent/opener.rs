@@ -384,7 +384,7 @@ impl FileOpener for VortexOpener {
                     .map(|n| n.get())
                     .unwrap_or(1);
                 scan.splits()
-                    .map(|split| split.and_then(|s| s.execute()))
+                    .and_then(|s| s.execute())
                     .try_flatten()
                     .map(move |result| {
                         let session = session.clone();
@@ -427,7 +427,7 @@ impl FileOpener for VortexOpener {
                     .with_metrics_registry(metrics_registry)
                     .with_projection(scan_projection)
                     .with_some_filter(filter)
-                    // .with_ordered(has_output_ordering)
+                    .with_ordered(has_output_ordering)
                     .map(move |chunk| {
                         let mut ctx = session.create_execution_ctx();
                         chunk.execute_record_batch(&stream_schema, &mut ctx)

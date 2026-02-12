@@ -24,6 +24,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use vortex_array::expr::Expression;
 use vortex_array::stream::SendableArrayStream;
@@ -143,8 +144,11 @@ pub trait Split: 'static + Send {
         Ok(None)
     }
 
-    /// Executes the split.
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream>;
+    /// Executes the split, returning a future that resolves to an array stream.
+    ///
+    /// This is async to allow split preparation (e.g. metadata reads) to happen concurrently
+    /// with consumption of the previous split's stream.
+    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>>;
 }
 
 /// An estimate that can be exact, an upper bound, or unknown.

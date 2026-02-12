@@ -588,14 +588,13 @@ fn init_global_scan_api(
     let conversion_cache = Arc::new(ConversionCache::new(0));
 
     // Lazily pull splits, execute each into a stream, and feed into MultiScan.
-    let scan_streams = scan.splits().map(move |split_result| {
+    let scan_streams = scan.splits().then(move |split_result| {
         let cache = conversion_cache.clone();
-        let stream: VortexResult<BoxStream<'_, VortexResult<_>>> = (|| {
+        async move {
             let split = split_result?;
-            let s = split.execute()?;
+            let s = split.execute().await?;
             Ok(s.map(move |r| Ok((r?, cache.clone()))).boxed())
-        })();
-        stream
+        }
     });
 
     Ok(RUNTIME.block_on_stream_thread_safe(move |_| MultiScan {

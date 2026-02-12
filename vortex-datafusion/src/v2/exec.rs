@@ -37,6 +37,8 @@ use datafusion_physical_plan::expressions as df_expr;
 use datafusion_physical_plan::projection::ProjectionExec;
 use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
+use futures::TryStreamExt;
+use futures::stream;
 use tokio::sync::Mutex;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
@@ -255,32 +257,42 @@ impl ExecutionPlan for VortexExec {
             std::mem::take(&mut *guard)
         };
 
-        // Execute each split and chain their array streams sequentially.
-        let streams: Vec<_> = splits
-            .into_iter()
-            .map(|split| split.execute())
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| DataFusionError::External(Box::new(e)))?;
-        let array_stream = futures::stream::iter(streams).flatten();
-
+        // Chain split streams sequentially, prefetching the next split while consuming
+        // the current one. buffered(2) lets the next split's execute() future run
+        // concurrently with consumption of the current split's stream.
         let schema = self.schema.clone();
         let session = self.session.clone();
         let projection = self.projection.clone();
-        let stream = array_stream
-            // Filter out empty arrays (e.g. from fully-pruned splits) before execution.
+        let handle = session.handle();
+        let num_workers = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1);
+
+        let stream = stream::iter(splits)
+            .map(|split| split.execute())
+            .buffered(2)
+            .try_flatten()
+            // Filter out empty arrays (e.g. from fully-pruned splits) before conversion.
             .filter(|result| std::future::ready(!matches!(result, Ok(arr) if arr.is_empty())))
+            // Spawn Vortex-to-Arrow conversion onto CPU threads so it doesn't block the
+            // polling thread, matching the persistent path's behavior.
             .map(move |result| {
-                let mut ctx = session.create_execution_ctx();
-                result
-                    .and_then(|chunk| {
+                let session = session.clone();
+                let schema = schema.clone();
+                let projection = projection.clone();
+                handle.spawn_cpu(move || {
+                    let mut ctx = session.create_execution_ctx();
+                    result.and_then(|chunk| {
                         let projected = match &projection {
                             Some(proj) => chunk.apply(proj)?,
                             None => chunk,
                         };
                         projected.execute_record_batch(&schema, &mut ctx)
                     })
-                    .map_err(|e| DataFusionError::External(Box::new(e)))
-            });
+                })
+            })
+            .buffered(num_workers)
+            .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(
             Arc::clone(&self.schema),

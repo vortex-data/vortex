@@ -137,6 +137,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
         self
     }
 
+    pub fn ordered(&self) -> bool {
+        self.ordered
+    }
+
     pub fn with_ordered(mut self, ordered: bool) -> Self {
         self.ordered = ordered;
         self
@@ -165,6 +169,10 @@ impl<A: 'static + Send> ScanBuilder<A> {
     pub fn with_split_by(mut self, split_by: SplitBy) -> Self {
         self.split_by = split_by;
         self
+    }
+
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
     }
 
     /// The number of row splits to make progress on concurrently per-thread, must

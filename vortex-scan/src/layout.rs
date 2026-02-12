@@ -9,18 +9,21 @@ use std::task::Context;
 use std::task::Poll;
 
 use futures::Stream;
+use futures::future::BoxFuture;
 use futures::stream;
 use futures::stream::StreamExt;
 use vortex_array::Canonical;
 use vortex_array::IntoArray;
 use vortex_array::expr::Expression;
 use vortex_array::expr::root;
+use vortex_array::stream::ArrayStreamAdapter;
 use vortex_array::stream::ArrayStreamExt;
 use vortex_array::stream::SendableArrayStream;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
+use vortex_io::session::RuntimeSessionExt;
 use vortex_layout::LayoutReaderRef;
 use vortex_metrics::MetricsRegistry;
 use vortex_session::VortexSession;
@@ -254,7 +257,8 @@ impl Split for LayoutReaderSplit {
         Estimate::default()
     }
 
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
+    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>> {
+        let handle = self.session.handle();
         let builder = ScanBuilder::new(self.session, self.reader)
             .with_row_range(self.row_range)
             .with_selection(self.selection)
@@ -263,7 +267,31 @@ impl Split for LayoutReaderSplit {
             .with_some_limit(self.limit)
             .with_some_metrics_registry(self.metrics_registry);
 
-        Ok(Box::pin(builder.into_array_stream()?))
+        Box::pin(async move {
+            // NOTE(ngates): for now we replicate the behavior inside builder.into_stream() so
+            //  that we can spawn the blocking phase as a future and give the caller more control
+            //  over when a scan is planned vs executed.
+            let num_workers = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            let concurrency = builder.concurrency() * num_workers;
+            let ordered = builder.ordered();
+            let dtype = builder.dtype()?;
+
+            let tasks = handle.spawn_blocking(move || builder.build()).await?;
+
+            let stream = stream::iter(tasks);
+            let stream = if ordered {
+                stream.buffered(concurrency).boxed()
+            } else {
+                stream.buffer_unordered(concurrency).boxed()
+            };
+            let stream = stream.filter_map(|chunk| async move { chunk.transpose() });
+
+            Ok(ArrayStreamExt::boxed(ArrayStreamAdapter::new(
+                dtype, stream,
+            )))
+        })
     }
 }
 
@@ -300,9 +328,11 @@ impl Split for Empty {
         Estimate::exact(0)
     }
 
-    fn execute(self: Box<Self>) -> VortexResult<SendableArrayStream> {
-        Ok(ArrayStreamExt::boxed(
-            Canonical::empty(&self.dtype).into_array().to_array_stream(),
-        ))
+    fn execute(self: Box<Self>) -> BoxFuture<'static, VortexResult<SendableArrayStream>> {
+        Box::pin(async move {
+            Ok(ArrayStreamExt::boxed(
+                Canonical::empty(&self.dtype).into_array().to_array_stream(),
+            ))
+        })
     }
 }
