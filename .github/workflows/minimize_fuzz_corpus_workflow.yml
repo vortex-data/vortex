@@ -28,6 +28,9 @@ on:
       R2_FUZZ_SECRET_ACCESS_KEY:
         required: true
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   minimize:
     name: "Minimize ${{ inputs.fuzz_target }}"
@@ -54,7 +57,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
@@ -89,7 +92,7 @@ jobs:
           MINIMIZED_DIR="${CORPUS_DIR}_minimized"
           mkdir -p "$MINIMIZED_DIR"
           RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +nightly fuzz cmin $FEATURES_FLAG \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz cmin $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- "$MINIMIZED_DIR"
           rm -rf "$CORPUS_DIR"
           mv "$MINIMIZED_DIR" "$CORPUS_DIR"
