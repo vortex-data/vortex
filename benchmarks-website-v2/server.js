@@ -182,19 +182,16 @@ function downsample(data, factor) {
   };
 }
 
-// Data fetching
-async function fetchJsonl(url, gzipped = false) {
+// Data fetching — streams response body directly instead of buffering
+async function fetchJsonl(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Fetch failed: ${url} ${res.status}`);
-
-  const buffer = Buffer.from(await res.arrayBuffer());
-  const stream = gzipped
-    ? Readable.from(buffer).pipe(zlib.createGunzip())
-    : Readable.from(buffer);
-
   return new Promise((resolve, reject) => {
     const results = [];
-    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    const rl = readline.createInterface({
+      input: Readable.fromWeb(res.body),
+      crlfDelay: Infinity,
+    });
     rl.on("line", (l) => {
       if (l.trim())
         try {
@@ -206,27 +203,45 @@ async function fetchJsonl(url, gzipped = false) {
   });
 }
 
-async function loadLocal() {
-  const read = (fp) =>
-    new Promise((ok, fail) => {
-      const r = [],
-        rl = readline.createInterface({
-          input: fs.createReadStream(fp),
-          crlfDelay: Infinity,
-        });
-      rl.on("line", (l) => {
-        if (l.trim())
-          try {
-            r.push(JSON.parse(l));
-          } catch {}
-      });
-      rl.on("close", () => ok(r));
-      rl.on("error", fail);
+function readLocalJsonl(fp) {
+  return new Promise((resolve, reject) => {
+    const results = [];
+    const rl = readline.createInterface({
+      input: fs.createReadStream(fp),
+      crlfDelay: Infinity,
     });
-  return Promise.all([
-    read(path.join(__dirname, "sample/data.json")),
-    read(path.join(__dirname, "sample/commits.json")),
-  ]);
+    rl.on("line", (l) => {
+      if (l.trim())
+        try {
+          results.push(JSON.parse(l));
+        } catch {}
+    });
+    rl.on("close", () => resolve(results));
+    rl.on("error", reject);
+  });
+}
+
+// Stream benchmark data record-by-record without buffering the entire dataset
+async function forEachBenchmark(callback) {
+  let stream;
+  if (USE_LOCAL_DATA) {
+    stream = fs.createReadStream(path.join(__dirname, "sample/data.json"));
+  } else {
+    const res = await fetch(DATA_URL);
+    if (!res.ok) throw new Error(`Fetch failed: ${DATA_URL} ${res.status}`);
+    stream = Readable.fromWeb(res.body).pipe(zlib.createGunzip());
+  }
+  return new Promise((resolve, reject) => {
+    const rl = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    rl.on("line", (l) => {
+      if (l.trim())
+        try {
+          callback(JSON.parse(l));
+        } catch {}
+    });
+    rl.on("close", resolve);
+    rl.on("error", reject);
+  });
 }
 
 // Main data processing
@@ -235,16 +250,10 @@ async function refresh() {
   const t0 = Date.now();
 
   try {
-    const [benchmarks, commitsArr] = USE_LOCAL_DATA
-      ? await loadLocal()
-      : await Promise.all([
-          fetchJsonl(DATA_URL, true),
-          fetchJsonl(COMMITS_URL),
-        ]);
-
-    console.log(
-      `Fetched ${benchmarks.length} benchmarks, ${commitsArr.length} commits`,
-    );
+    // Load commits first (small dataset, must be fully in memory for indexing)
+    const commitsArr = USE_LOCAL_DATA
+      ? await readLocalJsonl(path.join(__dirname, "sample/commits.json"))
+      : await fetchJsonl(COMMITS_URL);
 
     // Build commit index (O(1) lookup)
     const commitMap = new Map(commitsArr.map((c) => [c.id, c]));
@@ -255,21 +264,24 @@ async function refresh() {
 
     const groups = Object.fromEntries(GROUPS.map((g) => [g, new Map()]));
     let missing = 0;
+    let benchmarkCount = 0;
     const uncategorized = new Set();
 
-    for (const b of benchmarks) {
+    // Stream benchmarks one record at a time to avoid loading all into memory
+    await forEachBenchmark((b) => {
+      benchmarkCount++;
       const commit = b.commit || commitMap.get(b.commit_id);
       if (!commit) {
         missing++;
-        continue;
+        return;
       }
 
       const group = getGroup(b);
       if (!group) {
         uncategorized.add(b.name.split("/")[0]);
-        continue;
+        return;
       }
-      if (!groups[group]) continue;
+      if (!groups[group]) return;
 
       // Random access names have the form: random-access/{dataset}/{pattern}/{format}
       // Historical random access names: random-access/{format}
@@ -286,10 +298,10 @@ async function refresh() {
         seriesName = rename(parts[1] || "default");
         chartName = formatQuery(parts[0]);
       }
-      if (chartName.includes("PARQUET-UNC")) continue;
+      if (chartName.includes("PARQUET-UNC")) return;
 
       // Skip throughput metrics (keep only time/size)
-      if (b.name.includes(" throughput")) continue;
+      if (b.name.includes(" throughput")) return;
 
       let unit = b.unit;
       if (!unit) {
@@ -302,7 +314,7 @@ async function refresh() {
         ? parseInt(RegExp.$1, 10)
         : 0;
       const idx = commitIdx.get(commit.id);
-      if (idx === undefined) continue;
+      if (idx === undefined) return;
 
       let chart = groups[group].get(chartName);
       if (!chart) {
@@ -331,7 +343,11 @@ async function refresh() {
       }
 
       chart.series.get(seriesName)[idx] = { value: val };
-    }
+    });
+
+    console.log(
+      `Processed ${benchmarkCount} benchmarks, ${commitsArr.length} commits`,
+    );
 
     // Log uncategorized benchmarks for debugging
     if (uncategorized.size > 0) {
