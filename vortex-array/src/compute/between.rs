@@ -152,7 +152,7 @@ impl ComputeFnVTable for Between {
         Ok(boolean(
             &compare(lower, array, options.lower_strict.to_operator())?,
             &compare(array, upper, options.upper_strict.to_operator())?,
-            BooleanOperator::And,
+            BooleanOperator::AndKleene,
         )?
         .into())
     }

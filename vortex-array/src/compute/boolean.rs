@@ -24,6 +24,7 @@ use crate::expr::operators::Operator;
 /// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 ///
 /// See also [BooleanOperator::And]
+#[deprecated(note = "Use and_kleene instead. Non-Kleene boolean ops cannot be lazily evaluated.")]
 pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::And)
 }
@@ -41,6 +42,7 @@ pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 /// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 ///
 /// See also [BooleanOperator::Or]
+#[deprecated(note = "Use or_kleene instead. Non-Kleene boolean ops cannot be lazily evaluated.")]
 pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::Or)
 }
@@ -53,16 +55,19 @@ pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 }
 
 /// Point-wise logical operator between two Boolean arrays.
-///
-/// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
-/// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexResult<ArrayRef> {
-    Ok(ScalarFnArray::try_new(
-        ScalarFn::new(Binary, Operator::try_from(op)?),
-        vec![lhs.to_array(), rhs.to_array()],
-        lhs.len(),
-    )?
-    .into_array())
+    match Operator::try_from(op) {
+        Ok(expr_op) => Ok(ScalarFnArray::try_new(
+            ScalarFn::new(Binary, expr_op),
+            vec![lhs.to_array(), rhs.to_array()],
+            lhs.len(),
+        )?
+        .into_array()),
+        Err(_) => {
+            tracing::trace!("non-Kleene boolean op {op:?} cannot be lazily evaluated, falling back to eager Arrow evaluation");
+            arrow_boolean(lhs.to_array(), rhs.to_array(), op)
+        }
+    }
 }
 
 /// Operations over the nullable Boolean values.
@@ -156,7 +161,7 @@ mod tests {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = or(&lhs, &rhs).unwrap();
+        let r = or_kleene(&lhs, &rhs).unwrap();
 
         let r = r.to_bool().into_array();
 
@@ -178,7 +183,7 @@ mod tests {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = and(&lhs, &rhs).unwrap().to_bool().into_array();
+        let r = and_kleene(&lhs, &rhs).unwrap().to_bool().into_array();
 
         let v0 = r.scalar_at(0).unwrap().as_bool().value();
         let v1 = r.scalar_at(1).unwrap().as_bool().value();

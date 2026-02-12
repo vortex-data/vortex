@@ -35,10 +35,12 @@ pub enum Operator {
     /// Boolean AND (∧).
     And,
     /// Boolean OR (∨).
+    // TODO(joe): rename to KleeneOr
     Or,
     /// The sum of the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
+    // TODO(joe): rename to KleeneAnd
     Add,
     /// The difference between the arguments.
     ///
