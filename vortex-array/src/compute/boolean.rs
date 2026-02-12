@@ -9,9 +9,14 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
 use crate::compute::Options;
+use crate::expr::Binary;
+use crate::expr::ScalarFn;
+use crate::expr::operators::Operator;
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
@@ -52,7 +57,12 @@ pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 /// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
 /// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexResult<ArrayRef> {
-    arrow_boolean(lhs.to_array(), rhs.to_array(), op)
+    Ok(ScalarFnArray::try_new(
+        ScalarFn::new(Binary, Operator::try_from(op)?),
+        vec![lhs.to_array(), rhs.to_array()],
+        lhs.len(),
+    )?
+    .into_array())
 }
 
 /// Operations over the nullable Boolean values.
