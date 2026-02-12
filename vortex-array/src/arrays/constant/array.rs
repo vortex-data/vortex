@@ -38,21 +38,26 @@ impl ConstantArray {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_buffer::ByteBufferMut;
+    use vortex_dtype::DType;
     use vortex_dtype::Nullability;
+    use vortex_dtype::PType;
     use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
+    use vortex_scalar::ScalarValue;
     use vortex_session::VortexSession;
 
     use crate::arrays::ConstantArray;
     use crate::arrays::constant::vtable::CONSTANT_INLINE_THRESHOLD;
     use crate::arrays::constant::vtable::ConstantVTable;
+    use crate::buffer::BufferHandle;
     use crate::vtable::VTable;
 
     #[rstest]
     #[case::below_threshold(CONSTANT_INLINE_THRESHOLD - 1, true)]
     #[case::at_threshold(CONSTANT_INLINE_THRESHOLD, true)]
     #[case::above_threshold(CONSTANT_INLINE_THRESHOLD + 1, false)]
-    fn test_metadata_inlining(
+    fn test_serialize_inlining(
         #[case] nbytes: usize,
         #[case] should_inline: bool,
     ) -> VortexResult<()> {
@@ -60,9 +65,11 @@ mod tests {
         let string = "x".repeat(nbytes);
         let array = ConstantArray::new(Scalar::from(string.as_str()), 10);
         let metadata = ConstantVTable::metadata(&array)?;
+        let serialized =
+            ConstantVTable::serialize(metadata)?.expect("serialize should produce Some bytes");
 
         assert_eq!(
-            metadata.is_some(),
+            !serialized.is_empty(),
             should_inline,
             "scalar of {nbytes} bytes: expected inlined={should_inline}"
         );
@@ -81,27 +88,30 @@ mod tests {
         let session = VortexSession::empty();
         let deserialized = ConstantVTable::deserialize(
             &bytes,
-            &vortex_dtype::DType::Primitive(vortex_dtype::PType::I64, Nullability::NonNullable),
+            &DType::Primitive(PType::I64, Nullability::NonNullable),
             5,
             &[],
             &session,
         )?;
 
-        assert_eq!(deserialized.unwrap(), scalar);
+        assert_eq!(deserialized, scalar);
         Ok(())
     }
 
     #[test]
-    fn test_empty_bytes_deserializes_to_none() -> VortexResult<()> {
+    fn test_empty_bytes_deserializes_from_buffer() -> VortexResult<()> {
+        let scalar_value = ScalarValue::from(42i32);
+        let buffer = ScalarValue::to_proto_bytes::<ByteBufferMut>(Some(&scalar_value)).freeze();
+        let buffer_handle = BufferHandle::new_host(buffer);
         let session = VortexSession::empty();
         let metadata = ConstantVTable::deserialize(
             &[],
-            &vortex_dtype::DType::Primitive(vortex_dtype::PType::I32, Nullability::NonNullable),
+            &DType::Primitive(PType::I32, Nullability::NonNullable),
             10,
-            &[],
+            &[buffer_handle],
             &session,
         )?;
-        assert!(metadata.is_none(), "empty bytes should deserialize to None");
+        assert_eq!(metadata, Scalar::from(42i32));
         Ok(())
     }
 }
