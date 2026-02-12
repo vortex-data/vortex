@@ -20,7 +20,7 @@ pub fn conjuncts(expr: &Expression) -> Vec<Expression> {
 
 fn conjuncts_impl(expr: &Expression, conjuncts: &mut Vec<Expression>) {
     if let Some(operator) = expr.as_opt::<Binary>()
-        && *operator == Operator::And
+        && *operator == Operator::KleeneAnd
     {
         conjuncts_impl(expr.child(0), conjuncts);
         conjuncts_impl(expr.child(1), conjuncts);

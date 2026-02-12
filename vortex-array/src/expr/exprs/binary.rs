@@ -13,13 +13,6 @@ use vortex_session::VortexSession;
 
 use crate::ArrayRef;
 use crate::compute;
-use crate::compute::add;
-use crate::compute::and_kleene;
-use crate::compute::compare;
-use crate::compute::div;
-use crate::compute::mul;
-use crate::compute::or_kleene;
-use crate::compute::sub;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -108,18 +101,20 @@ impl VTable for Binary {
         };
 
         match op {
-            Operator::Eq => compare(lhs, rhs, compute::Operator::Eq),
-            Operator::NotEq => compare(lhs, rhs, compute::Operator::NotEq),
-            Operator::Lt => compare(lhs, rhs, compute::Operator::Lt),
-            Operator::Lte => compare(lhs, rhs, compute::Operator::Lte),
-            Operator::Gt => compare(lhs, rhs, compute::Operator::Gt),
-            Operator::Gte => compare(lhs, rhs, compute::Operator::Gte),
-            Operator::And => and_kleene(lhs, rhs),
-            Operator::Or => or_kleene(lhs, rhs),
-            Operator::Add => add(lhs, rhs),
-            Operator::Sub => sub(lhs, rhs),
-            Operator::Mul => mul(lhs, rhs),
-            Operator::Div => div(lhs, rhs),
+            Operator::Eq => compute::compare(lhs, rhs, compute::Operator::Eq),
+            Operator::NotEq => compute::compare(lhs, rhs, compute::Operator::NotEq),
+            Operator::Lt => compute::compare(lhs, rhs, compute::Operator::Lt),
+            Operator::Lte => compute::compare(lhs, rhs, compute::Operator::Lte),
+            Operator::Gt => compute::compare(lhs, rhs, compute::Operator::Gt),
+            Operator::Gte => compute::compare(lhs, rhs, compute::Operator::Gte),
+            Operator::And => compute::and(lhs, rhs),
+            Operator::Or => compute::or(lhs, rhs),
+            Operator::KleeneAnd => compute::and_kleene(lhs, rhs),
+            Operator::KleeneOr => compute::or_kleene(lhs, rhs),
+            Operator::Add => compute::add(lhs, rhs),
+            Operator::Sub => compute::sub(lhs, rhs),
+            Operator::Mul => compute::mul(lhs, rhs),
+            Operator::Div => compute::div(lhs, rhs),
         }
     }
 
@@ -215,12 +210,12 @@ impl VTable for Binary {
 
                 Some(with_nan_predicate(lhs, rhs, min_max_check, catalog))
             }
-            Operator::And => lhs
+            Operator::And | Operator::KleeneAnd => lhs
                 .stat_falsification(catalog)
                 .into_iter()
                 .chain(rhs.stat_falsification(catalog))
-                .reduce(or),
-            Operator::Or => Some(and(
+                .reduce(or_kleene),
+            Operator::Or | Operator::KleeneOr => Some(and_kleene(
                 lhs.stat_falsification(catalog)?,
                 rhs.stat_falsification(catalog)?,
             )),
@@ -238,8 +233,8 @@ impl VTable for Binary {
 
         Ok(match operator {
             // AND and OR are kleene logic.
-            Operator::And => None,
-            Operator::Or => None,
+            Operator::KleeneAnd => None,
+            Operator::KleeneOr => None,
             _ => {
                 // All other binary operators are null if either side is null.
                 Some(and(lhs, rhs))
@@ -264,6 +259,8 @@ impl VTable for Binary {
                 | Operator::Lte
                 | Operator::And
                 | Operator::Or
+                | Operator::KleeneAnd
+                | Operator::KleeneOr
         );
 
         !infallible
@@ -436,6 +433,13 @@ pub fn or(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create Or binary expression")
 }
 
+/// Create a new [`Binary`] using the [`KleeneOr`](crate::expr::exprs::operators::Operator::KleeneOr) operator.
+pub fn or_kleene(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new_expr(Operator::KleeneOr, [lhs, rhs])
+        .vortex_expect("Failed to create KleeneOr binary expression")
+}
+
 /// Collects a list of `or`ed values into a single expression using a balanced tree.
 ///
 /// This creates a balanced binary tree to avoid deep nesting that could cause
@@ -447,7 +451,7 @@ where
     I: IntoIterator<Item = Expression>,
 {
     let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, or)
+    balanced_reduce(exprs, or_kleene)
 }
 
 /// Create a new [`Binary`] using the [`And`](crate::expr::exprs::operators::Operator::And) operator.
@@ -472,6 +476,13 @@ pub fn and(lhs: Expression, rhs: Expression) -> Expression {
         .vortex_expect("Failed to create And binary expression")
 }
 
+/// Create a new [`Binary`] using the [`KleeneAnd`](crate::expr::exprs::operators::Operator::KleeneAnd) operator.
+pub fn and_kleene(lhs: Expression, rhs: Expression) -> Expression {
+    Binary
+        .try_new_expr(Operator::KleeneAnd, [lhs, rhs])
+        .vortex_expect("Failed to create KleeneAnd binary expression")
+}
+
 /// Collects a list of `and`ed values into a single expression using a balanced tree.
 ///
 /// This creates a balanced binary tree to avoid deep nesting that could cause
@@ -483,7 +494,7 @@ where
     I: IntoIterator<Item = Expression>,
 {
     let exprs: Vec<_> = iter.into_iter().collect();
-    balanced_reduce(exprs, and)
+    balanced_reduce(exprs, and_kleene)
 }
 
 /// Helper function to reduce a list of expressions into a balanced binary tree.
@@ -554,6 +565,7 @@ mod tests {
 
     use super::*;
     use crate::assert_arrays_eq;
+    use crate::compute::compare;
     use crate::expr::Expression;
     use crate::expr::exprs::get_item::col;
     use crate::expr::exprs::literal::lit;
@@ -564,12 +576,12 @@ mod tests {
         let values = vec![lit(1), lit(2), lit(3), lit(4), lit(5)];
 
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(and)
-        ├── lhs: vortex.binary(and)
+        vortex.binary(kleene_and)
+        ├── lhs: vortex.binary(kleene_and)
         │   ├── lhs: vortex.literal(1i32)
         │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(and)
-            ├── lhs: vortex.binary(and)
+        └── rhs: vortex.binary(kleene_and)
+            ├── lhs: vortex.binary(kleene_and)
             │   ├── lhs: vortex.literal(3i32)
             │   └── rhs: vortex.literal(4i32)
             └── rhs: vortex.literal(5i32)
@@ -578,11 +590,11 @@ mod tests {
         // 4 elements: and(and(1, 2), and(3, 4)) - perfectly balanced
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
         insta::assert_snapshot!(and_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(and)
-        ├── lhs: vortex.binary(and)
+        vortex.binary(kleene_and)
+        ├── lhs: vortex.binary(kleene_and)
         │   ├── lhs: vortex.literal(1i32)
         │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(and)
+        └── rhs: vortex.binary(kleene_and)
             ├── lhs: vortex.literal(3i32)
             └── rhs: vortex.literal(4i32)
         ");
@@ -601,11 +613,11 @@ mod tests {
         // 4 elements: or(or(1, 2), or(3, 4)) - perfectly balanced
         let values = vec![lit(1), lit(2), lit(3), lit(4)];
         insta::assert_snapshot!(or_collect(values.into_iter()).unwrap().display_tree(), @r"
-        vortex.binary(or)
-        ├── lhs: vortex.binary(or)
+        vortex.binary(kleene_or)
+        ├── lhs: vortex.binary(kleene_or)
         │   ├── lhs: vortex.literal(1i32)
         │   └── rhs: vortex.literal(2i32)
-        └── rhs: vortex.binary(or)
+        └── rhs: vortex.binary(kleene_or)
             ├── lhs: vortex.literal(3i32)
             └── rhs: vortex.literal(4i32)
         ");
@@ -756,7 +768,7 @@ mod tests {
         .unwrap()
         .into_array();
 
-        let expr = or(col("a"), col("b"));
+        let expr = or_kleene(col("a"), col("b"));
         let result = struct_arr.apply(&expr).unwrap();
 
         assert_arrays_eq!(result, BoolArray::from_iter([Some(true)]).into_array())

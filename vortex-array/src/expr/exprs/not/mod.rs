@@ -114,6 +114,11 @@ impl VTable for Not {
     }
 }
 
+/// Creates an expression that logically inverts boolean values using Kleene logic.
+pub fn not_kleene(operand: Expression) -> Expression {
+    Not.new_expr(EmptyOptions, vec![operand])
+}
+
 /// Creates an expression that logically inverts boolean values.
 ///
 /// Returns the logical negation of the input boolean expression.
@@ -123,7 +128,7 @@ impl VTable for Not {
 /// let expr = not(root());
 /// ```
 pub fn not(operand: Expression) -> Expression {
-    Not.new_expr(EmptyOptions, vec![operand])
+    not_kleene(operand)
 }
 
 #[cfg(test)]
@@ -132,6 +137,7 @@ mod tests {
     use vortex_dtype::Nullability;
 
     use super::not;
+    use super::not_kleene;
     use crate::ToCanonical;
     use crate::arrays::BoolArray;
     use crate::expr::exprs::get_item::col;
@@ -141,7 +147,7 @@ mod tests {
 
     #[test]
     fn invert_booleans() {
-        let not_expr = not(root());
+        let not_expr = not_kleene(root());
         let bools = BoolArray::from_iter([false, true, false, false, true, true]);
         assert_eq!(
             bools
@@ -167,7 +173,7 @@ mod tests {
 
     #[test]
     fn dtype() {
-        let not_expr = not(root());
+        let not_expr = not_kleene(root());
         let dtype = DType::Bool(Nullability::NonNullable);
         assert_eq!(
             not_expr.return_dtype(&dtype).unwrap(),

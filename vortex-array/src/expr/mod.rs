@@ -76,7 +76,7 @@ pub fn split_conjunction(expr: &Expression) -> Vec<Expression> {
 
 fn split_inner(expr: &Expression, exprs: &mut Vec<Expression>) {
     match expr.as_opt::<Binary>() {
-        Some(operator) if *operator == Operator::And => {
+        Some(operator) if *operator == Operator::KleeneAnd => {
             split_inner(expr.child(0), exprs);
             split_inner(expr.child(1), exprs);
         }

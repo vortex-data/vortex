@@ -36,6 +36,10 @@ pub enum Operator {
     And,
     /// Boolean OR (∨).
     Or,
+    /// Boolean AND (∧) with Kleene logic.
+    KleeneAnd,
+    /// Boolean OR (∨) with Kleene logic.
+    KleeneOr,
     /// The sum of the arguments.
     ///
     /// Errs at runtime if the sum would overflow or underflow.
@@ -70,6 +74,8 @@ impl From<Operator> for BinaryOp {
             Operator::Lte => BinaryOp::Lte,
             Operator::And => BinaryOp::And,
             Operator::Or => BinaryOp::Or,
+            Operator::KleeneAnd => BinaryOp::KleeneAnd,
+            Operator::KleeneOr => BinaryOp::KleeneOr,
             Operator::Add => BinaryOp::Add,
             Operator::Sub => BinaryOp::Sub,
             Operator::Mul => BinaryOp::Mul,
@@ -97,6 +103,8 @@ impl From<BinaryOp> for Operator {
             BinaryOp::Lte => Operator::Lte,
             BinaryOp::And => Operator::And,
             BinaryOp::Or => Operator::Or,
+            BinaryOp::KleeneAnd => Operator::KleeneAnd,
+            BinaryOp::KleeneOr => Operator::KleeneOr,
             BinaryOp::Add => Operator::Add,
             BinaryOp::Sub => Operator::Sub,
             BinaryOp::Mul => Operator::Mul,
@@ -116,6 +124,8 @@ impl Display for Operator {
             Operator::Lte => "<=",
             Operator::And => "and",
             Operator::Or => "or",
+            Operator::KleeneAnd => "kleene_and",
+            Operator::KleeneOr => "kleene_or",
             Operator::Add => "+",
             Operator::Sub => "-",
             Operator::Mul => "*",
@@ -136,6 +146,8 @@ impl Operator {
             Operator::Lte => Some(Operator::Gt),
             Operator::And
             | Operator::Or
+            | Operator::KleeneAnd
+            | Operator::KleeneOr
             | Operator::Add
             | Operator::Sub
             | Operator::Mul
@@ -147,6 +159,8 @@ impl Operator {
         match self {
             Operator::And => Some(Operator::Or),
             Operator::Or => Some(Operator::And),
+            Operator::KleeneAnd => Some(Operator::KleeneOr),
+            Operator::KleeneOr => Some(Operator::KleeneAnd),
             _ => None,
         }
     }
@@ -162,6 +176,8 @@ impl Operator {
             Operator::Lte => Some(Operator::Gte),
             Operator::And => Some(Operator::And),
             Operator::Or => Some(Operator::Or),
+            Operator::KleeneAnd => Some(Operator::KleeneAnd),
+            Operator::KleeneOr => Some(Operator::KleeneOr),
             Operator::Add => Some(Operator::Add),
             Operator::Mul => Some(Operator::Mul),
             Operator::Sub | Operator::Div => None,

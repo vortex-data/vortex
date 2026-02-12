@@ -168,7 +168,7 @@ impl VTable for Between {
         let rhs = Binary.new_expr(options.upper_strict.to_operator().into(), [arr, upper]);
 
         Binary
-            .new_expr(Operator::And, [lhs, rhs])
+            .new_expr(Operator::KleeneAnd, [lhs, rhs])
             .stat_falsification(catalog)
     }
 

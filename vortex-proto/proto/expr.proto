@@ -53,6 +53,8 @@ message BinaryOpts {
     Sub = 9;
     Mul = 10;
     Div = 11;
+    KleeneAnd = 12;
+    KleeneOr = 13;
   }
 }
 

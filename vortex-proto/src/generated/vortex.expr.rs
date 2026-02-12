@@ -64,6 +64,8 @@ pub mod binary_opts {
         Sub = 9,
         Mul = 10,
         Div = 11,
+        KleeneAnd = 12,
+        KleeneOr = 13,
     }
     impl BinaryOp {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -84,6 +86,8 @@ pub mod binary_opts {
                 Self::Sub => "Sub",
                 Self::Mul => "Mul",
                 Self::Div => "Div",
+                Self::KleeneAnd => "KleeneAnd",
+                Self::KleeneOr => "KleeneOr",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -101,6 +105,8 @@ pub mod binary_opts {
                 "Sub" => Some(Self::Sub),
                 "Mul" => Some(Self::Mul),
                 "Div" => Some(Self::Div),
+                "KleeneAnd" => Some(Self::KleeneAnd),
+                "KleeneOr" => Some(Self::KleeneOr),
                 _ => None,
             }
         }
