@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -14,6 +15,9 @@ from .template import render_template, render_template_to_file
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
+# Marker used to find/update the single recurrence-tracking comment.
+_RECURRENCE_MARKER = "<!-- fuzzer-recurrence-tracker -->"
+_RECURRENCE_COUNT_RE = r"<!-- fuzzer-recurrence-tracker count:(\d+) -->"
 # Variables that must be set (non-empty) before creating or commenting on an issue.
 REQUIRED_REPORT_VARIABLES = ["FUZZ_TARGET", "CRASH_FILE", "ARTIFACT_URL"]
 
@@ -83,7 +87,14 @@ def _build_template_variables(
 def _determine_action(
     dedup_path: str | Path | None,
 ) -> tuple[str, dict | None]:
-    """Determine action from dedup result. Returns (action, dedup_dict)."""
+    """Determine action from dedup result. Returns (action, dedup_dict).
+
+    Actions:
+      create       – new issue
+      skip         – exact duplicate, do nothing
+      update_count – high-confidence duplicate, bump recurrence counter
+      comment      – medium-confidence duplicate, post full comment
+    """
     if not dedup_path or not Path(dedup_path).exists():
         return "create", None
 
@@ -94,7 +105,88 @@ def _determine_action(
     if dedup.get("confidence") == "exact":
         return "skip", dedup
 
+    if dedup.get("confidence") == "high":
+        return "update_count", dedup
+
     return "comment", dedup
+
+
+def _render_recurrence_body(count: int) -> str:
+    """Render the minimal recurrence-tracking comment body."""
+    return (
+        f"Seen **{count}** time{'s' if count != 1 else ''}\n\n"
+        f"<!-- fuzzer-recurrence-tracker count:{count} -->"
+    )
+
+
+def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
+    """Find-or-create the recurrence comment, incrementing its count.
+
+    Uses a compare-and-swap pattern: reads the current count from the
+    existing comment (if any), increments it, and writes back.
+
+    Returns the new count.
+    """
+    # List all comments on the issue
+    result = subprocess.run(
+        [
+            "gh",
+            "api",
+            f"repos/{repo}/issues/{issue_number}/comments",
+            "--paginate",
+            "--jq",
+            f'.[] | select(.body | contains("{_RECURRENCE_MARKER}")) | {{id: .id, body: .body}}',
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    existing_id = None
+    current_count = 0
+
+    for line in result.stdout.strip().splitlines():
+        if not line:
+            continue
+        comment = json.loads(line)
+        existing_id = comment["id"]
+        m = re.search(_RECURRENCE_COUNT_RE, comment["body"])
+        if m:
+            current_count = int(m.group(1))
+        break
+
+    new_count = current_count + 1
+    body = _render_recurrence_body(new_count)
+
+    if existing_id:
+        # Update existing comment (not atomic — race is acceptable since
+        # fuzz CI jobs are serialized)
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/comments/{existing_id}",
+                "-X",
+                "PATCH",
+                "-f",
+                f"body={body}",
+            ],
+            check=True,
+        )
+    else:
+        # Create new recurrence comment
+        subprocess.run(
+            [
+                "gh",
+                "api",
+                f"repos/{repo}/issues/{issue_number}/comments",
+                "-f",
+                f"body={body}",
+            ],
+            check=True,
+        )
+
+    return new_count
 
 
 def cmd_extract(args: argparse.Namespace) -> int:
@@ -193,6 +285,15 @@ def cmd_report(args: argparse.Namespace) -> int:
         _write_github_output("issue_number", str(existing_issue))
         return 0
 
+    if action == "update_count":
+        new_count = _update_recurrence_count(args.repo, existing_issue)
+        print(
+            f"Updated recurrence count on #{existing_issue} to {new_count}",
+            file=sys.stderr,
+        )
+        _write_github_output("issue_number", str(existing_issue))
+        return 0
+
     if action == "comment":
         variables.setdefault("DEDUP_REASON", dedup.get("reason", ""))
         variables.setdefault("DEDUP_CONFIDENCE", dedup.get("confidence", ""))
@@ -270,6 +371,7 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
     print(f"  panic_message:  {crash_info.panic_message}", file=sys.stderr)
     print(f"  crash_type:     {crash_info.crash_type}", file=sys.stderr)
     print(f"  seed_hash:      {crash_info.seed_hash}", file=sys.stderr)
+    print(f"  stack_frames:   {crash_info.stack_frames[:5]}", file=sys.stderr)
     print(file=sys.stderr)
 
     # Step 2: Dedup (if issues file provided)
@@ -286,6 +388,8 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
             print(f"  confidence: {dedup_result.confidence}", file=sys.stderr)
             print(f"  issue:      #{dedup_result.issue_number}", file=sys.stderr)
             print(f"  reason:     {dedup_result.reason}", file=sys.stderr)
+        if dedup_result.debug:
+            print(f"  debug:      {json.dumps(dedup_result.debug, indent=4)}", file=sys.stderr)
         print(file=sys.stderr)
 
     # Write dedup to temp file so _determine_action can read it
@@ -320,6 +424,15 @@ def cmd_dry_run(args: argparse.Namespace) -> int:
             f"(exact duplicate of #{existing_issue}, no issue/comment would be created)",
             file=sys.stderr,
         )
+        return 0
+
+    if action == "update_count":
+        print(
+            f"(would update recurrence count on #{existing_issue})",
+            file=sys.stderr,
+        )
+        print(file=sys.stderr)
+        print(_render_recurrence_body(1))
         return 0
 
     if action == "comment":

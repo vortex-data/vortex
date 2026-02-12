@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 #include "duckdb/common/vector.hpp"
+#include "duckdb/common/types/value.hpp"
 #include "duckdb/common/types/vector.hpp"
 
 #include "duckdb_vx.h"
@@ -77,6 +78,13 @@ extern "C" void duckdb_vx_vector_set_data_ptr(duckdb_vector ffi_vector, void *pt
     auto vector = reinterpret_cast<Vector *>(ffi_vector);
     auto dvector = reinterpret_cast<vortex::DataVector *>(vector);
     dvector->SetDataPtr((data_ptr_t)ptr);
+}
+
+extern "C" duckdb_value duckdb_vx_vector_get_value(duckdb_vector ffi_vector, idx_t index) {
+    auto vector = reinterpret_cast<Vector *>(ffi_vector);
+
+    auto value = new duckdb::Value(vector->GetValue(index));
+    return reinterpret_cast<duckdb_value>(value);
 }
 
 void duckdb_vector_flatten(duckdb_vector vector, unsigned long len) {

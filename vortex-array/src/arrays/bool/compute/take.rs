@@ -18,7 +18,7 @@ use crate::arrays::BoolArray;
 use crate::arrays::BoolVTable;
 use crate::arrays::ConstantArray;
 use crate::arrays::TakeExecute;
-use crate::compute::fill_null;
+use crate::builtins::ArrayBuiltins;
 use crate::executor::ExecutionCtx;
 use crate::vtable::ValidityHelper;
 
@@ -36,7 +36,9 @@ impl TakeExecute for BoolVTable {
                         .into_array(),
                 ));
             }
-            Mask::Values(_) => fill_null(indices, &Scalar::from(0).cast(indices.dtype())?)?,
+            Mask::Values(_) => indices
+                .to_array()
+                .fill_null(Scalar::from(0).cast(indices.dtype())?)?,
         };
         let indices_nulls_zeroed = indices_nulls_zeroed.to_primitive();
         let buffer = match_each_integer_ptype!(indices_nulls_zeroed.ptype(), |I| {

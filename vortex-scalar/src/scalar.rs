@@ -316,8 +316,10 @@ impl Scalar {
         )
     }
 
-    /// Returns the size of the scalar in bytes, uncompressed.
-    #[cfg(test)]
+    /// Returns an **ESTIMATE** of the size of the scalar in bytes, uncompressed.
+    ///
+    /// Note that the protobuf serialization of scalars will likely have a different (but roughly
+    /// similar) length.
     pub fn nbytes(&self) -> usize {
         use vortex_dtype::NativeDecimalType;
         use vortex_dtype::i256;

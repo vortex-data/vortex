@@ -221,8 +221,16 @@ impl ValidityChild<ZigZagVTable> for ZigZagVTable {
 impl VisitorVTable<ZigZagVTable> for ZigZagVTable {
     fn visit_buffers(_array: &ZigZagArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ZigZagArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ZigZagArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded())
+    }
+
+    fn nchildren(_array: &ZigZagArray) -> usize {
+        1
     }
 }
 

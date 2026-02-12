@@ -144,4 +144,15 @@ impl VisitorVTable<SharedVTable> for SharedVTable {
     fn visit_children(array: &SharedArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("source", &array.current_array_ref());
     }
+
+    fn nchildren(_array: &SharedArray) -> usize {
+        1
+    }
+
+    fn nth_child(array: &SharedArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.current_array_ref()),
+            _ => None,
+        }
+    }
 }

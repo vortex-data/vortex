@@ -178,4 +178,12 @@ impl VisitorVTable<ArrowVTable> for ArrowVTable {
     fn visit_buffers(_array: &ArrowArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
     fn visit_children(_array: &ArrowArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &ArrowArray) -> usize {
+        0
+    }
+
+    fn nth_child(_array: &ArrowArray, _idx: usize) -> Option<ArrayRef> {
+        None
+    }
 }

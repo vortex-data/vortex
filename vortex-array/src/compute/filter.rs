@@ -16,7 +16,7 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
-use crate::compute::fill_null;
+use crate::builtins::ArrayBuiltins;
 
 /// Keep only the elements for which the corresponding mask value is true.
 ///
@@ -60,7 +60,9 @@ impl dyn Array + '_ {
         }
 
         // Convert nulls to false first in case this can be done cheaply by the encoding.
-        let array = fill_null(self, &Scalar::bool(false, self.dtype().nullability()))?;
+        let array = self
+            .to_array()
+            .fill_null(Scalar::bool(false, self.dtype().nullability()))?;
 
         Ok(array.to_bool().to_mask_fill_null_false())
     }

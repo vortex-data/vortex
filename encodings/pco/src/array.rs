@@ -42,6 +42,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -553,8 +554,16 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
         }
     }
 
+    fn nbuffers(array: &PcoArray) -> usize {
+        array.chunk_metas.len() + array.pages.len()
+    }
+
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
+    }
+
+    fn nchildren(array: &PcoArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
     }
 }
 
