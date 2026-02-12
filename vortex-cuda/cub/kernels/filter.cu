@@ -20,7 +20,7 @@ struct BitExtractor {
     const uint8_t* packed;
     uint64_t bit_offset;
 
-    __host__ __device__ __forceinline__
+    __host__ __device__ inline
     uint8_t operator()(int64_t idx) const {
         uint64_t actual_bit = bit_offset + static_cast<uint64_t>(idx);
         uint64_t byte_idx = actual_bit / 8;

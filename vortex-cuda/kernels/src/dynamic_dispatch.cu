@@ -20,12 +20,12 @@
 constexpr uint32_t ELEMENTS_PER_BLOCK = 2048;
 
 template <typename T>
-__device__ __forceinline__ void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
+__device__ inline void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
                                                        unsigned int lane, uint32_t bit_width);
 
 #define BITUNPACK_LANE(bits, UType, Type)                                                                    \
     template <>                                                                                              \
-    __device__ __forceinline__ void bitunpack_lane_to_smem<Type>(const Type *in, Type *out,                  \
+    __device__ inline void bitunpack_lane_to_smem<Type>(const Type *in, Type *out,                  \
                                                                  unsigned int lane, uint32_t bw) {           \
         bit_unpack_##bits##_lane(reinterpret_cast<const UType *>(in), reinterpret_cast<UType *>(out), lane,  \
                                  bw);                                                                        \
@@ -41,7 +41,7 @@ BITUNPACK_LANE(64, uint64_t, uint64_t)
 BITUNPACK_LANE(64, uint64_t, int64_t)
 
 template <typename T>
-__device__ __forceinline__ void dynamic_source_op(const T *__restrict input, T *__restrict smem,
+__device__ inline void dynamic_source_op(const T *__restrict input, T *__restrict smem,
                                                uint64_t chunk_start, uint32_t chunk_len,
                                                const struct SourceOp &source_op) {
     constexpr uint32_t T_BITS = sizeof(T) * 8;
@@ -72,7 +72,7 @@ __device__ __forceinline__ void dynamic_source_op(const T *__restrict input, T *
 }
 
 template <typename T>
-__device__ __forceinline__ T dynamic_scalar_op(T value, const struct ScalarOp &op) {
+__device__ inline T dynamic_scalar_op(T value, const struct ScalarOp &op) {
     switch (op.op_code) {
     case ScalarOp::FOR: {
         return value + static_cast<T>(op.params.frame_of_ref.reference);

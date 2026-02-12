@@ -9,7 +9,7 @@ template<typename T>
 struct ForOp {
     T reference;
 
-    __device__ __forceinline__ T operator()(T value) const {
+    __device__ inline T operator()(T value) const {
         return value + reference;
     }
 };

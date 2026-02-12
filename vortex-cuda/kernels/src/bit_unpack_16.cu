@@ -858,7 +858,7 @@ __device__ void _bit_unpack_16_16bw_lane(const uint16_t *__restrict in, uint16_t
 }
 
 /// Runtime dispatch to the optimized lane decoder for the given bit width.
-__device__ __forceinline__ void bit_unpack_16_lane(
+__device__ inline void bit_unpack_16_lane(
     const uint16_t *__restrict in,
     uint16_t *__restrict out,
     unsigned int lane,

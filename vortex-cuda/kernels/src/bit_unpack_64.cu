@@ -12618,7 +12618,7 @@ __device__ void _bit_unpack_64_64bw_lane(const uint64_t *__restrict in, uint64_t
 }
 
 /// Runtime dispatch to the optimized lane decoder for the given bit width.
-__device__ __forceinline__ void bit_unpack_64_lane(
+__device__ inline void bit_unpack_64_lane(
     const uint64_t *__restrict in,
     uint64_t *__restrict out,
     unsigned int lane,

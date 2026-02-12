@@ -24,14 +24,11 @@ use vortex_cuda::CudaBufferExt;
 use vortex_cuda::CudaDeviceBuffer;
 use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
-use vortex_cuda::bitpacked_cuda_kernel;
-use vortex_cuda::bitpacked_cuda_launch_config;
 use vortex_cuda::dynamic_dispatch::DynamicDispatchPlan;
 use vortex_cuda::dynamic_dispatch::ScalarOp;
 use vortex_cuda::dynamic_dispatch::SourceOp;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
-use vortex_dtype::PType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -52,38 +49,6 @@ const BIT_WIDTH: u8 = 6;
 /// ALP decode factors for the ALP benchmarks.
 const ALP_F: f32 = 10.0;
 const ALP_E: f32 = 1.0;
-
-/// Launch a single FoR kernel on a device buffer (in-place).
-fn launch_for_kernel(
-    cuda_ctx: &mut CudaExecutionCtx,
-    device_buf: &CudaDeviceBuffer,
-    output_len: usize,
-) -> VortexResult<()> {
-    let cuda_function = cuda_ctx.load_function_ptype("for", &[PType::U32])?;
-    let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
-
-    let device_view = device_buf.as_view::<u32>();
-    let reference = REFERENCE_VALUE;
-    let array_len_u64 = output_len as u64;
-
-    launch_builder.arg(&device_view);
-    launch_builder.arg(&reference);
-    launch_builder.arg(&array_len_u64);
-
-    let num_blocks = output_len.div_ceil(2048) as u32;
-    let config = LaunchConfig {
-        grid_dim: (num_blocks, 1, 1),
-        block_dim: (64, 1, 1),
-        shared_mem_bytes: 0,
-    };
-
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("FoR kernel launch failed: {}", e))?;
-    }
-    Ok(())
-}
 
 /// Create a BitPackedArray of u32 values with the given bit width and length.
 fn make_bitpacked_array_u32(bit_width: u8, len: usize) -> BitPackedArray {
@@ -152,115 +117,6 @@ fn run_dynamic_dispatch_timed(
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }
 
-/// Run bitunpack then FoR as two separate kernel launches, returning GPU time.
-fn run_bitunpack_for_separate_timed(
-    cuda_ctx: &mut CudaExecutionCtx,
-    bitpacked_array: &BitPackedArray,
-) -> VortexResult<Duration> {
-    let packed = bitpacked_array.packed().clone();
-    let bit_width = bitpacked_array.bit_width();
-    let len = bitpacked_array.len();
-
-    // Move packed data to device.
-    let device_input = if packed.is_on_device() {
-        packed
-    } else {
-        block_on(cuda_ctx.move_to_device(packed)?).vortex_expect("failed to move to device")
-    };
-
-    // Allocate output buffer (padded to 1024-element chunks).
-    let output_slice = cuda_ctx
-        .device_alloc::<u32>(len.next_multiple_of(1024))
-        .vortex_expect("failed to allocate output");
-    let output_buf = CudaDeviceBuffer::new(output_slice);
-
-    let input_view = device_input
-        .cuda_view::<u32>()
-        .vortex_expect("failed to get input view");
-    let output_view = output_buf.as_view::<u32>();
-
-    // Ensure H2D copy is done before we start timing.
-    cuda_ctx
-        .stream()
-        .synchronize()
-        .map_err(|e| vortex_err!("failed to synchronize stream: {:?}", e))?;
-
-    let stream = cuda_ctx.stream();
-    let ctx = stream.context();
-    let start_event = ctx
-        .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("failed to create start event: {:?}", e))?;
-    start_event
-        .record(stream)
-        .map_err(|e| vortex_err!("failed to record start event: {:?}", e))?;
-
-    // BitUnpack
-    let output_width = u32::BITS as usize;
-    let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, cuda_ctx)?;
-    let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
-    launch_builder.arg(&input_view);
-    launch_builder.arg(&output_view);
-
-    let config = bitpacked_cuda_launch_config(output_width, len)?;
-    unsafe {
-        launch_builder
-            .launch(config)
-            .map_err(|e| vortex_err!("bit_unpack kernel launch failed: {}", e))?;
-    }
-
-    // FoR
-    launch_for_kernel(cuda_ctx, &output_buf, len)?;
-
-    let stream = cuda_ctx.stream();
-    let ctx = stream.context();
-    let end_event = ctx
-        .new_event(Some(CUevent_flags::CU_EVENT_BLOCKING_SYNC))
-        .map_err(|e| vortex_err!("failed to create end event: {:?}", e))?;
-    end_event
-        .record(stream)
-        .map_err(|e| vortex_err!("failed to record end event: {:?}", e))?;
-
-    let elapsed_ms = start_event
-        .elapsed_ms(&end_event)
-        .map_err(|e| vortex_err!("failed to get elapsed time: {:?}", e))?;
-
-    Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
-}
-
-fn bench_bitunpack_for_separate(c: &mut Criterion) {
-    let mut group = c.benchmark_group("bitunpack_for");
-    group.sample_size(10);
-
-    for (len, len_str) in BENCH_ARGS {
-        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
-
-        let bitpacked = make_bitpacked_array_u32(BIT_WIDTH, *len);
-
-        group.bench_with_input(
-            BenchmarkId::new("separate_u32", len_str),
-            &bitpacked,
-            |b, array| {
-                b.iter_custom(|iters| {
-                    let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
-                        .vortex_expect("failed to create execution context");
-
-                    let mut total_time = Duration::ZERO;
-
-                    for _ in 0..iters {
-                        let kernel_time = run_bitunpack_for_separate_timed(&mut cuda_ctx, array)
-                            .vortex_expect("bitunpack+for separate failed");
-                        total_time += kernel_time;
-                    }
-
-                    total_time
-                });
-            },
-        );
-    }
-
-    group.finish();
-}
-
 /// Run a fused dynamic_dispatch launch on a bitpacked array, returning GPU time.
 fn run_dynamic_dispatch_bitpacked_timed(
     cuda_ctx: &mut CudaExecutionCtx,
@@ -320,11 +176,6 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                     .vortex_expect("failed to create execution context");
 
-                // Force PTX JIT compilation before any measurement.
-                cuda_ctx
-                    .load_function("dynamic_dispatch", &["u32"])
-                    .vortex_expect("failed to preload dynamic_dispatch kernel");
-
                 let device_plan = Arc::new(
                     cuda_ctx
                         .stream()
@@ -379,11 +230,6 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
                 let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
                     .vortex_expect("failed to create execution context");
 
-                // Force PTX JIT compilation before any measurement.
-                cuda_ctx
-                    .load_function("dynamic_dispatch", &["u32"])
-                    .vortex_expect("failed to preload dynamic_dispatch kernel");
-
                 let device_plan = Arc::new(
                     cuda_ctx
                         .stream()
@@ -414,7 +260,6 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
 }
 
 fn benchmark_nested_decode(c: &mut Criterion) {
-    bench_bitunpack_for_separate(c);
     bench_bitunpack_for_dynamic_dispatch(c);
     bench_bitunpack_for_alp_dynamic_dispatch(c);
 }

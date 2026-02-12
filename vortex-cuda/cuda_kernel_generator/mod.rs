@@ -96,10 +96,7 @@ fn generate_lane_dispatch<T: FastLanes, W: Write>(
         output,
         "/// Runtime dispatch to the optimized lane decoder for the given bit width."
     )?;
-    writeln!(
-        output,
-        "__device__ __forceinline__ void bit_unpack_{bits}_lane("
-    )?;
+    writeln!(output, "__device__ inline void bit_unpack_{bits}_lane(")?;
     writeln!(output, "    const uint{bits}_t *__restrict in,")?;
     writeln!(output, "    uint{bits}_t *__restrict out,")?;
     writeln!(output, "    unsigned int lane,")?;
