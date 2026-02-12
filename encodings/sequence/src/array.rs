@@ -4,6 +4,7 @@
 use std::hash::Hash;
 
 use num_traits::cast::FromPrimitive;
+use num_traits::zero;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
@@ -15,6 +16,8 @@ use vortex_array::ProstMetadata;
 use vortex_array::SerializeMetadata;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::expr::stats::Precision as StatPrecision;
+use vortex_array::expr::stats::Stat;
 use vortex_array::serde::ArrayChildren;
 use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
@@ -127,13 +130,27 @@ impl SequenceArray {
         length: usize,
     ) -> Self {
         let dtype = DType::Primitive(ptype, nullability);
+
+        // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
+        // and strictly sorted iff multiplier > 0.
+        let (is_sorted, is_strict_sorted) = match_each_native_ptype!(ptype, |P| {
+            let m = multiplier.cast::<P>();
+            (m >= zero::<P>(), m > zero::<P>())
+        });
+
+        let stats_set = ArrayStats::default();
+        stats_set.set(Stat::IsSorted, StatPrecision::Exact(is_sorted.into()));
+        stats_set.set(
+            Stat::IsStrictSorted,
+            StatPrecision::Exact(is_strict_sorted.into()),
+        );
+
         Self {
             base,
             multiplier,
             dtype,
             len: length,
-            // TODO(joe): add stats, on construct or on use?
-            stats_set: Default::default(),
+            stats_set,
         }
     }
 
@@ -393,7 +410,11 @@ impl SequenceVTable {
 mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
+    use vortex_array::expr::stats::Precision as StatPrecision;
+    use vortex_array::expr::stats::Stat;
+    use vortex_array::expr::stats::StatsProviderExt;
     use vortex_dtype::Nullability;
+    use vortex_error::VortexResult;
     use vortex_scalar::Scalar;
     use vortex_scalar::ScalarValue;
 
@@ -443,5 +464,53 @@ mod tests {
     fn test_sequence_too_big() {
         assert!(SequenceArray::typed_new(127i8, 1i8, Nullability::NonNullable, 2).is_err());
         assert!(SequenceArray::typed_new(-128i8, -1i8, Nullability::NonNullable, 2).is_err());
+    }
+
+    #[test]
+    fn positive_multiplier_is_strict_sorted() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(0i64, 3, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(true)));
+        Ok(())
+    }
+
+    #[test]
+    fn zero_multiplier_is_sorted_not_strict() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(5i64, 0, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(true)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
+    }
+
+    #[test]
+    fn negative_multiplier_not_sorted() -> VortexResult<()> {
+        let arr = SequenceArray::typed_new(10i64, -1, Nullability::NonNullable, 4)?;
+
+        let is_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsSorted));
+        assert_eq!(is_sorted, Some(StatPrecision::Exact(false)));
+
+        let is_strict_sorted = arr
+            .statistics()
+            .with_typed_stats_set(|s| s.get_as::<bool>(Stat::IsStrictSorted));
+        assert_eq!(is_strict_sorted, Some(StatPrecision::Exact(false)));
+        Ok(())
     }
 }
