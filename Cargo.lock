@@ -10703,6 +10703,7 @@ dependencies = [
  "arrow-schema",
  "arrow-select",
  "arrow-string",
+ "async-lock",
  "cfg-if",
  "codspeed-divan-compat",
  "enum-iterator",

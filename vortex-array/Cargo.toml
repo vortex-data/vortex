@@ -22,6 +22,7 @@ workspace = true
 [dependencies]
 arbitrary = { workspace = true, optional = true }
 arcref = { workspace = true }
+async-lock = { workspace = true }
 arrow-arith = { workspace = true }
 arrow-array = { workspace = true, features = ["ffi"] }
 arrow-buffer = { workspace = true }
