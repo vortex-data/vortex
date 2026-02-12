@@ -26,10 +26,9 @@ use vortex_cuda::CudaExecutionCtx;
 use vortex_cuda::CudaSession;
 use vortex_cuda::bitpacked_cuda_kernel;
 use vortex_cuda::bitpacked_cuda_launch_config;
-use vortex_cuda::dynamic_dispatch_op::DynamicOp;
-use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_ALP;
-use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_BITUNPACK;
-use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_FOR;
+use vortex_cuda::dynamic_dispatch::DynamicDispatchPlan;
+use vortex_cuda::dynamic_dispatch::ScalarOp;
+use vortex_cuda::dynamic_dispatch::SourceOp;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::PType;
@@ -53,10 +52,6 @@ const ALP_E: f32 = 1.0;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn pack_alp_f32_param(f: f32, e: f32) -> u64 {
-    (e.to_bits() as u64) << 32 | f.to_bits() as u64
-}
 
 /// Helper: launch a single FoR kernel on a device buffer (in-place).
 fn launch_for_kernel(
@@ -107,12 +102,11 @@ fn run_dynamic_dispatch_timed(
     input_ptr: u64,
     output_ptr: u64,
     array_len: usize,
-    device_ops: &Arc<cudarc::driver::CudaSlice<DynamicOp>>,
-    num_ops: u8,
+    device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
 ) -> VortexResult<Duration> {
     let cuda_function = cuda_ctx.load_function("dynamic_dispatch", &["u32"])?;
     let array_len_u64 = array_len as u64;
-    let ops_ptr = device_ops.device_ptr(cuda_ctx.stream()).0;
+    let plan_ptr = device_plan.device_ptr(cuda_ctx.stream()).0;
 
     let stream = cuda_ctx.stream();
     let ctx = stream.context();
@@ -127,8 +121,7 @@ fn run_dynamic_dispatch_timed(
     launch_builder.arg(&input_ptr);
     launch_builder.arg(&output_ptr);
     launch_builder.arg(&array_len_u64);
-    launch_builder.arg(&ops_ptr);
-    launch_builder.arg(&num_ops);
+    launch_builder.arg(&plan_ptr);
 
     let num_blocks = array_len.div_ceil(2048) as u32;
     let config = LaunchConfig {
@@ -275,15 +268,14 @@ fn bench_bitunpack_for_separate(c: &mut Criterion) {
 }
 
 // ============================================================================
-// Benchmark: BitUnpack + FoR — single fused dynamic scalar_decode launch
+// Benchmark: BitUnpack + FoR — single fused dynamic dispatch launch
 // ============================================================================
 
 /// Run a fused dynamic_dispatch launch on a bitpacked array, returning GPU time.
 fn run_dynamic_dispatch_bitpacked_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     bitpacked_array: &BitPackedArray,
-    device_ops: &Arc<cudarc::driver::CudaSlice<DynamicOp>>,
-    num_ops: u8,
+    device_plan: &Arc<cudarc::driver::CudaSlice<DynamicDispatchPlan>>,
 ) -> VortexResult<Duration> {
     let packed = bitpacked_array.packed().clone();
     let len = bitpacked_array.len();
@@ -314,24 +306,17 @@ fn run_dynamic_dispatch_bitpacked_timed(
         .synchronize()
         .map_err(|e| vortex_err!("failed to synchronize stream: {:?}", e))?;
 
-    run_dynamic_dispatch_timed(cuda_ctx, input_ptr, output_ptr, len, device_ops, num_ops)
+    run_dynamic_dispatch_timed(cuda_ctx, input_ptr, output_ptr, len, device_plan)
 }
 
 fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
     let mut group = c.benchmark_group("bitunpack_for");
     group.sample_size(10);
 
-    // ops = [BITUNPACK(bit_width=BIT_WIDTH), FOR(REFERENCE_VALUE)]
-    let ops = vec![
-        DynamicOp {
-            op: DynamicOpCode_BITUNPACK,
-            param: BIT_WIDTH as u64,
-        },
-        DynamicOp {
-            op: DynamicOpCode_FOR,
-            param: REFERENCE_VALUE as u64,
-        },
-    ];
+    let plan = DynamicDispatchPlan::new(
+        SourceOp::bitunpack(BIT_WIDTH),
+        &[ScalarOp::frame_of_ref(REFERENCE_VALUE as u64)],
+    );
 
     for (len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
@@ -350,11 +335,11 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
                     .load_function("dynamic_dispatch", &["u32"])
                     .vortex_expect("failed to preload dynamic_dispatch kernel");
 
-                let device_ops = Arc::new(
+                let device_plan = Arc::new(
                     cuda_ctx
                         .stream()
-                        .clone_htod(ops.as_slice())
-                        .expect("failed to copy ops to device"),
+                        .clone_htod(std::slice::from_ref(&plan))
+                        .expect("failed to copy plan to device"),
                 );
 
                 b.iter_custom(|iters| {
@@ -364,8 +349,7 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
                         let kernel_time = run_dynamic_dispatch_bitpacked_timed(
                             &mut cuda_ctx,
                             array,
-                            &device_ops,
-                            ops.len() as u8,
+                            &device_plan,
                         )
                         .vortex_expect("bitunpack+for dynamic_dispatch failed");
                         total_time += kernel_time;
@@ -388,21 +372,13 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
     let mut group = c.benchmark_group("bitunpack_for_alp");
     group.sample_size(10);
 
-    // ops = [BITUNPACK(bit_width), FOR(reference), ALP(f, e)]
-    let ops = vec![
-        DynamicOp {
-            op: DynamicOpCode_BITUNPACK,
-            param: BIT_WIDTH as u64,
-        },
-        DynamicOp {
-            op: DynamicOpCode_FOR,
-            param: REFERENCE_VALUE as u64,
-        },
-        DynamicOp {
-            op: DynamicOpCode_ALP,
-            param: pack_alp_f32_param(ALP_F, ALP_E),
-        },
-    ];
+    let plan = DynamicDispatchPlan::new(
+        SourceOp::bitunpack(BIT_WIDTH),
+        &[
+            ScalarOp::frame_of_ref(REFERENCE_VALUE as u64),
+            ScalarOp::alp(ALP_F, ALP_E),
+        ],
+    );
 
     for (len, len_str) in BENCH_ARGS {
         group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
@@ -421,11 +397,11 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
                     .load_function("dynamic_dispatch", &["u32"])
                     .vortex_expect("failed to preload dynamic_dispatch kernel");
 
-                let device_ops = Arc::new(
+                let device_plan = Arc::new(
                     cuda_ctx
                         .stream()
-                        .clone_htod(ops.as_slice())
-                        .expect("failed to copy ops to device"),
+                        .clone_htod(std::slice::from_ref(&plan))
+                        .expect("failed to copy plan to device"),
                 );
 
                 b.iter_custom(|iters| {
@@ -435,8 +411,7 @@ fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
                         let kernel_time = run_dynamic_dispatch_bitpacked_timed(
                             &mut cuda_ctx,
                             array,
-                            &device_ops,
-                            ops.len() as u8,
+                            &device_plan,
                         )
                         .vortex_expect("bitunpack+for+alp dynamic_dispatch failed");
                         total_time += kernel_time;

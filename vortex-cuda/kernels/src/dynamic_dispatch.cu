@@ -2,8 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 // Dynamic dispatch kernel: decodes an array by applying a sequence of operations
-// in a single kernel launch. The first op may optionally be a "source" op, e.g. bitunpack.
-// Subsequent transform ops are applied element-wise in registers.
+// in a single kernel launch. The source op fills shared memory (e.g. bitunpack),
+// then scalar ops are applied element-wise in registers (e.g. FoR, zigzag, ALP).
 
 #include <assert.h>
 #include <cuda.h>
@@ -17,31 +17,7 @@
 #include "dynamic_dispatch.h"
 #include "types.cuh"
 
-constexpr uint8_t MAX_DECODE_OPS = 8;
 constexpr uint32_t FL_CHUNK_SIZE = 1024;
-
-__device__ __forceinline__ bool is_source_op(enum DynamicOpCode op) {
-    return op == BITUNPACK;
-}
-
-template <typename T>
-__device__ __forceinline__ T apply_scalar_op(T value, const DynamicOp &op) {
-    switch (op.op) {
-    case FOR: {
-        return value + static_cast<T>(op.param);
-    }
-    case ZIGZAG: {
-        return (value >> 1) ^ static_cast<T>(-(value & 1));
-    }
-    case ALP: {
-        float f_val = __uint_as_float(static_cast<uint32_t>(op.param));
-        float e_val = __uint_as_float(static_cast<uint32_t>(op.param >> 32));
-        float result = static_cast<float>(static_cast<int32_t>(value)) * f_val * e_val;
-        return static_cast<T>(__float_as_uint(result));
-    }
-    default: __builtin_unreachable();
-    }
-}
 
 template <typename T>
 __device__ __forceinline__ void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
@@ -65,15 +41,15 @@ BITUNPACK_LANE(64, uint64_t, uint64_t)
 BITUNPACK_LANE(64, uint64_t, int64_t)
 
 template <typename T>
-__device__ __forceinline__ void source_fill_op(const T *__restrict input, T *__restrict smem,
+__device__ __forceinline__ void dynamic_source_op(const T *__restrict input, T *__restrict smem,
                                                uint64_t chunk_start, uint32_t chunk_len,
-                                               const DynamicOp &source_op) {
+                                               const struct SourceOp &source_op) {
     constexpr uint32_t T_BITS = sizeof(T) * 8;
     constexpr uint32_t FL_LANES = FL_CHUNK_SIZE / T_BITS;
 
-    switch (source_op.op) {
-    case BITUNPACK: {
-        const uint32_t bit_width = static_cast<uint32_t>(source_op.param);
+    switch (source_op.op_code) {
+    case SourceOp::BITUNPACK: {
+        const uint32_t bit_width = source_op.params.bitunpack.bit_width;
         const uint32_t packed_words_per_chunk = FL_LANES * bit_width;
         const uint64_t chunk_idx = chunk_start / FL_CHUNK_SIZE;
         const T *packed_chunk = input + chunk_idx * packed_words_per_chunk;
@@ -82,44 +58,50 @@ __device__ __forceinline__ void source_fill_op(const T *__restrict input, T *__r
         }
         break;
     }
-    default:
-        for (uint32_t elem_idx = threadIdx.x; elem_idx < chunk_len; elem_idx += blockDim.x) {
-            smem[elem_idx] = input[chunk_start + elem_idx];
-        }
-        break;
+    default: __builtin_unreachable();
+    }
+}
+
+template <typename T>
+__device__ __forceinline__ T dynamic_scalar_op(T value, const struct ScalarOp &op) {
+    switch (op.op_code) {
+    case ScalarOp::FOR: {
+        return value + static_cast<T>(op.params.frame_of_ref.reference);
+    }
+    case ScalarOp::ZIGZAG: {
+        return (value >> 1) ^ static_cast<T>(-(value & 1));
+    }
+    case ScalarOp::ALP: {
+        float result = static_cast<float>(static_cast<int32_t>(value)) * op.params.alp.f * op.params.alp.e;
+        return static_cast<T>(__float_as_uint(result));
+    }
+    default: __builtin_unreachable();
     }
 }
 
 template <typename T>
 __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict output, uint64_t array_len,
-                                      const DynamicOp *__restrict ops, uint8_t num_ops) {
-    assert(num_ops <= MAX_DECODE_OPS);
-
+                                      const struct DynamicDispatchPlan *__restrict plan) {
     constexpr uint32_t ELEMENTS_PER_BLOCK = 2048;
     constexpr uint32_t VALUES_PER_LOOP = 32 / sizeof(T);
 
-    __shared__ DynamicOp smem_ops[MAX_DECODE_OPS];
+    __shared__ struct DynamicDispatchPlan smem_plan;
     __shared__ T smem_values[FL_CHUNK_SIZE];
 
-    // Cache ops in shared memory.
-    if (threadIdx.x < num_ops) {
-        smem_ops[threadIdx.x] = ops[threadIdx.x];
-    }
+    // Cache the plan in shared memory.
+    if (threadIdx.x == 0) smem_plan = *plan;
     __syncthreads();
 
     const uint64_t block_start = static_cast<uint64_t>(blockIdx.x) * ELEMENTS_PER_BLOCK;
     const uint64_t block_end = min(block_start + ELEMENTS_PER_BLOCK, array_len);
 
     for (uint64_t chunk_start = block_start; chunk_start < block_end; chunk_start += FL_CHUNK_SIZE) {
-        const uint32_t chunk_len =
-            static_cast<uint32_t>(min(static_cast<uint64_t>(FL_CHUNK_SIZE), block_end - chunk_start));
-
-        source_fill_op<T>(input, smem_values, chunk_start, chunk_len, smem_ops[0]);
+        const uint32_t chunk_len = min(FL_CHUNK_SIZE, static_cast<uint32_t>(block_end - chunk_start));
+        dynamic_source_op<T>(input, smem_values, chunk_start, chunk_len, smem_plan.source);
         __syncthreads();
 
         const uint32_t tile_size = blockDim.x * VALUES_PER_LOOP;
         const uint32_t num_full_tiles = chunk_len / tile_size;
-        const uint8_t scalar_op_start_idx = is_source_op(smem_ops[0].op);
 
         for (uint32_t tile = 0; tile < num_full_tiles; ++tile) {
             const uint32_t tile_base = tile * tile_size;
@@ -134,12 +116,12 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
                 values[idx] = smem_values[tile_base + idx * blockDim.x + threadIdx.x];
             }
 
-            for (uint8_t op_idx = scalar_op_start_idx; op_idx < num_ops; ++op_idx) {
-                const DynamicOp &decode_op = smem_ops[op_idx];
+            for (uint8_t op_idx = 0; op_idx < smem_plan.num_scalar_ops; ++op_idx) {
+                const struct ScalarOp &scalar_op = smem_plan.scalar_ops[op_idx];
 
                 #pragma unroll
                 for (uint32_t idx = 0; idx < VALUES_PER_LOOP; ++idx) {
-                    values[idx] = apply_scalar_op(values[idx], decode_op);
+                    values[idx] = dynamic_scalar_op(values[idx], scalar_op);
                 }
             }
 
@@ -153,8 +135,8 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
         const uint32_t rem_start = num_full_tiles * tile_size;
         for (uint32_t elem_idx = rem_start + threadIdx.x; elem_idx < chunk_len; elem_idx += blockDim.x) {
             T val = smem_values[elem_idx];
-            for (uint8_t op_idx = scalar_op_start_idx; op_idx < num_ops; ++op_idx) {
-                val = apply_scalar_op(val, smem_ops[op_idx]);
+            for (uint8_t op_idx = 0; op_idx < smem_plan.num_scalar_ops; ++op_idx) {
+                val = dynamic_scalar_op(val, smem_plan.scalar_ops[op_idx]);
             }
             output[chunk_start + elem_idx] = val;
         }
@@ -166,8 +148,8 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
 #define GENERATE_DYNAMIC_DISPATCH_KERNEL(suffix, Type)                                                       \
     extern "C" __global__ void dynamic_dispatch_##suffix(const Type *__restrict input,                       \
                                                          Type *__restrict output, uint64_t array_len,        \
-                                                         const DynamicOp *__restrict ops, uint8_t num_ops) {  \
-        dynamic_dispatch_impl<Type>(input, output, array_len, ops, num_ops);                                 \
+                                                         const struct DynamicDispatchPlan *__restrict plan) { \
+        dynamic_dispatch_impl<Type>(input, output, array_len, plan);                                         \
     }
 
 FOR_EACH_INTEGER(GENERATE_DYNAMIC_DISPATCH_KERNEL)

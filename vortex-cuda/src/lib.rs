@@ -8,19 +8,7 @@ use std::process::Command;
 pub mod arrow;
 mod canonical;
 mod device_buffer;
-/// Bindgen-generated types from `dynamic_dispatch.h`
-///
-/// The `DynamicOp` struct and `DynamicOpCode` enum are shared between CUDA
-/// kernels and Rust host code.
-pub mod dynamic_dispatch_op {
-    #![allow(non_upper_case_globals)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_snake_case)]
-    include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch_op.rs"));
-
-    // SAFETY: DynamicOp is a C ABI struct with contiguous memory.
-    unsafe impl cudarc::driver::DeviceRepr for DynamicOp {}
-}
+pub mod dynamic_dispatch;
 pub mod executor;
 mod host_to_device_allocator;
 mod kernel;

@@ -5,7 +5,6 @@ mod alp;
 mod bitpacked;
 mod date_time_parts;
 mod decimal_byte_parts;
-mod dynamic_dispatch;
 mod for_;
 mod runend;
 mod sequence;

@@ -182,7 +182,7 @@ fn nvcc_compile_ptx(
 
 /// Generate bindings for the dynamic dispatch shared header.
 ///
-/// `DynamicOp` and `DynamicOpCode` are shared between CUDA kernels
+/// `DynamicDispatchPlan` and related types are shared between CUDA kernels
 /// and Rust host code.
 fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
     let header = kernels_src.join("dynamic_dispatch.h");
@@ -190,16 +190,14 @@ fn generate_dynamic_dispatch_bindings(kernels_src: &Path, out_dir: &Path) {
 
     let bindings = bindgen::Builder::default()
         .header(header.to_string_lossy())
-        .allowlist_type("DynamicOp")
-        .allowlist_type("DynamicOpCode")
         .derive_copy(true)
         .derive_debug(true)
         .generate()
         .expect("Failed to generate dynamic_dispatch bindings");
 
     bindings
-        .write_to_file(out_dir.join("dynamic_dispatch_op.rs"))
-        .expect("Failed to write dynamic_dispatch_op.rs");
+        .write_to_file(out_dir.join("dynamic_dispatch.rs"))
+        .expect("Failed to write dynamic_dispatch.rs");
 }
 
 /// Check if CUDA is available based on nvcc.

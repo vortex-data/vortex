@@ -1,7 +1,94 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+#![allow(non_upper_case_globals)]
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
+
 use vortex_cuda_macros::cuda_tests;
+
+// Bindgen-generated types from `dynamic_dispatch.h`
+//
+// The `DynamicDispatchPlan` struct and related types are shared between CUDA
+// kernels and Rust host code.
+include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
+
+// SAFETY: DynamicDispatchPlan is a C ABI struct with contiguous memory.
+unsafe impl cudarc::driver::DeviceRepr for DynamicDispatchPlan {}
+
+// Aliases for bindgen-generated scoped names.
+pub type BitunpackParams = SourceParams_BitunpackParams;
+pub type FoRParams = ScalarParams_FoRParams;
+pub type AlpParams = ScalarParams_AlpParams;
+pub type SourceOpCode = SourceOp_SourceOpCode;
+pub type ScalarOpCode = ScalarOp_ScalarOpCode;
+pub const SourceOpCode_BITUNPACK: SourceOpCode = SourceOp_SourceOpCode_BITUNPACK;
+pub const ScalarOpCode_FOR: ScalarOpCode = ScalarOp_ScalarOpCode_FOR;
+pub const ScalarOpCode_ZIGZAG: ScalarOpCode = ScalarOp_ScalarOpCode_ZIGZAG;
+pub const ScalarOpCode_ALP: ScalarOpCode = ScalarOp_ScalarOpCode_ALP;
+
+impl SourceOp {
+    /// Create a bitunpack source op with the given bit width.
+    pub fn bitunpack(bit_width: u8) -> Self {
+        Self {
+            op_code: SourceOpCode_BITUNPACK,
+            params: SourceParams {
+                bitunpack: BitunpackParams { bit_width },
+            },
+        }
+    }
+}
+
+impl ScalarOp {
+    /// Create a frame-of-reference scalar op that adds the given reference value.
+    pub fn frame_of_ref(reference: u64) -> Self {
+        Self {
+            op_code: ScalarOpCode_FOR,
+            params: ScalarParams {
+                frame_of_ref: FoRParams { reference },
+            },
+        }
+    }
+
+    /// Create a zigzag decode scalar op.
+    pub fn zigzag() -> Self {
+        // SAFETY: Zigzag has no parameters; zeroed union is valid.
+        Self {
+            op_code: ScalarOpCode_ZIGZAG,
+            params: unsafe { std::mem::zeroed() },
+        }
+    }
+
+    /// Create an ALP decode scalar op with the given factors.
+    pub fn alp(f: f32, e: f32) -> Self {
+        Self {
+            op_code: ScalarOpCode_ALP,
+            params: ScalarParams {
+                alp: AlpParams { f, e },
+            },
+        }
+    }
+}
+
+impl DynamicDispatchPlan {
+    /// Create a new dispatch plan from a source op and a slice of scalar ops.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `scalar_ops.len() > MAX_SCALAR_OPS`.
+    #[allow(clippy::cast_possible_truncation)]
+    pub fn new(source: SourceOp, scalar_ops: &[ScalarOp]) -> Self {
+        assert!(scalar_ops.len() <= MAX_SCALAR_OPS as usize);
+        // SAFETY: ScalarOp is a repr(C) union type; zeroed memory is valid for unused slots.
+        let mut plan_ops: [ScalarOp; MAX_SCALAR_OPS as usize] = unsafe { std::mem::zeroed() };
+        plan_ops[..scalar_ops.len()].copy_from_slice(scalar_ops);
+        Self {
+            source,
+            num_scalar_ops: scalar_ops.len() as u8,
+            scalar_ops: plan_ops,
+        }
+    }
+}
 
 #[cuda_tests]
 #[allow(clippy::cast_possible_truncation)]
@@ -25,18 +112,14 @@ mod tests {
     use vortex_fastlanes::FoRArray;
     use vortex_session::VortexSession;
 
+    use super::DynamicDispatchPlan;
+    use super::ScalarOp;
+    use super::ScalarOpCode_ZIGZAG;
+    use super::SourceOp;
     use crate::CudaBufferExt;
     use crate::CudaDeviceBuffer;
     use crate::CudaExecutionCtx;
-    use crate::dynamic_dispatch_op::DynamicOp;
-    use crate::dynamic_dispatch_op::DynamicOpCode_ALP;
-    use crate::dynamic_dispatch_op::DynamicOpCode_BITUNPACK;
-    use crate::dynamic_dispatch_op::DynamicOpCode_FOR;
     use crate::session::CudaSession;
-
-    fn pack_alp_f32_param(f: f32, e: f32) -> u64 {
-        (e.to_bits() as u64) << 32 | f.to_bits() as u64
-    }
 
     fn make_bitpacked_array_u32(bit_width: u8, len: usize) -> BitPackedArray {
         let max_val = (1u64 << bit_width).saturating_sub(1);
@@ -52,7 +135,7 @@ mod tests {
         cuda_ctx: &CudaExecutionCtx,
         input_ptr: u64,
         output_len: usize,
-        ops: &[DynamicOp],
+        plan: &DynamicDispatchPlan,
     ) -> VortexResult<Vec<u32>> {
         let output_slice = cuda_ctx
             .device_alloc::<u32>(output_len.next_multiple_of(1024))
@@ -60,14 +143,13 @@ mod tests {
         let output_buf = CudaDeviceBuffer::new(output_slice);
         let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
 
-        let device_ops = Arc::new(
+        let device_plan = Arc::new(
             cuda_ctx
                 .stream()
-                .clone_htod(ops)
-                .expect("copy ops to device"),
+                .clone_htod(std::slice::from_ref(plan))
+                .expect("copy plan to device"),
         );
-        let ops_ptr = device_ops.device_ptr(cuda_ctx.stream()).0;
-        let num_ops = ops.len() as u8;
+        let plan_ptr = device_plan.device_ptr(cuda_ctx.stream()).0;
         let array_len_u64 = output_len as u64;
 
         cuda_ctx.stream().synchronize().expect("sync");
@@ -79,8 +161,7 @@ mod tests {
         launch_builder.arg(&input_ptr);
         launch_builder.arg(&output_ptr);
         launch_builder.arg(&array_len_u64);
-        launch_builder.arg(&ops_ptr);
-        launch_builder.arg(&num_ops);
+        launch_builder.arg(&plan_ptr);
 
         let num_blocks = u32::try_from(output_len.div_ceil(2048))?;
         let config = LaunchConfig {
@@ -104,9 +185,9 @@ mod tests {
         cuda_ctx: &CudaExecutionCtx,
         input_ptr: u64,
         output_len: usize,
-        ops: &[DynamicOp],
+        plan: &DynamicDispatchPlan,
     ) -> VortexResult<Vec<f32>> {
-        let result = run_dynamic_dispatch_u32(cuda_ctx, input_ptr, output_len, ops)?;
+        let result = run_dynamic_dispatch_u32(cuda_ctx, input_ptr, output_len, plan)?;
         // SAFETY: f32 and u32 have identical size and alignment.
         Ok(unsafe { std::mem::transmute::<Vec<u32>, Vec<f32>>(result) })
     }
@@ -140,87 +221,42 @@ mod tests {
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
 
-        let ops = [DynamicOp {
-            op: DynamicOpCode_BITUNPACK,
-            param: bit_width as u64,
-        }];
+        let plan = DynamicDispatchPlan::new(SourceOp::bitunpack(bit_width), &[]);
 
-        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &ops)?;
+        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &plan)?;
         assert_eq!(result, expected);
 
         Ok(())
     }
 
     #[test]
-    fn test_for() -> VortexResult<()> {
-        let len = 5000;
+    fn test_bitunpack_for() -> VortexResult<()> {
+        let bit_width: u8 = 10;
+        let len = 3000;
+        let reference: u32 = 42;
 
-        let original: Vec<u32> = (0..len).map(|i| i as u32 + 42).collect();
-        let primitive = PrimitiveArray::new(Buffer::from(original.clone()), NonNullable);
-
-        let for_array = FoRArray::encode(primitive)?;
-        let reference = u32::try_from(for_array.reference_scalar())?;
-
-        let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
-
-        let encoded_prim = for_array.encoded().to_primitive();
-        let device_input = cuda_ctx
-            .stream()
-            .clone_htod(encoded_prim.as_slice::<u32>())
-            .expect("copy input to device");
-        let input_ptr = device_input.device_ptr(cuda_ctx.stream()).0;
-
-        let ops = [DynamicOp {
-            op: DynamicOpCode_FOR,
-            param: reference as u64,
-        }];
-
-        // Kernel should reconstruct the original data.
-        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &ops)?;
-        assert_eq!(result, original);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_alp() -> VortexResult<()> {
-        let len = 2050;
-
-        // Start from f32 data that ALP-encodes cleanly - no patches.
-        let exponents = Exponents { e: 2, f: 0 };
-        let floats: Vec<f32> = (0..len)
-            .map(|i| <f32 as ALPFloat>::decode_single(i as i32, exponents))
+        let max_val = (1u64 << bit_width).saturating_sub(1);
+        let expected: Vec<u32> = (0..len)
+            .map(|i| ((i as u64) % (max_val + 1)) as u32 + reference)
             .collect();
-        let float_prim = PrimitiveArray::new(Buffer::from(floats.clone()), NonNullable);
 
-        let alp_array = alp_encode(&float_prim, Some(exponents))?;
-        assert!(alp_array.patches().is_none());
-
-        let f = <f32 as ALPFloat>::F10[alp_array.exponents().f as usize];
-        let e = <f32 as ALPFloat>::IF10[alp_array.exponents().e as usize];
-
+        let bitpacked = make_bitpacked_array_u32(bit_width, len);
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
+        let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
 
-        let encoded_prim = alp_array.encoded().to_primitive();
-        let device_input = cuda_ctx
-            .stream()
-            .clone_htod(encoded_prim.as_slice::<i32>())
-            .expect("copy input to device");
-        let input_ptr = device_input.device_ptr(cuda_ctx.stream()).0;
+        let plan = DynamicDispatchPlan::new(
+            SourceOp::bitunpack(bit_width),
+            &[ScalarOp::frame_of_ref(reference as u64)],
+        );
 
-        let ops = [DynamicOp {
-            op: DynamicOpCode_ALP,
-            param: pack_alp_f32_param(f, e),
-        }];
-
-        let result = run_dynamic_dispatch_f32(&cuda_ctx, input_ptr, len, &ops)?;
-        assert_eq!(result, floats);
+        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &plan)?;
+        assert_eq!(result, expected);
 
         Ok(())
     }
 
     #[test]
-    fn test_alp_for_bitunpack() -> VortexResult<()> {
+    fn test_bitunpack_for_alp() -> VortexResult<()> {
         let len = 2050;
 
         let exponents = Exponents { e: 2, f: 0 };
@@ -241,39 +277,31 @@ mod tests {
         let bit_width: u8 = 6;
         let bitpacked = BitPackedArray::encode(for_array.encoded(), bit_width)?;
 
-        // Derive ALP decode factors from the actual exponents.
         let alp_f = <f32 as ALPFloat>::F10[alp_array.exponents().f as usize];
         let alp_e = <f32 as ALPFloat>::IF10[alp_array.exponents().e as usize];
 
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
 
-        let ops = [
-            DynamicOp {
-                op: DynamicOpCode_BITUNPACK,
-                param: bit_width as u64,
-            },
-            DynamicOp {
-                op: DynamicOpCode_FOR,
-                param: reference as u64,
-            },
-            DynamicOp {
-                op: DynamicOpCode_ALP,
-                param: pack_alp_f32_param(alp_f, alp_e),
-            },
-        ];
+        let plan = DynamicDispatchPlan::new(
+            SourceOp::bitunpack(bit_width),
+            &[
+                ScalarOp::frame_of_ref(reference as u64),
+                ScalarOp::alp(alp_f, alp_e),
+            ],
+        );
 
-        let result = run_dynamic_dispatch_f32(&cuda_ctx, input_ptr, len, &ops)?;
+        let result = run_dynamic_dispatch_f32(&cuda_ctx, input_ptr, len, &plan)?;
         assert_eq!(result, floats);
 
         Ok(())
     }
 
     #[test]
-    fn test_max_ops_bitunpack_7for() -> VortexResult<()> {
+    fn test_max_scalar_ops() -> VortexResult<()> {
         let bit_width: u8 = 6;
         let len = 2050;
-        let references: [u32; 7] = [1, 2, 4, 8, 16, 32, 64];
+        let references: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
         let total_reference: u32 = references.iter().sum();
 
         let max_val = (1u64 << bit_width).saturating_sub(1);
@@ -285,22 +313,39 @@ mod tests {
         let cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())?;
         let (input_ptr, _device_input) = copy_to_device(&cuda_ctx, &bitpacked)?;
 
-        let mut ops = Vec::with_capacity(8);
-        ops.push(DynamicOp {
-            op: DynamicOpCode_BITUNPACK,
-            param: bit_width as u64,
-        });
-        for &r in &references {
-            ops.push(DynamicOp {
-                op: DynamicOpCode_FOR,
-                param: r as u64,
-            });
-        }
-        assert_eq!(ops.len(), 8);
+        let scalar_ops: Vec<ScalarOp> = references
+            .iter()
+            .map(|&r| ScalarOp::frame_of_ref(r as u64))
+            .collect();
 
-        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &ops)?;
+        let plan = DynamicDispatchPlan::new(SourceOp::bitunpack(bit_width), &scalar_ops);
+        assert_eq!(plan.num_scalar_ops, 8);
+
+        let result = run_dynamic_dispatch_u32(&cuda_ctx, input_ptr, len, &plan)?;
         assert_eq!(result, expected);
 
         Ok(())
+    }
+
+    #[test]
+    fn test_dynamic_dispatch_plan() {
+        let plan = DynamicDispatchPlan::new(
+            SourceOp::bitunpack(10),
+            &[
+                ScalarOp::frame_of_ref(42),
+                ScalarOp::zigzag(),
+                ScalarOp::alp(10.0, 0.01),
+            ],
+        );
+
+        assert_eq!(unsafe { plan.source.params.bitunpack.bit_width }, 10);
+        assert_eq!(plan.num_scalar_ops, 3);
+        assert_eq!(
+            unsafe { plan.scalar_ops[0].params.frame_of_ref.reference },
+            42
+        );
+        assert_eq!(plan.scalar_ops[1].op_code, ScalarOpCode_ZIGZAG);
+        assert_eq!(unsafe { plan.scalar_ops[2].params.alp.f }, 10.0);
+        assert_eq!(unsafe { plan.scalar_ops[2].params.alp.e }, 0.01);
     }
 }
