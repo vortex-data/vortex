@@ -110,9 +110,7 @@ impl VTable for FillNull {
             ColumnarView::Canonical(canonical) => {
                 fill_null_canonical(canonical, &fill_scalar, args.ctx)
             }
-            ColumnarView::Constant(constant) => {
-                fill_null_constant(constant, &fill_scalar)
-            }
+            ColumnarView::Constant(constant) => fill_null_constant(constant, &fill_scalar),
         }
     }
 
