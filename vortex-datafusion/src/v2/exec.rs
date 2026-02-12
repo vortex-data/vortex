@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-//! [`VortexExec`] implements DataFusion's [`ExecutionPlan`] trait, mapping each Vortex split
-//! to one DataFusion partition.
+//! [`VortexExec`] implements DataFusion's [`ExecutionPlan`] trait, mapping Vortex splits
+//! to DataFusion partitions. Multiple splits may be grouped into a single partition
+//! via [`ExecutionPlan::repartitioned`] to match the target partition count.
 
 use std::any::Any;
 use std::fmt;
@@ -16,6 +17,7 @@ use datafusion_common::ColumnStatistics;
 use datafusion_common::DataFusionError;
 use datafusion_common::Result as DFResult;
 use datafusion_common::Statistics;
+use datafusion_common::config::ConfigOptions;
 use datafusion_common::stats::Precision as DFPrecision;
 use datafusion_common::tree_node::Transformed;
 use datafusion_common::tree_node::TreeNode;
@@ -43,6 +45,7 @@ use vortex::expr::Expression;
 use vortex::expr::get_item;
 use vortex::expr::pack;
 use vortex::expr::root;
+use vortex::io::session::RuntimeSessionExt;
 use vortex::scan::api::Estimate;
 use vortex::scan::api::SplitRef;
 use vortex::session::VortexSession;
@@ -53,10 +56,12 @@ use crate::convert::exprs::ExpressionConvertor;
 
 /// A DataFusion [`ExecutionPlan`] that executes Vortex splits as partitions.
 ///
-/// Each partition corresponds to one Vortex [`vortex::scan::api::Split`]. The split is consumed
-/// on first execute; re-executing the same partition returns an error.
+/// Each partition holds one or more Vortex [`vortex::scan::api::Split`]s whose streams are
+/// chained sequentially on execute. Splits are consumed on first execute; re-executing the
+/// same partition returns an error.
 pub struct VortexExec {
-    splits: Arc<[Mutex<Option<SplitRef>>]>,
+    /// Each partition holds one or more splits. Splits are consumed on first execute.
+    partitions: Arc<[Mutex<Vec<SplitRef>>]>,
     partition_stats: Vec<Statistics>,
     session: VortexSession,
     schema: SchemaRef,
@@ -92,9 +97,9 @@ impl VortexExec {
             .collect();
 
         Self {
-            splits: splits
+            partitions: splits
                 .into_iter()
-                .map(|s| Mutex::new(Some(s)))
+                .map(|s| Mutex::new(vec![s]))
                 .collect::<Vec<_>>()
                 .into(),
             partition_stats,
@@ -109,7 +114,7 @@ impl VortexExec {
 impl fmt::Debug for VortexExec {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("VortexExec")
-            .field("partitions", &self.splits.len())
+            .field("partitions", &self.partitions.len())
             .field("schema", &self.schema)
             .field(
                 "projection",
@@ -124,7 +129,7 @@ impl DisplayAs for VortexExec {
         write!(
             f,
             "VortexExec: partitions={}, projection={}",
-            self.splits.len(),
+            self.partitions.len(),
             self.projection
                 .as_ref()
                 .map(|e| format!("{}", e))
@@ -162,36 +167,101 @@ impl ExecutionPlan for VortexExec {
         Ok(self)
     }
 
+    fn repartitioned(
+        &self,
+        target_partitions: usize,
+        _config: &ConfigOptions,
+    ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
+        // Only group splits when we have more partitions than the target.
+        if self.partitions.len() <= target_partitions {
+            return Ok(None);
+        }
+
+        // Distribute old partitions round-robin into target_partitions groups,
+        // draining splits from each current partition and aggregating stats.
+        let mut grouped_splits: Vec<Vec<SplitRef>> =
+            (0..target_partitions).map(|_| Vec::new()).collect();
+        let mut grouped_stats: Vec<Statistics> = (0..target_partitions)
+            .map(|_| Statistics {
+                num_rows: DFPrecision::Absent,
+                total_byte_size: DFPrecision::Absent,
+                column_statistics: vec![],
+            })
+            .collect();
+
+        for (i, (partition, stats)) in self
+            .partitions
+            .iter()
+            .zip(self.partition_stats.iter())
+            .enumerate()
+        {
+            let group = i % target_partitions;
+            let mut guard = partition.try_lock().map_err(|_| {
+                DataFusionError::Internal(
+                    "VortexExec: cannot repartition while partitions are being executed"
+                        .to_string(),
+                )
+            })?;
+            grouped_splits[group].extend(guard.drain(..));
+            grouped_stats[group].num_rows = grouped_stats[group].num_rows.add(&stats.num_rows);
+            grouped_stats[group].total_byte_size = grouped_stats[group]
+                .total_byte_size
+                .add(&stats.total_byte_size);
+        }
+
+        let properties = PlanProperties::new(
+            datafusion_physical_expr::EquivalenceProperties::new(Arc::clone(&self.schema)),
+            Partitioning::UnknownPartitioning(target_partitions),
+            EmissionType::Incremental,
+            Boundedness::Bounded,
+        );
+
+        Ok(Some(Arc::new(VortexExec {
+            partitions: grouped_splits
+                .into_iter()
+                .map(Mutex::new)
+                .collect::<Vec<_>>()
+                .into(),
+            partition_stats: grouped_stats,
+            session: self.session.clone(),
+            schema: Arc::clone(&self.schema),
+            properties,
+            projection: self.projection.clone(),
+        })))
+    }
+
     fn execute(
         &self,
         partition: usize,
         _context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
-        let split = {
-            let split_slot = self.splits.get(partition).ok_or_else(|| {
+        let splits = {
+            let partition_slot = self.partitions.get(partition).ok_or_else(|| {
                 DataFusionError::Internal(format!(
                     "VortexExec: partition index {partition} out of range ({})",
-                    self.splits.len()
+                    self.partitions.len()
                 ))
             })?;
-            split_slot
-                .try_lock()
-                .map_err(|_| {
-                    DataFusionError::Internal(format!(
-                        "VortexExec: partition {partition} is already being executed"
-                    ))
-                })?
-                .take()
-                .ok_or_else(|| {
-                    DataFusionError::Internal(format!(
-                        "VortexExec: partition {partition} has already been executed"
-                    ))
-                })?
+            let mut guard = partition_slot.try_lock().map_err(|_| {
+                DataFusionError::Internal(format!(
+                    "VortexExec: partition {partition} is already being executed"
+                ))
+            })?;
+            if guard.is_empty() {
+                return Err(DataFusionError::Internal(format!(
+                    "VortexExec: partition {partition} has already been executed"
+                )));
+            }
+            std::mem::take(&mut *guard)
         };
 
-        let array_stream = split
-            .execute()
+        // Execute each split and chain their array streams sequentially.
+        let streams: Vec<_> = splits
+            .into_iter()
+            .map(|split| split.execute())
+            .collect::<Result<Vec<_>, _>>()
             .map_err(|e| DataFusionError::External(Box::new(e)))?;
+        let array_stream = futures::stream::iter(streams).flatten();
 
         let schema = self.schema.clone();
         let session = self.session.clone();
@@ -203,7 +273,6 @@ impl ExecutionPlan for VortexExec {
                 let mut ctx = session.create_execution_ctx();
                 result
                     .and_then(|chunk| {
-                        tracing::info!("Chunk: {}", chunk.display_tree());
                         let projected = match &projection {
                             Some(proj) => chunk.apply(proj)?,
                             None => chunk,
@@ -344,13 +413,13 @@ impl ExecutionPlan for VortexExec {
 
         let new_properties = PlanProperties::new(
             datafusion_physical_expr::EquivalenceProperties::new(Arc::clone(&scan_output_schema)),
-            Partitioning::UnknownPartitioning(self.splits.len()),
+            Partitioning::UnknownPartitioning(self.partitions.len()),
             EmissionType::Incremental,
             Boundedness::Bounded,
         );
 
         let new_exec = VortexExec {
-            splits: Arc::clone(&self.splits),
+            partitions: Arc::clone(&self.partitions),
             partition_stats: self.partition_stats.clone(),
             session: self.session.clone(),
             schema: scan_output_schema,

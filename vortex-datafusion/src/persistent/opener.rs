@@ -391,7 +391,6 @@ impl FileOpener for VortexOpener {
                         let stream_schema = stream_schema.clone();
                         handle.spawn_cpu(move || {
                             result.and_then(|chunk| {
-                                tracing::info!("Chunk: {}", chunk.display_tree());
                                 let mut ctx = session.create_execution_ctx();
                                 chunk.execute_record_batch(&stream_schema, &mut ctx)
                             })
@@ -428,7 +427,7 @@ impl FileOpener for VortexOpener {
                     .with_metrics_registry(metrics_registry)
                     .with_projection(scan_projection)
                     .with_some_filter(filter)
-                    .with_ordered(has_output_ordering)
+                    // .with_ordered(has_output_ordering)
                     .map(move |chunk| {
                         let mut ctx = session.create_execution_ctx();
                         chunk.execute_record_batch(&stream_schema, &mut ctx)
