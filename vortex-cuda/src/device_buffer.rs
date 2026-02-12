@@ -92,6 +92,8 @@ impl CudaDeviceBuffer {
         let len = cuda_slice.len() * size_of::<T>();
         let (device_ptr, _) = cuda_slice.device_ptr(cuda_slice.stream());
 
+        println!("CREATING device buffer @ {device_ptr:x?}");
+
         Self {
             allocation: Arc::new(cuda_slice),
             offset: 0,

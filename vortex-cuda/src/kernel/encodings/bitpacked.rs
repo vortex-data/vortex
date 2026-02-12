@@ -142,6 +142,12 @@ where
         "bit_unpack_{output_width}_{bit_width}bw_{thread_count}t"
     ))?;
 
+    println!(
+        "launching CUDA bitunpack kernel: (input=0x{:x?}, output=0x{:x?}, len={len})",
+        device_input.device_ptr(),
+        output_buf.device_ptr()
+    );
+
     ctx.launch(
         kernel,
         BPArgs {
