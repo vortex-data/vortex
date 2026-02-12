@@ -286,7 +286,7 @@ jobs:
           toolchain: nightly
           repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Rust Lint - Format
-        run: cargo +nightly fmt --all --check
+        run: cargo +nightly-2026-02-11 fmt --all --check
       - name: Rustc check
         run: RUSTFLAGS="-D warnings" cargo check --locked --all-features --all-targets
       - name: Rustc check (release)
@@ -404,7 +404,7 @@ jobs:
         env:
           RUSTFLAGS: "-Cinstrument-coverage -A warnings --cfg vortex_nightly"
         run: |
-          cargo +nightly nextest run --locked --workspace --all-features --no-fail-fast
+          cargo +nightly-2026-02-11 nextest run --locked --workspace --all-features --no-fail-fast
       - name: Install llvm-tools-preview
         run: rustup component add llvm-tools-preview
       - name: Generate coverage report
@@ -478,11 +478,11 @@ jobs:
           RUSTFLAGS: "-A warnings -Zsanitizer=address -Zsanitizer=leak --cfg disable_loom --cfg vortex_nightly -C debuginfo=2 -C opt-level=0 -C strip=none"
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked --all-features  \
+          cargo +nightly-2026-02-11 build --locked --all-features  \
             --target x86_64-unknown-linux-gnu \
             -p vortex-buffer -p vortex-ffi -p vortex-fastlanes -p vortex-fsst -p vortex-alp -p vortex-array
           # Run tests with sanitizers and debug output
-          cargo +nightly nextest run \
+          cargo +nightly-2026-02-11 nextest run \
             --locked \
             --all-features \
             --no-fail-fast \
@@ -528,9 +528,9 @@ jobs:
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
           # Build with full debug info first (helps with caching)
-          cargo +nightly build --locked -p vortex-cuda -p vortex-file -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
+          cargo +nightly-2026-02-11 build --locked -p vortex-cuda -p vortex-file -p vortex-test-e2e-cuda --all-features --target x86_64-unknown-linux-gnu
           # Run tests with sanitizers and debug output
-          cargo +nightly nextest run \
+          cargo +nightly-2026-02-11 nextest run \
             --locked \
             -p vortex-file \
             -p vortex-cuda \
@@ -557,7 +557,7 @@ jobs:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
         run: cargo test -p vortex-cuda
       - name: Build cudf test library
-        run: cargo +nightly build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+        run: cargo +nightly-2026-02-11 build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
@@ -771,7 +771,7 @@ jobs:
         with:
           tool: nextest
       - name: Run Miri
-        run: cargo +nightly miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
+        run: cargo +nightly-2026-02-11 miri nextest run --no-fail-fast -p vortex-buffer -p vortex-ffi
 
   generated-files:
     name: "Check generated source files are up to date"
@@ -790,7 +790,7 @@ jobs:
           cargo xtask generate-proto
       - name: "regenerate FFI header file"
         run: |
-          cargo +nightly build -p vortex-ffi
+          cargo +nightly-2026-02-11 build -p vortex-ffi
       - name: "Make sure no files changed after regenerating"
         run: |
           git status --porcelain
