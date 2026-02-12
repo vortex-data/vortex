@@ -23,22 +23,18 @@ template <typename T>
 __device__ inline void bitunpack_lane_to_smem(const T *__restrict packed_chunk, T *__restrict smem,
                                                        unsigned int lane, uint32_t bit_width);
 
-#define BITUNPACK_LANE(bits, UType, Type)                                                                    \
+#define BITUNPACK_LANE(bits)                                                                                 \
     template <>                                                                                              \
-    __device__ inline void bitunpack_lane_to_smem<Type>(const Type *in, Type *out,                  \
-                                                                 unsigned int lane, uint32_t bw) {           \
-        bit_unpack_##bits##_lane(reinterpret_cast<const UType *>(in), reinterpret_cast<UType *>(out), lane,  \
-                                 bw);                                                                        \
+    __device__ inline void bitunpack_lane_to_smem<uint##bits##_t>(const uint##bits##_t *in,                  \
+                                                                  uint##bits##_t *out,                       \
+                                                                  unsigned int lane, uint32_t bw) {          \
+        bit_unpack_##bits##_lane(in, out, lane, bw);                                                         \
     }
 
-BITUNPACK_LANE(8, uint8_t, uint8_t)
-BITUNPACK_LANE(8, uint8_t, int8_t)
-BITUNPACK_LANE(16, uint16_t, uint16_t)
-BITUNPACK_LANE(16, uint16_t, int16_t)
-BITUNPACK_LANE(32, uint32_t, uint32_t)
-BITUNPACK_LANE(32, uint32_t, int32_t)
-BITUNPACK_LANE(64, uint64_t, uint64_t)
-BITUNPACK_LANE(64, uint64_t, int64_t)
+BITUNPACK_LANE(8)
+BITUNPACK_LANE(16)
+BITUNPACK_LANE(32)
+BITUNPACK_LANE(64)
 
 template <typename T>
 __device__ inline void dynamic_source_op(const T *__restrict input, T *__restrict smem,
@@ -156,4 +152,4 @@ __device__ void dynamic_dispatch_impl(const T *__restrict input, T *__restrict o
         dynamic_dispatch_impl<Type>(input, output, array_len, plan);                                         \
     }
 
-FOR_EACH_INTEGER(GENERATE_DYNAMIC_DISPATCH_KERNEL)
+FOR_EACH_UNSIGNED_INT(GENERATE_DYNAMIC_DISPATCH_KERNEL)
