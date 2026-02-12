@@ -7,7 +7,6 @@ use vortex_buffer::get_bit;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 use crate::ArrayRef;
 use crate::ExecutionCtx;
@@ -32,18 +31,32 @@ impl FilterKernel for BoolVTable {
             .values()
             .vortex_expect("AllTrue and AllFalse are handled by filter fn");
 
-        let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
-            MaskIter::Indices(indices) => filter_indices(
+        let buffer = if mask_values.density() >= FILTER_SLICES_DENSITY_THRESHOLD {
+            filter_slices(
                 &array.to_bit_buffer(),
                 mask.true_count(),
-                indices.iter().copied(),
-            ),
-            MaskIter::Slices(slices) => filter_slices(
+                mask_values.bit_buffer().set_slices(),
+            )
+        } else {
+            filter_indices(
                 &array.to_bit_buffer(),
                 mask.true_count(),
-                slices.iter().copied(),
-            ),
+                mask_values.bit_buffer().set_indices(),
+            )
         };
+
+        // let buffer = match mask_values.threshold_iter(FILTER_SLICES_DENSITY_THRESHOLD) {
+        //     MaskIter::Indices(indices) => filter_indices(
+        //         &array.to_bit_buffer(),
+        //         mask.true_count(),
+        //         indices.iter().copied(),
+        //     ),
+        //     MaskIter::Slices(slices) => filter_slices(
+        //         &array.to_bit_buffer(),
+        //         mask.true_count(),
+        //         slices.iter().copied(),
+        //     ),
+        // };
 
         Ok(Some(BoolArray::new(buffer, validity).into_array()))
     }

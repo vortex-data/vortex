@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::arrays::FixedSizeListArray;
@@ -83,32 +83,47 @@ pub fn filter_fixed_size_list(
 fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) -> Mask {
     let expanded_len = selection_mask.len() * list_size;
 
-    // Use threshold_iter to choose the optimal representation based on density.
-    let expanded_slices = match selection_mask.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
-        MaskIter::Slices(slices) => {
-            // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
-            slices
-                .iter()
-                .map(|&(start, end)| (start * list_size, end * list_size))
-                .collect()
-        }
-        MaskIter::Indices(indices) => {
-            // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
-            // times.
-            //
-            // Note that in the worst case, it is possible that we create only a few slices with a
-            // small range (for example, when list_size <= 2). This could be further optimized,
-            // but we choose simplicity for now.
-            indices
-                .iter()
-                .map(|&idx| {
-                    let start = idx * list_size;
-                    let end = (idx + 1) * list_size;
-                    (start, end)
-                })
-                .collect()
-        }
+    let expanded_slices = if selection_mask.density() >= MASK_EXPANSION_DENSITY_THRESHOLD {
+        selection_mask
+            .bit_buffer()
+            .set_slices()
+            .map(|(start, end)| (start * list_size, end * list_size))
+            .collect()
+    } else {
+        selection_mask
+            .bit_buffer()
+            .set_indices()
+            .tuple_windows()
+            .map(|(start, end)| (start * list_size, end * list_size))
+            .collect()
     };
+
+    // // Use threshold_iter to choose the optimal representation based on density.
+    // let expanded_slices = match selection_mask.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
+    //     MaskIter::Slices(slices) => {
+    //         // Expand a dense mask (represented as slices) by scaling each slice by `list_size`.
+    //         slices
+    //             .iter()
+    //             .map(|&(start, end)| (start * list_size, end * list_size))
+    //             .collect()
+    //     }
+    //     MaskIter::Indices(indices) => {
+    //         // Expand a sparse mask (represented as indices) by duplicating each index `list_size`
+    //         // times.
+    //         //
+    //         // Note that in the worst case, it is possible that we create only a few slices with a
+    //         // small range (for example, when list_size <= 2). This could be further optimized,
+    //         // but we choose simplicity for now.
+    //         indices
+    //             .iter()
+    //             .map(|&idx| {
+    //                 let start = idx * list_size;
+    //                 let end = (idx + 1) * list_size;
+    //                 (start, end)
+    //             })
+    //             .collect()
+    //     }
+    // };
 
     Mask::from_slices(expanded_len, expanded_slices)
 }

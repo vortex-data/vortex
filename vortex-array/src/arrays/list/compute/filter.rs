@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use itertools::Itertools;
 use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -11,7 +12,6 @@ use vortex_dtype::IntegerPType;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 use vortex_mask::MaskValues;
 
 use crate::ArrayRef;
@@ -43,27 +43,24 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
 
     let mut mask_builder = BitBufferMut::with_capacity(len);
 
-    match selection.threshold_iter(MASK_EXPANSION_DENSITY_THRESHOLD) {
-        MaskIter::Slices(slices) => {
-            // Dense iteration: process ranges of consecutive selected lists.
-            for &(start, end) in slices {
-                // Optimization: for dense ranges, we can process the elements mask more efficiently.
-                let elems_start = offsets[start].as_() - first_offset;
-                let elems_end = offsets[end].as_() - first_offset;
+    if selection.density() >= MASK_EXPANSION_DENSITY_THRESHOLD {
+        // Dense iteration: process ranges of consecutive selected lists.
+        for (start, end) in selection.bit_buffer().set_slices() {
+            // Optimization: for dense ranges, we can process the elements mask more efficiently.
+            let elems_start = offsets[start].as_() - first_offset;
+            let elems_end = offsets[end].as_() - first_offset;
 
-                // Process the entire range of elements at once.
-                process_element_range(elems_start, elems_end, &mut mask_builder);
-            }
+            // Process the entire range of elements at once.
+            process_element_range(elems_start, elems_end, &mut mask_builder);
         }
-        MaskIter::Indices(indices) => {
-            // Sparse iteration: process individual selected lists.
-            for &idx in indices {
-                let list_start = offsets[idx].as_() - first_offset;
-                let list_end = offsets[idx + 1].as_() - first_offset;
+    } else {
+        // Sparse iteration: process individual selected lists.
+        for (start, end) in selection.bit_buffer().set_indices().tuple_windows() {
+            let list_start = offsets[start].as_() - first_offset;
+            let list_end = offsets[end].as_() - first_offset;
 
-                // Process the elements for this list.
-                process_element_range(list_start, list_end, &mut mask_builder);
-            }
+            // Process the elements for this list.
+            process_element_range(list_start, list_end, &mut mask_builder);
         }
     }
 

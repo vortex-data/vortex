@@ -5,10 +5,9 @@ use itertools::Itertools as _;
 use vortex_buffer::BitBuffer;
 use vortex_buffer::BitBufferMut;
 use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 use vortex_scalar::Scalar;
 
 use super::filter::ChunkFilter;
@@ -31,13 +30,21 @@ use crate::validity::Validity;
 impl MaskKernel for ChunkedVTable {
     fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
         let new_dtype = array.dtype().as_nullable();
-        let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            AllOr::All => unreachable!("handled in top-level mask"),
-            AllOr::None => unreachable!("handled in top-level mask"),
-            AllOr::Some(MaskIter::Indices(indices)) => mask_indices(array, indices, &new_dtype),
-            AllOr::Some(MaskIter::Slices(slices)) => {
-                mask_slices(array, slices.iter().cloned(), &new_dtype)
-            }
+        // let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+        //     AllOr::All => unreachable!("handled in top-level mask"),
+        //     AllOr::None => unreachable!("handled in top-level mask"),
+        //     AllOr::Some(MaskIter::Indices(indices)) => mask_indices(array, indices, &new_dtype),
+        //     AllOr::Some(MaskIter::Slices(slices)) => {
+        //         mask_slices(array, slices.iter().cloned(), &new_dtype)
+        //     }
+        // }?;
+
+        let mask_values = mask.values().vortex_expect("handled in top-level mask");
+
+        let new_chunks = if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            mask_indices(array, mask_values.bit_buffer().set_indices(), &new_dtype)
+        } else {
+            mask_slices(array, mask_values.bit_buffer().set_slices(), &new_dtype)
         }?;
         debug_assert_eq!(new_chunks.len(), array.nchunks());
         debug_assert_eq!(
@@ -52,7 +59,7 @@ register_kernel!(MaskKernelAdapter(ChunkedVTable).lift());
 
 fn mask_indices(
     array: &ChunkedArray,
-    indices: &[usize],
+    indices: impl Iterator<Item = usize>,
     new_dtype: &DType,
 ) -> VortexResult<Vec<ArrayRef>> {
     let mut new_chunks = Vec::with_capacity(array.nchunks());
@@ -61,7 +68,7 @@ fn mask_indices(
 
     let chunk_offsets = array.chunk_offsets();
 
-    for &set_index in indices {
+    for set_index in indices {
         let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets)?;
         if chunk_id != current_chunk_id {
             let chunk = array.chunk(current_chunk_id).clone();

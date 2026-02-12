@@ -5,7 +5,6 @@ use vortex_buffer::BufferMut;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
-use vortex_mask::MaskIter;
 
 use crate::Array;
 use crate::ArrayRef;
@@ -34,10 +33,16 @@ impl FilterKernel for ChunkedVTable {
 
         // Based on filter selectivity, we take the values between a range of slices, or
         // we take individual indices.
-        let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
-            MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
-        }?;
+        // let chunks = match mask_values.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
+        //     MaskIter::Indices(indices) => filter_indices(array, indices.iter().copied()),
+        //     MaskIter::Slices(slices) => filter_slices(array, slices.iter().copied()),
+        // }?;
+
+        let chunks = if mask_values.density() >= FILTER_SLICES_SELECTIVITY_THRESHOLD {
+            filter_slices(array, mask_values.bit_buffer().set_slices())?
+        } else {
+            filter_indices(array, mask_values.bit_buffer().set_indices())?
+        };
 
         // SAFETY: Filter operation preserves the dtype of each chunk.
         // All filtered chunks maintain the same dtype as the original array.
