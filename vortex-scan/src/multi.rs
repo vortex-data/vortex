@@ -161,6 +161,10 @@ impl DataSource for MultiDataSource {
         Estimate { lower, upper }
     }
 
+    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
+        vortex_bail!("MultiDataSource splits are not yet serializable")
+    }
+
     fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
         let mut ready = VecDeque::new();
         let mut deferred = VecDeque::new();
@@ -190,10 +194,6 @@ impl DataSource for MultiDataSource {
         scan.fill_pipeline();
 
         Ok(Box::new(scan))
-    }
-
-    fn deserialize_split(&self, _data: &[u8], _session: &VortexSession) -> VortexResult<SplitRef> {
-        vortex_bail!("MultiDataSource splits are not yet serializable")
     }
 }
 

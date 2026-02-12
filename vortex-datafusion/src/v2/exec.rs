@@ -203,6 +203,7 @@ impl ExecutionPlan for VortexExec {
                 let mut ctx = session.create_execution_ctx();
                 result
                     .and_then(|chunk| {
+                        tracing::info!("Chunk: {}", chunk.display_tree());
                         let projected = match &projection {
                             Some(proj) => chunk.apply(proj)?,
                             None => chunk,
@@ -246,10 +247,7 @@ impl ExecutionPlan for VortexExec {
             }
         }
     }
-}
 
-impl VortexExec {
-    // FIXME(ngates): enable filter pushdown and implement try_swapping_with_filter
     fn try_swapping_with_projection(
         &self,
         projection: &ProjectionExec,

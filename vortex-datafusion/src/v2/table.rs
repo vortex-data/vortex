@@ -26,7 +26,6 @@ use vortex::compute::LikeOptions;
 use vortex::dtype::DType;
 use vortex::dtype::Nullability;
 use vortex::dtype::arrow::FromArrowType;
-use vortex::encodings::fastlanes::bitpack_decompress::unpack_single;
 use vortex::expr::Binary;
 use vortex::expr::Expression;
 use vortex::expr::Like;
