@@ -142,7 +142,9 @@ pub trait Launcher: Debug + Send + Sync + 'static {
 }
 
 /// The default kernel launcher, which launches kernels onto the GPU without tracking any
-/// relative timing information.
+/// relative timing information or recording any events.
+///
+/// Execution is fully asynchronous and serialization is handled by the stream.
 #[derive(Debug, Clone)]
 pub(crate) struct AsyncLauncher {
     stream: Arc<CudaStream>,
@@ -166,6 +168,8 @@ impl Launcher for AsyncLauncher {
             .context()
             .bind_to_thread()
             .map_err(|e| vortex_err!("bind_to_thread: {e}"))?;
+
+        println!("calling launch_kernel...");
 
         // SAFETY: enforced by the caller. See docs on Launcher::launch.
         unsafe {

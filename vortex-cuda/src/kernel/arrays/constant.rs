@@ -3,6 +3,7 @@
 
 use std::fmt::Debug;
 use std::marker::PhantomData;
+use std::ptr::addr_of_mut;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -111,8 +112,8 @@ impl<P: NativePType> Kernel for ConstantKernel<P> {
                 cfg,
                 vec![
                     output.device_ptr(),
-                    std::ptr::addr_of_mut!(constant).cast(),
-                    std::ptr::addr_of_mut!(array_len).cast(),
+                    addr_of_mut!(constant).cast(),
+                    addr_of_mut!(array_len).cast(),
                 ],
             )
         }
@@ -145,6 +146,8 @@ where
     let output_buffer = ctx.device_alloc::<P>(array_len)?;
     let device_buffer = CudaDeviceBuffer::new(output_buffer);
     let array_len_u64 = array_len as u64;
+
+    println!("output buffer: {:x?}", device_buffer.device_ptr());
 
     let kernel = ctx
         .load_module("constant_numeric")?
