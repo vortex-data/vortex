@@ -99,6 +99,14 @@ jobs:
         run: |
           bash scripts/cat-s3.sh vortex-benchmark-results-database data.json.gz results.json
 
+      - name: Alert incident.io
+        if: failure()
+        uses: ./.github/actions/alert-incident-io
+        with:
+          api-key: ${{ secrets.INCIDENT_IO_ALERT_TOKEN }}
+          alert-title: "${{ matrix.benchmark.name }} benchmark failed on develop"
+          deduplication-key: ci-bench-${{ matrix.benchmark.id }}-failure
+
   sql:
     uses: ./.github/workflows/sql-benchmarks.yml
     secrets: inherit
@@ -184,3 +192,4 @@ jobs:
             "scale_factor": "1"
           },
         ]
+
