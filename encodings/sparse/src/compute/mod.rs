@@ -4,7 +4,6 @@
 mod binary_numeric;
 mod cast;
 mod filter;
-mod invert;
 mod take;
 
 #[cfg(test)]

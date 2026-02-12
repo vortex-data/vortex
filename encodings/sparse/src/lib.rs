@@ -56,6 +56,7 @@ mod canonical;
 mod compute;
 mod kernel;
 mod ops;
+mod rules;
 mod slice;
 
 vtable!(Sparse);
@@ -166,6 +167,14 @@ impl VTable for SparseVTable {
         ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         PARENT_KERNELS.execute(array, parent, child_idx, ctx)
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        rules::RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute(array: &Self::Array, _ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
