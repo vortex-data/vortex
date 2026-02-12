@@ -57,10 +57,23 @@ impl CPUSegregatedExecutor {
     /// the global CPU pool. Subsequent calls will reuse the existing pool.
     // TODO(DK): rename this to not use current
     pub fn current_with_reserved(reserved_for_io: usize) -> VortexResult<Self> {
-        let available = std::thread::available_parallelism()
+        let best_guess_n_physical_cores = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
-        let cpu_threads = available.saturating_sub(reserved_for_io).max(1);
+
+        Self::current_with_reserved2(best_guess_n_physical_cores, reserved_for_io)
+    }
+
+    /// Create a [`Handle`] using the current tokio context, reserving specified cores for I/O.
+    ///
+    /// Note: The `reserved_for_io` parameter only affects the first call that initializes
+    /// the global CPU pool. Subsequent calls will reuse the existing pool.
+    // TODO(DK): rename this to not use current
+    pub fn current_with_reserved2(
+        n_physical_cores: usize,
+        reserved_for_io: usize,
+    ) -> VortexResult<Self> {
+        let cpu_threads = n_physical_cores.saturating_sub(reserved_for_io).max(1);
 
         let cpu_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(cpu_threads)
