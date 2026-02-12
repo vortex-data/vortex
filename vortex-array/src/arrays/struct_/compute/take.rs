@@ -11,7 +11,7 @@ use crate::IntoArray;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
 use crate::arrays::TakeExecute;
-use crate::compute;
+use crate::builtins::ArrayBuiltins;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
@@ -40,7 +40,7 @@ impl TakeExecute for StructVTable {
         // Note that we strip nullability so that `Take::return_dtype` doesn't union nullable into
         // each field's dtype (the struct-level validity already captures which rows are null).
         let fill_scalar = Scalar::zero_value(&indices.dtype().as_nonnullable());
-        let inner_indices = &compute::fill_null(indices, &fill_scalar)?;
+        let inner_indices = &indices.to_array().fill_null(fill_scalar)?;
 
         StructArray::try_new_with_dtype(
             array

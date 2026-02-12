@@ -30,15 +30,14 @@ mod test {
     use crate::IntoArray as _;
     use crate::arrays::ConstantArray;
     use crate::arrow::IntoArrowArray as _;
-    use crate::compute::fill_null;
+    use crate::builtins::ArrayBuiltins;
 
     #[test]
     fn test_null() {
-        let actual = fill_null(
-            &ConstantArray::new(Scalar::null_native::<i32>(), 3).into_array(),
-            &Scalar::from(1),
-        )
-        .unwrap();
+        let actual = ConstantArray::new(Scalar::null_native::<i32>(), 3)
+            .into_array()
+            .fill_null(Scalar::from(1))
+            .unwrap();
         let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
 
         assert!(!actual.dtype().is_nullable());
@@ -56,11 +55,10 @@ mod test {
 
     #[test]
     fn test_non_null() {
-        let actual = fill_null(
-            &ConstantArray::new(Scalar::from(Some(1)), 3).into_array(),
-            &Scalar::from(1),
-        )
-        .unwrap();
+        let actual = ConstantArray::new(Scalar::from(Some(1)), 3)
+            .into_array()
+            .fill_null(Scalar::from(1))
+            .unwrap();
         let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
 
         assert!(!actual.dtype().is_nullable());
@@ -78,11 +76,10 @@ mod test {
 
     #[test]
     fn test_non_nullable_with_nullable() {
-        let actual = fill_null(
-            &ConstantArray::new(Scalar::from(1), 3).into_array(),
-            &Scalar::from(Some(1)),
-        )
-        .unwrap();
+        let actual = ConstantArray::new(Scalar::from(1), 3)
+            .into_array()
+            .fill_null(Scalar::from(Some(1)))
+            .unwrap();
         let expected = ConstantArray::new(Scalar::from(1), 3).into_array();
 
         assert!(!Scalar::from(1).dtype().is_nullable());

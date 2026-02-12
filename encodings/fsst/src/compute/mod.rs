@@ -11,7 +11,7 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::fill_null;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
@@ -38,10 +38,12 @@ impl TakeExecute for FSSTVTable {
                     .vortex_expect("cannot fail")
                     .try_into::<VarBinVTable>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
-                fill_null(
-                    &array.uncompressed_lengths().take(indices.to_array())?,
-                    &Scalar::zero_value(&array.uncompressed_lengths_dtype().clone()),
-                )?,
+                array
+                    .uncompressed_lengths()
+                    .take(indices.to_array())?
+                    .fill_null(Scalar::zero_value(
+                        &array.uncompressed_lengths_dtype().clone(),
+                    ))?,
             )?
             .into_array(),
         ))
