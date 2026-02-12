@@ -50,6 +50,10 @@ pub use crate::expr::FillNullExecuteAdaptor;
 pub use crate::expr::FillNullKernel;
 pub use crate::expr::FillNullReduce;
 pub use crate::expr::FillNullReduceAdaptor;
+pub use crate::expr::ZipExecuteAdaptor;
+pub use crate::expr::ZipKernel;
+pub use crate::expr::ZipReduce;
+pub use crate::expr::ZipReduceAdaptor;
 pub use crate::expr::NotExecuteAdaptor;
 pub use crate::expr::NotKernel;
 pub use crate::expr::NotReduce;
@@ -103,7 +107,6 @@ pub fn warm_up_vtables() {
     nan_count::warm_up_vtable();
     numeric::warm_up_vtable();
     sum::warm_up_vtable();
-    zip::warm_up_vtable();
 }
 
 impl ComputeFn {
