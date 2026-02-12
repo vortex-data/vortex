@@ -30,14 +30,12 @@ use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
 use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 use crate::kernel::scalar_launch_config;
-use crate::launch_cuda_kernel_impl;
 use crate::launcher::Function;
 use crate::launcher::Kernel;
 use crate::launcher::Launcher;

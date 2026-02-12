@@ -35,7 +35,6 @@ use crate::launcher::Function;
 use crate::launcher::Kernel;
 use crate::launcher::Launcher;
 
-/// A BP kernel targeting a certain output scalar A and bitwidth W.
 struct BPKernel<A> {
     function: Function,
     _marker: PhantomData<A>,

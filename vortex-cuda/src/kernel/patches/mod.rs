@@ -5,7 +5,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use cudarc::driver::DeviceRepr;
-use cudarc::driver::sys::CUevent_flags::CU_EVENT_DISABLE_TIMING;
 use vortex_array::arrays::PrimitiveArrayParts;
 use vortex_array::patches::Patches;
 use vortex_array::validity::Validity;
@@ -15,13 +14,11 @@ use vortex_dtype::NativePType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_ensure;
 
-use crate::CudaBufferExt;
 use crate::CudaDeviceBuffer;
 use crate::CudaExecutionCtx;
 use crate::arrow::ensure_device_resident;
 use crate::executor::CudaArrayExt;
 use crate::kernel::scalar_launch_config;
-use crate::launch_cuda_kernel;
 use crate::launcher::Function;
 use crate::launcher::Kernel;
 use crate::launcher::Launcher;
@@ -208,19 +205,13 @@ mod tests {
         } = values.into_parts();
 
         let handle = ctx.move_to_device(cuda_buffer).unwrap().await.unwrap();
-        let device_buf = handle
-            .as_device()
-            .as_any()
-            .downcast_ref::<CudaDeviceBuffer>()
-            .unwrap()
-            .clone();
 
-        let patched_buf = execute_patches::<Values, Indices>(patches, device_buf, &mut ctx)
+        let patched_buf = execute_patches::<Values, Indices>(patches, handle, &mut ctx)
             .await
             .unwrap();
 
         let gpu_result = PrimitiveArray::from_buffer_handle(
-            BufferHandle::new_device(Arc::new(patched_buf)),
+            patched_buf.into(),
             Values::PTYPE,
             Validity::NonNullable,
         )

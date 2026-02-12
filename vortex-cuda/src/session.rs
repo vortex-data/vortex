@@ -16,7 +16,7 @@ use crate::ExportDeviceArray;
 use crate::arrow::CanonicalDeviceArrayExport;
 use crate::executor::CudaExecute;
 pub use crate::executor::CudaExecutionCtx;
-use crate::kernel::KernelLoader;
+use crate::kernel::ptx_path_for_module;
 use crate::launcher::Module;
 use crate::stream::VortexCudaStream;
 use crate::stream_pool::VortexCudaStreamPool;
@@ -31,9 +31,9 @@ const DEFAULT_STREAM_POOL_CAPACITY: usize = 4;
 #[derive(Clone, Debug)]
 pub struct CudaSession {
     context: Arc<CudaContext>,
-    kernels: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
+    encodings: Arc<DashMap<ArrayId, &'static dyn CudaExecute>>,
     export_device_array: Arc<dyn ExportDeviceArray>,
-    kernel_loader: Arc<KernelLoader>,
+    modules: Arc<DashMap<String, Arc<Module>>>,
     stream_pool: Arc<VortexCudaStreamPool>,
 }
 
@@ -54,8 +54,8 @@ impl CudaSession {
         ));
         Self {
             context,
-            kernels: Arc::new(DashMap::default()),
-            kernel_loader: Arc::new(KernelLoader::new()),
+            encodings: Arc::new(DashMap::default()),
+            modules: Arc::new(DashMap::default()),
             export_device_array: Arc::new(CanonicalDeviceArrayExport),
             stream_pool,
         }
@@ -86,7 +86,7 @@ impl CudaSession {
     /// * `array_id` - The encoding ID to register support for
     /// * `executor` - A static reference to the CUDA support implementation
     pub fn register_kernel(&self, array_id: ArrayId, executor: &'static dyn CudaExecute) {
-        self.kernels.insert(array_id, executor);
+        self.encodings.insert(array_id, executor);
     }
 
     /// Retrieves the CUDA support implementation for an encoding, if registered.
@@ -95,12 +95,22 @@ impl CudaSession {
     ///
     /// * `array_id` - The encoding ID to look up
     pub fn kernel(&self, array_id: &ArrayId) -> Option<&'static dyn CudaExecute> {
-        self.kernels.get(array_id).map(|entry| *entry.value())
+        self.encodings.get(array_id).map(|entry| *entry.value())
     }
 
     /// Load a PTX module by its file name.
     pub fn load_module(&self, name: &str) -> VortexResult<Arc<Module>> {
-        self.kernel_loader.load_module(self.context.clone(), name)
+        if let Some(entry) = self.modules.get(name) {
+            return Ok(Arc::clone(entry.value()));
+        }
+
+        // Load from PTX file
+        let ptx_path = ptx_path_for_module(name);
+        let module = Arc::new(Module::from_ptx(self.context.clone(), ptx_path)?);
+
+        self.modules.insert(name.to_string(), Arc::clone(&module));
+
+        Ok(module)
     }
 
     /// Get a handle to the exporter that converts Vortex arrays to `ArrowDeviceArray`.
