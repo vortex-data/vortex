@@ -5,6 +5,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use async_lock::Mutex;
+use async_lock::MutexGuard;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
@@ -36,11 +37,24 @@ impl SharedArray {
         }
     }
 
+    #[cfg(not(target_family = "wasm"))]
+    fn lock_sync(&self) -> MutexGuard<'_, SharedState> {
+        self.state.lock_blocking()
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn lock_sync(&self) -> MutexGuard<'_, SharedState> {
+        // this should mirror how parking_lot compiles to wasm
+        self.state
+            .try_lock()
+            .expect("SharedArray: mutex contention on single-threaded wasm target")
+    }
+
     pub fn get_or_compute(
         &self,
         f: impl FnOnce(&ArrayRef) -> VortexResult<Canonical>,
     ) -> VortexResult<Canonical> {
-        let mut state = self.state.lock_blocking();
+        let mut state = self.lock_sync();
         match &*state {
             SharedState::Cached(canonical) => Ok(canonical.clone()),
             SharedState::Source(source) => {
@@ -69,7 +83,7 @@ impl SharedArray {
     }
 
     pub(super) fn current_array_ref(&self) -> ArrayRef {
-        let state = self.state.lock_blocking();
+        let state = self.lock_sync();
         match &*state {
             SharedState::Source(source) => source.clone(),
             SharedState::Cached(canonical) => canonical.clone().into_array(),
@@ -78,6 +92,6 @@ impl SharedArray {
 
     pub(super) fn set_source(&mut self, source: ArrayRef) {
         self.dtype = source.dtype().clone();
-        *self.state.lock_blocking() = SharedState::Source(source);
+        *self.lock_sync() = SharedState::Source(source);
     }
 }
