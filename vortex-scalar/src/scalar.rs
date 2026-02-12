@@ -284,7 +284,7 @@ impl Scalar {
             DType::List(..) => value.as_list().is_empty(),
             DType::FixedSizeList(_, list_size, _) => value.as_list().len() == *list_size as usize,
             DType::Struct(struct_fields, _) => value.as_list().len() == struct_fields.nfields(),
-            DType::Extension(_) => self.as_extension().storage().is_zero()?,
+            DType::Extension(_) => self.as_extension().to_storage_scalar().is_zero()?,
         };
 
         Some(is_zero)
@@ -316,8 +316,10 @@ impl Scalar {
         )
     }
 
-    /// Returns the size of the scalar in bytes, uncompressed.
-    #[cfg(test)]
+    /// Returns an **ESTIMATE** of the size of the scalar in bytes, uncompressed.
+    ///
+    /// Note that the protobuf serialization of scalars will likely have a different (but roughly
+    /// similar) length.
     pub fn nbytes(&self) -> usize {
         use vortex_dtype::NativeDecimalType;
         use vortex_dtype::i256;
@@ -349,7 +351,7 @@ impl Scalar {
                 .elements()
                 .map(|fields| fields.into_iter().map(|f| f.nbytes()).sum::<usize>())
                 .unwrap_or_default(),
-            DType::Extension(_) => self.as_extension().storage().nbytes(),
+            DType::Extension(_) => self.as_extension().to_storage_scalar().nbytes(),
         }
     }
 }

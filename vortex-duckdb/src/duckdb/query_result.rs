@@ -7,6 +7,7 @@ use vortex::error::VortexResult;
 use vortex::error::vortex_bail;
 use vortex::error::vortex_err;
 
+use crate::LogicalType;
 use crate::cpp;
 use crate::duckdb::DataChunk;
 use crate::wrapper;
@@ -67,8 +68,9 @@ impl QueryResult {
     }
 
     /// Get the type of a column by index.
-    pub fn column_type(&self, col_idx: usize) -> cpp::DUCKDB_TYPE {
-        unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) }
+    pub fn column_type(&self, col_idx: usize) -> LogicalType {
+        let dtype = unsafe { cpp::duckdb_column_type(self.as_ptr(), col_idx as u64) };
+        LogicalType::new(dtype)
     }
 }
 

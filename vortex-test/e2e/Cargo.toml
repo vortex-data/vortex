@@ -15,6 +15,9 @@ version = { workspace = true }
 [lints]
 workspace = true
 
+[features]
+unstable_encodings = ["vortex/unstable_encodings"]
+
 [dependencies]
 futures = { workspace = true }
 rstest = { workspace = true }

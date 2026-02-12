@@ -9,21 +9,24 @@ use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
 
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
-use crate::register_kernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
 impl FillNullKernel for PrimitiveVTable {
-    fn fill_null(&self, array: &PrimitiveArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &PrimitiveArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         let result_validity = Validity::from(fill_value.dtype().nullability());
 
-        Ok(match array.validity() {
+        Ok(Some(match array.validity() {
             Validity::Array(is_valid) => {
                 let is_invalid = is_valid.to_bool().to_bit_buffer().not();
                 match_each_native_ptype!(array.ptype(), |T| {
@@ -39,11 +42,9 @@ impl FillNullKernel for PrimitiveVTable {
                 })
             }
             _ => unreachable!("checked in entry point"),
-        })
+        }))
     }
 }
-
-register_kernel!(FillNullKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {
@@ -54,14 +55,16 @@ mod test {
     use crate::arrays::BoolArray;
     use crate::arrays::primitive::PrimitiveArray;
     use crate::assert_arrays_eq;
+    use crate::builtins::ArrayBuiltins;
     use crate::canonical::ToCanonical;
-    use crate::compute::fill_null;
     use crate::validity::Validity;
 
     #[test]
     fn fill_null_leading_none() {
         let arr = PrimitiveArray::from_option_iter([None, Some(8u8), None, Some(10), None]);
-        let p = fill_null(arr.as_ref(), &Scalar::from(42u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(42u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([42u8, 8, 42, 10, 42]));
@@ -72,7 +75,9 @@ mod test {
     fn fill_null_all_none() {
         let arr = PrimitiveArray::from_option_iter([Option::<u8>::None, None, None, None, None]);
 
-        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([255u8, 255, 255, 255, 255]));
@@ -85,7 +90,9 @@ mod test {
             buffer![8u8, 10, 12, 14, 16],
             Validity::Array(BoolArray::from_iter([true, true, true, true, true]).into_array()),
         );
-        let p = fill_null(arr.as_ref(), &Scalar::from(255u8))
+        let p = arr
+            .to_array()
+            .fill_null(Scalar::from(255u8))
             .unwrap()
             .to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
@@ -95,9 +102,7 @@ mod test {
     #[test]
     fn fill_null_non_nullable() {
         let arr = buffer![8u8, 10, 12, 14, 16].into_array();
-        let p = fill_null(&arr, &Scalar::from(255u8))
-            .unwrap()
-            .to_primitive();
+        let p = arr.fill_null(Scalar::from(255u8)).unwrap().to_primitive();
         assert_arrays_eq!(p, PrimitiveArray::from_iter([8u8, 10, 12, 14, 16]));
         assert!(p.validity_mask().unwrap().all_true());
     }

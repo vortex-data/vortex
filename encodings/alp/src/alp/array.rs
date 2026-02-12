@@ -453,11 +453,22 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ALPArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded());
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
         }
+    }
+
+    fn nchildren(array: &ALPArray) -> usize {
+        // encoded + optional patches (indices + values + optional chunk_offsets)
+        1 + array
+            .patches()
+            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

@@ -149,7 +149,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
     // Extract the timestamp value
     let timestamp = constant
         .as_extension()
-        .storage()
+        .to_storage_scalar()
         .as_primitive()
         .as_::<i64>()?;
 

@@ -51,10 +51,7 @@ pub fn try_from_bound_expression(value: &duckdb::Expression) -> VortexResult<Opt
         return Ok(None);
     };
     Ok(Some(match value {
-        duckdb::ExpressionClass::BoundColumnRef(col_ref) => col(col_ref
-            .name
-            .to_str()
-            .map_err(|e| vortex_err!("invalid utf-8: {e}"))?),
+        duckdb::ExpressionClass::BoundColumnRef(col_ref) => col(col_ref.name.as_ref()),
         duckdb::ExpressionClass::BoundConstant(const_) => lit(Scalar::try_from(const_.value)?),
         duckdb::ExpressionClass::BoundComparison(compare) => {
             let operator: Operator = compare.op.try_into()?;

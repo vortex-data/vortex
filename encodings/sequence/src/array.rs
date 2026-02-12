@@ -371,7 +371,15 @@ impl VisitorVTable<SequenceVTable> for SequenceVTable {
         // TODO(joe): expose scalar values
     }
 
+    fn nbuffers(_array: &SequenceArray) -> usize {
+        0
+    }
+
     fn visit_children(_array: &SequenceArray, _visitor: &mut dyn ArrayChildVisitor) {}
+
+    fn nchildren(_array: &SequenceArray) -> usize {
+        0
+    }
 }
 
 #[derive(Debug)]

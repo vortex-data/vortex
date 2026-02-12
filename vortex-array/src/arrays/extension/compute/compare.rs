@@ -23,7 +23,7 @@ impl CompareKernel for ExtensionVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         // If the RHS is a constant, we can extract the storage scalar.
         if let Some(const_ext) = rhs.as_constant() {
-            let storage_scalar = const_ext.as_extension().storage();
+            let storage_scalar = const_ext.as_extension().to_storage_scalar();
             return compute::compare(
                 lhs.storage(),
                 ConstantArray::new(storage_scalar, lhs.len()).as_ref(),

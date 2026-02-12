@@ -634,8 +634,8 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
             children: Vec<ArrayRef>,
         }
 
-        impl ArrayChildVisitor for ChildrenCollector {
-            fn visit_child(&mut self, _name: &str, array: &ArrayRef) {
+        impl ArrayChildVisitorUnnamed for ChildrenCollector {
+            fn visit_child(&mut self, array: &ArrayRef) {
                 self.children.push(array.clone());
             }
         }
@@ -643,12 +643,16 @@ impl<V: VTable> ArrayVisitor for ArrayAdapter<V> {
         let mut collector = ChildrenCollector {
             children: Vec::new(),
         };
-        <V::VisitorVTable as VisitorVTable<V>>::visit_children(&self.0, &mut collector);
+        <V::VisitorVTable as VisitorVTable<V>>::visit_children_unnamed(&self.0, &mut collector);
         collector.children
     }
 
     fn nchildren(&self) -> usize {
         <V::VisitorVTable as VisitorVTable<V>>::nchildren(&self.0)
+    }
+
+    fn nth_child(&self, idx: usize) -> Option<ArrayRef> {
+        <V::VisitorVTable as VisitorVTable<V>>::nth_child(&self.0, idx)
     }
 
     fn children_names(&self) -> Vec<String> {

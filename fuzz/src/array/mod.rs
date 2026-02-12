@@ -553,7 +553,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::compare;
-    use vortex_array::compute::fill_null;
     use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
@@ -637,7 +636,8 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_min_max_eq(&expected.min_max(), &min_max_result, i)?;
             }
             Action::FillNull(fill_value) => {
-                current_array = fill_null(&current_array, &fill_value)
+                current_array = current_array
+                    .fill_null(fill_value.clone())
                     .vortex_expect("fill_null operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

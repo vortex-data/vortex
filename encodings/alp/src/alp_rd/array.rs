@@ -475,12 +475,23 @@ impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
 impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
     fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ALPRDArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("left_parts", array.left_parts());
         visitor.visit_child("right_parts", array.right_parts());
         if let Some(patches) = array.left_parts_patches() {
             visitor.visit_patches(patches);
         }
+    }
+
+    fn nchildren(array: &ALPRDArray) -> usize {
+        // left_parts + right_parts + optional patches (indices + values)
+        2 + array
+            .left_parts_patches()
+            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

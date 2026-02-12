@@ -10,18 +10,21 @@ use super::DictArray;
 use super::DictVTable;
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::FillNullKernel;
-use crate::compute::FillNullKernelAdapter;
 use crate::compute::Operator;
 use crate::compute::compare;
-use crate::compute::fill_null;
-use crate::register_kernel;
 
 impl FillNullKernel for DictVTable {
-    fn fill_null(&self, array: &DictArray, fill_value: &Scalar) -> VortexResult<ArrayRef> {
+    fn fill_null(
+        array: &DictArray,
+        fill_value: &Scalar,
+        _ctx: &mut ExecutionCtx,
+    ) -> VortexResult<Option<ArrayRef>> {
         // If the fill value already exists in the dictionary, we can simply rewrite the null codes
         // to point to the value.
         let found_fill_values = compare(
@@ -36,9 +39,12 @@ impl FillNullKernel for DictVTable {
             found_fill_values.to_bit_buffer().set_indices().next()
         else {
             // No fill values found, so we must canonicalize and fill_null.
-            // TODO(ngates): compute kernels should all return Option<ArrayRef> to support this
-            //  fall back.
-            return fill_null(&array.to_canonical()?.into_array(), fill_value);
+            return Ok(Some(
+                array
+                    .to_canonical()?
+                    .into_array()
+                    .fill_null(fill_value.clone())?,
+            ));
         };
 
         // Now we rewrite the nullable codes to point at the fill value.
@@ -57,22 +63,22 @@ impl FillNullKernel for DictVTable {
 
         // Fill nulls in both the codes and the values. Note that the precondition of this function
         // states that the fill value is non-null, so we do not have to worry about the nullability.
-        let codes = fill_null(
-            codes,
-            &Scalar::try_new(codes.dtype().as_nonnullable(), Some(fill_scalar_value))?,
-        )?;
-        let values = fill_null(array.values(), fill_value)?;
+        let codes = codes.to_array().fill_null(Scalar::try_new(
+            codes.dtype().as_nonnullable(),
+            Some(fill_scalar_value),
+        )?)?;
+        let values = array.values().to_array().fill_null(fill_value.clone())?;
 
         // SAFETY: invariants are still satisfied after patching nulls.
         unsafe {
-            Ok(DictArray::new_unchecked(codes, values)
-                .set_all_values_referenced(array.has_all_values_referenced())
-                .into_array())
+            Ok(Some(
+                DictArray::new_unchecked(codes, values)
+                    .set_all_values_referenced(array.has_all_values_referenced())
+                    .into_array(),
+            ))
         }
     }
 }
-
-register_kernel!(FillNullKernelAdapter(DictVTable).lift());
 
 #[cfg(test)]
 mod tests {
@@ -87,7 +93,7 @@ mod tests {
     use crate::arrays::PrimitiveArray;
     use crate::arrays::dict::DictArray;
     use crate::assert_arrays_eq;
-    use crate::compute::fill_null;
+    use crate::builtins::ArrayBuiltins;
     use crate::validity::Validity;
 
     #[test]
@@ -102,11 +108,10 @@ mod tests {
         )
         .vortex_expect("operation should succeed in test");
 
-        let filled = fill_null(
-            dict.as_ref(),
-            &Scalar::primitive(20, Nullability::NonNullable),
-        )
-        .vortex_expect("operation should succeed in test");
+        let filled = dict
+            .to_array()
+            .fill_null(Scalar::primitive(20, Nullability::NonNullable))
+            .vortex_expect("operation should succeed in test");
         let filled_primitive = filled.to_primitive();
         assert_arrays_eq!(filled_primitive, PrimitiveArray::from_iter([10, 20, 20]));
         assert!(filled_primitive.all_valid().unwrap());

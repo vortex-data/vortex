@@ -34,6 +34,8 @@ use crate::vtable::ArrayId;
 use crate::vtable::VTable;
 use crate::vtable::ValidityVTableFromValidityHelper;
 use crate::vtable::VisitorVTable;
+use crate::vtable::validity_nchildren;
+use crate::vtable::validity_to_child;
 
 mod kernel;
 
@@ -52,6 +54,18 @@ impl VisitorVTable<MaskedVTable> for MaskedVTable {
     fn visit_children(array: &MaskedArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("child", &array.child);
         visitor.visit_validity(&array.validity, array.child.len());
+    }
+
+    fn nchildren(array: &MaskedArray) -> usize {
+        1 + validity_nchildren(&array.validity)
+    }
+
+    fn nth_child(array: &MaskedArray, idx: usize) -> Option<ArrayRef> {
+        match idx {
+            0 => Some(array.child.clone()),
+            1 => validity_to_child(&array.validity, array.child.len()),
+            _ => None,
+        }
     }
 }
 

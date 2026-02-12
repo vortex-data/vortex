@@ -37,7 +37,7 @@ impl CompareKernel for DateTimePartsVTable {
         };
         let Some(timestamp) = rhs_const
             .as_extension()
-            .storage()
+            .to_storage_scalar()
             .as_primitive()
             .as_::<i64>()
         else {

@@ -19,9 +19,9 @@ use vortex_array::ProstMetadata;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::ConstantArray;
 use vortex_array::buffer::BufferHandle;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::Operator;
 use vortex_array::compute::compare;
-use vortex_array::compute::fill_null;
 use vortex_array::compute::filter;
 use vortex_array::compute::sub_scalar;
 use vortex_array::patches::Patches;
@@ -353,12 +353,10 @@ impl SparseArray {
 
         let fill_array = ConstantArray::new(fill.clone(), array.len()).into_array();
         let non_top_mask = Mask::from_buffer(
-            fill_null(
-                &compare(array, &fill_array, Operator::NotEq)?,
-                &Scalar::bool(true, Nullability::NonNullable),
-            )?
-            .to_bool()
-            .to_bit_buffer(),
+            compare(array, &fill_array, Operator::NotEq)?
+                .fill_null(Scalar::bool(true, Nullability::NonNullable))?
+                .to_bool()
+                .to_bit_buffer(),
         );
 
         let non_top_values = filter(array, &non_top_mask)?;
@@ -434,8 +432,17 @@ impl VisitorVTable<SparseVTable> for SparseVTable {
         visitor.visit_buffer_handle("fill_value", &BufferHandle::new_host(fill_value_buffer));
     }
 
+    fn nbuffers(_array: &SparseArray) -> usize {
+        1
+    }
+
     fn visit_children(array: &SparseArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_patches(array.patches())
+    }
+
+    fn nchildren(array: &SparseArray) -> usize {
+        // patches have indices + values + optional chunk_offsets
+        2 + array.patches().chunk_offsets().is_some() as usize
     }
 }
 
