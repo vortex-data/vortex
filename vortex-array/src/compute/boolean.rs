@@ -64,7 +64,9 @@ pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexR
         )?
         .into_array()),
         Err(_) => {
-            tracing::trace!("non-Kleene boolean op {op:?} cannot be lazily evaluated, falling back to eager Arrow evaluation");
+            tracing::trace!(
+                "non-Kleene boolean op {op:?} cannot be lazily evaluated, falling back to eager Arrow evaluation"
+            );
             arrow_boolean(lhs.to_array(), rhs.to_array(), op)
         }
     }
