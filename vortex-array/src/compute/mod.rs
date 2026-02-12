@@ -21,7 +21,7 @@ pub use cast::*;
 pub use compare::*;
 pub use fill_null::*;
 pub use filter::*;
-#[allow(deprecated)]
+#[expect(deprecated)]
 pub use invert::invert;
 pub use is_constant::*;
 pub use is_sorted::*;
