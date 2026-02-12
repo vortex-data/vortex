@@ -16,6 +16,7 @@ enum DynamicOpCode {
     FOR,
     ZIGZAG,
     BITUNPACK,
+    ALP,
 };
 
 // Operation to pass to the dynamic dispatch kernel.

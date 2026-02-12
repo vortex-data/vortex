@@ -27,6 +27,7 @@ use vortex_cuda::CudaSession;
 use vortex_cuda::bitpacked_cuda_kernel;
 use vortex_cuda::bitpacked_cuda_launch_config;
 use vortex_cuda::dynamic_dispatch_op::DynamicOp;
+use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_ALP;
 use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_BITUNPACK;
 use vortex_cuda::dynamic_dispatch_op::DynamicOpCode_FOR;
 use vortex_cuda_macros::cuda_available;
@@ -45,9 +46,17 @@ const REFERENCE_VALUE: u32 = 100_000;
 /// Bit width used for the bitpack+FoR benchmarks.
 const BIT_WIDTH: u8 = 6;
 
+/// ALP decode factors for the ALP benchmarks.
+const ALP_F: f32 = 10.0;
+const ALP_E: f32 = 1.0;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+fn pack_alp_f32_param(f: f32, e: f32) -> u64 {
+    (e.to_bits() as u64) << 32 | f.to_bits() as u64
+}
 
 /// Helper: launch a single FoR kernel on a device buffer (in-place).
 fn launch_for_kernel(
@@ -269,11 +278,12 @@ fn bench_bitunpack_for_separate(c: &mut Criterion) {
 // Benchmark: BitUnpack + FoR — single fused dynamic scalar_decode launch
 // ============================================================================
 
-/// Run bitunpack+FoR as a single fused dynamic_dispatch launch, returning GPU time.
-fn run_bitunpack_for_fused_timed(
+/// Run a fused dynamic_dispatch launch on a bitpacked array, returning GPU time.
+fn run_dynamic_dispatch_bitpacked_timed(
     cuda_ctx: &mut CudaExecutionCtx,
     bitpacked_array: &BitPackedArray,
     device_ops: &Arc<cudarc::driver::CudaSlice<DynamicOp>>,
+    num_ops: u8,
 ) -> VortexResult<Duration> {
     let packed = bitpacked_array.packed().clone();
     let len = bitpacked_array.len();
@@ -297,9 +307,6 @@ fn run_bitunpack_for_fused_timed(
         .vortex_expect("failed to allocate output");
     let output_buf = CudaDeviceBuffer::new(output_slice);
     let output_ptr = output_buf.as_view::<u32>().device_ptr(cuda_ctx.stream()).0;
-
-    // ops = [BITUNPACK(bit_width), FOR(reference)]
-    let num_ops: u8 = 2;
 
     // Ensure all previous works on the stream completed.
     cuda_ctx
@@ -354,9 +361,84 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
                     let mut total_time = Duration::ZERO;
 
                     for _ in 0..iters {
-                        let kernel_time =
-                            run_bitunpack_for_fused_timed(&mut cuda_ctx, array, &device_ops)
-                                .vortex_expect("bitunpack+for dynamic_dispatch failed");
+                        let kernel_time = run_dynamic_dispatch_bitpacked_timed(
+                            &mut cuda_ctx,
+                            array,
+                            &device_ops,
+                            ops.len() as u8,
+                        )
+                        .vortex_expect("bitunpack+for dynamic_dispatch failed");
+                        total_time += kernel_time;
+                    }
+
+                    total_time
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+// ============================================================================
+// Benchmark: BitUnpack + FoR + ALP — single fused dynamic dispatch launch
+// ============================================================================
+
+fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
+    let mut group = c.benchmark_group("bitunpack_for_alp");
+    group.sample_size(10);
+
+    // ops = [BITUNPACK(bit_width), FOR(reference), ALP(f, e)]
+    let ops = vec![
+        DynamicOp {
+            op: DynamicOpCode_BITUNPACK,
+            param: BIT_WIDTH as u64,
+        },
+        DynamicOp {
+            op: DynamicOpCode_FOR,
+            param: REFERENCE_VALUE as u64,
+        },
+        DynamicOp {
+            op: DynamicOpCode_ALP,
+            param: pack_alp_f32_param(ALP_F, ALP_E),
+        },
+    ];
+
+    for (len, len_str) in BENCH_ARGS {
+        group.throughput(Throughput::Bytes((len * size_of::<u32>()) as u64));
+
+        let bitpacked = make_bitpacked_array_u32(BIT_WIDTH, *len);
+
+        group.bench_with_input(
+            BenchmarkId::new("dynamic_dispatch_u32", len_str),
+            &bitpacked,
+            |b, array| {
+                let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
+                    .vortex_expect("failed to create execution context");
+
+                // Force PTX JIT compilation before any measurement.
+                cuda_ctx
+                    .load_function("dynamic_dispatch", &["u32"])
+                    .vortex_expect("failed to preload dynamic_dispatch kernel");
+
+                let device_ops = Arc::new(
+                    cuda_ctx
+                        .stream()
+                        .clone_htod(ops.as_slice())
+                        .expect("failed to copy ops to device"),
+                );
+
+                b.iter_custom(|iters| {
+                    let mut total_time = Duration::ZERO;
+
+                    for _ in 0..iters {
+                        let kernel_time = run_dynamic_dispatch_bitpacked_timed(
+                            &mut cuda_ctx,
+                            array,
+                            &device_ops,
+                            ops.len() as u8,
+                        )
+                        .vortex_expect("bitunpack+for+alp dynamic_dispatch failed");
                         total_time += kernel_time;
                     }
 
@@ -372,6 +454,7 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
 fn benchmark_nested_decode(c: &mut Criterion) {
     bench_bitunpack_for_separate(c);
     bench_bitunpack_for_dynamic_dispatch(c);
+    bench_bitunpack_for_alp_dynamic_dispatch(c);
 }
 
 criterion::criterion_group!(benches, benchmark_nested_decode);
