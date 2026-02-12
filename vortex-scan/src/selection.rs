@@ -166,13 +166,21 @@ fn indices_range(range: &Range<u64>, row_indices: &[u64]) -> Option<Range<usize>
 mod tests {
     use vortex_buffer::Buffer;
 
+    fn collect_indices(mask: &vortex_mask::Mask) -> Vec<usize> {
+        mask.values()
+            .unwrap()
+            .bit_buffer()
+            .set_indices()
+            .collect()
+    }
+
     #[test]
     fn test_row_mask_all() {
         let selection = super::Selection::IncludeByIndex(Buffer::from_iter(vec![1, 3, 5, 7]));
         let range = 1..8;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+        assert_eq!(collect_indices(row_mask.mask()), &[0, 2, 4, 6]);
     }
 
     #[test]
@@ -181,7 +189,7 @@ mod tests {
         let range = 3..6;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+        assert_eq!(collect_indices(row_mask.mask()), &[0, 2]);
     }
 
     #[test]
@@ -190,7 +198,7 @@ mod tests {
         let range = 3..5;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(collect_indices(row_mask.mask()), &[0]);
     }
 
     #[test]
@@ -217,7 +225,7 @@ mod tests {
         let range = 0..5;
         let row_mask = selection.row_mask(&range);
 
-        assert_eq!(row_mask.mask().values().unwrap().indices(), &[0]);
+        assert_eq!(collect_indices(row_mask.mask()), &[0]);
     }
 
     #[cfg(feature = "roaring")]
@@ -238,7 +246,7 @@ mod tests {
             let range = 1..8;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+            assert_eq!(collect_indices(row_mask.mask()), &[0, 2, 4, 6]);
         }
 
         #[test]
@@ -253,7 +261,7 @@ mod tests {
             let range = 3..6;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2]);
+            assert_eq!(collect_indices(row_mask.mask()), &[0, 2]);
         }
 
         #[test]
@@ -299,7 +307,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should exclude indices 1, 3, 5, so we get 0, 2, 4, 6
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 2, 4, 6]);
+            assert_eq!(collect_indices(row_mask.mask()), &[0, 2, 4, 6]);
         }
 
         #[test]
@@ -344,7 +352,7 @@ mod tests {
             let row_mask = selection.row_mask(&range);
 
             // Should exclude 5, 6, 7 (mapped to 0, 1, 2), keep 8, 9 (mapped to 3, 4)
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[3, 4]);
+            assert_eq!(collect_indices(row_mask.mask()), &[3, 4]);
         }
 
         #[test]
@@ -377,7 +385,7 @@ mod tests {
             let range = 0..100;
             let row_mask = selection.row_mask(&range);
 
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &[0, 99]);
+            assert_eq!(collect_indices(row_mask.mask()), &[0, 99]);
         }
 
         #[test]
@@ -393,7 +401,7 @@ mod tests {
 
             // Should include 15-19 (mapped to 0-4) and 30-34 (mapped to 15-19)
             let expected: Vec<usize> = (0..5).chain(15..20).collect();
-            assert_eq!(row_mask.mask().values().unwrap().indices(), &expected);
+            assert_eq!(collect_indices(row_mask.mask()), &expected);
         }
 
         #[test]
@@ -443,8 +451,8 @@ mod tests {
             let roaring_mask = roaring_selection.row_mask(&range);
 
             assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
+                collect_indices(buffer_mask.mask()),
+                collect_indices(roaring_mask.mask())
             );
         }
 
@@ -467,8 +475,8 @@ mod tests {
             let roaring_mask = roaring_selection.row_mask(&range);
 
             assert_eq!(
-                buffer_mask.mask().values().unwrap().indices(),
-                roaring_mask.mask().values().unwrap().indices()
+                collect_indices(buffer_mask.mask()),
+                collect_indices(roaring_mask.mask())
             );
         }
     }

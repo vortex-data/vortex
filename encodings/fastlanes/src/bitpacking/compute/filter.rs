@@ -97,7 +97,11 @@ fn filter_primitive_without_patches<U: UnsignedPType + BitPacking>(
     array: &BitPackedArray,
     selection: &Arc<MaskValues>,
 ) -> VortexResult<(Buffer<U>, Validity)> {
-    let values = filter_with_indices(array, selection.bit_buffer().set_indices(), selection.len());
+    let values = filter_with_indices(
+        array,
+        selection.bit_buffer().set_indices(),
+        selection.bit_buffer().true_count(),
+    );
     let validity = array.validity()?.filter(&Mask::Values(selection.clone()))?;
 
     Ok((values.freeze(), validity))

@@ -466,12 +466,14 @@ impl<V: VTable> Array for ArrayAdapter<V> {
     }
 
     fn filter(&self, mask: Mask) -> VortexResult<ArrayRef> {
+        dbg!(self.encoding_id());
         FilterArray::try_new(self.to_array(), mask)?
             .into_array()
             .optimize()
     }
 
     fn take(&self, indices: ArrayRef) -> VortexResult<ArrayRef> {
+        dbg!(self.encoding_id());
         DictArray::try_new(indices, self.to_array())?
             .into_array()
             .optimize()

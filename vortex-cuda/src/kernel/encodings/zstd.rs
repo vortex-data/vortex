@@ -25,7 +25,7 @@ use vortex_dtype::DType;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
-use vortex_mask::AllOr;
+use vortex_mask::Mask;
 use vortex_nvcomp::sys::nvcompStatus_t;
 use vortex_nvcomp::zstd as nvcomp_zstd;
 use vortex_zstd::ZstdArray;
@@ -282,8 +282,8 @@ async fn decode_zstd(array: ZstdArray, ctx: &mut CudaExecutionCtx) -> VortexResu
 
     let sliced_validity = validity.slice(slice_start..slice_stop)?;
 
-    match sliced_validity.to_mask(slice_stop - slice_start).indices() {
-        AllOr::All => {
+    match sliced_validity.to_mask(slice_stop - slice_start) {
+        Mask::AllTrue(_) => {
             let all_views = vortex_zstd::reconstruct_views(&host_buffer);
             let sliced_views = all_views.slice(slice_value_idx_start..slice_value_idx_stop);
 

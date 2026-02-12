@@ -835,6 +835,9 @@ async fn test_with_indices_and_with_row_filter_simple() {
 
     assert_eq!(actual_kept_array.len(), 0);
 
+    eprintln!("{}", file.footer().layout().display_tree());
+    eprintln!("Finished 1");
+
     // test a few indices
     let kept_indices = [0u64, 3, 99, 100, 101, 399, 400, 401, 499];
 
@@ -849,6 +852,8 @@ async fn test_with_indices_and_with_row_filter_simple() {
         .await
         .unwrap()
         .to_struct();
+
+    eprintln!("Finished 2");
 
     let actual_kept_numbers_array = actual_kept_array.unmasked_fields()[0].to_primitive();
 
