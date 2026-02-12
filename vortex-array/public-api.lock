@@ -346,8 +346,6 @@ impl vortex_array::arrays::SliceReduce for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::arrays::TakeReduce for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::take(array: &vortex_array::arrays::ConstantArray, indices: &dyn vortex_array::Array) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-impl vortex_array::compute::BooleanKernel for vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::boolean(&self, lhs: &vortex_array::arrays::ConstantArray, rhs: &dyn vortex_array::Array, op: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::ConstantVTable
 pub fn vortex_array::arrays::ConstantVTable::cast(&self, array: &vortex_array::arrays::ConstantArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CompareKernel for vortex_array::arrays::ConstantVTable
@@ -2692,6 +2690,9 @@ pub fn vortex_array::compute::BooleanOperator::clone(&self) -> vortex_array::com
 impl core::cmp::Eq for vortex_array::compute::BooleanOperator
 impl core::cmp::PartialEq for vortex_array::compute::BooleanOperator
 pub fn vortex_array::compute::BooleanOperator::eq(&self, other: &vortex_array::compute::BooleanOperator) -> bool
+impl core::convert::TryFrom<vortex_array::compute::BooleanOperator> for vortex_array::expr::Operator
+pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
+pub fn vortex_array::expr::Operator::try_from(value: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<Self>
 impl core::fmt::Debug for vortex_array::compute::BooleanOperator
 pub fn vortex_array::compute::BooleanOperator::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::marker::Copy for vortex_array::compute::BooleanOperator
@@ -2829,15 +2830,6 @@ pub vortex_array::compute::BinaryArgs::rhs: &'a dyn vortex_array::Array
 impl<'a, O: vortex_array::compute::Options> core::convert::TryFrom<&vortex_array::compute::InvocationArgs<'a>> for vortex_array::compute::BinaryArgs<'a, O>
 pub type vortex_array::compute::BinaryArgs<'a, O>::Error = vortex_error::VortexError
 pub fn vortex_array::compute::BinaryArgs<'a, O>::try_from(value: &vortex_array::compute::InvocationArgs<'a>) -> core::result::Result<Self, Self::Error>
-pub struct vortex_array::compute::BooleanKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::BooleanKernel> vortex_array::compute::BooleanKernelAdapter<V>
-pub const fn vortex_array::compute::BooleanKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::BooleanKernelRef
-impl<V: core::fmt::Debug + vortex_array::vtable::VTable> core::fmt::Debug for vortex_array::compute::BooleanKernelAdapter<V>
-pub fn vortex_array::compute::BooleanKernelAdapter<V>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::BooleanKernel> vortex_array::compute::Kernel for vortex_array::compute::BooleanKernelAdapter<V>
-pub fn vortex_array::compute::BooleanKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-pub struct vortex_array::compute::BooleanKernelRef(_)
-impl inventory::Collect for vortex_array::compute::BooleanKernelRef
 pub struct vortex_array::compute::CastKernelAdapter<V: vortex_array::vtable::VTable>(pub V)
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::CastKernel> vortex_array::compute::CastKernelAdapter<V>
 pub const fn vortex_array::compute::CastKernelAdapter<V>::lift(&'static self) -> vortex_array::compute::CastKernelRef
@@ -3078,10 +3070,6 @@ impl vortex_array::compute::BetweenKernel for vortex_array::arrays::DecimalVTabl
 pub fn vortex_array::arrays::DecimalVTable::between(&self, arr: &vortex_array::arrays::DecimalArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::compute::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::BetweenKernel for vortex_array::arrays::PrimitiveVTable
 pub fn vortex_array::arrays::PrimitiveVTable::between(&self, arr: &vortex_array::arrays::PrimitiveArray, lower: &dyn vortex_array::Array, upper: &dyn vortex_array::Array, options: &vortex_array::compute::BetweenOptions) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-pub trait vortex_array::compute::BooleanKernel: vortex_array::vtable::VTable
-pub fn vortex_array::compute::BooleanKernel::boolean(&self, array: &Self::Array, other: &dyn vortex_array::Array, op: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
-impl vortex_array::compute::BooleanKernel for vortex_array::arrays::ConstantVTable
-pub fn vortex_array::arrays::ConstantVTable::boolean(&self, lhs: &vortex_array::arrays::ConstantArray, rhs: &dyn vortex_array::Array, op: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 pub trait vortex_array::compute::CastKernel: vortex_array::vtable::VTable
 pub fn vortex_array::compute::CastKernel::cast(&self, array: &Self::Array, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::ArrayRef>>
 impl vortex_array::compute::CastKernel for vortex_array::arrays::BoolVTable
@@ -3226,8 +3214,6 @@ pub trait vortex_array::compute::Kernel: 'static + core::marker::Send + core::ma
 pub fn vortex_array::compute::Kernel::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::BetweenKernel> vortex_array::compute::Kernel for vortex_array::compute::BetweenKernelAdapter<V>
 pub fn vortex_array::compute::BetweenKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
-impl<V: vortex_array::vtable::VTable + vortex_array::compute::BooleanKernel> vortex_array::compute::Kernel for vortex_array::compute::BooleanKernelAdapter<V>
-pub fn vortex_array::compute::BooleanKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::CastKernel> vortex_array::compute::Kernel for vortex_array::compute::CastKernelAdapter<V>
 pub fn vortex_array::compute::CastKernelAdapter<V>::invoke(&self, args: &vortex_array::compute::InvocationArgs<'_>) -> vortex_error::VortexResult<core::option::Option<vortex_array::compute::Output>>
 impl<V: vortex_array::vtable::VTable + vortex_array::compute::CompareKernel> vortex_array::compute::Kernel for vortex_array::compute::CompareKernelAdapter<V>
@@ -4012,6 +3998,9 @@ pub fn vortex_array::expr::Operator::from(value: vortex_proto::expr::binary_opts
 impl core::convert::TryFrom<i32> for vortex_array::expr::Operator
 pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
 pub fn vortex_array::expr::Operator::try_from(value: i32) -> core::result::Result<Self, Self::Error>
+impl core::convert::TryFrom<vortex_array::compute::BooleanOperator> for vortex_array::expr::Operator
+pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
+pub fn vortex_array::expr::Operator::try_from(value: vortex_array::compute::BooleanOperator) -> vortex_error::VortexResult<Self>
 impl core::convert::TryInto<vortex_array::compute::Operator> for vortex_array::expr::Operator
 pub type vortex_array::expr::Operator::Error = vortex_error::VortexError
 pub fn vortex_array::expr::Operator::try_into(self) -> vortex_error::VortexResult<vortex_array::compute::Operator>
