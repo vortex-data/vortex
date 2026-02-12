@@ -340,14 +340,14 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .collect();
 
         // Open the first file eagerly to get the dtype/schema.
-        let first_file = SESSION.open_options().open_path(&matching_paths[0]).await?;
-        let arrow_schema = Arc::new(first_file.dtype().to_arrow_schema()?);
         let first_source = VortexFileFactory {
             path: matching_paths[0].clone(),
         }
         .open()
         .await?
         .vortex_expect("Missing first file");
+
+        let arrow_schema = Arc::new(first_source.dtype().to_arrow_schema()?);
 
         // Create lazy factories for remaining files.
         let remaining: Vec<Arc<dyn DataSourceFactory>> = matching_paths[1..]

@@ -39,10 +39,13 @@ use datafusion_physical_plan::stream::RecordBatchStreamAdapter;
 use futures::StreamExt;
 use futures::TryStreamExt;
 use futures::stream;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
+use tracing::Instrument;
 use vortex::array::VortexSessionExecute;
 use vortex::array::arrow::ArrowArrayExecutor;
 use vortex::dtype::Nullability;
+use vortex::error::VortexResult;
 use vortex::expr::Expression;
 use vortex::expr::get_item;
 use vortex::expr::pack;
@@ -235,7 +238,7 @@ impl ExecutionPlan for VortexExec {
     fn execute(
         &self,
         partition: usize,
-        _context: Arc<TaskContext>,
+        context: Arc<TaskContext>,
     ) -> DFResult<SendableRecordBatchStream> {
         let splits = {
             let partition_slot = self.partitions.get(partition).ok_or_else(|| {
@@ -257,19 +260,22 @@ impl ExecutionPlan for VortexExec {
             std::mem::take(&mut *guard)
         };
 
-        // Chain split streams sequentially, prefetching the next split while consuming
-        // the current one. buffered(2) lets the next split's execute() future run
-        // concurrently with consumption of the current split's stream.
         let schema = self.schema.clone();
         let session = self.session.clone();
         let projection = self.projection.clone();
-        let handle = session.handle();
-        let num_workers = std::thread::available_parallelism()
-            .map(|n| n.get())
-            .unwrap_or(1);
+
+        let batch_size = context.session_config().options().execution.batch_size;
 
         let stream = stream::iter(splits)
-            .map(|split| split.execute())
+            .map(|split| {
+                split
+                    .execute()
+                    // TODO(ngates): rename execute -> prepare? Since it's the future that returns the stream?
+                    .instrument(tracing::info_span!("VortexExec: preparing split"))
+            })
+            // We prepare the next split's stream while consuming the current one. buffered(2) lets
+            // the next split's execute() future run concurrently with consumption of the current
+            // split's stream.
             .buffered(2)
             .try_flatten()
             // Filter out empty arrays (e.g. from fully-pruned splits) before conversion.
@@ -280,18 +286,36 @@ impl ExecutionPlan for VortexExec {
                 let session = session.clone();
                 let schema = schema.clone();
                 let projection = projection.clone();
-                handle.spawn_cpu(move || {
-                    let mut ctx = session.create_execution_ctx();
-                    result.and_then(|chunk| {
-                        let projected = match &projection {
-                            Some(proj) => chunk.apply(proj)?,
-                            None => chunk,
-                        };
-                        projected.execute_record_batch(&schema, &mut ctx)
-                    })
+                let mut ctx = session.create_execution_ctx();
+                result.and_then(|chunk| {
+                    let projected = match &projection {
+                        Some(proj) => chunk.apply(proj)?,
+                        None => chunk,
+                    };
+                    projected.execute_record_batch(&schema, &mut ctx)
                 })
             })
-            .buffered(num_workers)
+            .map_ok(move |rb| {
+                // Slice the stream to respect DataFusion's configured batch size.
+                stream::iter(
+                    (0..rb.num_rows().div_ceil(batch_size * 2))
+                        .flat_map(move |block_idx| {
+                            let offset = block_idx * batch_size * 2;
+
+                            if rb.num_rows() - offset < 2 * batch_size {
+                                let length = rb.num_rows() - offset;
+                                [Some(rb.slice(offset, length)), None].into_iter()
+                            } else {
+                                let first = rb.slice(offset, batch_size);
+                                let second = rb.slice(offset + batch_size, batch_size);
+                                [Some(first), Some(second)].into_iter()
+                            }
+                        })
+                        .flatten()
+                        .map(VortexResult::Ok),
+                )
+            })
+            .try_flatten()
             .map(|result| result.map_err(|e| DataFusionError::External(Box::new(e))));
 
         Ok(Box::pin(RecordBatchStreamAdapter::new(

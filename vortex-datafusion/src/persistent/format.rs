@@ -452,7 +452,6 @@ impl FileFormat for VortexFormat {
             }
 
             let total_byte_size = sum_of_column_byte_sizes.to_df();
-
             Ok(Statistics {
                 num_rows: Precision::Exact(
                     usize::try_from(row_count)

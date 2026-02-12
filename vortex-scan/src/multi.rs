@@ -13,6 +13,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use futures::StreamExt;
 use futures::stream;
+use tracing::Instrument;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -47,7 +48,7 @@ pub trait DataSourceFactory: 'static + Send + Sync {
 }
 
 /// Default number of deferred sources to open concurrently during scanning.
-const DEFAULT_PREFETCH: usize = 8;
+const DEFAULT_PREFETCH: usize = usize::MAX;
 
 /// A [`DataSource`] combining multiple children into a single scannable source.
 ///
@@ -225,8 +226,12 @@ impl MultiDataSourceScan {
             let Some(factory) = self.deferred.pop_front() else {
                 break;
             };
-            self.opening
-                .push_back(self.handle.spawn(async move { factory.open().await }));
+            self.opening.push_back(self.handle.spawn(async move {
+                factory
+                    .open()
+                    .instrument(tracing::info_span!("DataSourceFactory::open"))
+                    .await
+            }));
         }
     }
 
