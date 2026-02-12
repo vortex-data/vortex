@@ -183,7 +183,7 @@ impl Canonical {
         match self {
             Canonical::VarBinView(array) => Ok(Canonical::VarBinView(array.compact_buffers()?)),
             Canonical::List(array) => Ok(Canonical::List(
-                array.rebuild(ListViewRebuildMode::MakeZeroCopyToList)?,
+                array.rebuild(ListViewRebuildMode::TrimElements)?,
             )),
             _ => Ok(self.clone()),
         }
