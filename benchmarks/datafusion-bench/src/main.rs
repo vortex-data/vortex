@@ -25,9 +25,11 @@ use datafusion_bench::tracer::set_labels;
 use datafusion_physical_plan::ExecutionPlan;
 use datafusion_physical_plan::collect;
 use futures::StreamExt;
+use object_store::ObjectStore;
 use parking_lot::Mutex;
 use tokio::fs::File;
 use vortex::error::VortexExpect;
+use vortex::error::vortex_err;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::v2::FileStatsLayoutReader;
 use vortex::scan::api::DataSourceRef;
@@ -283,13 +285,24 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
 
 /// A [`DataSourceFactory`] that lazily opens a single Vortex file.
 struct VortexFileFactory {
+    object_store: Arc<dyn ObjectStore>,
     path: PathBuf,
 }
 
 #[async_trait]
 impl DataSourceFactory for VortexFileFactory {
     async fn open(&self) -> vortex::error::VortexResult<Option<DataSourceRef>> {
-        let file = SESSION.open_options().open_path(&self.path).await?;
+        let file = SESSION
+            .open_options()
+            .open_object_store(
+                &self.object_store,
+                self.path
+                    .as_os_str()
+                    .to_str()
+                    .ok_or_else(|| vortex_err!("Invalid path"))?,
+            )
+            .await?;
+
         let mut reader = file.layout_reader()?;
         if let Some(stats) = file.file_stats().cloned() {
             reader = Arc::new(FileStatsLayoutReader::new(reader, stats, SESSION.clone()));
@@ -341,6 +354,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
 
         // Open the first file eagerly to get the dtype/schema.
         let first_source = VortexFileFactory {
+            object_store: store.clone(),
             path: matching_paths[0].clone(),
         }
         .open()
@@ -352,7 +366,12 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         // Create lazy factories for remaining files.
         let remaining: Vec<Arc<dyn DataSourceFactory>> = matching_paths[1..]
             .iter()
-            .map(|path| Arc::new(VortexFileFactory { path: path.clone() }) as _)
+            .map(|path| {
+                Arc::new(VortexFileFactory {
+                    object_store: store.clone(),
+                    path: path.clone(),
+                }) as _
+            })
             .collect();
 
         let data_source: DataSourceRef = if remaining.is_empty() {
