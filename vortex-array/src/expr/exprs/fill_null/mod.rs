@@ -19,13 +19,10 @@ use crate::ArrayRef;
 use crate::CanonicalView;
 use crate::ColumnarView;
 use crate::ExecutionCtx;
-use crate::IntoArray;
 use crate::arrays::BoolVTable;
-use crate::arrays::ConstantArray;
 use crate::arrays::DecimalVTable;
 use crate::arrays::PrimitiveVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::cast;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -114,11 +111,7 @@ impl VTable for FillNull {
                 fill_null_canonical(canonical, &fill_scalar, args.ctx)
             }
             ColumnarView::Constant(constant) => {
-                if constant.scalar().is_null() {
-                    Ok(ConstantArray::new(fill_scalar, constant.len()).into_array())
-                } else {
-                    cast(constant.as_ref(), fill_scalar.dtype())
-                }
+                fill_null_constant(constant, &fill_scalar)
             }
         }
     }

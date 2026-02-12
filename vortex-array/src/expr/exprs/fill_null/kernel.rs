@@ -13,7 +13,7 @@ use crate::arrays::ConstantArray;
 use crate::arrays::ExactScalarFn;
 use crate::arrays::ScalarFnArrayView;
 use crate::arrays::ScalarFnVTable;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::expr::FillNull as FillNullExpr;
 use crate::kernel::ExecuteParentKernel;
 use crate::optimizer::rules::ArrayParentReduceRule;
@@ -60,7 +60,7 @@ pub(super) fn precondition(
 ) -> VortexResult<Option<ArrayRef>> {
     // If the array has no nulls, fill_null is a no-op (just cast for nullability).
     if !array.dtype().is_nullable() || array.all_valid()? {
-        return cast(array, fill_value.dtype()).map(Some);
+        return array.to_array().cast(fill_value.dtype().clone()).map(Some);
     }
 
     // If all values are null, replace the entire array with the fill value.
@@ -71,6 +71,20 @@ pub(super) fn precondition(
     }
 
     Ok(None)
+}
+
+/// Fill null on a [`ConstantArray`] by replacing null scalars with the fill value,
+/// or casting non-null scalars to the fill value's dtype.
+pub(crate) fn fill_null_constant(
+    array: &ConstantArray,
+    fill_value: &Scalar,
+) -> VortexResult<ArrayRef> {
+    let scalar = if array.scalar().is_null() {
+        fill_value.clone()
+    } else {
+        array.scalar().cast(fill_value.dtype())?
+    };
+    Ok(ConstantArray::new(scalar, array.len()).into_array())
 }
 
 /// Adaptor that wraps a [`FillNullReduce`] impl as an [`ArrayParentReduceRule`].
