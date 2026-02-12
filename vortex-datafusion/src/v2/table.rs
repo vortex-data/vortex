@@ -126,7 +126,7 @@ fn try_convert_operator(op: &DFOperator) -> Option<Operator> {
     }
 }
 
-/// A DataFusion [`TableProvider`] backed by a Vortex [`DataSource`].
+/// A DataFusion [`TableProvider`] backed by a Vortex [`DataSourceRef`].
 ///
 /// Maps each Vortex scan split to one DataFusion partition, letting DataFusion's scheduler
 /// control concurrency.

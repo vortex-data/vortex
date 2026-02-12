@@ -23,6 +23,18 @@ pub vortex_file::segments::RequestMetrics::individual_requests: vortex_metrics::
 pub vortex_file::segments::RequestMetrics::num_requests_coalesced: vortex_metrics::histogram::Histogram
 impl vortex_file::segments::RequestMetrics
 pub fn vortex_file::segments::RequestMetrics::new(metrics_registry: &dyn vortex_metrics::MetricsRegistry, labels: alloc::vec::Vec<vortex_metrics::Label>) -> Self
+pub mod vortex_file::v2
+pub struct vortex_file::v2::FileStatsLayoutReader
+impl vortex_file::v2::FileStatsLayoutReader
+pub fn vortex_file::v2::FileStatsLayoutReader::new(child: vortex_layout::reader::LayoutReaderRef, file_stats: vortex_file::FileStatistics, session: vortex_session::VortexSession) -> Self
+impl vortex_layout::reader::LayoutReader for vortex_file::v2::FileStatsLayoutReader
+pub fn vortex_file::v2::FileStatsLayoutReader::dtype(&self) -> &vortex_dtype::dtype::DType
+pub fn vortex_file::v2::FileStatsLayoutReader::filter_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+pub fn vortex_file::v2::FileStatsLayoutReader::name(&self) -> &alloc::sync::Arc<str>
+pub fn vortex_file::v2::FileStatsLayoutReader::projection_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_array::mask_future::MaskFuture) -> vortex_error::VortexResult<vortex_layout::reader::ArrayFuture>
+pub fn vortex_file::v2::FileStatsLayoutReader::pruning_evaluation(&self, row_range: &core::ops::range::Range<u64>, expr: &vortex_array::expr::expression::Expression, mask: vortex_mask::Mask) -> vortex_error::VortexResult<vortex_array::mask_future::MaskFuture>
+pub fn vortex_file::v2::FileStatsLayoutReader::register_splits(&self, field_mask: &[vortex_dtype::field_mask::FieldMask], row_range: &core::ops::range::Range<u64>, splits: &mut alloc::collections::btree::set::BTreeSet<u64>) -> vortex_error::VortexResult<()>
+pub fn vortex_file::v2::FileStatsLayoutReader::row_count(&self) -> u64
 pub enum vortex_file::DeserializeStep
 pub vortex_file::DeserializeStep::Done(vortex_file::Footer)
 pub vortex_file::DeserializeStep::NeedFileSize

@@ -59,8 +59,8 @@ const DEFAULT_PREFETCH: usize = 8;
 /// deferred children are opened in the background using spawned tasks on the session's runtime,
 /// keeping the I/O pipeline full while the engine processes splits from already-open sources.
 ///
-/// Once a deferred child is successfully opened, it is promoted to [`MultiChild::Opened`] so
-/// that subsequent scans reuse the opened source without re-opening.
+/// Once a deferred child is successfully opened, it is stored so that subsequent scans reuse the
+/// opened source without re-opening.
 pub struct MultiDataSource {
     dtype: DType,
     children: Arc<Mutex<Vec<MultiChild>>>,
