@@ -46,18 +46,6 @@ pub use zip::*;
 use crate::Array;
 use crate::ArrayRef;
 use crate::builders::ArrayBuilder;
-pub use crate::expr::FillNullExecuteAdaptor;
-pub use crate::expr::FillNullKernel;
-pub use crate::expr::FillNullReduce;
-pub use crate::expr::FillNullReduceAdaptor;
-pub use crate::expr::ZipExecuteAdaptor;
-pub use crate::expr::ZipKernel;
-pub use crate::expr::ZipReduce;
-pub use crate::expr::ZipReduceAdaptor;
-pub use crate::expr::NotExecuteAdaptor;
-pub use crate::expr::NotKernel;
-pub use crate::expr::NotReduce;
-pub use crate::expr::NotReduceAdaptor;
 
 #[cfg(feature = "arbitrary")]
 mod arbitrary;

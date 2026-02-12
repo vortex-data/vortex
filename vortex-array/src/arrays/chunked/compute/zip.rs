@@ -8,8 +8,8 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::ZipReduce;
 use crate::compute::zip;
+use crate::expr::ZipReduce;
 
 // Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array

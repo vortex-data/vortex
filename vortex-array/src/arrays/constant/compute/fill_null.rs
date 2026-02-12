@@ -8,8 +8,8 @@ use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::FillNullReduce;
 use crate::compute::cast;
+use crate::expr::FillNullReduce;
 
 impl FillNullReduce for ConstantVTable {
     fn fill_null(array: &ConstantArray, fill_value: &Scalar) -> VortexResult<Option<ArrayRef>> {

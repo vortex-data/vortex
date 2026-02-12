@@ -17,10 +17,14 @@ use crate::builtins::ArrayBuiltins;
 ///
 /// Returns a new array where `result[i] = if_true[i]` when `mask[i]` is true,
 /// otherwise `result[i] = if_false[i]`.
+///
+/// Null values in the mask are treated as false (selecting `if_false`). This follows
+/// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
+/// rather than Arrow's `if_else` which propagates null conditions to the output.
 pub fn zip(if_true: &dyn Array, if_false: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     if_true
         .to_array()
-        .zipt(if_false.to_array(), mask.clone().into_array())
+        .zip(if_false.to_array(), mask.clone().into_array())
 }
 
 pub(crate) fn zip_return_dtype(if_true: &dyn Array, if_false: &dyn Array) -> DType {

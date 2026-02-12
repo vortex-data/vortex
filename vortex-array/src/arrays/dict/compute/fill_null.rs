@@ -15,9 +15,9 @@ use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::ConstantArray;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::FillNullKernel;
 use crate::compute::Operator;
 use crate::compute::compare;
+use crate::expr::FillNullKernel;
 
 impl FillNullKernel for DictVTable {
     fn fill_null(

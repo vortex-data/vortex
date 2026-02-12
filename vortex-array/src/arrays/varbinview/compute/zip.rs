@@ -17,7 +17,7 @@ use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
-use crate::compute::ZipKernel;
+use crate::expr::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).

@@ -13,8 +13,8 @@ use crate::ArrayRef;
 use crate::ExecutionCtx;
 use crate::arrays::StructArray;
 use crate::arrays::StructVTable;
-use crate::compute::ZipKernel;
 use crate::compute::zip;
+use crate::expr::ZipKernel;
 use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 

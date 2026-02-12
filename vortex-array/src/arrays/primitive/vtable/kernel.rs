@@ -3,7 +3,7 @@
 
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::TakeExecuteAdaptor;
-use crate::compute::FillNullExecuteAdaptor;
+use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<PrimitiveVTable> = ParentKernelSet::new(&[

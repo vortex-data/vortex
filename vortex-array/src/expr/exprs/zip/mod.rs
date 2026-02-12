@@ -30,6 +30,10 @@ use crate::expr::VTableExt;
 /// An expression that conditionally selects between two arrays based on a boolean mask.
 ///
 /// For each position `i`, `result[i] = if mask[i] then if_true[i] else if_false[i]`.
+///
+/// Null values in the mask are treated as false (selecting `if_false`). This follows
+/// SQL semantics (DuckDB, Trino) where a null condition falls through to the ELSE branch,
+/// rather than Arrow's `if_else` which propagates null conditions to the output.
 pub struct Zip;
 
 impl VTable for Zip {
