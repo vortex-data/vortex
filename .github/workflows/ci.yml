@@ -790,7 +790,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly-2026-02-10
+          toolchain: nightly-2026-02-05
           components: "rust-src, rustfmt, clippy, miri"
       - uses: taiki-e/install-action@v2
         with:
