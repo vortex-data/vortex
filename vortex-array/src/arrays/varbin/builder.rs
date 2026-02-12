@@ -99,6 +99,10 @@ impl<O: IntegerPType> VarBinBuilder<O> {
         // The builder guarantees offsets are monotonically increasing, so we can set
         // this stat eagerly. This avoids an O(n) recomputation when the array is
         // deserialized and VarBinArray::validate checks sortedness.
+        debug_assert!(
+            offsets.statistics().compute_is_sorted().unwrap_or(false),
+            "VarBinBuilder offsets must be sorted"
+        );
         offsets
             .statistics()
             .set(Stat::IsSorted, Precision::Exact(true.into()));
