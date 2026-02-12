@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use vortex_error::VortexExpect;
 use vortex_mask::Mask;
 use vortex_mask::MaskValues;
@@ -93,8 +92,11 @@ fn compute_mask_for_fsl_elements(selection_mask: &MaskValues, list_size: usize) 
         selection_mask
             .bit_buffer()
             .set_indices()
-            .tuple_windows()
-            .map(|(start, end)| (start * list_size, end * list_size))
+            .map(|idx| {
+                let start = idx * list_size;
+                let end = (idx + 1) * list_size;
+                (start, end)
+            })
             .collect()
     };
 
