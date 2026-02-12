@@ -104,6 +104,7 @@ impl VTable for FSSTVTable {
         bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         Ok(ProstMetadata(
