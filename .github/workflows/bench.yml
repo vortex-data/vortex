@@ -46,8 +46,10 @@ jobs:
           - id: random-access-bench
             name: Random Access
             build_args: "--features lance"
+            formats: "parquet,lance,vortex"
           - id: compress-bench
             name: Compression
+            formats: "parquet,vortex"
     steps:
       - uses: runs-on/action@v2
         with:
@@ -86,7 +88,7 @@ jobs:
         env:
           RUST_BACKTRACE: full
         run: |
-          target/release_debug/${{ matrix.benchmark.id }} --formats parquet,lance,vortex -d gh-json -o results.json
+          target/release_debug/${{ matrix.benchmark.id }} --formats ${{ matrix.benchmark.formats }} -d gh-json -o results.json
 
       - name: Setup AWS CLI
         uses: aws-actions/configure-aws-credentials@v5
