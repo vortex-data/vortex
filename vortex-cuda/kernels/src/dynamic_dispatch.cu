@@ -33,8 +33,13 @@ __device__ __forceinline__ T apply_scalar_op(T value, const DynamicOp &op) {
     case ZIGZAG: {
         return (value >> 1) ^ static_cast<T>(-(value & 1));
     }
-    default:
-        return value;
+    case ALP: {
+        float f_val = __uint_as_float(static_cast<uint32_t>(op.param));
+        float e_val = __uint_as_float(static_cast<uint32_t>(op.param >> 32));
+        float result = static_cast<float>(static_cast<int32_t>(value)) * f_val * e_val;
+        return static_cast<T>(__float_as_uint(result));
+    }
+    default: __builtin_unreachable();
     }
 }
 

@@ -81,12 +81,12 @@ fn generate_lane_decoder<T: FastLanes, W: Write>(
     writeln!(output, "}}")
 }
 
-/// Generates a runtime bit-width dispatch function (`bit_unpack_{bits}_lane`) that switches
-/// over all bit widths `0..=bits` and calls the corresponding compile-time-specialized lane
-/// decoder.
+/// Generate a self-contained `.cu` file containing all lane decoders, a runtime
+/// lane dispatch function, and device/global kernel wrappers for all bit widths.
 ///
-/// This is used by `dynamic_dispatch.cu` which `#include`s the generated `bit_unpack_*.cu`
-/// files and needs a single entry point that accepts bit width as a runtime parameter.
+/// The generated file can be compiled standalone *and* `#include`d by other
+/// kernels (e.g. `dynamic_dispatch.cu`) that need access to the lane decoders
+/// and dispatch function.
 fn generate_lane_dispatch<T: FastLanes, W: Write>(
     output: &mut IndentedWriter<W>,
 ) -> io::Result<()> {
