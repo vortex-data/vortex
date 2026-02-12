@@ -38,7 +38,11 @@ use vortex_error::vortex_err;
 use vortex_fastlanes::BitPackedArray;
 use vortex_session::VortexSession;
 
-const BENCH_ARGS: &[(usize, &str)] = &[(1_000_000, "1M"), (10_000_000, "10M")];
+const BENCH_ARGS: &[(usize, &str)] = &[
+    (1_000_000, "1M"),
+    (10_000_000, "10M"),
+    (100_000_000, "100M"),
+];
 
 const REFERENCE_VALUE: u32 = 100_000;
 
@@ -49,11 +53,7 @@ const BIT_WIDTH: u8 = 6;
 const ALP_F: f32 = 10.0;
 const ALP_E: f32 = 1.0;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Helper: launch a single FoR kernel on a device buffer (in-place).
+/// Launch a single FoR kernel on a device buffer (in-place).
 fn launch_for_kernel(
     cuda_ctx: &mut CudaExecutionCtx,
     device_buf: &CudaDeviceBuffer,
@@ -152,10 +152,6 @@ fn run_dynamic_dispatch_timed(
     Ok(Duration::from_secs_f32(elapsed_ms / 1000.0))
 }
 
-// ============================================================================
-// Benchmark: BitUnpack + FoR — two separate kernel launches
-// ============================================================================
-
 /// Run bitunpack then FoR as two separate kernel launches, returning GPU time.
 fn run_bitunpack_for_separate_timed(
     cuda_ctx: &mut CudaExecutionCtx,
@@ -198,23 +194,21 @@ fn run_bitunpack_for_separate_timed(
         .record(stream)
         .map_err(|e| vortex_err!("failed to record start event: {:?}", e))?;
 
-    // --- Kernel 1: BitUnpack ---
-    {
-        let output_width = u32::BITS as usize;
-        let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, cuda_ctx)?;
-        let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
-        launch_builder.arg(&input_view);
-        launch_builder.arg(&output_view);
+    // BitUnpack
+    let output_width = u32::BITS as usize;
+    let cuda_function = bitpacked_cuda_kernel(bit_width, output_width, cuda_ctx)?;
+    let mut launch_builder = cuda_ctx.launch_builder(&cuda_function);
+    launch_builder.arg(&input_view);
+    launch_builder.arg(&output_view);
 
-        let config = bitpacked_cuda_launch_config(output_width, len)?;
-        unsafe {
-            launch_builder
-                .launch(config)
-                .map_err(|e| vortex_err!("bit_unpack kernel launch failed: {}", e))?;
-        }
+    let config = bitpacked_cuda_launch_config(output_width, len)?;
+    unsafe {
+        launch_builder
+            .launch(config)
+            .map_err(|e| vortex_err!("bit_unpack kernel launch failed: {}", e))?;
     }
 
-    // --- Kernel 2: FoR (in-place on output_buf) ---
+    // FoR
     launch_for_kernel(cuda_ctx, &output_buf, len)?;
 
     let stream = cuda_ctx.stream();
@@ -266,10 +260,6 @@ fn bench_bitunpack_for_separate(c: &mut Criterion) {
 
     group.finish();
 }
-
-// ============================================================================
-// Benchmark: BitUnpack + FoR — single fused dynamic dispatch launch
-// ============================================================================
 
 /// Run a fused dynamic_dispatch launch on a bitpacked array, returning GPU time.
 fn run_dynamic_dispatch_bitpacked_timed(
@@ -364,10 +354,7 @@ fn bench_bitunpack_for_dynamic_dispatch(c: &mut Criterion) {
     group.finish();
 }
 
-// ============================================================================
 // Benchmark: BitUnpack + FoR + ALP — single fused dynamic dispatch launch
-// ============================================================================
-
 fn bench_bitunpack_for_alp_dynamic_dispatch(c: &mut Criterion) {
     let mut group = c.benchmark_group("bitunpack_for_alp");
     group.sample_size(10);
