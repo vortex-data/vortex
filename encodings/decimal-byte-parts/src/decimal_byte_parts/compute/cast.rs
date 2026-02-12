@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -86,10 +87,11 @@ mod tests {
         )
         .unwrap();
 
-        // Cast to non-nullable should fail due to nulls
+        // Cast to non-nullable should fail due to nulls - force evaluation via to_canonical
         let result = array
             .to_array()
-            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable));
+            .cast(DType::Decimal(decimal_dtype, Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
         assert!(result.is_err());
     }
 

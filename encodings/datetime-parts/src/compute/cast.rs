@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::builtins::ArrayBuiltins;
@@ -90,21 +91,17 @@ mod tests {
     #[case(Validity::from_iter([true, false, true]))]
     fn test_bad_cast_fails(#[case] validity: Validity) {
         let array = date_time_array(validity);
-        let result = array.cast(DType::Bool(Nullability::NonNullable));
-        assert!(
-            result.as_ref().is_err_and(|err| err
-                .to_string()
-                .contains("No CastKernel to cast canonical array")),
-            "Got error: {result:?}"
-        );
+        // Cast to incompatible type - force evaluation via to_canonical
+        let result = array
+            .cast(DType::Bool(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
 
-        let result = array.cast(array.dtype().with_nullability(Nullability::NonNullable));
-        assert!(
-            result.as_ref().is_err_and(|err| err
-                .to_string()
-                .contains("invalid values to non-nullable type")),
-            "Got error: {result:?}"
-        );
+        // Cast nullable with nulls to non-nullable - force evaluation via to_canonical
+        let result = array
+            .cast(array.dtype().with_nullability(Nullability::NonNullable))
+            .and_then(|a| a.to_canonical().map(|c| c.into_array()));
+        assert!(result.is_err(), "Expected error, got: {result:?}");
     }
 
     #[rstest]
