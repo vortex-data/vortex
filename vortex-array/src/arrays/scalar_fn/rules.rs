@@ -11,7 +11,6 @@ use vortex_error::VortexResult;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::ArrayVisitor;
 use crate::Canonical;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;

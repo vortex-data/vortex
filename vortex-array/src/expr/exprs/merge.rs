@@ -187,12 +187,11 @@ impl VTable for Merge {
         node: &dyn ReduceNode,
         ctx: &dyn ReduceCtx,
     ) -> VortexResult<Option<ReduceNodeRef>> {
-        let merge_dtype = node.node_dtype()?;
         let mut names = Vec::with_capacity(node.child_count() * 2);
         let mut children = Vec::with_capacity(node.child_count() * 2);
         let mut duplicate_names = HashSet::<_>::new();
 
-        for child in node.children() {
+        for child in (0..node.child_count()).map(|i| node.child(i)) {
             let child_dtype = child.node_dtype()?;
             if !child_dtype.is_struct() {
                 vortex_bail!(
@@ -232,7 +231,7 @@ impl VTable for Merge {
         let pack_expr = ctx.new_node(
             Pack.bind(PackOptions {
                 names: FieldNames::from(names),
-                nullability: merge_dtype.nullability(),
+                nullability: node.node_dtype()?.nullability(),
             }),
             &pack_children,
         )?;

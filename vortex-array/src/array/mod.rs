@@ -413,7 +413,7 @@ impl<V: VTable> ReduceNode for ArrayAdapter<V> {
 
     fn child(&self, idx: usize) -> ReduceNodeRef {
         self.nth_child(idx)
-            .unwrap_or_else(|| panic!("Child index out of bounds: {}", idx))
+            .unwrap_or_else(|| vortex_panic!("Child index out of bounds: {}", idx))
     }
 
     fn child_count(&self) -> usize {
@@ -814,12 +814,11 @@ impl<V: VTable> Matcher for V {
     type Match<'a> = &'a V::Array;
 
     fn matches(array: &dyn Array) -> bool {
-        array.as_any().is::<ArrayAdapter<V>>()
+        Array::as_any(array).is::<ArrayAdapter<V>>()
     }
 
     fn try_match<'a>(array: &'a dyn Array) -> Option<Self::Match<'a>> {
-        array
-            .as_any()
+        Array::as_any(array)
             .downcast_ref::<ArrayAdapter<V>>()
             .map(|array_adapter| &array_adapter.0)
     }
