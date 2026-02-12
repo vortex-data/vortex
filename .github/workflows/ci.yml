@@ -599,6 +599,14 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Setup sccache env (Windows)
+        if: matrix.os == 'windows-x64'
+        run: |
+          echo "SCCACHE_GHA_ENABLED=false" >> $env:GITHUB_ENV
+          echo "SCCACHE_BUCKET=${{ env.RUNS_ON_S3_BUCKET_CACHE }}" >> $env:GITHUB_ENV
+          echo "SCCACHE_REGION=${{ env.RUNS_ON_AWS_REGION }}" >> $env:GITHUB_ENV
+          echo "SCCACHE_S3_KEY_PREFIX=cache/sccache" >> $env:GITHUB_ENV
+          echo "RUSTC_WRAPPER=sccache" >> $env:GITHUB_ENV
       - id: setup-rust
         uses: ./.github/actions/setup-rust
         with:
