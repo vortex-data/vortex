@@ -555,7 +555,6 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
     use vortex_array::arrays::ConstantArray;
     use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::compare;
-    use vortex_array::compute::mask;
     use vortex_array::compute::min_max;
     use vortex_array::compute::sum;
     let FuzzArrayAction { array, actions } = fuzz_action;
@@ -644,7 +643,9 @@ pub fn run_fuzz_action(fuzz_action: FuzzArrayAction) -> crate::error::VortexFuzz
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }
             Action::Mask(mask_val) => {
-                current_array = mask(&current_array, &mask_val)
+                current_array = current_array
+                    .as_ref()
+                    .mask(&mask_val)
                     .vortex_expect("mask operation should succeed in fuzz test");
                 assert_array_eq(&expected.array(), &current_array, i)?;
             }

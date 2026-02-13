@@ -18,7 +18,6 @@ use vortex_session::VortexSession;
 use crate::ArrayRef;
 use crate::arrays::StructArray;
 use crate::builtins::ExprBuiltins;
-use crate::compute::mask;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -116,7 +115,7 @@ impl VTable for GetItem {
 
         match input.dtype().nullability() {
             Nullability::NonNullable => Ok(field),
-            Nullability::Nullable => mask(&field, &input.validity_mask()?.not()),
+            Nullability::Nullable => field.mask(&input.validity_mask()?.not()),
         }?
         .execute(args.ctx)
     }

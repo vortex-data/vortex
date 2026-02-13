@@ -8,7 +8,6 @@ use vortex::array::IntoArray;
 use vortex::array::arrays::StructArray;
 use vortex::array::arrays::StructArrayParts;
 use vortex::array::optimizer::ArrayOptimizer;
-use vortex::compute::mask;
 use vortex::error::VortexResult;
 use vortex::mask::Mask;
 
@@ -50,11 +49,7 @@ pub(crate) fn new_exporter(
         .map(|child| {
             if matches!(validity, Mask::Values(_)) {
                 // TODO(joe): use new mask.
-                new_array_exporter(
-                    mask(child, &validity.clone().not())?.optimize()?,
-                    cache,
-                    ctx,
-                )
+                new_array_exporter(child.mask(&validity.clone().not())?.optimize()?, cache, ctx)
             } else {
                 new_array_exporter(child.clone().into_array(), cache, ctx)
             }

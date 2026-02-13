@@ -52,7 +52,20 @@ use crate::validity::Validity;
 /// # }
 /// ```
 ///
+impl dyn Array + '_ {
+    /// Replace values with null where the mask is true.
+    ///
+    /// See the free function [`mask`] for full documentation.
+    pub fn mask(&self, mask: &Mask) -> VortexResult<ArrayRef> {
+        compute_mask(self, mask)
+    }
+}
+
 pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
+    compute_mask(array, mask)
+}
+
+fn compute_mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
     let mask_true_count = mask.true_count();
 
     if mask_true_count == 0 {

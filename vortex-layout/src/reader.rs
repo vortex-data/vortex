@@ -98,7 +98,7 @@ impl ArrayFutureExt for ArrayFuture {
     fn masked(self, mask: MaskFuture) -> Self {
         Box::pin(async move {
             let (array, mask) = try_join!(self, mask)?;
-            vortex_array::compute::mask(array.as_ref(), &mask)
+            array.mask(&mask)
         })
     }
 }

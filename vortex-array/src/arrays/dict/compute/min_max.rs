@@ -10,7 +10,6 @@ use crate::Array as _;
 use crate::compute::MinMaxKernel;
 use crate::compute::MinMaxKernelAdapter;
 use crate::compute::MinMaxResult;
-use crate::compute::mask;
 use crate::compute::min_max;
 use crate::register_kernel;
 
@@ -28,7 +27,7 @@ impl MinMaxKernel for DictVTable {
 
         // Slow path: compute which values are unreferenced and mask them out
         let unreferenced_mask = Mask::from_buffer(array.compute_referenced_values_mask(false)?);
-        min_max(&mask(array.values(), &unreferenced_mask)?)
+        min_max(&array.values().mask(&unreferenced_mask)?)
     }
 }
 

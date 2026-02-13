@@ -351,7 +351,7 @@ impl LayoutReader for StructReader {
                     let masked_fields: Vec<ArrayRef> = struct_array
                         .unmasked_fields()
                         .iter()
-                        .map(|a| vortex_array::compute::mask(a.as_ref(), &mask))
+                        .map(|a| a.mask(&mask))
                         .try_collect()?;
 
                     Ok(StructArray::try_new(
@@ -364,7 +364,7 @@ impl LayoutReader for StructReader {
                 } else {
                     // If the root expression was not a pack or merge, e.g. if it's something like
                     // a get_item, then we apply the validity directly to the result
-                    vortex_array::compute::mask(array.as_ref(), &mask)
+                    array.mask(&mask)
                 }
             } else {
                 projected.await
