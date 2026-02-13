@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
+
+use std::fmt::Display;
 use std::fmt::Formatter;
 
+pub use kernel::*;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
@@ -12,9 +16,10 @@ use vortex_proto::expr as pb;
 use vortex_scalar::StringLike;
 use vortex_session::VortexSession;
 
+use crate::Array;
 use crate::ArrayRef;
-use crate::compute::LikeOptions;
-use crate::compute::like as like_compute;
+use crate::arrow::Datum;
+use crate::arrow::from_arrow_array_with_len;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
@@ -30,6 +35,26 @@ use crate::expr::gt_eq;
 use crate::expr::lit;
 use crate::expr::lt;
 use crate::expr::or;
+
+/// Options for SQL LIKE function
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LikeOptions {
+    pub negated: bool,
+    pub case_insensitive: bool,
+}
+
+impl Display for LikeOptions {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if self.negated {
+            write!(f, "NOT ")?;
+        }
+        if self.case_insensitive {
+            write!(f, "ILIKE")
+        } else {
+            write!(f, "LIKE")
+        }
+    }
+}
 
 /// Expression that performs SQL LIKE pattern matching.
 pub struct Like;
@@ -118,7 +143,13 @@ impl VTable for Like {
             .try_into()
             .map_err(|_| vortex_err!("Wrong argument count"))?;
 
-        like_compute(&child, &pattern, *options)?.execute(args.ctx)
+        if !child.is_canonical() || !pattern.is_canonical() {
+            let child = child.execute::<ArrayRef>(args.ctx)?;
+            let pattern = pattern.execute::<ArrayRef>(args.ctx)?;
+            return arrow_like(&child, &pattern, *options);
+        }
+
+        arrow_like(&child, &pattern, *options)
     }
 
     fn validity(
@@ -172,6 +203,35 @@ impl VTable for Like {
             }
         }
     }
+}
+
+/// Implementation of LIKE using the Arrow crate.
+pub(crate) fn arrow_like(
+    array: &dyn Array,
+    pattern: &dyn Array,
+    options: LikeOptions,
+) -> VortexResult<ArrayRef> {
+    let nullable = array.dtype().is_nullable() | pattern.dtype().is_nullable();
+    let len = array.len();
+    assert_eq!(
+        array.len(),
+        pattern.len(),
+        "Arrow Like: length mismatch for {}",
+        array.encoding_id()
+    );
+
+    // convert the pattern to the preferred array datatype
+    let lhs = Datum::try_new(array)?;
+    let rhs = Datum::try_new_with_target_datatype(pattern, lhs.data_type())?;
+
+    let result = match (options.negated, options.case_insensitive) {
+        (false, false) => arrow_string::like::like(&lhs, &rhs)?,
+        (true, false) => arrow_string::like::nlike(&lhs, &rhs)?,
+        (false, true) => arrow_string::like::ilike(&lhs, &rhs)?,
+        (true, true) => arrow_string::like::nilike(&lhs, &rhs)?,
+    };
+
+    from_arrow_array_with_len(&result, len, nullable)
 }
 
 /// Variants of the LIKE filter that we know how to turn into a stats pruning predicate.s
