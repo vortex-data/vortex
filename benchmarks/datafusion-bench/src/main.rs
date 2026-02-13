@@ -26,8 +26,10 @@ use datafusion_physical_plan::collect;
 use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
+use vortex::error::vortex_err;
 use vortex::file::multi::FileDiscovery;
-use vortex::file::multi::MultiFileDataSourceBuilder;
+use vortex::file::multi::MultiFileDataSource;
+use vortex::file::multi::Pattern;
 use vortex::scan::api::DataSource as _;
 use vortex::scan::api::DataSourceRef;
 use vortex_bench::Benchmark;
@@ -295,18 +297,18 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let discovery = pattern
-            .map(FileDiscovery::Glob)
-            .unwrap_or(FileDiscovery::ListAll);
-        let multi_ds = MultiFileDataSourceBuilder::new(
-            SESSION.clone(),
-            store.clone(),
-            benchmark_base.as_str(),
-        )
-        .with_prefix(table_url.prefix().clone())
-        .with_discovery(discovery)
-        .build()
-        .await?;
+        let discovery = match pattern {
+            Some(p) => FileDiscovery::Glob(p),
+            None => FileDiscovery::Glob(
+                Pattern::new(&format!("*.{}", format.ext()))
+                    .map_err(|e| vortex_err!("invalid pattern for table {}: {}", table.name, e))?,
+            ),
+        };
+        let multi_ds =
+            MultiFileDataSource::builder(SESSION.clone(), store.clone(), benchmark_base.clone())
+                .with_discovery(discovery)
+                .build()
+                .await?;
 
         let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
         let data_source: DataSourceRef = Arc::new(multi_ds);

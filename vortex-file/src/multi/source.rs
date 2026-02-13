@@ -34,6 +34,7 @@ use vortex_session::VortexSession;
 
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
+use crate::VortexOpenOptions;
 use crate::v2::FileStatsLayoutReader;
 
 /// A [`DataSource`] that scans across multiple Vortex files, presenting them as a single source.
@@ -95,34 +96,36 @@ impl DataSource for MultiFileDataSource {
 /// A [`DataSourceFactory`] that lazily opens a single Vortex file and wraps it in a
 /// [`LayoutReaderDataSource`].
 ///
-/// Handles statistics-based pruning via [`VortexFile::can_prune()`](crate::VortexFile::can_prune).
+/// Handles statistics-based pruning via [`VortexFile::can_prune`].
 pub(super) struct VortexFileFactory {
     pub(super) object_store: Arc<dyn ObjectStore>,
-    pub(super) path: String,
+    pub(super) file: DiscoveredFile,
     pub(super) filter: Option<Expression>,
     pub(super) session: VortexSession,
-    pub(super) open_options_fn:
-        Arc<dyn Fn(crate::VortexOpenOptions) -> crate::VortexOpenOptions + Send + Sync>,
+    pub(super) open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
 }
 
 #[async_trait]
 impl DataSourceFactory for VortexFileFactory {
     async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
-        debug!(path = %self.path, "opening vortex file");
-        let options = (self.open_options_fn)(self.session.open_options());
+        debug!(path = %self.file.path, "opening vortex file");
+        let mut options = (self.open_options_fn)(self.session.open_options());
+        if let Some(size) = self.file.size {
+            options = options.with_file_size(size);
+        }
         let file = options
-            .open_object_store(&self.object_store, &self.path)
+            .open_object_store(&self.object_store, &self.file.path)
             .await?;
 
         if let Some(ref filter) = self.filter
             && file.can_prune(filter)?
         {
-            debug!(path = %self.path, "pruned file based on statistics");
+            debug!(path = %self.file.path, "pruned file based on statistics");
             return Ok(None);
         }
 
         let ds = data_source_from_file(&file, &self.session)?;
-        debug!(path = %self.path, "opened vortex file");
+        debug!(path = %self.file.path, "opened vortex file");
         Ok(Some(ds))
     }
 }
@@ -141,4 +144,13 @@ pub(super) fn data_source_from_file(
         reader,
         session.clone(),
     )))
+}
+
+/// A file discovered during file listing, with its path and size in bytes.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) struct DiscoveredFile {
+    /// The file path relative to the object store root.
+    pub path: String,
+    /// The file size in bytes, if known.
+    pub size: Option<u64>,
 }

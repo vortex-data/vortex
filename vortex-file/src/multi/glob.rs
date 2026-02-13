@@ -9,54 +9,41 @@
 use std::sync::Arc;
 
 use futures::StreamExt;
+use futures::TryStreamExt;
 use glob::Pattern;
 use object_store::ObjectStore;
-use tracing::Instrument;
+use object_store::path::Path;
 use tracing::debug;
-use tracing::info_span;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 
-/// List all files under `prefix` in the object store that end with `file_extension`,
-/// returning sorted file paths relative to the store root.
+use super::source::DiscoveredFile;
+
+/// List all files under `prefix` in the object store, returning sorted
+/// [`DiscoveredFile`]s with path and size.
+#[tracing::instrument(name = "list_all", skip(object_store))]
 pub(super) async fn list_all(
     object_store: &Arc<dyn ObjectStore>,
-    prefix: &object_store::path::Path,
-    file_extension: &str,
-) -> VortexResult<Vec<String>> {
-    let prefix_str = prefix.as_ref();
-    async {
-        debug!(prefix = prefix_str, file_extension, "listing all files");
+    prefix: &Path,
+) -> VortexResult<Vec<DiscoveredFile>> {
+    debug!("listing all files");
 
-        let mut paths: Vec<String> = object_store
-            .list(Some(prefix))
-            .filter_map(|result| async {
-                match result {
-                    Ok(meta) => {
-                        let path_str = meta.location.to_string();
-                        path_str.ends_with(file_extension).then_some(path_str)
-                    }
-                    Err(_) => None,
-                }
-            })
-            .collect()
-            .await;
+    let mut files: Vec<DiscoveredFile> = object_store
+        .list(Some(prefix))
+        .map_ok(|meta| DiscoveredFile {
+            path: meta.location.to_string(),
+            size: Some(meta.size),
+        })
+        .try_collect()
+        .await?;
 
-        paths.sort();
-        debug!(
-            prefix = prefix_str,
-            file_extension,
-            file_count = paths.len(),
-            "listed all files"
-        );
-        Ok(paths)
-    }
-    .instrument(info_span!("list_all", prefix = prefix_str, file_extension))
-    .await
+    files.sort();
+    debug!(file_count = files.len(), "listed all files");
+    Ok(files)
 }
 
-/// Expand a glob pattern against an [`ObjectStore`], returning matching file paths relative
-/// to the store root.
+/// Expand a glob pattern against an [`ObjectStore`], returning matching
+/// [`DiscoveredFile`]s with path and size.
 ///
 /// The `glob_pattern` should be a path pattern (not a full URL) relative to the store root,
 /// e.g. `"data/year=2024/**/*.vortex"`.
@@ -68,52 +55,68 @@ pub(super) async fn list_all(
 /// 3. List objects with that prefix.
 /// 4. Filter using [`glob::Pattern`] matching.
 /// 5. Return sorted file paths.
+#[tracing::instrument(name = "expand_glob", skip(object_store))]
 pub(super) async fn expand_glob(
     object_store: &Arc<dyn ObjectStore>,
+    base_url_path: &Path,
     pattern: &Pattern,
-) -> VortexResult<Vec<String>> {
+) -> VortexResult<Vec<DiscoveredFile>> {
     let glob_str = pattern.as_str();
 
-    async {
-        validate_glob(glob_str)?;
+    validate_glob(glob_str)?;
 
-        let prefix = list_prefix(glob_str);
-        let prefix_path = object_store::path::Path::from(prefix);
+    // Extract the static prefix from the glob pattern to narrow the listing.
+    let prefix = list_prefix(glob_str);
+    let listing_path = if prefix.is_empty() {
+        base_url_path.clone()
+    } else {
+        Path::from(format!(
+            "{}/{}",
+            base_url_path.as_ref().trim_end_matches('/'),
+            prefix.trim_end_matches('/')
+        ))
+    };
+    let base_prefix = base_url_path.as_ref();
 
-        debug!(glob = glob_str, prefix, "expanding glob");
+    debug!(%base_url_path, %listing_path, "expanding glob");
 
-        let mut paths: Vec<String> = object_store
-            .list(Some(&prefix_path))
-            .filter_map(|result| async {
-                match result {
-                    Ok(meta) => {
-                        let path_str = meta.location.to_string();
-                        pattern.matches(&path_str).then_some(path_str)
-                    }
-                    Err(_) => None,
+    let mut files: Vec<DiscoveredFile> = object_store
+        .list(Some(&listing_path))
+        .filter_map(|result| async {
+            match result {
+                Ok(meta) => {
+                    let path_str = meta.location.to_string();
+                    let relative = path_str
+                        .strip_prefix(base_prefix)
+                        .map(|s| s.trim_start_matches('/'))
+                        .unwrap_or(&path_str);
+                    pattern.matches(relative).then_some(DiscoveredFile {
+                        path: path_str,
+                        size: Some(meta.size),
+                    })
                 }
-            })
-            .collect()
-            .await;
+                // FIXME(ngates): do not ignore errors
+                Err(_) => None,
+            }
+        })
+        .collect()
+        .await;
 
-        paths.sort();
-        debug!(glob = glob_str, file_count = paths.len(), "expanded glob");
-        Ok(paths)
-    }
-    .instrument(info_span!("expand_glob", glob = glob_str))
-    .await
+    files.sort();
+    debug!(file_count = files.len(), "expanded glob");
+    Ok(files)
 }
 
 /// Returns the list prefix for a path pattern containing glob characters.
 ///
-/// The prefix is the directory path up to the first glob character, which is used as the
-/// `list()` prefix to narrow the object store listing.
+/// The prefix is the directory path up to the first glob character, which is used to narrow
+/// the `list()` call on the object store.
 ///
 /// # Examples
 ///
-/// - `"path/to/file_*.txt"` → `"path/to/"`
-/// - `"*.txt"` → `""`
-/// - `"path/to/specific/file.txt"` → `"path/to/specific/"`
+/// - `"path/to/file_*.txt"` -> `"path/to/"`
+/// - `"*.txt"` -> `""`
+/// - `"path/to/specific/file.txt"` -> `"path/to/specific/"`
 fn list_prefix(pattern: &str) -> &str {
     let glob_pos = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
 

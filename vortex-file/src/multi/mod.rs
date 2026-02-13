@@ -16,6 +16,7 @@ mod builder;
 mod glob;
 mod source;
 
+pub use ::glob::Pattern;
 pub use builder::FileDiscovery;
 pub use builder::MultiFileDataSourceBuilder;
 pub use builder::SchemaResolution;
