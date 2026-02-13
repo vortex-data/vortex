@@ -95,10 +95,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         sv.into_inner().as_utf8(),
                         options.max_variable_length_statistics_size,
                     );
-                    if truncated {
-                        chunk
-                            .statistics()
-                            .set(Stat::Min, Precision::Inexact(value.into_value()));
+                    if truncated && let Some(v) = value.into_value() {
+                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
                     }
                 }
 
@@ -108,10 +106,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         options.max_variable_length_statistics_size,
                     );
                     if let Some(upper_bound) = value {
-                        if truncated {
-                            chunk
-                                .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
+                        if truncated && let Some(v) = upper_bound.into_value() {
+                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
                         }
                     } else {
                         chunk.statistics().clear(Stat::Max)
@@ -124,10 +120,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         sv.into_inner().as_binary(),
                         options.max_variable_length_statistics_size,
                     );
-                    if truncated {
-                        chunk
-                            .statistics()
-                            .set(Stat::Min, Precision::Inexact(value.into_value()));
+                    if truncated && let Some(v) = value.into_value() {
+                        chunk.statistics().set(Stat::Min, Precision::Inexact(v));
                     }
                 }
 
@@ -137,10 +131,8 @@ impl LayoutStrategy for FlatLayoutStrategy {
                         options.max_variable_length_statistics_size,
                     );
                     if let Some(upper_bound) = value {
-                        if truncated {
-                            chunk
-                                .statistics()
-                                .set(Stat::Max, Precision::Inexact(upper_bound.into_value()));
+                        if truncated && let Some(v) = upper_bound.into_value() {
+                            chunk.statistics().set(Stat::Max, Precision::Inexact(v));
                         }
                     } else {
                         chunk.statistics().clear(Stat::Max)

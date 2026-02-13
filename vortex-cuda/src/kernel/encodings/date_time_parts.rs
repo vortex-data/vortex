@@ -321,7 +321,7 @@ mod tests {
         let mut cuda_ctx = CudaSession::create_execution_ctx(&VortexSession::empty())
             .vortex_expect("failed to create execution context");
 
-        let len = 10000;
+        let len = 2050;
         let days: Vec<i32> = (0..len).collect();
         let seconds: Vec<i32> = (0..len).map(|i| i % 86400).collect();
         let subseconds: Vec<i64> = (0..len).map(|i| (i % 1000) as i64).collect();

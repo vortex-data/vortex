@@ -12,7 +12,6 @@ use vortex_dtype::DecimalDType;
 use vortex_dtype::DecimalType;
 use vortex_dtype::IntegerPType;
 use vortex_dtype::NativeDecimalType;
-use vortex_dtype::Nullability;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
@@ -95,7 +94,6 @@ pub struct DecimalArray {
 
 pub struct DecimalArrayParts {
     pub decimal_dtype: DecimalDType,
-    pub nullability: Nullability,
     pub values: BufferHandle,
     pub values_type: DecimalType,
     pub validity: Validity,
@@ -279,12 +277,10 @@ impl DecimalArray {
     }
 
     pub fn into_parts(self) -> DecimalArrayParts {
-        let nullability = self.dtype.nullability();
         let decimal_dtype = self.dtype.into_decimal_opt().vortex_expect("cannot fail");
 
         DecimalArrayParts {
             decimal_dtype,
-            nullability,
             values: self.values,
             values_type: self.values_type,
             validity: self.validity,

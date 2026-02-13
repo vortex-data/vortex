@@ -11,7 +11,15 @@ use crate::FoRArray;
 impl VisitorVTable<FoRVTable> for FoRVTable {
     fn visit_buffers(_array: &FoRArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &FoRArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &FoRArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded())
+    }
+
+    fn nchildren(_array: &FoRArray) -> usize {
+        1
     }
 }

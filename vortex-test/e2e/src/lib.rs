@@ -25,6 +25,9 @@ mod tests {
             PrimitiveArray::new(Buffer::from_iter(values), Validity::NonNullable).into_array();
 
         // Write in parallel and verify all sizes match expected
+        #[cfg(feature = "unstable_encodings")]
+        const EXPECTED_SIZE: usize = 216188;
+        #[cfg(not(feature = "unstable_encodings"))]
         const EXPECTED_SIZE: usize = 216156;
         let futures: Vec<_> = (0..5)
             .map(|_| {

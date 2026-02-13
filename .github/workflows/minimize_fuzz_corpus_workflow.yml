@@ -28,6 +28,9 @@ on:
       R2_FUZZ_SECRET_ACCESS_KEY:
         required: true
 
+env:
+  NIGHTLY_TOOLCHAIN: nightly-2026-02-05
+
 jobs:
   minimize:
     name: "Minimize ${{ inputs.fuzz_target }}"
@@ -54,7 +57,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: nightly
+          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
 
       - name: Install cargo fuzz
         run: cargo install --locked cargo-fuzz
@@ -70,7 +73,7 @@ jobs:
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
 
-          if aws s3 cp "s3://vortex-fuzz-corpus/$CORPUS_KEY" . 2>/dev/null; then
+          if python3 scripts/s3-download.py "s3://vortex-fuzz-corpus/$CORPUS_KEY" "$CORPUS_KEY"; then
             echo "Downloaded corpus successfully"
             tar -xf "$CORPUS_KEY"
           else
@@ -89,7 +92,7 @@ jobs:
           MINIMIZED_DIR="${CORPUS_DIR}_minimized"
           mkdir -p "$MINIMIZED_DIR"
           RUSTFLAGS="--cfg vortex_nightly" \
-            cargo +nightly fuzz cmin $FEATURES_FLAG \
+            cargo +$NIGHTLY_TOOLCHAIN fuzz cmin $FEATURES_FLAG \
             ${{ inputs.fuzz_target }} "$CORPUS_DIR" -- "$MINIMIZED_DIR"
           rm -rf "$CORPUS_DIR"
           mv "$MINIMIZED_DIR" "$CORPUS_DIR"
@@ -105,4 +108,4 @@ jobs:
           CORPUS_KEY="${{ inputs.fuzz_target }}_corpus.tar.zst"
           CORPUS_DIR="fuzz/corpus/${{ inputs.fuzz_target }}"
           tar -acf "$CORPUS_KEY" "$CORPUS_DIR"
-          aws s3api put-object --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32
+          python3 scripts/s3-upload.py --bucket vortex-fuzz-corpus --key "$CORPUS_KEY" --body "$CORPUS_KEY" --checksum-algorithm CRC32

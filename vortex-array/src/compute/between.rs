@@ -28,7 +28,7 @@ use crate::compute::Kernel;
 use crate::compute::Operator;
 use crate::compute::Options;
 use crate::compute::Output;
-use crate::compute::boolean;
+use crate::compute::arrow_boolean;
 use crate::compute::compare;
 use crate::vtable::VTable;
 
@@ -149,10 +149,11 @@ impl ComputeFnVTable for Between {
 
         // Otherwise, fall back to the default Arrow implementation
         // TODO(joe): should we try to canonicalize the array and try between
-        Ok(boolean(
-            &compare(lower, array, options.lower_strict.to_operator())?,
-            &compare(array, upper, options.upper_strict.to_operator())?,
-            BooleanOperator::And,
+        // TODO(joe): move to lazy execute!
+        Ok(arrow_boolean(
+            compare(lower, array, options.lower_strict.to_operator())?,
+            compare(array, upper, options.upper_strict.to_operator())?,
+            BooleanOperator::AndKleene,
         )?
         .into())
     }

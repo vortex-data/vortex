@@ -111,9 +111,9 @@ fn compare_fsst_constant(
         _ => unreachable!("FSSTArray can only have string or binary data type"),
     };
 
-    let encoded_scalar = Scalar::new(
-        DType::Binary(left.dtype().nullability() | right.dtype().nullability()),
-        encoded_buffer.into(),
+    let encoded_scalar = Scalar::binary(
+        encoded_buffer,
+        left.dtype().nullability() | right.dtype().nullability(),
     );
 
     let rhs = ConstantArray::new(encoded_scalar, left.len());

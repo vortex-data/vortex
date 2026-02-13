@@ -13,6 +13,7 @@ use vortex_array::arrays::FilterVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::arrays::SliceReduceAdaptor;
 use vortex_array::builtins::ArrayBuiltins;
+use vortex_array::compute::CastReduceAdaptor;
 use vortex_array::expr::Between;
 use vortex_array::expr::Binary;
 use vortex_array::optimizer::ArrayOptimizer;
@@ -30,6 +31,7 @@ use crate::timestamp;
 pub(crate) const PARENT_RULES: ParentRuleSet<DateTimePartsVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&DTPFilterPushDownRule),
     ParentRuleSet::lift(&DTPComparisonPushDownRule),
+    ParentRuleSet::lift(&CastReduceAdaptor(DateTimePartsVTable)),
     ParentRuleSet::lift(&FilterReduceAdaptor(DateTimePartsVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(DateTimePartsVTable)),
 ]);
@@ -147,7 +149,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
     // Extract the timestamp value
     let timestamp = constant
         .as_extension()
-        .storage()
+        .to_storage_scalar()
         .as_primitive()
         .as_::<i64>()?;
 
@@ -171,7 +173,7 @@ fn try_extract_days_constant(array: &ArrayRef) -> Option<i64> {
 fn is_constant_zero(array: &ArrayRef) -> bool {
     array
         .as_opt::<ConstantVTable>()
-        .is_some_and(|c| c.scalar().is_zero())
+        .is_some_and(|c| c.scalar().is_zero() == Some(true))
 }
 
 #[cfg(test)]

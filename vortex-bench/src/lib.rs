@@ -30,7 +30,6 @@ use vortex::error::VortexExpect;
 use vortex::error::vortex_err;
 use vortex::file::VortexWriteOptions;
 use vortex::file::WriteStrategyBuilder;
-use vortex::layout::layouts::compact::CompactCompressor;
 use vortex::utils::aliases::hash_map::HashMap;
 
 pub mod benchmark;
@@ -152,7 +151,24 @@ impl Display for Format {
     }
 }
 
+/// Allowed formats for benchmark CLI arguments.
+pub const ALLOWED_FORMATS: &[Format] = &[Format::Parquet, Format::OnDiskVortex, Format::Lance];
+
 impl Format {
+    /// Clap value parser that only accepts parquet, vortex, and lance.
+    pub fn parse_allowed(s: &str) -> Result<Format, String> {
+        let format = Format::from_str(s, true)?;
+        if ALLOWED_FORMATS.contains(&format) {
+            Ok(format)
+        } else {
+            Err(format!(
+                "invalid format '{}': allowed values are [{}]",
+                s,
+                ALLOWED_FORMATS.iter().map(|f| f.to_string()).join(", "),
+            ))
+        }
+    }
+
     pub fn name(&self) -> &'static str {
         match self {
             Format::Csv => "csv",
@@ -215,7 +231,7 @@ impl CompactionStrategy {
         match self {
             CompactionStrategy::Compact => options.with_strategy(
                 WriteStrategyBuilder::default()
-                    .with_compressor(CompactCompressor::default())
+                    .with_compact_encodings()
                     .build(),
             ),
             CompactionStrategy::Default => options,

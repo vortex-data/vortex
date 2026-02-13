@@ -2,42 +2,21 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::LazyLock;
 
-use arcref::ArcRef;
 use arrow_array::cast::AsArray;
 use arrow_schema::DataType;
-use vortex_dtype::DType;
-use vortex_error::VortexError;
-use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 
 use crate::Array;
 use crate::ArrayRef;
-use crate::arrays::ConstantVTable;
+use crate::IntoArray;
+use crate::arrays::ScalarFnArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
 use crate::compute::Options;
-use crate::compute::Output;
-use crate::vtable::VTable;
-
-static BOOLEAN_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("boolean".into(), ArcRef::new_ref(&Boolean));
-    for kernel in inventory::iter::<BooleanKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    BOOLEAN_FN.kernels().len()
-}
+use crate::expr::Binary;
+use crate::expr::ScalarFn;
+use crate::expr::operators::Operator;
 
 /// Point-wise logical _and_ between two Boolean arrays.
 ///
@@ -45,6 +24,7 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 ///
 /// See also [BooleanOperator::And]
+#[deprecated(note = "Use and_kleene instead. Non-Kleene boolean ops cannot be lazily evaluated.")]
 pub fn and(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::And)
 }
@@ -62,6 +42,7 @@ pub fn and_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 /// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 ///
 /// See also [BooleanOperator::Or]
+#[deprecated(note = "Use or_kleene instead. Non-Kleene boolean ops cannot be lazily evaluated.")]
 pub fn or(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
     boolean(lhs, rhs, BooleanOperator::Or)
 }
@@ -74,134 +55,20 @@ pub fn or_kleene(lhs: &dyn Array, rhs: &dyn Array) -> VortexResult<ArrayRef> {
 }
 
 /// Point-wise logical operator between two Boolean arrays.
-///
-/// This method uses Arrow-style null propagation rather than the Kleene logic semantics. This
-/// semantics is also known as "Bochvar logic" and "weak Kleene logic".
 pub fn boolean(lhs: &dyn Array, rhs: &dyn Array, op: BooleanOperator) -> VortexResult<ArrayRef> {
-    BOOLEAN_FN
-        .invoke(&InvocationArgs {
-            inputs: &[lhs.into(), rhs.into()],
-            options: &op,
-        })?
-        .unwrap_array()
-}
-
-pub struct BooleanKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(BooleanKernelRef);
-
-pub trait BooleanKernel: VTable {
-    fn boolean(
-        &self,
-        array: &Self::Array,
-        other: &dyn Array,
-        op: BooleanOperator,
-    ) -> VortexResult<Option<ArrayRef>>;
-}
-
-#[derive(Debug)]
-pub struct BooleanKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + BooleanKernel> BooleanKernelAdapter<V> {
-    pub const fn lift(&'static self) -> BooleanKernelRef {
-        BooleanKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + BooleanKernel> Kernel for BooleanKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = BooleanArgs::try_from(args)?;
-        let Some(array) = inputs.lhs.as_opt::<V>() else {
-            return Ok(None);
-        };
-        Ok(V::boolean(&self.0, array, inputs.rhs, inputs.operator)?.map(|array| array.into()))
-    }
-}
-
-struct Boolean;
-
-impl ComputeFnVTable for Boolean {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let BooleanArgs { lhs, rhs, operator } = BooleanArgs::try_from(args)?;
-
-        let rhs_is_constant = rhs.is::<ConstantVTable>();
-
-        // If LHS is constant, then we make sure it's on the RHS.
-        if lhs.is::<ConstantVTable>() && !rhs_is_constant {
-            return Ok(boolean(rhs, lhs, operator)?.into());
+    match Operator::try_from(op) {
+        Ok(expr_op) => Ok(ScalarFnArray::try_new(
+            ScalarFn::new(Binary, expr_op),
+            vec![lhs.to_array(), rhs.to_array()],
+            lhs.len(),
+        )?
+        .into_array()),
+        Err(_) => {
+            tracing::trace!(
+                "non-Kleene boolean op {op:?} cannot be lazily evaluated, falling back to eager Arrow evaluation"
+            );
+            arrow_boolean(lhs.to_array(), rhs.to_array(), op)
         }
-
-        // If the RHS is constant and the LHS is Arrow, we can't do any better than arrow_compare.
-        if lhs.is_arrow() && (rhs.is_arrow() || rhs_is_constant) {
-            return Ok(arrow_boolean(lhs.to_array(), rhs.to_array(), operator)?.into());
-        }
-
-        // Check if either LHS or RHS supports the operation directly.
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-
-        let inverse_args = InvocationArgs {
-            inputs: &[rhs.into(), lhs.into()],
-            options: &operator,
-        };
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(&inverse_args)? {
-                return Ok(output);
-            }
-        }
-
-        tracing::debug!(
-            "No boolean implementation found for LHS {}, RHS {}, and operator {:?} (or inverse)",
-            rhs.encoding_id(),
-            lhs.encoding_id(),
-            operator,
-        );
-
-        // If neither side implements the trait, then we delegate to Arrow compute.
-        Ok(arrow_boolean(lhs.to_array(), rhs.to_array(), operator)?.into())
-    }
-
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let BooleanArgs { lhs, rhs, .. } = BooleanArgs::try_from(args)?;
-
-        if !lhs.dtype().is_boolean()
-            || !rhs.dtype().is_boolean()
-            || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
-        {
-            vortex_bail!(
-                "Boolean operations are only supported on boolean arrays: {} and {}",
-                lhs.dtype(),
-                rhs.dtype()
-            )
-        }
-
-        Ok(DType::Bool(
-            (lhs.dtype().is_nullable() || rhs.dtype().is_nullable()).into(),
-        ))
-    }
-
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let BooleanArgs { lhs, rhs, .. } = BooleanArgs::try_from(args)?;
-
-        if lhs.len() != rhs.len() {
-            vortex_bail!(
-                "Boolean operations aren't supported on arrays of different lengths: {} and {}",
-                lhs.len(),
-                rhs.len()
-            )
-        }
-
-        Ok(lhs.len())
-    }
-
-    fn is_elementwise(&self) -> bool {
-        true
     }
 }
 
@@ -257,39 +124,6 @@ impl Options for BooleanOperator {
     }
 }
 
-struct BooleanArgs<'a> {
-    lhs: &'a dyn Array,
-    rhs: &'a dyn Array,
-    operator: BooleanOperator,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for BooleanArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> VortexResult<Self> {
-        if value.inputs.len() != 2 {
-            vortex_bail!("Expected 2 inputs, found {}", value.inputs.len());
-        }
-        let lhs = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
-        let rhs = value.inputs[1]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 1 to be an array"))?;
-        let operator = value
-            .options
-            .as_any()
-            .downcast_ref::<BooleanOperator>()
-            .vortex_expect("Expected options to be an operator");
-
-        Ok(BooleanArgs {
-            lhs,
-            rhs,
-            operator: *operator,
-        })
-    }
-}
-
 /// Implementation of `BinaryBooleanFn` using the Arrow crate.
 ///
 /// Note that other encodings should handle a constant RHS value, so we can assume here that
@@ -329,7 +163,7 @@ mod tests {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
     fn test_or(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = or(&lhs, &rhs).unwrap();
+        let r = or_kleene(&lhs, &rhs).unwrap();
 
         let r = r.to_bool().into_array();
 
@@ -351,7 +185,7 @@ mod tests {
     #[case(BoolArray::from_iter([Some(true), Some(false), Some(true), Some(false)].into_iter()).into_array(),
         BoolArray::from_iter([Some(true), Some(true), Some(false), Some(false)].into_iter()).into_array())]
     fn test_and(#[case] lhs: ArrayRef, #[case] rhs: ArrayRef) {
-        let r = and(&lhs, &rhs).unwrap().to_bool().into_array();
+        let r = and_kleene(&lhs, &rhs).unwrap().to_bool().into_array();
 
         let v0 = r.scalar_at(0).unwrap().as_bool().value();
         let v1 = r.scalar_at(1).unwrap().as_bool().value();

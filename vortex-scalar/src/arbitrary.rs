@@ -7,7 +7,6 @@
 //! It is used by the fuzzer to test the correctness of the scalar value implementation.
 
 use std::iter;
-use std::sync::Arc;
 
 use arbitrary::Result;
 use arbitrary::Unstructured;
@@ -19,60 +18,90 @@ use vortex_dtype::NativeDecimalType;
 use vortex_dtype::PType;
 use vortex_dtype::half::f16;
 use vortex_dtype::match_each_decimal_value_type;
+use vortex_error::VortexExpect;
 
 use crate::DecimalValue;
-use crate::InnerScalarValue;
 use crate::PValue;
 use crate::Scalar;
 use crate::ScalarValue;
 
-/// Generate an arbitrary scalar value of the given data type.
+/// Generates an arbitrary [`Scalar`] of the given [`DType`].
+///
+/// # Errors
+///
+/// Returns an error if the underlying arbitrary generation fails.
 pub fn random_scalar(u: &mut Unstructured, dtype: &DType) -> Result<Scalar> {
-    Ok(Scalar::new(dtype.clone(), random_scalar_value(u, dtype)?))
-}
+    // For nullable types, return null ~25% of the time. This is just to make sure we don't generate
+    // too few nulls.
+    if dtype.is_nullable() && u.ratio(1, 4)? {
+        return Ok(Scalar::null(dtype.clone()));
+    }
 
-fn random_scalar_value(u: &mut Unstructured, dtype: &DType) -> Result<ScalarValue> {
-    match dtype {
-        DType::Null => Ok(ScalarValue(InnerScalarValue::Null)),
-        DType::Bool(_) => Ok(ScalarValue(InnerScalarValue::Bool(u.arbitrary()?))),
-        DType::Primitive(p, _) => Ok(ScalarValue(InnerScalarValue::Primitive(random_pvalue(
-            u, p,
-        )?))),
-        DType::Decimal(decimal_type, _) => random_decimal(u, decimal_type),
-        DType::Utf8(_) => Ok(ScalarValue(InnerScalarValue::BufferString(Arc::new(
-            BufferString::from(u.arbitrary::<String>()?),
-        )))),
-        DType::Binary(_) => Ok(ScalarValue(InnerScalarValue::Buffer(Arc::new(
-            ByteBuffer::from(u.arbitrary::<Vec<u8>>()?),
-        )))),
-        DType::Struct(sdt, _) => Ok(ScalarValue(InnerScalarValue::List(
-            sdt.fields()
-                .map(|d| random_scalar_value(u, &d))
-                .collect::<Result<Vec<_>>>()?
-                .into(),
-        ))),
-        DType::List(edt, _) => Ok(ScalarValue(InnerScalarValue::List(
-            iter::from_fn(|| {
-                // Creates `Some(_)` with 1/4 probability.
-                u.arbitrary()
-                    .unwrap_or(false)
-                    .then(|| random_scalar_value(u, edt))
-            })
-            .collect::<Result<Vec<_>>>()?
-            .into(),
-        ))),
-        DType::FixedSizeList(edt, size, _) => Ok(ScalarValue(InnerScalarValue::List(
-            (0..*size)
-                .map(|_| random_scalar_value(u, edt))
-                .collect::<Result<Vec<_>>>()?
-                .into(),
-        ))),
+    Ok(match dtype {
+        DType::Null => Scalar::null(dtype.clone()),
+        DType::Bool(_) => Scalar::try_new(dtype.clone(), Some(ScalarValue::Bool(u.arbitrary()?)))
+            .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Primitive(p, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Primitive(random_pvalue(u, p)?)),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Decimal(decimal_type, _) => {
+            Scalar::try_new(dtype.clone(), Some(random_decimal(u, decimal_type)?))
+                .vortex_expect("unable to construct random `Scalar`_")
+        }
+        DType::Utf8(_) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Utf8(BufferString::from(
+                u.arbitrary::<String>()?,
+            ))),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Binary(_) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::Binary(ByteBuffer::from(
+                u.arbitrary::<Vec<u8>>()?,
+            ))),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::Struct(sdt, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::List(
+                sdt.fields()
+                    .map(|d| random_scalar(u, &d).map(|s| s.into_value()))
+                    .collect::<Result<Vec<_>>>()?,
+            )),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::List(edt, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::List(
+                iter::from_fn(|| {
+                    // Generate elements with 1/4 probability.
+                    u.arbitrary()
+                        .unwrap_or(false)
+                        .then(|| random_scalar(u, edt).map(|s| s.into_value()))
+                })
+                .collect::<Result<Vec<_>>>()?,
+            )),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
+        DType::FixedSizeList(edt, size, _) => Scalar::try_new(
+            dtype.clone(),
+            Some(ScalarValue::List(
+                (0..*size)
+                    .map(|_| random_scalar(u, edt).map(|s| s.into_value()))
+                    .collect::<Result<Vec<_>>>()?,
+            )),
+        )
+        .vortex_expect("unable to construct random `Scalar`_"),
         DType::Extension(..) => {
             unreachable!("Can't yet generate arbitrary scalars for ext dtype")
         }
-    }
+    })
 }
 
+/// Generates an arbitrary [`PValue`] for the given [`PType`].
 fn random_pvalue(u: &mut Unstructured, ptype: &PType) -> Result<PValue> {
     Ok(match ptype {
         PType::U8 => PValue::U8(u.arbitrary()?),
@@ -89,7 +118,11 @@ fn random_pvalue(u: &mut Unstructured, ptype: &PType) -> Result<PValue> {
     })
 }
 
-/// Generate an arbitrary decimal scalar confined to the given bounds of precision and scale.
+/// Generates an arbitrary decimal scalar confined to the given bounds of precision and scale.
+///
+/// # Errors
+///
+/// Returns an error if the underlying arbitrary generation fails.
 pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Result<ScalarValue> {
     let precision = decimal_type.precision();
     let value = match_each_decimal_value_type!(
@@ -101,5 +134,5 @@ pub fn random_decimal(u: &mut Unstructured, decimal_type: &DecimalDType) -> Resu
         }
     );
 
-    Ok(ScalarValue(InnerScalarValue::Decimal(value)))
+    Ok(ScalarValue::Decimal(value))
 }

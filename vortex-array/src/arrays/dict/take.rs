@@ -2,6 +2,7 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
+use vortex_scalar::Scalar;
 
 use super::DictArray;
 use super::DictVTable;
@@ -10,6 +11,7 @@ use crate::ArrayRef;
 use crate::Canonical;
 use crate::ExecutionCtx;
 use crate::IntoArray;
+use crate::arrays::ConstantArray;
 use crate::expr::stats::Precision;
 use crate::expr::stats::Stat;
 use crate::expr::stats::StatsProvider;
@@ -63,14 +65,13 @@ fn precondition<V: VTable>(array: &V::Array, indices: &dyn Array) -> Option<Arra
         return Some(Canonical::empty(&result_dtype).into_array());
     }
 
-    // TODO(joe): shall we enable this seems expensive.
-    // if indices.all_invalid()? {
-    //     return Ok(
-    //         ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
-    //             .into_array()
-    //             .into(),
-    //     );
-    // }
+    // Fast-path for empty arrays: all indices must be null, return all-invalid result.
+    if array.is_empty() {
+        return Some(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), indices.len())
+                .into_array(),
+        );
+    }
 
     None
 }
@@ -155,7 +156,8 @@ pub(crate) fn propagate_take_stats(
                 source
                     .statistics()
                     .get(stat)
-                    .map(|v| (stat, v.map(|s| s.into_value()).into_inexact()))
+                    .and_then(|v| v.map(|s| s.into_value()).into_inexact().transpose())
+                    .map(|sv| (stat, sv))
             })
             .collect::<Vec<_>>();
         st.combine_sets(

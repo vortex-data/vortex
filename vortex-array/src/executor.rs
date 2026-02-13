@@ -7,7 +7,7 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 
-use itertools::Itertools;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_session::VortexSession;
 
@@ -116,8 +116,21 @@ impl Display for ExecutionCtx {
 
 impl Drop for ExecutionCtx {
     fn drop(&mut self) {
-        if !self.ops.is_empty() {
-            tracing::debug!("exec[{}] trace:\n{}", self.id, self.ops.iter().format("\n"));
+        if !self.ops.is_empty() && tracing::enabled!(tracing::Level::DEBUG) {
+            // Unlike itertools `.format()` (panics in 0.14 on second format)
+            struct FmtOps<'a>(&'a [String]);
+            impl Display for FmtOps<'_> {
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    for (i, op) in self.0.iter().enumerate() {
+                        if i > 0 {
+                            f.write_str("\n")?;
+                        }
+                        f.write_str(op)?;
+                    }
+                    Ok(())
+                }
+            }
+            tracing::debug!("exec[{}] trace:\n{}", self.id, FmtOps(&self.ops));
         }
     }
 }
@@ -154,8 +167,9 @@ impl Executable for ArrayRef {
         }
 
         // 2. reduce_parent (child-driven metadata-only rewrites)
-        for (child_idx, child) in array.children().iter().enumerate() {
-            if let Some(reduced_parent) = child.vtable().reduce_parent(child, &array, child_idx)? {
+        for child_idx in 0..array.nchildren() {
+            let child = array.nth_child(child_idx).vortex_expect("checked length");
+            if let Some(reduced_parent) = child.vtable().reduce_parent(&child, &array, child_idx)? {
                 ctx.log(format_args!(
                     "reduce_parent: child[{}]({}) rewrote {} -> {}",
                     child_idx,
@@ -169,10 +183,11 @@ impl Executable for ArrayRef {
         }
 
         // 3. execute_parent (child-driven optimized execution)
-        for (child_idx, child) in array.children().iter().enumerate() {
+        for child_idx in 0..array.nchildren() {
+            let child = array.nth_child(child_idx).vortex_expect("checked length");
             if let Some(executed_parent) = child
                 .vtable()
-                .execute_parent(child, &array, child_idx, ctx)?
+                .execute_parent(&child, &array, child_idx, ctx)?
             {
                 ctx.log(format_args!(
                     "execute_parent: child[{}]({}) rewrote {} -> {}",

@@ -10,7 +10,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::DecimalArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::arrays::VarBinViewArray;
-use vortex_array::compute::fill_null;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_buffer::Buffer;
@@ -43,7 +43,7 @@ pub fn fill_null_canonical_array(
         Canonical::Struct(_)
         | Canonical::List(_)
         | Canonical::FixedSizeList(_)
-        | Canonical::Extension(_) => fill_null(canonical.as_ref(), fill_value)?,
+        | Canonical::Extension(_) => canonical.into_array().fill_null(fill_value.clone())?,
     })
 }
 
@@ -256,7 +256,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinViewArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::validity::Validity;
     use vortex_buffer::BitBuffer;
     use vortex_dtype::DType;
@@ -418,14 +418,12 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
-        let expected = cast(
-            &DecimalArray::from_option_iter(
-                [Some(777i64), Some(777i64), Some(777i64)],
-                DecimalDType::new(10, 2),
-            )
-            .into_array(),
-            result.dtype(),
+        let expected = DecimalArray::from_option_iter(
+            [Some(777i64), Some(777i64), Some(777i64)],
+            DecimalDType::new(10, 2),
         )
+        .into_array()
+        .cast(result.dtype().clone())
         .unwrap();
         assert_arrays_eq!(expected, result);
     }
@@ -444,14 +442,12 @@ mod tests {
 
         let result = fill_null_canonical_array(array.to_canonical().unwrap(), &fill_value).unwrap();
 
-        let expected = cast(
-            &DecimalArray::from_option_iter(
-                [Some(100i32), Some(200i32), Some(300i32)],
-                DecimalDType::new(10, 2),
-            )
-            .into_array(),
-            result.dtype(),
+        let expected = DecimalArray::from_option_iter(
+            [Some(100i32), Some(200i32), Some(300i32)],
+            DecimalDType::new(10, 2),
         )
+        .into_array()
+        .cast(result.dtype().clone())
         .unwrap();
         assert_arrays_eq!(expected, result);
     }

@@ -10,7 +10,7 @@ use vortex_dtype::match_each_integer_ptype;
 use vortex_dtype::match_each_native_ptype;
 use vortex_error::VortexResult;
 
-use crate::ToCanonical;
+use crate::Array;
 use crate::arrays::PrimitiveArray;
 use crate::patches::PATCH_CHUNK_SIZE;
 use crate::patches::Patches;
@@ -19,8 +19,8 @@ use crate::vtable::ValidityHelper;
 
 impl PrimitiveArray {
     pub fn patch(self, patches: &Patches) -> VortexResult<Self> {
-        let patch_indices = patches.indices().to_primitive();
-        let patch_values = patches.values().to_primitive();
+        let patch_indices = patches.indices().to_canonical()?.into_primitive();
+        let patch_values = patches.values().to_canonical()?.into_primitive();
 
         let patched_validity = self.validity().clone().patch(
             self.len(),

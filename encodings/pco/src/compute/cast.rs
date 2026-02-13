@@ -3,17 +3,15 @@
 
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
-use vortex_array::compute::CastKernel;
-use vortex_array::compute::CastKernelAdapter;
-use vortex_array::register_kernel;
+use vortex_array::compute::CastReduce;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 
 use crate::PcoArray;
 use crate::PcoVTable;
 
-impl CastKernel for PcoVTable {
-    fn cast(&self, array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
+impl CastReduce for PcoVTable {
+    fn cast(array: &PcoArray, dtype: &DType) -> VortexResult<Option<ArrayRef>> {
         if !dtype.is_nullable() || !array.all_valid()? {
             // TODO(joe): fixme
             // We cannot cast to non-nullable since the validity containing nulls is used to decode
@@ -50,14 +48,12 @@ impl CastKernel for PcoVTable {
     }
 }
 
-register_kernel!(CastKernelAdapter(PcoVTable).lift());
-
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::cast::test_cast_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::Buffer;
@@ -75,11 +71,10 @@ mod tests {
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
-        let casted = cast(
-            pco.as_ref(),
-            &DType::Primitive(PType::F64, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = pco
+            .to_array()
+            .cast(DType::Primitive(PType::F64, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::F64, Nullability::NonNullable)
@@ -100,11 +95,10 @@ mod tests {
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
 
-        let casted = cast(
-            pco.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::Nullable),
-        )
-        .unwrap();
+        let casted = pco
+            .to_array()
+            .cast(DType::Primitive(PType::U32, Nullability::Nullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::Nullable)
@@ -119,11 +113,9 @@ mod tests {
         );
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)
@@ -144,11 +136,9 @@ mod tests {
         ]);
         let pco = PcoArray::from_primitive(&values, 0, 128).unwrap();
         let sliced = pco.slice(1..5).unwrap();
-        let casted = cast(
-            sliced.as_ref(),
-            &DType::Primitive(PType::U32, Nullability::NonNullable),
-        )
-        .unwrap();
+        let casted = sliced
+            .cast(DType::Primitive(PType::U32, Nullability::NonNullable))
+            .unwrap();
         assert_eq!(
             casted.dtype(),
             &DType::Primitive(PType::U32, Nullability::NonNullable)

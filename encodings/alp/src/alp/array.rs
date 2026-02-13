@@ -42,6 +42,7 @@ use crate::ALPFloat;
 use crate::alp::Exponents;
 use crate::alp::decompress::execute_decompress;
 use crate::alp::rules::PARENT_KERNELS;
+use crate::alp::rules::RULES;
 
 vtable!(ALP);
 
@@ -172,6 +173,14 @@ impl VTable for ALPVTable {
     fn execute(array: &Self::Array, ctx: &mut ExecutionCtx) -> VortexResult<ArrayRef> {
         // TODO(joe): take by value
         Ok(execute_decompress(array.clone(), ctx)?.into_array())
+    }
+
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
     }
 
     fn execute_parent(
@@ -444,11 +453,22 @@ impl BaseArrayVTable<ALPVTable> for ALPVTable {
 impl VisitorVTable<ALPVTable> for ALPVTable {
     fn visit_buffers(_array: &ALPArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ALPArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ALPArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("encoded", array.encoded());
         if let Some(patches) = array.patches() {
             visitor.visit_patches(patches);
         }
+    }
+
+    fn nchildren(array: &ALPArray) -> usize {
+        // encoded + optional patches (indices + values + optional chunk_offsets)
+        1 + array
+            .patches()
+            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

@@ -33,6 +33,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }                                       # Needed to pickup the "js" feature for wasm targets from the workspace configuration
 vortex-alp = { workspace = true }
 vortex-array = { workspace = true }
+vortex-btrblocks = { workspace = true }
 vortex-buffer = { workspace = true }
 vortex-bytebool = { workspace = true }
 
@@ -78,7 +79,12 @@ tokio = [
     "vortex-io/tokio",
     "vortex-layout/tokio",
 ]
-zstd = ["dep:vortex-zstd", "vortex-layout/zstd"]
+zstd = ["dep:vortex-zstd", "vortex-btrblocks/zstd", "vortex-btrblocks/pco"]
+# This feature enables unstable encodings for which we don't guarantee stability.
+unstable_encodings = [
+    "vortex-zstd?/unstable_encodings",
+    "vortex-btrblocks/unstable_encodings",
+]
 
 [package.metadata.cargo-machete]
 ignored = ["getrandom_v03", "uuid"]

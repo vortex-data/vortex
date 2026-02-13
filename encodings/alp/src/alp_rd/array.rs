@@ -45,6 +45,7 @@ use vortex_mask::Mask;
 use vortex_session::VortexSession;
 
 use crate::alp_rd::kernel::PARENT_KERNELS;
+use crate::alp_rd::rules::RULES;
 use crate::alp_rd_decode;
 
 vtable!(ALPRD);
@@ -264,6 +265,14 @@ impl VTable for ALPRDVTable {
         Ok(decoded_array.into_array())
     }
 
+    fn reduce_parent(
+        array: &Self::Array,
+        parent: &ArrayRef,
+        child_idx: usize,
+    ) -> VortexResult<Option<ArrayRef>> {
+        RULES.evaluate(array, parent, child_idx)
+    }
+
     fn execute_parent(
         array: &Self::Array,
         parent: &ArrayRef,
@@ -338,7 +347,12 @@ impl ALPRDArray {
                     vortex_bail!("patches must be all valid: {}", patches.values());
                 }
                 // TODO(ngates): assert the DType, don't cast it.
-                patches.cast_values(left_parts.dtype())
+                // TODO(joe): assert the DType, don't cast it in the next PR.
+                let mut patches = patches.cast_values(left_parts.dtype())?;
+                // Force execution of the lazy cast so patch values are materialized
+                // before serialization.
+                *patches.values_mut() = patches.values().to_canonical()?.into_array();
+                Ok(patches)
             })
             .transpose()?;
 
@@ -461,12 +475,23 @@ impl BaseArrayVTable<ALPRDVTable> for ALPRDVTable {
 impl VisitorVTable<ALPRDVTable> for ALPRDVTable {
     fn visit_buffers(_array: &ALPRDArray, _visitor: &mut dyn ArrayBufferVisitor) {}
 
+    fn nbuffers(_array: &ALPRDArray) -> usize {
+        0
+    }
+
     fn visit_children(array: &ALPRDArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_child("left_parts", array.left_parts());
         visitor.visit_child("right_parts", array.right_parts());
         if let Some(patches) = array.left_parts_patches() {
             visitor.visit_patches(patches);
         }
+    }
+
+    fn nchildren(array: &ALPRDArray) -> usize {
+        // left_parts + right_parts + optional patches (indices + values)
+        2 + array
+            .left_parts_patches()
+            .map_or(0, |p| 2 + p.chunk_offsets().is_some() as usize)
     }
 }
 

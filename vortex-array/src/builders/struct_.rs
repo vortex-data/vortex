@@ -73,7 +73,7 @@ impl StructBuilder {
             );
         }
 
-        if let Some(fields) = struct_scalar.fields() {
+        if let Some(fields) = struct_scalar.fields_iter() {
             for (builder, field) in self.builders.iter_mut().zip_eq(fields) {
                 builder.append_scalar(&field)?;
             }
@@ -162,8 +162,7 @@ impl ArrayBuilder for StructBuilder {
             scalar.dtype()
         );
 
-        let struct_scalar = StructScalar::try_from(scalar)?;
-        self.append_value(struct_scalar)
+        self.append_value(scalar.as_struct())
     }
 
     unsafe fn extend_from_array_unchecked(&mut self, array: &dyn Array) {

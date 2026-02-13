@@ -11,12 +11,11 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::arrays::VarBinVTable;
-use vortex_array::compute::fill_null;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_err;
 use vortex_scalar::Scalar;
-use vortex_scalar::ScalarValue;
 
 use crate::FSSTArray;
 use crate::FSSTVTable;
@@ -39,13 +38,12 @@ impl TakeExecute for FSSTVTable {
                     .vortex_expect("cannot fail")
                     .try_into::<VarBinVTable>()
                     .map_err(|_| vortex_err!("take for codes must return varbin array"))?,
-                fill_null(
-                    &array.uncompressed_lengths().take(indices.to_array())?,
-                    &Scalar::new(
-                        array.uncompressed_lengths_dtype().clone(),
-                        ScalarValue::from(0),
-                    ),
-                )?,
+                array
+                    .uncompressed_lengths()
+                    .take(indices.to_array())?
+                    .fill_null(Scalar::zero_value(
+                        &array.uncompressed_lengths_dtype().clone(),
+                    ))?,
             )?
             .into_array(),
         ))
@@ -55,11 +53,11 @@ impl TakeExecute for FSSTVTable {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vortex_array::Array;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::arrays::VarBinArray;
     use vortex_array::compute::conformance::consistency::test_array_consistency;
     use vortex_array::compute::conformance::take::test_take_conformance;
-    use vortex_array::compute::take;
     use vortex_dtype::DType;
     use vortex_dtype::Nullability;
 
@@ -76,14 +74,14 @@ mod tests {
         let idx1: PrimitiveArray = (0..1).collect();
 
         assert_eq!(
-            take(fsst.as_ref(), idx1.as_ref()).unwrap().dtype(),
+            fsst.take(idx1.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::NonNullable)
         );
 
         let idx2: PrimitiveArray = PrimitiveArray::from_option_iter(vec![Some(0)]);
 
         assert_eq!(
-            take(fsst.as_ref(), idx2.as_ref()).unwrap().dtype(),
+            fsst.take(idx2.to_array()).unwrap().dtype(),
             &DType::Utf8(Nullability::Nullable)
         );
     }

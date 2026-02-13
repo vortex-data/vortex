@@ -28,7 +28,6 @@ use vortex_fuzz::CompressorStrategy;
 use vortex_fuzz::FuzzFileAction;
 use vortex_fuzz::RUNTIME;
 use vortex_fuzz::SESSION;
-use vortex_layout::layouts::compact::CompactCompressor;
 use vortex_utils::aliases::DefaultHashBuilder;
 use vortex_utils::aliases::hash_set::HashSet;
 
@@ -62,7 +61,7 @@ fuzz_target!(|fuzz: FuzzFileAction| -> Corpus {
         CompressorStrategy::Default => SESSION.write_options(),
         CompressorStrategy::Compact => {
             let strategy = WriteStrategyBuilder::default()
-                .with_compressor(CompactCompressor::default())
+                .with_compact_encodings()
                 .build();
             SESSION.write_options().with_strategy(strategy)
         }

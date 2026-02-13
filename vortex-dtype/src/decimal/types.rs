@@ -22,7 +22,7 @@ use crate::i256;
 ///
 /// This is used for other crates to understand the different underlying representations possible
 /// for decimals.
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Hash, prost::Enumeration)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Eq, Ord, Hash, prost::Enumeration)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "lowercase"))]
 #[repr(u8)]

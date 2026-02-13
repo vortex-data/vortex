@@ -13,12 +13,20 @@ use vortex::file::OpenOptionsSessionExt;
 use vortex::file::WriteOptionsSessionExt;
 
 use crate::CompactionStrategy;
+use crate::Format;
 use crate::IdempotentPath;
 use crate::SESSION;
 use crate::conversions::parquet_to_vortex_chunks;
 use crate::datasets::Dataset;
 use crate::datasets::data_downloads::download_data;
 use crate::idempotent_async;
+use crate::random_access::BenchDataset;
+
+/// Dataset identifier used for data path generation.
+pub const DATASET: &str = "taxi";
+
+/// Total number of rows in the taxi dataset.
+pub const ROW_COUNT: u64 = 3_339_715;
 
 pub struct TaxiData;
 
@@ -34,6 +42,26 @@ impl Dataset for TaxiData {
 
     async fn to_parquet_path(&self) -> Result<PathBuf> {
         taxi_data_parquet().await
+    }
+}
+
+#[async_trait]
+impl BenchDataset for TaxiData {
+    fn name(&self) -> &str {
+        "taxi"
+    }
+
+    fn row_count(&self) -> u64 {
+        ROW_COUNT
+    }
+
+    async fn path(&self, format: Format) -> Result<PathBuf> {
+        match format {
+            Format::OnDiskVortex => taxi_data_vortex().await,
+            Format::VortexCompact => taxi_data_vortex_compact().await,
+            Format::Parquet => taxi_data_parquet().await,
+            other => unimplemented!("Random access bench not implemented for {other}"),
+        }
     }
 }
 

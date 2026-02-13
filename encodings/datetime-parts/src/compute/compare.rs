@@ -5,13 +5,13 @@ use vortex_array::Array;
 use vortex_array::ArrayRef;
 use vortex_array::IntoArray;
 use vortex_array::arrays::ConstantArray;
+use vortex_array::builtins::ArrayBuiltins;
 use vortex_array::compute::CompareKernel;
 use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
-use vortex_array::compute::and;
-use vortex_array::compute::cast;
+use vortex_array::compute::and_kleene;
 use vortex_array::compute::compare;
-use vortex_array::compute::or;
+use vortex_array::compute::or_kleene;
 use vortex_array::register_kernel;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
@@ -37,7 +37,7 @@ impl CompareKernel for DateTimePartsVTable {
         };
         let Some(timestamp) = rhs_const
             .as_extension()
-            .storage()
+            .to_storage_scalar()
             .as_primitive()
             .as_::<i64>()
         else {
@@ -84,7 +84,7 @@ fn compare_eq(
         return Ok(Some(comparison));
     }
 
-    comparison = and(
+    comparison = and_kleene(
         &compare_dtp(lhs.seconds(), ts_parts.seconds, Operator::Eq, nullability)?,
         &comparison,
     )?;
@@ -94,7 +94,7 @@ fn compare_eq(
         return Ok(Some(comparison));
     }
 
-    comparison = and(
+    comparison = and_kleene(
         &compare_dtp(
             lhs.subseconds(),
             ts_parts.subseconds,
@@ -118,7 +118,7 @@ fn compare_ne(
         return Ok(Some(comparison));
     }
 
-    comparison = or(
+    comparison = or_kleene(
         &compare_dtp(
             lhs.seconds(),
             ts_parts.seconds,
@@ -133,7 +133,7 @@ fn compare_ne(
         return Ok(Some(comparison));
     }
 
-    comparison = or(
+    comparison = or_kleene(
         &compare_dtp(
             lhs.subseconds(),
             ts_parts.subseconds,
@@ -181,10 +181,10 @@ fn compare_dtp(
     nullability: Nullability,
 ) -> VortexResult<ArrayRef> {
     // Since nullability is stripped from RHS and carried forward through nullability argument we want to incorporate it into lhs.dtype() that we cast rhs into
-    match cast(
-        ConstantArray::new(rhs, lhs.len()).as_ref(),
-        &lhs.dtype().with_nullability(nullability),
-    ) {
+    match ConstantArray::new(rhs, lhs.len())
+        .into_array()
+        .cast(lhs.dtype().with_nullability(nullability))
+    {
         Ok(casted) => compare(lhs, &casted, operator),
         // The narrowing cast failed. Therefore, we know lhs < rhs.
         _ => {

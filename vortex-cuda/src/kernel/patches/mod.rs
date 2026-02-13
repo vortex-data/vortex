@@ -115,7 +115,7 @@ mod tests {
     use vortex_array::arrays::PrimitiveArrayParts;
     use vortex_array::assert_arrays_eq;
     use vortex_array::buffer::BufferHandle;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::patches::Patches;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -203,11 +203,10 @@ mod tests {
     }
 
     fn force_cast<T: NativePType>(array: PrimitiveArray) -> PrimitiveArray {
-        cast(
-            array.as_ref(),
-            &DType::Primitive(T::PTYPE, Nullability::NonNullable),
-        )
-        .unwrap()
-        .to_primitive()
+        array
+            .to_array()
+            .cast(DType::Primitive(T::PTYPE, Nullability::NonNullable))
+            .unwrap()
+            .to_primitive()
     }
 }

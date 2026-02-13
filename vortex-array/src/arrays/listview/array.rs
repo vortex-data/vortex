@@ -6,7 +6,6 @@ use std::sync::Arc;
 use num_traits::AsPrimitive;
 use vortex_dtype::DType;
 use vortex_dtype::IntegerPType;
-use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
@@ -129,8 +128,6 @@ pub struct ListViewArray {
 }
 
 pub struct ListViewArrayParts {
-    pub nullability: Nullability,
-
     pub elements_dtype: Arc<DType>,
 
     /// See `ListViewArray::elements`
@@ -345,10 +342,8 @@ impl ListViewArray {
     }
 
     pub fn into_parts(self) -> ListViewArrayParts {
-        let nullability = self.dtype.nullability();
         let dtype = self.dtype.into_list_element_opt().vortex_expect("is list");
         ListViewArrayParts {
-            nullability,
             elements_dtype: dtype,
             elements: self.elements,
             offsets: self.offsets,

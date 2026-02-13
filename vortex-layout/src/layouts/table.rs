@@ -85,27 +85,23 @@ impl TableStrategy {
     /// ```ignore
     /// # use std::sync::Arc;
     /// # use vortex_dtype::{field_path, Field, FieldPath};
-    /// # use vortex_layout::layouts::compact::CompactCompressor;
     /// # use vortex_layout::layouts::compressed::CompressingStrategy;
     /// # use vortex_layout::layouts::flat::writer::FlatLayoutStrategy;
     /// # use vortex_layout::layouts::table::TableStrategy;
     ///
     /// // A strategy for compressing data using the balanced BtrBlocks compressor.
-    /// let compress_btrblocks = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
-    ///
-    /// // A strategy that compresses data using ZSTD
-    /// let compress_compact = CompressingStrategy::new_compact(FlatLayoutStrategy::default(), CompactCompressor::default());
+    /// let compress = CompressingStrategy::new_btrblocks(FlatLayoutStrategy::default(), true);
     ///
     /// // Our combined strategy uses no compression for validity buffers, BtrBlocks compression
-    /// // for most columns, and will use ZSTD compression for a nested binary column that we know
-    /// // is never filtered in.
+    /// // for most columns, and stores a nested binary column uncompressed (flat) because it
+    /// // is pre-compressed or never filtered on.
     /// let strategy = TableStrategy::new(
     ///         Arc::new(FlatLayoutStrategy::default()),
-    ///         Arc::new(compress_btrblocks),
+    ///         Arc::new(compress),
     ///     )
     ///     .with_field_writer(
     ///         field_path!(request.body.bytes),
-    ///         Arc::new(compress_compact),
+    ///         Arc::new(FlatLayoutStrategy::default()),
     ///     );
     /// ```
     pub fn with_field_writer(

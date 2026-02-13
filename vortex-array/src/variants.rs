@@ -122,7 +122,7 @@ impl PrimitiveTyped<'_> {
             .scalar_at(idx)?
             .as_primitive()
             .pvalue()
-            .unwrap_or_else(|| PValue::zero(self.ptype())))
+            .unwrap_or_else(|| PValue::zero(&self.ptype())))
     }
 }
 

@@ -28,11 +28,8 @@ impl CudaExecute for SharedExecutor {
             .ok()
             .vortex_expect("Array is not a Shared array");
 
-        if let Some(cached) = shared.cached() {
-            return Ok(cached);
-        }
-
-        let canonical = shared.as_source().execute_cuda(ctx).await?;
-        Ok(shared.cache_or_return(canonical))
+        shared
+            .get_or_compute_async(|source| source.execute_cuda(ctx))
+            .await
     }
 }

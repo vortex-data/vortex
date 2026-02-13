@@ -42,7 +42,7 @@ mod tests {
     use vortex_array::IntoArray;
     use vortex_array::arrays::PrimitiveArray;
     use vortex_array::assert_arrays_eq;
-    use vortex_array::compute::cast;
+    use vortex_array::builtins::ArrayBuiltins;
     use vortex_array::compute::conformance::filter::test_filter_conformance;
     use vortex_array::validity::Validity;
     use vortex_buffer::buffer;
@@ -60,7 +60,7 @@ mod tests {
             buffer![2u64, 9, 15].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             20,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array()
@@ -80,7 +80,7 @@ mod tests {
             buffer![0u64].into_array(),
             PrimitiveArray::new(buffer![33_i32], Validity::AllValid).into_array(),
             1,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 
@@ -94,7 +94,7 @@ mod tests {
             buffer![0_u64, 3, 6].into_array(),
             PrimitiveArray::new(buffer![33_i32, 44, 55], Validity::AllValid).into_array(),
             7,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap()
         .into_array();
@@ -109,7 +109,7 @@ mod tests {
             buffer![1u64, 3].into_array(),
             PrimitiveArray::new(buffer![44_i32, 55], Validity::AllValid).into_array(),
             4,
-            Scalar::null_typed::<i32>(),
+            Scalar::null_native::<i32>(),
         )
         .unwrap();
 
@@ -122,11 +122,10 @@ mod tests {
         test_filter_conformance(
             SparseArray::try_new(
                 buffer![1u64, 2, 4].into_array(),
-                cast(
-                    &buffer![100i32, 200, 300].into_array(),
-                    null_fill_value.dtype(),
-                )
-                .unwrap(),
+                buffer![100i32, 200, 300]
+                    .into_array()
+                    .cast(null_fill_value.dtype().clone())
+                    .unwrap(),
                 5,
                 null_fill_value,
             )

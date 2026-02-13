@@ -107,27 +107,21 @@ pub fn compare_canonical_array(array: &dyn Array, value: &Scalar, operator: Oper
             })
         }
         DType::Utf8(_) => array.to_varbinview().with_iterator(|iter| {
-            let utf8_value = value
-                .as_utf8()
-                .value()
-                .vortex_expect("nulls handled before");
+            let utf8_value = value.as_utf8();
             compare_to(
                 iter.map(|v| v.map(|b| unsafe { str::from_utf8_unchecked(b) })),
-                &utf8_value,
+                utf8_value.value().vortex_expect("nulls handled before"),
                 operator,
                 result_nullability,
             )
         }),
         DType::Binary(_) => array.to_varbinview().with_iterator(|iter| {
-            let binary_value = value
-                .as_binary()
-                .value()
-                .vortex_expect("nulls handled before");
+            let binary_value = value.as_binary();
             compare_to(
                 // Don't understand the lifetime problem here but identity map makes it go away
                 #[allow(clippy::map_identity)]
                 iter.map(|v| v),
-                &binary_value,
+                binary_value.value().vortex_expect("nulls handled before"),
                 operator,
                 result_nullability,
             )

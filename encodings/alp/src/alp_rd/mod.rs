@@ -14,6 +14,7 @@ mod array;
 mod compute;
 mod kernel;
 mod ops;
+mod rules;
 mod slice;
 
 use std::ops::Shl;

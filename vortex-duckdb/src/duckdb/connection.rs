@@ -200,8 +200,14 @@ mod tests {
             .query("SELECT 1 as int_col, 'text' as str_col")
             .unwrap();
 
-        assert_eq!(result.column_type(0), cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER);
-        assert_eq!(result.column_type(1), cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR);
+        assert_eq!(
+            result.column_type(0).as_type_id(),
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_INTEGER
+        );
+        assert_eq!(
+            result.column_type(1).as_type_id(),
+            cpp::DUCKDB_TYPE::DUCKDB_TYPE_VARCHAR
+        );
     }
 
     #[test]

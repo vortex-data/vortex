@@ -252,7 +252,7 @@ impl DType {
         if let Primitive(ptype, _) = self {
             *ptype
         } else {
-            vortex_panic!("DType is not a primitive type")
+            vortex_panic!("DType {self} is not a primitive type")
         }
     }
 
@@ -490,6 +490,15 @@ impl DType {
             vortex_panic!("DType is not an Extension")
         };
         ext
+    }
+
+    /// Get the `ExtDTypeRef` if `self` is an `Extension` type, otherwise `None`
+    pub fn as_extension_opt(&self) -> Option<&ExtDTypeRef> {
+        if let Extension(ext) = self {
+            Some(ext)
+        } else {
+            None
+        }
     }
 
     /// Convenience method for creating a [`DType::List`].

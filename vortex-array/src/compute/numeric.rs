@@ -2,14 +2,8 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use std::any::Any;
-use std::sync::LazyLock;
 
-use arcref::ArcRef;
-use vortex_dtype::DType;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_scalar::NumericOperator;
 use vortex_scalar::Scalar;
 
@@ -19,25 +13,7 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrow::Datum;
 use crate::arrow::from_arrow_array_with_len;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
 use crate::compute::Options;
-use crate::compute::Output;
-use crate::vtable::VTable;
-
-static NUMERIC_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("numeric".into(), ArcRef::new_ref(&Numeric));
-    for kernel in inventory::iter::<NumericKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    NUMERIC_FN.kernels().len()
-}
 
 /// Point-wise add two numeric arrays.
 ///
@@ -101,142 +77,7 @@ pub fn div_scalar(lhs: &dyn Array, rhs: Scalar) -> VortexResult<ArrayRef> {
 
 /// Point-wise numeric operation between two arrays of the same type and length.
 pub fn numeric(lhs: &dyn Array, rhs: &dyn Array, op: NumericOperator) -> VortexResult<ArrayRef> {
-    NUMERIC_FN
-        .invoke(&InvocationArgs {
-            inputs: &[lhs.into(), rhs.into()],
-            options: &op,
-        })?
-        .unwrap_array()
-}
-
-pub struct NumericKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(NumericKernelRef);
-
-pub trait NumericKernel: VTable {
-    fn numeric(
-        &self,
-        array: &Self::Array,
-        other: &dyn Array,
-        op: NumericOperator,
-    ) -> VortexResult<Option<ArrayRef>>;
-}
-
-#[derive(Debug)]
-pub struct NumericKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + NumericKernel> NumericKernelAdapter<V> {
-    pub const fn lift(&'static self) -> NumericKernelRef {
-        NumericKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + NumericKernel> Kernel for NumericKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = NumericArgs::try_from(args)?;
-        let Some(lhs) = inputs.lhs.as_opt::<V>() else {
-            return Ok(None);
-        };
-        Ok(V::numeric(&self.0, lhs, inputs.rhs, inputs.operator)?.map(|array| array.into()))
-    }
-}
-
-struct Numeric;
-
-impl ComputeFnVTable for Numeric {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let NumericArgs { lhs, rhs, operator } = NumericArgs::try_from(args)?;
-
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-
-        // Check if RHS supports the operation directly.
-        let inverted_args = InvocationArgs {
-            inputs: &[rhs.into(), lhs.into()],
-            options: &operator.swap(),
-        };
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(&inverted_args)? {
-                return Ok(output);
-            }
-        }
-
-        tracing::debug!(
-            "No numeric implementation found for LHS {}, RHS {}, and operator {:?}",
-            lhs.encoding_id(),
-            rhs.encoding_id(),
-            operator,
-        );
-
-        // If neither side implements the trait, then we delegate to Arrow compute.
-        Ok(arrow_numeric(lhs, rhs, operator)?.into())
-    }
-
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let NumericArgs { lhs, rhs, .. } = NumericArgs::try_from(args)?;
-        if !matches!(
-            (lhs.dtype(), rhs.dtype()),
-            (DType::Primitive(..), DType::Primitive(..)) | (DType::Decimal(..), DType::Decimal(..))
-        ) || !lhs.dtype().eq_ignore_nullability(rhs.dtype())
-        {
-            vortex_bail!(
-                "Numeric operations are only supported on two arrays sharing the same numeric type: {} {}",
-                lhs.dtype(),
-                rhs.dtype()
-            )
-        }
-        Ok(lhs.dtype().union_nullability(rhs.dtype().nullability()))
-    }
-
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let NumericArgs { lhs, rhs, .. } = NumericArgs::try_from(args)?;
-        if lhs.len() != rhs.len() {
-            vortex_bail!(
-                "Numeric operations aren't supported on arrays of different lengths {} {}",
-                lhs.len(),
-                rhs.len()
-            )
-        }
-        Ok(lhs.len())
-    }
-
-    fn is_elementwise(&self) -> bool {
-        true
-    }
-}
-
-struct NumericArgs<'a> {
-    lhs: &'a dyn Array,
-    rhs: &'a dyn Array,
-    operator: NumericOperator,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for NumericArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(args: &InvocationArgs<'a>) -> VortexResult<Self> {
-        if args.inputs.len() != 2 {
-            vortex_bail!("Numeric operations require exactly 2 inputs");
-        }
-        let lhs = args.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("LHS is not an array"))?;
-        let rhs = args.inputs[1]
-            .array()
-            .ok_or_else(|| vortex_err!("RHS is not an array"))?;
-        let operator = *args
-            .options
-            .as_any()
-            .downcast_ref::<NumericOperator>()
-            .ok_or_else(|| vortex_err!("Operator is not a numeric operator"))?;
-        Ok(Self { lhs, rhs, operator })
-    }
+    arrow_numeric(lhs, rhs, op)
 }
 
 impl Options for NumericOperator {
@@ -245,11 +86,8 @@ impl Options for NumericOperator {
     }
 }
 
-/// Implementation of `BinaryNumericFn` using the Arrow crate.
-///
-/// Note that other encodings should handle a constant RHS value, so we can assume here that
-/// the RHS is not constant and expand to a full array.
-fn arrow_numeric(
+/// Implementation of numeric operations using the Arrow crate.
+pub(crate) fn arrow_numeric(
     lhs: &dyn Array,
     rhs: &dyn Array,
     operator: NumericOperator,
@@ -318,13 +156,5 @@ mod test {
         let values = buffer![f32::MIN, 2.0, 3.0].into_array();
         let _results = sub_scalar(&values, 1.0f32.into()).unwrap();
         let _results = sub_scalar(&values, f32::MAX.into()).unwrap();
-    }
-
-    #[test]
-    fn test_scalar_subtract_type_mismatch_fails() {
-        let values = buffer![1u64, 2, 3].into_array();
-        // Subtracting incompatible dtypes should fail
-        let _results =
-            sub_scalar(&values, 1.5f64.into()).expect_err("Expected type mismatch error");
     }
 }

@@ -42,6 +42,7 @@ use vortex_array::vtable::ValidityHelper;
 use vortex_array::vtable::ValiditySliceHelper;
 use vortex_array::vtable::ValidityVTableFromValiditySliceHelper;
 use vortex_array::vtable::VisitorVTable;
+use vortex_array::vtable::validity_nchildren;
 use vortex_buffer::BufferMut;
 use vortex_buffer::ByteBuffer;
 use vortex_buffer::ByteBufferMut;
@@ -297,10 +298,10 @@ impl PcoArray {
         let mut chunk_infos = vec![]; // the Vortex metadata
         let mut page_buffers = vec![];
         for chunk_start in (0..n_values).step_by(values_per_chunk) {
-            let cc = match_number_enum!(
+            let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
+            let mut cc = match_number_enum!(
                 number_type,
                 NumberType<T> => {
-                    let chunk_end = cmp::min(n_values, chunk_start + values_per_chunk);
                     let values = values.to_buffer::<T>();
                     let chunk = &values.as_slice()[chunk_start..chunk_end];
                     fc
@@ -309,8 +310,8 @@ impl PcoArray {
                 }
             );
 
-            let mut chunk_meta_buffer = ByteBufferMut::with_capacity(cc.chunk_meta_size_hint());
-            cc.write_chunk_meta(&mut chunk_meta_buffer)
+            let mut chunk_meta_buffer = ByteBufferMut::with_capacity(cc.meta_size_hint());
+            cc.write_meta(&mut chunk_meta_buffer)
                 .map_err(vortex_err_from_pco)?;
             chunk_meta_buffers.push(chunk_meta_buffer.freeze());
 
@@ -424,7 +425,7 @@ impl PcoArray {
                         .page_decompressor(page, page_n_values)
                         .map_err(vortex_err_from_pco)
                         .vortex_expect("page_decompressor should succeed with valid page data");
-                    pd.decompress(&mut decompressed_values[old_len..new_len])
+                    pd.read(&mut decompressed_values[old_len..new_len])
                         .map_err(vortex_err_from_pco)
                         .vortex_expect("decompress should succeed with valid compressed data");
                 } else {
@@ -553,8 +554,16 @@ impl VisitorVTable<PcoVTable> for PcoVTable {
         }
     }
 
+    fn nbuffers(array: &PcoArray) -> usize {
+        array.chunk_metas.len() + array.pages.len()
+    }
+
     fn visit_children(array: &PcoArray, visitor: &mut dyn ArrayChildVisitor) {
         visitor.visit_validity(&array.unsliced_validity, array.unsliced_n_rows());
+    }
+
+    fn nchildren(array: &PcoArray) -> usize {
+        validity_nchildren(&array.unsliced_validity)
     }
 }
 

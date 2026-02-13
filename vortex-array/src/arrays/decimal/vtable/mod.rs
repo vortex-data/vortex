@@ -4,13 +4,13 @@
 use kernel::PARENT_KERNELS;
 use vortex_buffer::Alignment;
 use vortex_dtype::DType;
+use vortex_dtype::DecimalType;
 use vortex_dtype::NativeDecimalType;
 use vortex_dtype::match_each_decimal_value_type;
 use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
 use vortex_error::vortex_ensure;
-use vortex_scalar::DecimalType;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;

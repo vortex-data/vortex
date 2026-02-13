@@ -19,12 +19,12 @@ use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrow::FromArrowArray;
 use crate::arrow::IntoArrowArray;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::ComputeFn;
 use crate::compute::ComputeFnVTable;
 use crate::compute::InvocationArgs;
 use crate::compute::Kernel;
 use crate::compute::Output;
-use crate::compute::cast;
 use crate::vtable::VTable;
 
 static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
@@ -115,12 +115,13 @@ impl ComputeFnVTable for MaskFn {
     ) -> VortexResult<Output> {
         let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
 
-        if matches!(mask, Mask::AllFalse(_)) {
+        let mask_true_count = mask.true_count();
+        if mask_true_count == 0 {
             // Fast-path for empty mask
-            return Ok(cast(array, &array.dtype().as_nullable())?.into());
+            return Ok(array.to_array().cast(array.dtype().as_nullable())?.into());
         }
 
-        if matches!(mask, Mask::AllTrue(_)) {
+        if mask_true_count == mask.len() {
             // Fast-path for full mask.
             return Ok(
                 ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())

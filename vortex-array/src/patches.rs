@@ -40,10 +40,9 @@ use crate::ArrayVisitor;
 use crate::IntoArray;
 use crate::ToCanonical;
 use crate::arrays::PrimitiveArray;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::filter;
 use crate::compute::is_sorted;
-use crate::compute::take;
 use crate::search_sorted::SearchResult;
 use crate::search_sorted::SearchSorted;
 use crate::search_sorted::SearchSortedSide;
@@ -358,7 +357,7 @@ impl Patches {
                 self.array_len,
                 self.offset,
                 self.indices,
-                cast(&self.values, values_dtype)?,
+                self.values.cast(values_dtype.clone())?,
                 self.chunk_offsets,
                 self.offset_within_chunk,
             ))
@@ -800,10 +799,9 @@ impl Patches {
             array_len: new_array_len,
             offset: 0,
             indices: new_indices.clone(),
-            values: take(
-                self.values(),
-                &PrimitiveArray::new(values_indices, values_validity).into_array(),
-            )?,
+            values: self
+                .values()
+                .take(PrimitiveArray::new(values_indices, values_validity).into_array())?,
             chunk_offsets: None,
             offset_within_chunk: Some(0), // Reset when creating new Patches.
         }))
@@ -837,7 +835,7 @@ impl Patches {
             return Ok(None);
         };
 
-        let taken_values = take(self.values(), &value_indices)?;
+        let taken_values = self.values().take(value_indices)?;
 
         Ok(Some(Patches {
             array_len: new_length,

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-mod binary_numeric;
 mod cast;
 mod compare;
 mod fill_null;
@@ -80,8 +79,6 @@ mod test {
     use crate::compute::conformance::filter::test_filter_conformance;
     use crate::compute::conformance::mask::test_mask_conformance;
     use crate::compute::conformance::take::test_take_conformance;
-    use crate::compute::take;
-
     #[test]
     fn canonicalise_nullable_primitive() {
         let values: Vec<Option<i32>> = (0..65)
@@ -226,12 +223,10 @@ mod test {
         let array = dict_encode(buffer![1, 2].into_array().as_ref()).unwrap();
 
         assert_eq!(
-            take(
-                array.as_ref(),
-                PrimitiveArray::from_option_iter([Option::<i32>::None]).as_ref()
-            )
-            .unwrap()
-            .dtype(),
+            array
+                .take(PrimitiveArray::from_option_iter([Option::<i32>::None]).to_array())
+                .unwrap()
+                .dtype(),
             &DType::Primitive(I32, Nullability::Nullable)
         );
     }

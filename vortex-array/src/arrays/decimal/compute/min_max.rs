@@ -95,14 +95,16 @@ mod tests {
 
         let non_nullable_dtype = decimal.dtype().as_nonnullable();
         let expected = MinMaxResult {
-            min: Scalar::new(
+            min: Scalar::try_new(
                 non_nullable_dtype.clone(),
-                ScalarValue::from(DecimalValue::from(100i32)),
-            ),
-            max: Scalar::new(
+                Some(ScalarValue::from(DecimalValue::from(100i32))),
+            )
+            .unwrap(),
+            max: Scalar::try_new(
                 non_nullable_dtype,
-                ScalarValue::from(DecimalValue::from(200i32)),
-            ),
+                Some(ScalarValue::from(DecimalValue::from(200i32))),
+            )
+            .unwrap(),
         };
 
         assert_eq!(Some(expected), min_max)

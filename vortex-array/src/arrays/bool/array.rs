@@ -60,7 +60,6 @@ pub struct BoolArray {
 }
 
 pub struct BoolArrayParts {
-    pub dtype: DType,
     pub bits: BufferHandle,
     pub offset: usize,
     pub len: usize,
@@ -196,7 +195,6 @@ impl BoolArray {
     #[inline]
     pub fn into_parts(self) -> BoolArrayParts {
         BoolArrayParts {
-            dtype: self.dtype,
             bits: self.bits,
             offset: self.offset,
             len: self.len,

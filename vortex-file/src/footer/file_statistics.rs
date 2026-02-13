@@ -9,15 +9,16 @@
 use std::sync::Arc;
 
 use flatbuffers::FlatBufferBuilder;
-use flatbuffers::Follow;
 use flatbuffers::WIPOffset;
 use itertools::Itertools;
 use vortex_array::stats::StatsSet;
-use vortex_error::VortexError;
+use vortex_dtype::DType;
+use vortex_error::VortexExpect;
 use vortex_error::VortexResult;
+use vortex_error::vortex_ensure_eq;
 use vortex_flatbuffers::FlatBufferRoot;
-use vortex_flatbuffers::ReadFlatBuffer;
 use vortex_flatbuffers::WriteFlatBuffer;
+use vortex_flatbuffers::array::ArrayStats;
 use vortex_flatbuffers::footer as fb;
 
 /// Contains statistical information about the data in a Vortex file.
@@ -26,28 +27,126 @@ use vortex_flatbuffers::footer as fb;
 /// for a field or column in the file. These statistics can be used for query
 /// optimization and data exploration.
 #[derive(Clone, Debug)]
-pub(crate) struct FileStatistics(
+pub struct FileStatistics {
     /// An array of statistics sets, one for each field or column in the file.
-    pub(crate) Arc<[StatsSet]>,
-);
+    stats: Arc<[StatsSet]>,
+    /// An array of `DType`s, one for each field or column in the file.
+    dtypes: Arc<[DType]>,
+}
 
-impl FlatBufferRoot for FileStatistics {}
+impl FileStatistics {
+    /// Creates a new [`FileStatistics`] from the given statistics and data types.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `stats` and `dtypes` have different lengths.
+    pub fn new(stats: Arc<[StatsSet]>, dtypes: Arc<[DType]>) -> Self {
+        assert_eq!(
+            stats.len(),
+            dtypes.len(),
+            "stats and dtypes must have the same length"
+        );
 
-impl ReadFlatBuffer for FileStatistics {
-    type Source<'a> = fb::FileStatistics<'a>;
-    type Error = VortexError;
+        Self { stats, dtypes }
+    }
 
-    fn read_flatbuffer<'buf>(
-        fb: &<Self::Source<'buf> as Follow<'buf>>::Inner,
-    ) -> Result<Self, Self::Error> {
+    /// Creates a new [`FileStatistics`] from the given statistics and file dtype.
+    ///
+    /// If the [`DType`] of the file is a [`DType::Struct`], then there must be the same number of
+    /// stats as struct fields. Otherwise, there must be only 1 statistic.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the number of stats doesn't match the expected number based on the dtype.
+    pub fn new_with_dtype(stats: Arc<[StatsSet]>, file_dtype: &DType) -> Self {
+        if let DType::Struct(struct_fields, _) = file_dtype {
+            assert_eq!(
+                stats.len(),
+                struct_fields.nfields(),
+                "stats length must match number of struct fields"
+            );
+
+            let dtypes = struct_fields.fields().collect();
+
+            Self { stats, dtypes }
+        } else {
+            assert_eq!(
+                stats.len(),
+                1,
+                "non-struct dtype must have exactly 1 statistic"
+            );
+
+            Self {
+                stats,
+                dtypes: Arc::new([file_dtype.clone()]),
+            }
+        }
+    }
+
+    /// Creates [`FileStatistics`] from a flatbuffers [`fb::FileStatistics<'a>`].
+    ///
+    /// If the [`DType`] of the file is a [`DType::Struct`], then there must be the same number of
+    /// file stats in the flatbuffer. Otherwise, there must be only 1 statistic.
+    pub fn from_flatbuffer<'a>(
+        fb: &fb::FileStatistics<'a>,
+        file_dtype: &DType,
+    ) -> VortexResult<Self> {
         let field_stats = fb.field_stats().unwrap_or_default();
-        let field_stats: Vec<StatsSet> = field_stats
-            .iter()
-            .map(|s| StatsSet::read_flatbuffer(&s))
-            .try_collect()?;
-        Ok(Self(Arc::from(field_stats)))
+        let mut array_stats: Vec<ArrayStats> = field_stats.iter().collect();
+
+        if let DType::Struct(struct_fields, _) = file_dtype {
+            vortex_ensure_eq!(array_stats.len(), struct_fields.nfields());
+
+            let stats_sets: Arc<[StatsSet]> = array_stats
+                .into_iter()
+                .zip(struct_fields.fields())
+                .map(|(array_stat, field_dtype)| {
+                    StatsSet::from_flatbuffer(&array_stat, &field_dtype)
+                })
+                .try_collect()?;
+
+            let dtypes = struct_fields.fields().collect();
+
+            Ok(Self {
+                stats: stats_sets,
+                dtypes,
+            })
+        } else {
+            vortex_ensure_eq!(array_stats.len(), 1);
+
+            let array_stat = array_stats
+                .pop()
+                .vortex_expect("we just checked that there was 1 field");
+            let stats_set = StatsSet::from_flatbuffer(&array_stat, file_dtype)?;
+
+            Ok(Self {
+                stats: Arc::new([stats_set]),
+                dtypes: Arc::new([file_dtype.clone()]),
+            })
+        }
+    }
+
+    /// Returns a reference to the statistics sets.
+    pub fn stats_sets(&self) -> &Arc<[StatsSet]> {
+        &self.stats
+    }
+
+    /// Returns a reference to the data types.
+    pub fn dtypes(&self) -> &Arc<[DType]> {
+        &self.dtypes
+    }
+
+    /// Returns the statistics and data type for a specific field.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `field_idx` is out of bounds.
+    pub fn get(&self, field_idx: usize) -> (&StatsSet, &DType) {
+        (&self.stats[field_idx], &self.dtypes[field_idx])
     }
 }
+
+impl FlatBufferRoot for FileStatistics {}
 
 impl WriteFlatBuffer for FileStatistics {
     type Target<'a> = fb::FileStatistics<'a>;
@@ -57,7 +156,7 @@ impl WriteFlatBuffer for FileStatistics {
         fbb: &mut FlatBufferBuilder<'fb>,
     ) -> VortexResult<WIPOffset<Self::Target<'fb>>> {
         let field_stats = self
-            .0
+            .stats_sets()
             .iter()
             .map(|s| s.write_flatbuffer(fbb))
             .collect::<VortexResult<Vec<_>>>()?;
