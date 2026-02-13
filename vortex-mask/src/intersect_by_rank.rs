@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_error::VortexExpect;
-
 use crate::Mask;
 
 impl Mask {
@@ -30,29 +28,28 @@ impl Mask {
     pub fn intersect_by_rank(&self, mask: &Mask) -> Mask {
         assert_eq!(self.true_count(), mask.len());
 
-        if self.all_true() {
-            mask.clone()
-        } else if mask.all_true() {
-            self.clone()
-        } else if self.all_false() || mask.all_false() {
-            Self::new_false(self.len())
-        } else {
-            let mask_values = mask.values().vortex_expect("msg");
-            let self_indices = self
-                .values()
-                .expect("")
-                .bit_buffer()
-                .set_indices()
-                .collect::<Vec<_>>();
+        match (self, mask) {
+            (Mask::AllTrue(_), _) => mask.clone(),
+            (_, Mask::AllTrue(_)) => self.clone(),
+            (Mask::AllFalse(_), _) | (_, Mask::AllFalse(_)) => Self::new_false(self.len()),
+            (Mask::Values(self_values), Mask::Values(mask_values)) => {
+                let self_indices = self_values.bit_buffer().set_indices().collect::<Vec<_>>();
 
-            Self::from_indices(
-                self.len(),
-                mask_values
-                    .bit_buffer()
-                    .set_indices()
-                    .map(|idx| unsafe { *self_indices.get_unchecked(idx) })
-                    .collect(),
-            )
+                Self::from_indices(
+                    self.len(),
+                    mask_values
+                        .bit_buffer()
+                        .set_indices()
+                        .map(|idx| {
+                            // SAFETY:
+                            // This is verified as safe because we know that the indices are less than the
+                            // mask.len() and we known mask.len() <= self.len(),
+                            // implied by `self.true_count() == mask.len()`.
+                            unsafe { *self_indices.get_unchecked(idx) }
+                        })
+                        .collect(),
+                )
+            }
         }
     }
 }
@@ -142,7 +139,7 @@ mod test {
         let result = base_mask.intersect_by_rank(&rank_mask);
 
         match result {
-            Mask::AllTrue(n) => assert_eq!(expected_indices.len(), result.len()),
+            Mask::AllTrue(_) => assert_eq!(expected_indices.len(), result.len()),
             Mask::AllFalse(_) => assert!(expected_indices.is_empty()),
             Mask::Values(mask_value) => {
                 assert_eq!(
@@ -199,10 +196,9 @@ mod test {
     ) {
         let base = Mask::from_indices(10, base_indices);
         let rank = Mask::from_iter(rank_pattern);
-        // let result = ;
 
         match base.intersect_by_rank(&rank) {
-            Mask::AllTrue(n) => unreachable!(),
+            Mask::AllTrue(n) => assert_eq!(n, expected_indices.len()),
             Mask::AllFalse(_) => assert!(expected_indices.is_empty()),
             Mask::Values(mask_values) => {
                 assert_eq!(
@@ -211,12 +207,5 @@ mod test {
                 )
             }
         }
-
-        // let mask_values = result.values().unwrap();
-        // assert_eq!(mask_values.true_count(), expected_indices.len());
-        // //     crate::AllOr::Some(indices) => assert_eq!(indices, &expected_indices[..]),
-        // //     crate::AllOr::None => assert!(expected_indices.is_empty()),
-        // //     _ => panic!("Unexpected result"),
-        // // }
     }
 }

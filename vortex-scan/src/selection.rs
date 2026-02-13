@@ -167,11 +167,7 @@ mod tests {
     use vortex_buffer::Buffer;
 
     fn collect_indices(mask: &vortex_mask::Mask) -> Vec<usize> {
-        mask.values()
-            .unwrap()
-            .bit_buffer()
-            .set_indices()
-            .collect()
+        mask.values().unwrap().bit_buffer().set_indices().collect()
     }
 
     #[test]
