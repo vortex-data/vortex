@@ -4642,6 +4642,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "hashbag"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7040a10f52cba493ddb09926e15d10a9d8a28043708a405931fe4c6f19fac064"
+
+[[package]]
 name = "hashbrown"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7790,6 +7796,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "public-api"
+version = "0.50.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "40883c1581e900daa2cc4bc1ac50858f83a8563dd2e3c55b70bba44f57db7b35"
+dependencies = [
+ "hashbag",
+ "rustdoc-types",
+ "serde",
+ "serde_json",
+ "snapshot-testing",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "pyo3"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8670,6 +8690,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustdoc-types"
+version = "0.56.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "27bf787c529efe523ed9eb6dcdbaa5954d34329f08d5c243fce928441826ca90"
+dependencies = [
+ "serde",
+ "serde_derive",
+]
+
+[[package]]
 name = "rustix"
 version = "0.38.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9255,6 +9285,16 @@ name = "snap"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b6b67fb9a61334225b5b790716f609cd58395f895b3fe8b328786812a40bc3b"
+
+[[package]]
+name = "snapshot-testing"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bebf2194b9611339d00b28260cf6bd640073c60179ce7dd1e47badef1eb606e7"
+dependencies = [
+ "console 0.15.11",
+ "similar-asserts",
+]
 
 [[package]]
 name = "socket2"
@@ -12446,6 +12486,7 @@ dependencies = [
  "anyhow",
  "clap",
  "prost-build",
+ "public-api",
  "xshell",
 ]
 

@@ -2,6 +2,32 @@ pub mod vortex_io
 
 pub mod vortex_io::file
 
+pub mod vortex_io::file::object_store
+
+pub struct vortex_io::file::object_store::ObjectStoreSource
+
+impl vortex_io::file::object_store::ObjectStoreSource
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::new(store: alloc::sync::Arc<dyn object_store::ObjectStore>, path: object_store::path::Path, handle: vortex_io::runtime::Handle) -> Self
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::with_coalesce_config(self, config: vortex_io::CoalesceConfig) -> Self
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::with_concurrency(self, concurrency: usize) -> Self
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::with_some_coalesce_config(self, config: core::option::Option<vortex_io::CoalesceConfig>) -> Self
+
+impl vortex_io::VortexReadAt for vortex_io::file::object_store::ObjectStoreSource
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::concurrency(&self) -> usize
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 pub mod vortex_io::file::std_file
 
 pub struct vortex_io::file::std_file::FileReadAdapter
@@ -132,6 +158,42 @@ pub fn vortex_io::runtime::single::block_on<F, Fut, R>(f: F) -> R where F: core:
 
 pub fn vortex_io::runtime::single::block_on_stream<'a, F, S, R>(f: F) -> vortex_io::runtime::single::SingleThreadIterator<'a, R> where F: core::ops::function::FnOnce(vortex_io::runtime::Handle) -> S, S: futures_core::stream::Stream<Item = R> + core::marker::Send + core::marker::Unpin + 'a, R: core::marker::Send + 'a
 
+pub mod vortex_io::runtime::tokio
+
+pub struct vortex_io::runtime::tokio::TokioBlockingIterator<'a, T>
+
+impl<T> core::iter::traits::iterator::Iterator for vortex_io::runtime::tokio::TokioBlockingIterator<'_, T>
+
+pub type vortex_io::runtime::tokio::TokioBlockingIterator<'_, T>::Item = T
+
+pub fn vortex_io::runtime::tokio::TokioBlockingIterator<'_, T>::next(&mut self) -> core::option::Option<Self::Item>
+
+pub struct vortex_io::runtime::tokio::TokioRuntime(_)
+
+impl vortex_io::runtime::tokio::TokioRuntime
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::current() -> vortex_io::runtime::Handle
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::new(handle: tokio::runtime::handle::Handle) -> Self
+
+impl core::convert::From<&tokio::runtime::handle::Handle> for vortex_io::runtime::tokio::TokioRuntime
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::from(value: &tokio::runtime::handle::Handle) -> Self
+
+impl core::convert::From<tokio::runtime::handle::Handle> for vortex_io::runtime::tokio::TokioRuntime
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::from(value: tokio::runtime::handle::Handle) -> Self
+
+impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::tokio::TokioRuntime
+
+pub type vortex_io::runtime::tokio::TokioRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::tokio::TokioBlockingIterator<'a, R>
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 pub struct vortex_io::runtime::Handle
 
 impl vortex_io::runtime::Handle
@@ -196,6 +258,16 @@ pub fn vortex_io::runtime::single::SingleThreadRuntime::block_on_stream<'a, S, R
 
 pub fn vortex_io::runtime::single::SingleThreadRuntime::handle(&self) -> vortex_io::runtime::Handle
 
+impl vortex_io::runtime::BlockingRuntime for vortex_io::runtime::tokio::TokioRuntime
+
+pub type vortex_io::runtime::tokio::TokioRuntime::BlockingIterator<'a, R: 'a> = vortex_io::runtime::tokio::TokioBlockingIterator<'a, R>
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::block_on<Fut, R>(&self, fut: Fut) -> R where Fut: core::future::future::Future<Output = R>
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::block_on_stream<'a, S, R>(&self, stream: S) -> Self::BlockingIterator where S: futures_core::stream::Stream<Item = R> + core::marker::Send + 'a, R: core::marker::Send + 'a
+
+pub fn vortex_io::runtime::tokio::TokioRuntime::handle(&self) -> vortex_io::runtime::Handle
+
 pub mod vortex_io::session
 
 pub struct vortex_io::session::RuntimeSession
@@ -213,6 +285,8 @@ pub trait vortex_io::session::RuntimeSessionExt: vortex_session::SessionExt
 pub fn vortex_io::session::RuntimeSessionExt::handle(&self) -> vortex_io::runtime::Handle
 
 pub fn vortex_io::session::RuntimeSessionExt::with_handle(self, handle: vortex_io::runtime::Handle) -> Self
+
+pub fn vortex_io::session::RuntimeSessionExt::with_tokio(self) -> Self
 
 impl<S: vortex_session::SessionExt> vortex_io::session::RuntimeSessionExt for S
 
@@ -273,6 +347,22 @@ pub fn vortex_io::InstrumentedReadAt<T>::read_at(&self, offset: u64, length: usi
 pub fn vortex_io::InstrumentedReadAt<T>::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
 pub fn vortex_io::InstrumentedReadAt<T>::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
+pub struct vortex_io::ObjectStoreWriter
+
+impl vortex_io::ObjectStoreWriter
+
+pub async fn vortex_io::ObjectStoreWriter::new(object_store: alloc::sync::Arc<dyn object_store::ObjectStore>, location: &object_store::path::Path) -> vortex_error::VortexResult<Self>
+
+pub fn vortex_io::ObjectStoreWriter::put_result(&self) -> core::option::Option<&object_store::PutResult>
+
+impl vortex_io::VortexWrite for vortex_io::ObjectStoreWriter
+
+pub async fn vortex_io::ObjectStoreWriter::flush(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::ObjectStoreWriter::shutdown(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::ObjectStoreWriter::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
 pub struct vortex_io::OwnedSlice<T>
 
@@ -408,6 +498,18 @@ pub fn vortex_buffer::ByteBuffer::read_at(&self, offset: u64, length: usize, ali
 
 pub fn vortex_buffer::ByteBuffer::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
 
+impl vortex_io::VortexReadAt for vortex_io::file::object_store::ObjectStoreSource
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::concurrency(&self) -> usize
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::read_at(&self, offset: u64, length: usize, alignment: vortex_buffer::alignment::Alignment) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<vortex_array::buffer::BufferHandle>>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::size(&self) -> futures_core::future::BoxFuture<'static, vortex_error::VortexResult<u64>>
+
+pub fn vortex_io::file::object_store::ObjectStoreSource::uri(&self) -> core::option::Option<&alloc::sync::Arc<str>>
+
 impl vortex_io::VortexReadAt for vortex_io::file::std_file::FileReadAdapter
 
 pub fn vortex_io::file::std_file::FileReadAdapter::coalesce_config(&self) -> core::option::Option<vortex_io::CoalesceConfig>
@@ -468,6 +570,14 @@ pub fn async_fs::File::shutdown(&mut self) -> impl core::future::future::Future<
 
 pub async fn async_fs::File::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
+impl vortex_io::VortexWrite for tokio::fs::file::File
+
+pub async fn tokio::fs::file::File::flush(&mut self) -> std::io::error::Result<()>
+
+pub async fn tokio::fs::file::File::shutdown(&mut self) -> std::io::error::Result<()>
+
+pub async fn tokio::fs::file::File::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
+
 impl vortex_io::VortexWrite for vortex_buffer::ByteBufferMut
 
 pub fn vortex_buffer::ByteBufferMut::flush(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
@@ -475,6 +585,14 @@ pub fn vortex_buffer::ByteBufferMut::flush(&mut self) -> impl core::future::futu
 pub fn vortex_buffer::ByteBufferMut::shutdown(&mut self) -> impl core::future::future::Future<Output = std::io::error::Result<()>>
 
 pub fn vortex_buffer::ByteBufferMut::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> impl core::future::future::Future<Output = std::io::error::Result<B>>
+
+impl vortex_io::VortexWrite for vortex_io::ObjectStoreWriter
+
+pub async fn vortex_io::ObjectStoreWriter::flush(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::ObjectStoreWriter::shutdown(&mut self) -> std::io::error::Result<()>
+
+pub async fn vortex_io::ObjectStoreWriter::write_all<B: vortex_io::IoBuf>(&mut self, buffer: B) -> std::io::error::Result<B>
 
 impl<T> vortex_io::VortexWrite for std::io::cursor::Cursor<T> where std::io::cursor::Cursor<T>: std::io::Write
 

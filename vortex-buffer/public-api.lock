@@ -196,6 +196,14 @@ impl core::convert::From<alloc::vec::Vec<bool>> for vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::from(value: alloc::vec::Vec<bool>) -> Self
 
+impl core::convert::From<arrow_buffer::buffer::boolean::BooleanBuffer> for vortex_buffer::BitBuffer
+
+pub fn vortex_buffer::BitBuffer::from(value: arrow_buffer::buffer::boolean::BooleanBuffer) -> Self
+
+impl core::convert::From<vortex_buffer::BitBuffer> for arrow_buffer::buffer::boolean::BooleanBuffer
+
+pub fn arrow_buffer::buffer::boolean::BooleanBuffer::from(value: vortex_buffer::BitBuffer) -> Self
+
 impl core::fmt::Debug for vortex_buffer::BitBuffer
 
 pub fn vortex_buffer::BitBuffer::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -451,6 +459,20 @@ impl<const NB: usize> core::fmt::Debug for vortex_buffer::BitView<'_, NB>
 pub fn vortex_buffer::BitView<'_, NB>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub struct vortex_buffer::Buffer<T>
+
+impl vortex_buffer::Buffer<u8>
+
+pub fn vortex_buffer::Buffer<u8>::from_arrow_buffer(arrow: arrow_buffer::buffer::immutable::Buffer, alignment: vortex_buffer::Alignment) -> Self
+
+pub fn vortex_buffer::Buffer<u8>::into_arrow_buffer(self) -> arrow_buffer::buffer::immutable::Buffer
+
+impl<T: arrow_buffer::native::ArrowNativeType> vortex_buffer::Buffer<T>
+
+pub fn vortex_buffer::Buffer<T>::from_arrow_scalar_buffer(arrow: arrow_buffer::buffer::scalar::ScalarBuffer<T>) -> Self
+
+pub fn vortex_buffer::Buffer<T>::into_arrow_offset_buffer(self) -> arrow_buffer::buffer::offset::OffsetBuffer<T>
+
+pub fn vortex_buffer::Buffer<T>::into_arrow_scalar_buffer(self) -> arrow_buffer::buffer::scalar::ScalarBuffer<T>
 
 impl<T> vortex_buffer::Buffer<T>
 
