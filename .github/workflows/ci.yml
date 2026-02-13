@@ -515,8 +515,6 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-          toolchain: ${{ env.NIGHTLY_TOOLCHAIN }}
-          components: "rust-src, rustfmt, clippy, llvm-tools-preview"
       - name: Install nextest
         uses: taiki-e/install-action@v2
         with:
@@ -526,7 +524,7 @@ jobs:
           # Outline flat layouts for cuda scan.
           FLAT_LAYOUT_INLINE_ARRAY_NODE: true
         run: |
-          cargo +$NIGHTLY_TOOLCHAIN nextest run \
+          cargo nextest run \
             --locked \
             -p vortex-file \
             -p vortex-cuda \
@@ -538,22 +536,22 @@ jobs:
       - name: CUDA - memcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool memcheck --leak-check=full --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
         # TODO(joe): try to re-enable, This is hanging in CI.
         #      - name: CUDA - racecheck
         #        env:
         #          CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool racecheck --error-exitcode 1
-        #        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        #        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
       - name: CUDA - synccheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool synccheck --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
       - name: CUDA - initcheck
         env:
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER: compute-sanitizer --tool initcheck --error-exitcode 1
-        run: cargo +$NIGHTLY_TOOLCHAIN test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
+        run: cargo test --locked -p vortex-cuda --target x86_64-unknown-linux-gnu
       - name: Build cudf test library
-        run: cargo +$NIGHTLY_TOOLCHAIN build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
+        run: cargo build --locked -p vortex-test-e2e-cuda --target x86_64-unknown-linux-gnu
       - name: Download and run cudf-test-harness
         run: |
           curl -fsSL https://github.com/vortex-data/cudf-test-harness/releases/latest/download/cudf-test-harness-x86_64.tar.gz | tar -xz
