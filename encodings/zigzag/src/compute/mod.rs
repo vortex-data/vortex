@@ -8,7 +8,10 @@ use vortex_array::ArrayRef;
 use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
+use vortex_array::arrays::MaskedArray;
 use vortex_array::arrays::TakeExecute;
+use vortex_array::compute::MaskReduce;
+use vortex_array::validity::Validity;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -30,6 +33,14 @@ impl TakeExecute for ZigZagVTable {
     ) -> VortexResult<Option<ArrayRef>> {
         let encoded = array.encoded().take(indices.to_array())?;
         Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
+    }
+}
+
+impl MaskReduce for ZigZagVTable {
+    fn mask(array: &ZigZagArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        let masked_encoded =
+            MaskedArray::try_new(array.encoded().clone(), validity.clone())?.into_array();
+        Ok(Some(ZigZagArray::try_new(masked_encoded)?.into_array()))
     }
 }
 

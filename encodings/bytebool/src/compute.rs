@@ -9,6 +9,8 @@ use vortex_array::IntoArray;
 use vortex_array::ToCanonical;
 use vortex_array::arrays::TakeExecute;
 use vortex_array::compute::CastReduce;
+use vortex_array::compute::MaskReduce;
+use vortex_array::validity::Validity;
 use vortex_array::vtable::ValidityHelper;
 use vortex_dtype::DType;
 use vortex_dtype::match_each_integer_ptype;
@@ -37,6 +39,18 @@ impl CastReduce for ByteBoolVTable {
 
         // For other casts, decode to canonical and let BoolArray handle it
         Ok(None)
+    }
+}
+
+impl MaskReduce for ByteBoolVTable {
+    fn mask(array: &ByteBoolArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        Ok(Some(
+            ByteBoolArray::new(
+                array.buffer().clone(),
+                array.validity().clone().and(validity.clone()),
+            )
+            .into_array(),
+        ))
     }
 }
 

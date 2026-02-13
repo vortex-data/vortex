@@ -1,6 +1,34 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+use vortex_array::ArrayRef;
+use vortex_array::IntoArray;
+use vortex_array::arrays::MaskedArray;
+use vortex_array::compute::MaskReduce;
+use vortex_array::validity::Validity;
+use vortex_error::VortexResult;
+
+use crate::ALPRDArray;
+use crate::ALPRDVTable;
+
+impl MaskReduce for ALPRDVTable {
+    fn mask(array: &ALPRDArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        let masked_left_parts =
+            MaskedArray::try_new(array.left_parts().clone(), validity.clone())?.into_array();
+        Ok(Some(
+            ALPRDArray::try_new(
+                array.dtype().as_nullable(),
+                masked_left_parts,
+                array.left_parts_dictionary().clone(),
+                array.right_parts().clone(),
+                array.right_bit_width(),
+                array.left_parts_patches().cloned(),
+            )?
+            .into_array(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
