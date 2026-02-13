@@ -398,6 +398,28 @@ impl<T> BufferMut<T> {
         self.length += other.length;
     }
 
+    /// Wrap a pre-existing `BytesMut` as a `BufferMut`.
+    ///
+    /// The caller must ensure the data pointer of `bytes` is aligned to `alignment`.
+    /// The buffer is treated as empty (length 0) regardless of the BytesMut's current length;
+    /// existing data in the BytesMut is discarded.
+    pub fn from_bytes_mut(mut bytes: BytesMut, alignment: Alignment) -> Self {
+        assert!(alignment.is_aligned_to(Alignment::of::<T>()));
+        assert_eq!(bytes.as_ptr().align_offset(*alignment), 0);
+        bytes.clear();
+        Self {
+            bytes,
+            length: 0,
+            alignment,
+            _marker: std::marker::PhantomData,
+        }
+    }
+
+    /// Extract the inner `BytesMut`, consuming self without freezing.
+    pub fn into_bytes_mut(self) -> BytesMut {
+        self.bytes
+    }
+
     /// Return the [`ByteBufferMut`] for this [`BufferMut`].
     pub fn into_byte_buffer(self) -> ByteBufferMut {
         ByteBufferMut {
