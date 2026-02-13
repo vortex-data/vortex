@@ -3,7 +3,6 @@
 
 // TODO(connor): REMOVE THIS FILE!
 
-use arrow_array::BooleanArray;
 use vortex_dtype::DType;
 use vortex_error::VortexResult;
 use vortex_error::vortex_bail;
@@ -14,8 +13,6 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::ToCanonical;
-use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
 use crate::builtins::ArrayBuiltins;
 
 /// Keep only the elements for which the corresponding mask value is true.
@@ -66,17 +63,4 @@ impl dyn Array + '_ {
 
         Ok(array.to_bool().to_mask_fill_null_false())
     }
-}
-
-pub fn arrow_filter_fn(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    let values = match &mask {
-        Mask::Values(values) => values,
-        Mask::AllTrue(_) | Mask::AllFalse(_) => unreachable!("check in filter invoke"),
-    };
-
-    let array_ref = array.to_array().into_arrow_preferred()?;
-    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
-    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
-
-    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
 }

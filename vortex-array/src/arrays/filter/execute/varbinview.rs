@@ -3,20 +3,32 @@
 
 use std::sync::Arc;
 
+use arrow_array::BooleanArray;
 use vortex_error::VortexExpect;
+use vortex_error::VortexResult;
 use vortex_mask::MaskValues;
 
+use crate::Array;
+use crate::ArrayRef;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
-use crate::arrays::filter::execute::values_to_mask;
-use crate::compute::arrow_filter_fn;
+use crate::arrow::FromArrowArray;
+use crate::arrow::IntoArrowArray;
 
 pub fn filter_varbinview(array: &VarBinViewArray, mask: &Arc<MaskValues>) -> VarBinViewArray {
     // Delegate to the Arrow implementation of filter over `VarBinView`.
-    arrow_filter_fn(array.as_ref(), &values_to_mask(mask))
+    arrow_filter_fn(array.as_ref(), mask.as_ref())
         .vortex_expect("VarBinViewArray is Arrow-compatible and supports arrow_filter_fn")
         .as_::<VarBinViewVTable>()
         .clone()
+}
+
+fn arrow_filter_fn(array: &dyn Array, values: &MaskValues) -> VortexResult<ArrayRef> {
+    let array_ref = array.to_array().into_arrow_preferred()?;
+    let mask_array = BooleanArray::new(values.bit_buffer().clone().into(), None);
+    let filtered = arrow_select::filter::filter(array_ref.as_ref(), &mask_array)?;
+
+    ArrayRef::from_arrow(filtered.as_ref(), array.dtype().is_nullable())
 }
 
 #[cfg(test)]

@@ -31,15 +31,10 @@ mod primitive;
 mod struct_;
 mod varbinview;
 
-/// Reconstruct a [`Mask`] from an [`Arc<MaskValues>`].
-fn values_to_mask(values: &Arc<MaskValues>) -> Mask {
-    Mask::Values(values.clone())
-}
-
 /// A helper function that lazily filters a [`Validity`] with selection mask values.
 fn filter_validity(validity: Validity, mask: &Arc<MaskValues>) -> Validity {
     validity
-        .filter(&values_to_mask(mask))
+        .filter(&Mask::Values(mask.clone()))
         .vortex_expect("Somehow unable to wrap filter around a validity array")
 }
 
@@ -87,7 +82,7 @@ pub(super) fn execute_filter(canonical: Canonical, mask: &Arc<MaskValues>) -> Ca
         Canonical::Extension(a) => {
             let filtered_storage = a
                 .storage()
-                .filter(values_to_mask(mask))
+                .filter(Mask::Values(mask.clone()))
                 .vortex_expect("ExtensionArray storage type somehow could not be filtered");
             Canonical::Extension(ExtensionArray::new(a.ext_dtype().clone(), filtered_storage))
         }
