@@ -16,6 +16,7 @@ version.workspace = true
 
 [dependencies]
 cargo_metadata = "0.23"
+indicatif = { version = "0.17", features = ["rayon"] }
 rayon = "1"
 
 [lints]

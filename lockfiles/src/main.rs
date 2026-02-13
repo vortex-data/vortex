@@ -1,8 +1,17 @@
-use cargo_metadata::camino::Utf8PathBuf;
-use cargo_metadata::{MetadataCommand, Package, PackageName};
+#![allow(clippy::expect_used)]
+
 use std::fs::File;
-use std::io::{ErrorKind, Write};
+use std::io::Write;
 use std::process::Command;
+
+use cargo_metadata::MetadataCommand;
+use cargo_metadata::Package;
+use cargo_metadata::PackageName;
+use cargo_metadata::camino::Utf8PathBuf;
+use indicatif::ParallelProgressIterator;
+use indicatif::ProgressBar;
+use indicatif::ProgressStyle;
+use rayon::prelude::*;
 
 pub fn main() {
     let metadata = MetadataCommand::new()
@@ -10,23 +19,35 @@ pub fn main() {
         .exec()
         .expect("cargo metadata");
 
-    let published = metadata
+    let published: Vec<_> = metadata
         .workspace_packages()
         .into_iter()
         .filter(|v| is_published(v))
         // Only keep crates that publish Rust libs
-        .filter(|p| p.targets.iter().any(|target| target.is_lib()));
+        .filter(|p| p.targets.iter().any(|target| target.is_lib()))
+        .collect();
 
     // Skip binary packages
 
-    for pkg in published {
-        let job = LockfileJob {
-            name: pkg.name.clone(),
-            manifest_path: pkg.manifest_path.clone(),
-        };
+    let progress = ProgressBar::new(published.len() as u64);
+    progress.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{bar:40.cyan/blue}] {pos}/{len} ({eta}) {msg}")
+            .expect("valid template")
+            .progress_chars("=>-"),
+    );
 
-        job.execute().expect("lockfile");
-    }
+    published
+        .par_iter()
+        .progress_with(progress)
+        .for_each(|pkg| {
+            let job = LockfileJob {
+                name: pkg.name.clone(),
+                manifest_path: pkg.manifest_path.clone(),
+            };
+
+            job.execute().expect("lockfile");
+        });
 }
 
 struct LockfileJob {
@@ -58,7 +79,7 @@ impl LockfileJob {
                 String::from_utf8_lossy(&output.stdout)
             );
 
-            return Err(std::io::Error::new(ErrorKind::Other, "failed to execute"));
+            return Err(std::io::Error::other("failed to execute"));
         }
 
         // Write lockfile contents

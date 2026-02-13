@@ -1823,7 +1823,7 @@ dependencies = [
  "bytes",
  "clap",
  "futures",
- "indicatif",
+ "indicatif 0.18.3",
  "itertools 0.14.0",
  "lance-bench",
  "parquet",
@@ -1880,6 +1880,7 @@ dependencies = [
  "encode_unicode",
  "libc",
  "once_cell",
+ "unicode-width 0.2.2",
  "windows-sys 0.59.0",
 ]
 
@@ -3636,7 +3637,7 @@ dependencies = [
  "datafusion-substrait",
  "futures",
  "half",
- "indicatif",
+ "indicatif 0.18.3",
  "itertools 0.14.0",
  "log",
  "object_store",
@@ -5140,6 +5141,20 @@ dependencies = [
 
 [[package]]
 name = "indicatif"
+version = "0.17.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "183b3088984b400f4cfac3620d5e076c84da5364016b4f49473de574b2586235"
+dependencies = [
+ "console 0.15.11",
+ "number_prefix",
+ "portable-atomic",
+ "rayon",
+ "unicode-width 0.2.2",
+ "web-time",
+]
+
+[[package]]
+name = "indicatif"
 version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9375e112e4b463ec1b1c6c011953545c65a30164fbab5b581df32b3abf0dcb88"
@@ -6197,6 +6212,7 @@ name = "lockfiles"
 version = "0.1.0"
 dependencies = [
  "cargo_metadata",
+ "indicatif 0.17.11",
  "rayon",
 ]
 
@@ -6810,6 +6826,12 @@ checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "number_prefix"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "objc2-core-foundation"
@@ -8156,7 +8178,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "clap",
- "indicatif",
+ "indicatif 0.18.3",
  "lance-bench",
  "rand 0.9.2",
  "rand_distr 0.5.1",
@@ -10803,7 +10825,7 @@ dependencies = [
  "get_dir",
  "glob",
  "humansize",
- "indicatif",
+ "indicatif 0.18.3",
  "itertools 0.14.0",
  "mimalloc",
  "noodles-bgzf",
@@ -11616,7 +11638,7 @@ dependencies = [
  "datafusion 52.1.0",
  "datafusion-sqllogictest",
  "futures",
- "indicatif",
+ "indicatif 0.18.3",
  "sqllogictest",
  "tempfile",
  "thiserror 2.0.18",
@@ -11665,7 +11687,7 @@ dependencies = [
  "futures",
  "fuzzy-matcher",
  "humansize",
- "indicatif",
+ "indicatif 0.18.3",
  "itertools 0.14.0",
  "parquet",
  "ratatui",
