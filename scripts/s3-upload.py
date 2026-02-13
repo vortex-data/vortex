@@ -5,7 +5,6 @@
 """Upload a file to S3 with exponential backoff retry and optional optimistic locking."""
 
 import argparse
-import json
 import subprocess
 import sys
 import time
