@@ -355,7 +355,7 @@ impl ExecutionPlan for VortexExec {
         &self,
         projection: &ProjectionExec,
     ) -> DFResult<Option<Arc<dyn ExecutionPlan>>> {
-        tracing::info!(
+        tracing::debug!(
             "VortexExec: trying to swap with projection: {:#?} (current: {})",
             projection,
             self.projection
