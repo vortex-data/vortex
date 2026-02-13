@@ -156,6 +156,14 @@ impl core::marker::Copy for vortex_dtype::datetime::TimeUnit
 
 impl core::marker::StructuralPartialEq for vortex_dtype::datetime::TimeUnit
 
+impl serde_core::ser::Serialize for vortex_dtype::datetime::TimeUnit
+
+pub fn vortex_dtype::datetime::TimeUnit::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::datetime::TimeUnit
+
+pub fn vortex_dtype::datetime::TimeUnit::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+
 pub struct vortex_dtype::datetime::AnyTemporal
 
 impl vortex_dtype::extension::Matcher for vortex_dtype::datetime::AnyTemporal
@@ -448,6 +456,10 @@ impl core::hash::Hash for vortex_dtype::extension::ExtDTypeRef
 
 pub fn vortex_dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
 
+impl serde_core::ser::Serialize for vortex_dtype::extension::ExtDTypeRef
+
+pub fn vortex_dtype::extension::ExtDTypeRef::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
+
 pub trait vortex_dtype::extension::DynExtDTypeVTable: 'static + core::marker::Send + core::marker::Sync + core::fmt::Debug
 
 pub fn vortex_dtype::extension::DynExtDTypeVTable::deserialize(&self, data: &[u8], storage_dtype: vortex_dtype::DType) -> vortex_error::VortexResult<vortex_dtype::extension::ExtDTypeRef>
@@ -541,6 +553,36 @@ pub mod vortex_dtype::proto
 pub use vortex_dtype::proto::dtype
 
 pub mod vortex_dtype::serde
+
+pub struct vortex_dtype::serde::DTypeSerde<'a, T>
+
+impl<'a, T> vortex_dtype::serde::DTypeSerde<'a, T>
+
+pub fn vortex_dtype::serde::DTypeSerde<'a, T>::new(session: &'a vortex_session::VortexSession) -> Self
+
+impl<'de> serde_core::de::DeserializeSeed<'de> for vortex_dtype::serde::DTypeSerde<'_, alloc::vec::Vec<vortex_dtype::DType>>
+
+pub type vortex_dtype::serde::DTypeSerde<'_, alloc::vec::Vec<vortex_dtype::DType>>::Value = alloc::vec::Vec<vortex_dtype::DType>
+
+pub fn vortex_dtype::serde::DTypeSerde<'_, alloc::vec::Vec<vortex_dtype::DType>>::deserialize<D>(self, deserializer: D) -> core::result::Result<Self::Value, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+
+impl<'de> serde_core::de::DeserializeSeed<'de> for vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::DType>
+
+pub type vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::DType>::Value = vortex_dtype::DType
+
+pub fn vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::DType>::deserialize<D>(self, deserializer: D) -> core::result::Result<Self::Value, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+
+impl<'de> serde_core::de::DeserializeSeed<'de> for vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::StructFields>
+
+pub type vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::StructFields>::Value = vortex_dtype::StructFields
+
+pub fn vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::StructFields>::deserialize<D>(self, deserializer: D) -> core::result::Result<Self::Value, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+
+impl<'de> serde_core::de::DeserializeSeed<'de> for vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::extension::ExtDTypeRef>
+
+pub type vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::extension::ExtDTypeRef>::Value = vortex_dtype::extension::ExtDTypeRef
+
+pub fn vortex_dtype::serde::DTypeSerde<'_, vortex_dtype::extension::ExtDTypeRef>::deserialize<D>(self, deserializer: D) -> core::result::Result<Self::Value, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 
 pub mod vortex_dtype::session
 
@@ -772,6 +814,10 @@ pub fn vortex_dtype::DType::hash<__H: core::hash::Hasher>(&self, state: &mut __H
 
 impl core::marker::StructuralPartialEq for vortex_dtype::DType
 
+impl serde_core::ser::Serialize for vortex_dtype::DType
+
+pub fn vortex_dtype::DType::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
+
 impl vortex_dtype::arrow::FromArrowType<&arrow_schema::field::Field> for vortex_dtype::DType
 
 pub fn vortex_dtype::DType::from_arrow(field: &arrow_schema::field::Field) -> Self
@@ -878,6 +924,14 @@ impl core::marker::Copy for vortex_dtype::DecimalType
 
 impl core::marker::StructuralPartialEq for vortex_dtype::DecimalType
 
+impl serde_core::ser::Serialize for vortex_dtype::DecimalType
+
+pub fn vortex_dtype::DecimalType::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::DecimalType
+
+pub fn vortex_dtype::DecimalType::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
+
 pub enum vortex_dtype::Field
 
 pub vortex_dtype::Field::ElementType
@@ -933,6 +987,14 @@ impl core::iter::traits::collect::FromIterator<vortex_dtype::Field> for vortex_d
 pub fn vortex_dtype::FieldPath::from_iter<T: core::iter::traits::collect::IntoIterator<Item = vortex_dtype::Field>>(iter: T) -> Self
 
 impl core::marker::StructuralPartialEq for vortex_dtype::Field
+
+impl serde_core::ser::Serialize for vortex_dtype::Field
+
+pub fn vortex_dtype::Field::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::Field
+
+pub fn vortex_dtype::Field::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 
 pub enum vortex_dtype::FieldMask
 
@@ -1025,6 +1087,14 @@ pub fn vortex_dtype::Nullability::bitor(self, rhs: Self) -> Self::Output
 impl core::ops::bit::BitOrAssign for vortex_dtype::Nullability
 
 pub fn vortex_dtype::Nullability::bitor_assign(&mut self, rhs: Self)
+
+impl serde_core::ser::Serialize for vortex_dtype::Nullability
+
+pub fn vortex_dtype::Nullability::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::Nullability
+
+pub fn vortex_dtype::Nullability::deserialize<D>(deserializer: D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
 
 #[repr(u8)] pub enum vortex_dtype::PType
 
@@ -1170,9 +1240,17 @@ impl core::marker::Copy for vortex_dtype::PType
 
 impl core::marker::StructuralPartialEq for vortex_dtype::PType
 
+impl serde_core::ser::Serialize for vortex_dtype::PType
+
+pub fn vortex_dtype::PType::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
 impl vortex_dtype::arrow::TryFromArrowType<&arrow_schema::datatype::DataType> for vortex_dtype::PType
 
 pub fn vortex_dtype::PType::try_from_arrow(value: &arrow_schema::datatype::DataType) -> vortex_error::VortexResult<Self>
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::PType
+
+pub fn vortex_dtype::PType::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 
 pub struct vortex_dtype::DecimalDType
 
@@ -1226,9 +1304,17 @@ impl core::marker::Copy for vortex_dtype::DecimalDType
 
 impl core::marker::StructuralPartialEq for vortex_dtype::DecimalDType
 
+impl serde_core::ser::Serialize for vortex_dtype::DecimalDType
+
+pub fn vortex_dtype::DecimalDType::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
 impl vortex_dtype::arrow::TryFromArrowType<&arrow_schema::datatype::DataType> for vortex_dtype::DecimalDType
 
 pub fn vortex_dtype::DecimalDType::try_from_arrow(value: &arrow_schema::datatype::DataType) -> vortex_error::VortexResult<Self>
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::DecimalDType
+
+pub fn vortex_dtype::DecimalDType::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 
 impl<D: vortex_dtype::NativeDecimalType> core::convert::From<vortex_dtype::PrecisionScale<D>> for vortex_dtype::DecimalDType
 
@@ -1309,6 +1395,10 @@ pub fn vortex_dtype::extension::ExtDTypeRef::fmt(&self, f: &mut core::fmt::Forma
 impl core::hash::Hash for vortex_dtype::extension::ExtDTypeRef
 
 pub fn vortex_dtype::extension::ExtDTypeRef::hash<H: core::hash::Hasher>(&self, state: &mut H)
+
+impl serde_core::ser::Serialize for vortex_dtype::extension::ExtDTypeRef
+
+pub fn vortex_dtype::extension::ExtDTypeRef::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
 
 pub struct vortex_dtype::FieldDType
 
@@ -1446,6 +1536,14 @@ pub fn vortex_dtype::FieldName::hash<__H: core::hash::Hasher>(&self, state: &mut
 
 impl core::marker::StructuralPartialEq for vortex_dtype::FieldName
 
+impl serde_core::ser::Serialize for vortex_dtype::FieldName
+
+pub fn vortex_dtype::FieldName::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::FieldName
+
+pub fn vortex_dtype::FieldName::deserialize<D>(deserializer: D) -> core::result::Result<Self, <D as serde_core::de::Deserializer>::Error> where D: serde_core::de::Deserializer<'de>
+
 pub struct vortex_dtype::FieldNames(_)
 
 impl vortex_dtype::FieldNames
@@ -1547,6 +1645,14 @@ impl core::ops::index::Index<usize> for vortex_dtype::FieldNames
 pub type vortex_dtype::FieldNames::Output = vortex_dtype::FieldName
 
 pub fn vortex_dtype::FieldNames::index(&self, index: usize) -> &Self::Output
+
+impl serde_core::ser::Serialize for vortex_dtype::FieldNames
+
+pub fn vortex_dtype::FieldNames::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::FieldNames
+
+pub fn vortex_dtype::FieldNames::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 
 impl<F: core::convert::Into<vortex_dtype::FieldName>> core::iter::traits::collect::FromIterator<F> for vortex_dtype::FieldNames
 
@@ -1669,6 +1775,14 @@ impl core::iter::traits::collect::FromIterator<vortex_dtype::FieldPath> for vort
 pub fn vortex_dtype::FieldPathSet::from_iter<T: core::iter::traits::collect::IntoIterator<Item = vortex_dtype::FieldPath>>(iter: T) -> Self
 
 impl core::marker::StructuralPartialEq for vortex_dtype::FieldPath
+
+impl serde_core::ser::Serialize for vortex_dtype::FieldPath
+
+pub fn vortex_dtype::FieldPath::serialize<__S>(&self, __serializer: __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+
+impl<'de> serde_core::de::Deserialize<'de> for vortex_dtype::FieldPath
+
+pub fn vortex_dtype::FieldPath::deserialize<__D>(__deserializer: __D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 
 pub struct vortex_dtype::FieldPathSet
 
@@ -1801,6 +1915,10 @@ impl core::hash::Hash for vortex_dtype::StructFields
 pub fn vortex_dtype::StructFields::hash<__H: core::hash::Hasher>(&self, state: &mut __H)
 
 impl core::marker::StructuralPartialEq for vortex_dtype::StructFields
+
+impl serde_core::ser::Serialize for vortex_dtype::StructFields
+
+pub fn vortex_dtype::StructFields::serialize<S>(&self, serializer: S) -> core::result::Result<<S as serde_core::ser::Serializer>::Ok, <S as serde_core::ser::Serializer>::Error> where S: serde_core::ser::Serializer
 
 impl vortex_dtype::arrow::FromArrowType<&arrow_schema::fields::Fields> for vortex_dtype::StructFields
 

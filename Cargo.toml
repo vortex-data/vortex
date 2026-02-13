@@ -187,6 +187,7 @@ proc-macro2 = "1.0.95"
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
+public-api = "0.50"
 pyo3 = { version = "0.27.0" }
 pyo3-bytes = "0.5"
 pyo3-log = "0.13.0"

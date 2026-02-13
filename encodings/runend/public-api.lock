@@ -62,6 +62,10 @@ impl vortex_array::array::IntoArray for vortex_runend::RunEndArray
 
 pub fn vortex_runend::RunEndArray::into_array(self) -> vortex_array::array::ArrayRef
 
+impl<R: arrow_array::types::RunEndIndexType> vortex_array::arrow::FromArrowArray<&arrow_array::array::run_array::RunArray<R>> for vortex_runend::RunEndArray where <R as arrow_array::types::ArrowPrimitiveType>::Native: vortex_dtype::ptype::NativePType
+
+pub fn vortex_runend::RunEndArray::from_arrow(array: &arrow_array::array::run_array::RunArray<R>, nullable: bool) -> vortex_error::VortexResult<Self>
+
 pub struct vortex_runend::RunEndArrayParts
 
 pub vortex_runend::RunEndArrayParts::ends: vortex_array::array::ArrayRef

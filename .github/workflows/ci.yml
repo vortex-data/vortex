@@ -342,10 +342,8 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           toolchain: nightly
-      - name: Install cargo-public-api
-        run: cargo install cargo-public-api --locked
       - name: Regenerate public API lock files
-        run: bash scripts/public-api.sh
+        run: cargo +nightly xtask public-api
       - name: Verify lock files are up to date
         run: |
           if ! git diff --quiet '**/public-api.lock'; then

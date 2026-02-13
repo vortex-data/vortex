@@ -4,6 +4,12 @@ pub mod vortex_utils::aliases
 
 pub use vortex_utils::aliases::DefaultHashBuilder
 
+pub mod vortex_utils::aliases::dash_map
+
+pub type vortex_utils::aliases::dash_map::DashMap<K, V> = dashmap::DashMap<K, V, vortex_utils::aliases::hash_map::RandomState>
+
+pub type vortex_utils::aliases::dash_map::Entry<'a, K, V> = dashmap::mapref::entry::Entry<'a, K, V>
+
 pub mod vortex_utils::aliases::hash_map
 
 pub type vortex_utils::aliases::hash_map::DefaultHashBuilder = hashbrown::hasher::DefaultHashBuilder
@@ -45,3 +51,21 @@ pub struct vortex_utils::debug_with::DebugWith<F> where F: core::ops::function::
 impl<F> core::fmt::Debug for vortex_utils::debug_with::DebugWith<F> where F: core::ops::function::Fn(&mut core::fmt::Formatter<'_>) -> core::fmt::Result
 
 pub fn vortex_utils::debug_with::DebugWith<F>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
+pub mod vortex_utils::dyn_traits
+
+pub trait vortex_utils::dyn_traits::DynEq: core::any::Any + vortex_utils::dyn_traits::private::SealedEq
+
+pub fn vortex_utils::dyn_traits::DynEq::dyn_eq(&self, other: &dyn core::any::Any) -> bool
+
+impl<T: core::cmp::PartialEq + 'static> vortex_utils::dyn_traits::DynEq for T
+
+pub fn T::dyn_eq(&self, other: &dyn core::any::Any) -> bool
+
+pub trait vortex_utils::dyn_traits::DynHash: vortex_utils::dyn_traits::private::SealedHash
+
+pub fn vortex_utils::dyn_traits::DynHash::dyn_hash(&self, state: &mut dyn core::hash::Hasher)
+
+impl<T: core::hash::Hash + 'static> vortex_utils::dyn_traits::DynHash for T
+
+pub fn T::dyn_hash(&self, state: &mut dyn core::hash::Hasher)
