@@ -28,8 +28,7 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA decoder for frame-of-reference.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct FoRExecutor;
+pub(crate) struct FoRExecutor;
 
 impl FoRExecutor {
     fn try_specialize(array: ArrayRef) -> Option<FoRArray> {

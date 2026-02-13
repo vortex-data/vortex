@@ -24,8 +24,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity::NonNullable;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaSession;
-use vortex_cuda::DictExecutor;
-use vortex_cuda::executor::CudaExecute;
+use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
@@ -101,7 +100,7 @@ where
                         .with_launch_strategy(Arc::new(timed));
 
                     for _ in 0..iters {
-                        block_on(DictExecutor.execute(dict_array.to_array(), &mut cuda_ctx))
+                        block_on(dict_array.to_array().execute_cuda(&mut cuda_ctx))
                             .vortex_expect("execute");
                     }
 

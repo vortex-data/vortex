@@ -23,8 +23,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaSession;
-use vortex_cuda::DateTimePartsExecutor;
-use vortex_cuda::executor::CudaExecute;
+use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_datetime_parts::DateTimePartsArray;
@@ -77,10 +76,7 @@ fn benchmark_datetimeparts(c: &mut Criterion) {
 
                     for _ in 0..iters {
                         // block on immediately here
-                        block_on(
-                            DateTimePartsExecutor.execute(dtp_array.to_array(), &mut cuda_ctx),
-                        )
-                        .unwrap();
+                        block_on(dtp_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
                     }
 
                     Duration::from_nanos(timer.load(Ordering::Relaxed))

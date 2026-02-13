@@ -23,8 +23,7 @@ use vortex_array::arrays::PrimitiveArray;
 use vortex_array::validity::Validity;
 use vortex_buffer::Buffer;
 use vortex_cuda::CudaSession;
-use vortex_cuda::RunEndExecutor;
-use vortex_cuda::executor::CudaExecute;
+use vortex_cuda::executor::CudaArrayExt;
 use vortex_cuda_macros::cuda_available;
 use vortex_cuda_macros::cuda_not_available;
 use vortex_dtype::NativePType;
@@ -90,10 +89,7 @@ where
                                 .with_launch_strategy(Arc::new(timed));
 
                         for _ in 0..iters {
-                            block_on(
-                                RunEndExecutor.execute(runend_array.to_array(), &mut cuda_ctx),
-                            )
-                            .unwrap();
+                            block_on(runend_array.to_array().execute_cuda(&mut cuda_ctx)).unwrap();
                         }
 
                         Duration::from_nanos(timer.load(Ordering::Relaxed))

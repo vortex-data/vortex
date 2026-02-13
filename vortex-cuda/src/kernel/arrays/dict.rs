@@ -37,8 +37,7 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for dictionary-encoded arrays.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct DictExecutor;
+pub(crate) struct DictExecutor;
 
 #[async_trait]
 impl CudaExecute for DictExecutor {

@@ -14,8 +14,7 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for SharedArray.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct SharedExecutor;
+pub(crate) struct SharedExecutor;
 
 #[async_trait]
 impl CudaExecute for SharedExecutor {

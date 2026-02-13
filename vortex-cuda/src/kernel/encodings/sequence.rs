@@ -25,7 +25,7 @@ use crate::executor::CudaExecute;
 
 /// CUDA execution for `SequenceArray`.
 #[derive(Debug)]
-pub struct SequenceExecutor;
+pub(crate) struct SequenceExecutor;
 
 #[async_trait]
 impl CudaExecute for SequenceExecutor {
