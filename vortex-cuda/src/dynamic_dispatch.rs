@@ -1,6 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+//! Host interface for dynamic CUDA kernel dispatch.
+//!
+//! Provides an API to dynamically dispatch a sequence of decoding operations
+//! defined in a plan, to execute them in a single GPU kernel.
+//!
+//! Each plan has a single source operation to unpack the compressed data into
+//! shared memory (e.g., bitunpack). After that scalar operations transform
+//! values in registers (e.g., FoR, zigzag, ALP).
+//!
+//! # Example
+//!
+//! ```ignore
+//! let plan = DynamicDispatchPlan::new(
+//!     SourceOp::bitunpack(6),
+//!     &[ScalarOp::frame_of_ref(100), ScalarOp::alp(10.0, 1.0)],
+//! );
+//! ```
+
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -16,16 +34,22 @@ include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 // SAFETY: DynamicDispatchPlan is a C ABI struct with contiguous memory.
 unsafe impl cudarc::driver::DeviceRepr for DynamicDispatchPlan {}
 
-// Aliases for bindgen-generated scoped names.
-pub type BitunpackParams = SourceParams_BitunpackParams;
-pub type FoRParams = ScalarParams_FoRParams;
-pub type AlpParams = ScalarParams_AlpParams;
+/// Aliases to make bindgen-generated names ergonomic.
+
+/// Enumeration of source operation types.
 pub type SourceOpCode = SourceOp_SourceOpCode;
+
+/// Enumeration of scalar operation types.
 pub type ScalarOpCode = ScalarOp_ScalarOpCode;
+
 pub const SourceOpCode_BITUNPACK: SourceOpCode = SourceOp_SourceOpCode_BITUNPACK;
 pub const ScalarOpCode_FOR: ScalarOpCode = ScalarOp_ScalarOpCode_FOR;
 pub const ScalarOpCode_ZIGZAG: ScalarOpCode = ScalarOp_ScalarOpCode_ZIGZAG;
 pub const ScalarOpCode_ALP: ScalarOpCode = ScalarOp_ScalarOpCode_ALP;
+
+pub type BitunpackParams = SourceParams_BitunpackParams;
+pub type FoRParams = ScalarParams_FoRParams;
+pub type AlpParams = ScalarParams_AlpParams;
 
 impl SourceOp {
     /// Create a bitunpack source op with the given bit width.
