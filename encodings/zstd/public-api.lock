@@ -91,7 +91,7 @@ pub type vortex_zstd::ZstdVTable::OperationsVTable = vortex_zstd::ZstdVTable
 pub type vortex_zstd::ZstdVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValiditySliceHelper
 pub type vortex_zstd::ZstdVTable::VisitorVTable = vortex_zstd::ZstdVTable
 pub fn vortex_zstd::ZstdVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_zstd::ZstdArray>
-pub fn vortex_zstd::ZstdVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_zstd::ZstdVTable::deserialize(bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_zstd::ZstdVTable::execute(array: &Self::Array, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_zstd::ZstdVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
 pub fn vortex_zstd::ZstdVTable::metadata(array: &vortex_zstd::ZstdArray) -> vortex_error::VortexResult<Self::Metadata>

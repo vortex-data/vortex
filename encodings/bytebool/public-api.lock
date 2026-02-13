@@ -45,7 +45,7 @@ pub type vortex_bytebool::ByteBoolVTable::OperationsVTable = vortex_bytebool::By
 pub type vortex_bytebool::ByteBoolVTable::ValidityVTable = vortex_array::vtable::validity::ValidityVTableFromValidityHelper
 pub type vortex_bytebool::ByteBoolVTable::VisitorVTable = vortex_bytebool::ByteBoolVTable
 pub fn vortex_bytebool::ByteBoolVTable::build(dtype: &vortex_dtype::dtype::DType, len: usize, _metadata: &Self::Metadata, buffers: &[vortex_array::buffer::BufferHandle], children: &dyn vortex_array::serde::ArrayChildren) -> vortex_error::VortexResult<vortex_bytebool::ByteBoolArray>
-pub fn vortex_bytebool::ByteBoolVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
+pub fn vortex_bytebool::ByteBoolVTable::deserialize(_bytes: &[u8], _dtype: &vortex_dtype::dtype::DType, _len: usize, _buffers: &[vortex_array::buffer::BufferHandle], _session: &vortex_session::VortexSession) -> vortex_error::VortexResult<Self::Metadata>
 pub fn vortex_bytebool::ByteBoolVTable::execute(array: &Self::Array, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<vortex_array::array::ArrayRef>
 pub fn vortex_bytebool::ByteBoolVTable::execute_parent(array: &Self::Array, parent: &vortex_array::array::ArrayRef, child_idx: usize, ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 pub fn vortex_bytebool::ByteBoolVTable::id(_array: &Self::Array) -> vortex_array::vtable::dyn_::ArrayId
