@@ -11,11 +11,7 @@ use xshell::cmd;
 
 /// Returns true if the package is published to a registry (i.e. `publish` is not disabled).
 fn is_published(pkg: &Package) -> bool {
-    match &pkg.publish {
-        Some(registries) => !registries.is_empty(),
-        // No `publish` field means it publishes to crates.io by default.
-        None => true,
-    }
+    pkg.publish.as_ref().map(|v| !v.is_empty()).unwrap_or(true)
 }
 
 /// Regenerate `public-api.lock` files for all published crates.

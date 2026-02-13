@@ -15,6 +15,7 @@ readme = { workspace = true }
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
+publish = false
 
 [lints]
 workspace = true
