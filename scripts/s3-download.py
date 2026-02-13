@@ -19,9 +19,7 @@ def main():
         action="store_true",
         help="Do not sign the request (for public buckets)",
     )
-    parser.add_argument(
-        "--max-retries", type=int, default=5, help="Maximum number of retries"
-    )
+    parser.add_argument("--max-retries", type=int, default=5, help="Maximum number of retries")
     args = parser.parse_args()
 
     cmd = ["aws", "s3", "cp", args.s3_url, args.output]
@@ -38,8 +36,7 @@ def main():
 
         delay = min(2**attempt, 30)
         print(
-            f"S3 download failed (attempt {attempt}/{args.max_retries}), "
-            f"retrying in {delay}s...",
+            f"S3 download failed (attempt {attempt}/{args.max_retries}), retrying in {delay}s...",
             file=sys.stderr,
         )
         time.sleep(delay)

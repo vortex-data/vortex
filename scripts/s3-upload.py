@@ -67,9 +67,7 @@ def put_object(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Upload a file to S3 with retry and optional optimistic locking"
-    )
+    parser = argparse.ArgumentParser(description="Upload a file to S3 with retry and optional optimistic locking")
     parser.add_argument("--bucket", required=True, help="S3 bucket name")
     parser.add_argument("--key", required=True, help="S3 object key")
     parser.add_argument("--body", required=True, help="Local file to upload")
@@ -79,9 +77,7 @@ def main():
         action="store_true",
         help="Use ETag-based optimistic locking (re-fetches ETag on each retry)",
     )
-    parser.add_argument(
-        "--max-retries", type=int, default=5, help="Maximum number of retries"
-    )
+    parser.add_argument("--max-retries", type=int, default=5, help="Maximum number of retries")
     args = parser.parse_args()
 
     for attempt in range(1, args.max_retries + 1):
@@ -91,9 +87,7 @@ def main():
             # New object, no ETag to match — just upload without locking
             # (this handles the first-ever upload case)
 
-        if put_object(
-            args.bucket, args.key, args.body, args.checksum_algorithm, if_match
-        ):
+        if put_object(args.bucket, args.key, args.body, args.checksum_algorithm, if_match):
             print("Upload successful.")
             return
 
@@ -102,8 +96,7 @@ def main():
 
         delay = min(2**attempt, 30)
         print(
-            f"S3 upload failed (attempt {attempt}/{args.max_retries}), "
-            f"retrying in {delay}s...",
+            f"S3 upload failed (attempt {attempt}/{args.max_retries}), retrying in {delay}s...",
             file=sys.stderr,
         )
         time.sleep(delay)
