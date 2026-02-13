@@ -18,6 +18,12 @@ pub use vortex::compressor::BtrBlocksCompressor
 
 pub use vortex::compressor::BtrBlocksCompressorBuilder
 
+pub use vortex::compressor::FloatCode
+
+pub use vortex::compressor::IntCode
+
+pub use vortex::compressor::StringCode
+
 pub mod vortex::compute2
 
 pub use vortex::compute2::<<vortex_compute::*>>
