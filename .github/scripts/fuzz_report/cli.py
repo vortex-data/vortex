@@ -59,7 +59,9 @@ def _run_gh(cmd: list[str], *, retries: int = 1, **kwargs) -> subprocess.Complet
             return subprocess.run(cmd, check=True, **kwargs)
         except subprocess.CalledProcessError as exc:
             last_exc = exc
-            stderr_text = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode()
+            stderr_text = (
+                exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode()
+            )
             print(f"gh command failed (exit {exc.returncode}): {stderr_text}", file=sys.stderr)
     raise last_exc  # type: ignore[misc]
 
@@ -412,8 +414,10 @@ def cmd_report(args: argparse.Namespace) -> int:
                 f"```\n{debug_output}\n```\n</details>"
             )
             # Truncate comment to GitHub's limit too.
-            if len(comment_body) > max_body:
-                comment_body = comment_body[:max_body - 50] + "\n```\n</details>\n\n*Truncated*"
+            if len(comment_body) > _BODY_BUDGET:
+                comment_body = (
+                    comment_body[: _BODY_BUDGET - 50] + "\n```\n</details>\n\n*Truncated*"
+                )
             comment_file = Path("debug_comment.md")
             comment_file.write_text(comment_body)
             try:
