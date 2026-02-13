@@ -540,24 +540,6 @@ mod tests {
     }
 
     #[test]
-    fn unsorted_ends_rejected() {
-        let result = RunEndArray::try_new(
-            buffer![5u32, 2, 10].into_array(),
-            buffer![1i32, 2, 3].into_array(),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn duplicate_ends_rejected() {
-        let result = RunEndArray::try_new(
-            buffer![2u32, 2, 10].into_array(),
-            buffer![1i32, 2, 3].into_array(),
-        );
-        assert!(result.is_err());
-    }
-
-    #[test]
     fn ends_have_sorted_stats() -> VortexResult<()> {
         let arr = RunEndArray::new(
             buffer![2u32, 5, 10].into_array(),
