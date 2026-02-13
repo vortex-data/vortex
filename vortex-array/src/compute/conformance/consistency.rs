@@ -34,7 +34,6 @@ use crate::arrays::PrimitiveArray;
 use crate::builtins::ArrayBuiltins;
 use crate::compute::Operator;
 use crate::compute::and_kleene;
-use crate::compute::cast;
 use crate::compute::compare;
 #[expect(deprecated)]
 use crate::compute::invert;
