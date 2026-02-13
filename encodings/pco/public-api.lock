@@ -61,7 +61,7 @@ impl core::fmt::Debug for vortex_pco::PcoVTable
 pub fn vortex_pco::PcoVTable::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl vortex_array::arrays::slice::SliceReduce for vortex_pco::PcoVTable
 pub fn vortex_pco::PcoVTable::slice(array: &Self::Array, range: core::ops::range::Range<usize>) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::cast::CastReduce for vortex_pco::PcoVTable
+impl vortex_array::expr::exprs::cast::kernel::CastReduce for vortex_pco::PcoVTable
 pub fn vortex_pco::PcoVTable::cast(array: &vortex_pco::PcoArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::vtable::VTable for vortex_pco::PcoVTable
 pub type vortex_pco::PcoVTable::Array = vortex_pco::PcoArray
