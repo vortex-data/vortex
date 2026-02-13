@@ -43,7 +43,7 @@ use crate::api::SplitStream;
 pub struct LayoutReaderDataSource {
     reader: LayoutReaderRef,
     session: VortexSession,
-    split_size: u64,
+    split_max_row_count: u64,
     metrics_registry: Option<Arc<dyn MetricsRegistry>>,
 }
 
@@ -58,18 +58,18 @@ impl LayoutReaderDataSource {
         Self {
             reader,
             session,
-            split_size: u64::MAX,
+            split_max_row_count: u64::MAX,
             metrics_registry: None,
         }
     }
 
-    /// Sets the target number of rows per Scan API split.
+    /// Sets the maximum number of rows per Scan API split.
     ///
     /// Each split drives a [`ScanBuilder`] over its row range, which internally handles
     /// physical layout alignment and I/O pipelining. This controls the engine-level
     /// parallelism granularity, not the I/O granularity.
-    pub fn with_split_size(mut self, split_size: u64) -> Self {
-        self.split_size = split_size;
+    pub fn with_split_max_row_count(mut self, row_count: u64) -> Self {
+        self.split_max_row_count = row_count;
         self
     }
 
@@ -144,7 +144,7 @@ impl DataSource for LayoutReaderDataSource {
             metrics_registry: self.metrics_registry.clone(),
             next_row: row_range.start,
             end_row: row_range.end,
-            split_size: self.split_size,
+            split_size: self.split_max_row_count,
         }))
     }
 }

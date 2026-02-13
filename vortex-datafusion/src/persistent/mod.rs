@@ -3,7 +3,7 @@
 
 //! Persistent implementation of a Vortex table provider.
 mod access_plan;
-mod cache;
+pub(crate) mod cache;
 mod format;
 pub mod metrics;
 mod opener;

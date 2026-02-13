@@ -27,10 +27,6 @@ use futures::StreamExt;
 use parking_lot::Mutex;
 use tokio::fs::File;
 use vortex::error::vortex_err;
-use vortex::file::multi::FileDiscovery;
-use vortex::file::multi::MultiFileDataSource;
-use vortex::file::multi::Pattern;
-use vortex::scan::api::DataSource as _;
 use vortex::scan::api::DataSourceRef;
 use vortex_bench::Benchmark;
 use vortex_bench::BenchmarkArg;
@@ -279,19 +275,82 @@ async fn register_benchmark_tables<B: Benchmark + ?Sized>(
     }
 }
 
-/// Register tables using the V2 `VortexTable` + `MultiFileDataSource` path.
+/// Register tables using the V2 `VortexTable` + `MultiDataSource` path.
 async fn register_v2_tables<B: Benchmark + ?Sized>(
     session: &SessionContext,
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
-    use vortex::file::InMemoryFooterCache;
+    use async_trait::async_trait;
+    use futures::TryStreamExt;
+    use glob::Pattern;
+    use tracing::debug;
+    use vortex::file::FooterCacheRef;
+    use vortex::file::OpenOptionsSessionExt;
+    use vortex::file::VortexFile;
+    use vortex::file::filesystem::FileSystemRef;
     use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
+    use vortex::file::v2::FileStatsLayoutReader;
     use vortex::io::session::RuntimeSessionExt;
+    use vortex::scan::layout::LayoutReaderDataSource;
+    use vortex::scan::multi::DataSourceFactory;
+    use vortex::scan::multi::MultiDataSource;
+    use vortex_datafusion::v2::DataFusionFooterCache;
     use vortex_datafusion::v2::VortexTable;
 
+    /// A [`DataSourceFactory`] that lazily opens a single Vortex file.
+    struct VortexFileFactory {
+        fs: FileSystemRef,
+        path: String,
+        size: Option<u64>,
+        footer_cache: FooterCacheRef,
+    }
+
+    fn data_source_from_file(
+        file: &VortexFile,
+        vortex_session: &vortex::session::VortexSession,
+    ) -> vortex::error::VortexResult<DataSourceRef> {
+        let mut reader = file.layout_reader()?;
+        if let Some(stats) = file.file_stats().cloned() {
+            reader = Arc::new(FileStatsLayoutReader::new(
+                reader,
+                stats,
+                vortex_session.clone(),
+            ));
+        }
+        Ok(Arc::new(LayoutReaderDataSource::new(
+            reader,
+            vortex_session.clone(),
+        )))
+    }
+
+    #[async_trait]
+    impl DataSourceFactory for VortexFileFactory {
+        async fn open(&self) -> vortex::error::VortexResult<Option<DataSourceRef>> {
+            debug!(path = %self.path, "opening vortex file");
+            let mut options = SESSION.open_options();
+            if let Some(size) = self.size {
+                options = options.with_file_size(size);
+            }
+            if let Some(footer) = self.footer_cache.get(&self.path) {
+                options = options.with_footer(footer);
+            }
+            let source = self.fs.open_read(&self.path).await?;
+            let file = options.open(source).await?;
+            self.footer_cache.put(&self.path, file.footer().clone());
+            let ds = data_source_from_file(&file, &SESSION)?;
+            Ok(Some(ds))
+        }
+    }
+
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
-    let footer_cache = Arc::new(InMemoryFooterCache::new());
+    let footer_cache: FooterCacheRef = Arc::new(DataFusionFooterCache::new(
+        session
+            .state()
+            .runtime_env()
+            .cache_manager
+            .get_file_metadata_cache(),
+    ));
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
@@ -301,25 +360,64 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
             .runtime_env()
             .object_store(table_url.object_store())?;
 
-        let fs: Arc<dyn vortex::file::filesystem::FileSystem> =
+        let fs: FileSystemRef =
             Arc::new(ObjectStoreFileSystem::new(store.clone(), SESSION.handle()));
         let base_prefix = benchmark_base.path().trim_start_matches('/').to_string();
         let fs = fs.prefix(base_prefix);
 
-        let discovery = match pattern {
-            Some(p) => FileDiscovery::Glob(p),
-            None => FileDiscovery::Glob(
-                Pattern::new(&format!("*.{}", format.ext()))
-                    .map_err(|e| vortex_err!("invalid pattern for table {}: {}", table.name, e))?,
-            ),
+        // Discover files via glob or list all
+        let glob_pattern = match &pattern {
+            Some(p) => p.clone(),
+            None => Pattern::new(&format!("*.{}", format.ext()))
+                .map_err(|e| vortex_err!("invalid pattern for table {}: {}", table.name, e))?,
         };
-        let multi_ds = MultiFileDataSource::builder(SESSION.clone(), fs)
-            .with_discovery(discovery)
-            .with_footer_cache(footer_cache.clone())
-            .build()
-            .await?;
 
-        let arrow_schema = Arc::new(multi_ds.dtype().to_arrow_schema()?);
+        let mut files: Vec<_> = fs
+            .list(None)
+            .try_filter_map(|listing| {
+                let matches = glob_pattern.matches(&listing.path);
+                async move { Ok(matches.then_some(listing)) }
+            })
+            .try_collect()
+            .await?;
+        files.sort();
+
+        if files.is_empty() {
+            anyhow::bail!("no files found for table {}", table.name);
+        }
+
+        // Open first file eagerly to determine dtype
+        let first = &files[0];
+        let mut first_options = SESSION.open_options();
+        if let Some(size) = first.size {
+            first_options = first_options.with_file_size(size);
+        }
+        if let Some(footer) = footer_cache.get(&first.path) {
+            first_options = first_options.with_footer(footer);
+        }
+        let source = fs.open_read(&first.path).await?;
+        let first_file = first_options.open(source).await?;
+        footer_cache.put(&first.path, first_file.footer().clone());
+
+        let dtype = first_file.dtype().clone();
+        let first_ds = data_source_from_file(&first_file, &SESSION)?;
+
+        // Create factories for remaining files
+        let factories: Vec<Arc<dyn DataSourceFactory>> = files[1..]
+            .iter()
+            .map(|file| {
+                Arc::new(VortexFileFactory {
+                    fs: fs.clone(),
+                    path: file.path.clone(),
+                    size: file.size,
+                    footer_cache: footer_cache.clone(),
+                }) as Arc<dyn DataSourceFactory>
+            })
+            .collect();
+
+        let multi_ds = MultiDataSource::lazy(first_ds, factories, &SESSION);
+
+        let arrow_schema = Arc::new(dtype.to_arrow_schema()?);
         let data_source: DataSourceRef = Arc::new(multi_ds);
 
         let table_provider = Arc::new(VortexTable::new(data_source, SESSION.clone(), arrow_schema));

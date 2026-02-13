@@ -256,7 +256,7 @@ impl TableProvider for VortexTable {
             _ => Precision::Absent,
         };
 
-        let byte_size_est = self.data_source.row_count_estimate();
+        let byte_size_est = self.data_source.byte_size_estimate();
         let total_byte_size = match byte_size_est.upper {
             Some(upper) if byte_size_est.lower == upper => usize::try_from(upper)
                 .map(Precision::Exact)
