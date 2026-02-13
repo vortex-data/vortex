@@ -10,6 +10,10 @@
 //! shared memory (e.g., bitunpack). After that scalar operations transform
 //! values in registers (e.g., FoR, zigzag, ALP).
 //!
+//! The public type aliases in this module are to make the bindgen-generated
+//! names from `dynamic_dispatch.h` more ergonomic. These types are shared
+//! across Rust and CUDA.
+//!
 //! # Example
 //!
 //! ```ignore
@@ -25,16 +29,10 @@
 
 use vortex_cuda_macros::cuda_tests;
 
-// Bindgen-generated types from `dynamic_dispatch.h`
-//
-// The `DynamicDispatchPlan` struct and related types are
-// shared between CUDA kernels and Rust host code.
 include!(concat!(env!("OUT_DIR"), "/dynamic_dispatch.rs"));
 
 // SAFETY: DynamicDispatchPlan is a C ABI struct with contiguous memory.
 unsafe impl cudarc::driver::DeviceRepr for DynamicDispatchPlan {}
-
-/// Aliases for bindgen-generated names.
 
 /// Enumeration of source operation types.
 pub type SourceOpCode = SourceOp_SourceOpCode;
