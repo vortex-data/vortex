@@ -12,7 +12,6 @@ readme = "README.md"
 repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
-publish = false
 
 [dependencies]
 anyhow = { workspace = true }
