@@ -13,7 +13,7 @@ use vortex_error::vortex_err;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
-use crate::compute::cast;
+use crate::builtins::ArrayBuiltins;
 use crate::compute::zip_impl;
 use crate::compute::zip_return_dtype;
 use crate::expr::Arity;
@@ -109,11 +109,15 @@ impl VTable for Zip {
         let mask = mask_array.try_to_mask_fill_null_false()?;
 
         if mask.all_true() {
-            return cast(&if_true, &zip_return_dtype(&if_true, &if_false));
+            return if_true
+                .cast(zip_return_dtype(&if_true, &if_false))?
+                .execute(args.ctx);
         }
 
         if mask.all_false() {
-            return cast(&if_false, &zip_return_dtype(&if_true, &if_false));
+            return if_false
+                .cast(zip_return_dtype(&if_true, &if_false))?
+                .execute(args.ctx);
         }
 
         if !if_true.is_canonical() || !if_false.is_canonical() {
