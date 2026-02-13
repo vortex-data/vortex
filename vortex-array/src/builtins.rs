@@ -13,9 +13,11 @@ use vortex_dtype::DType;
 use vortex_dtype::FieldName;
 use vortex_error::VortexResult;
 use vortex_scalar::Scalar;
+use vortex_session::VortexSession;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ScalarFnArrayExt;
@@ -28,6 +30,7 @@ use crate::expr::IsNull;
 use crate::expr::Mask;
 use crate::expr::Not;
 use crate::expr::VTableExt;
+use crate::expr::Zip;
 use crate::optimizer::ArrayOptimizer;
 
 /// A collection of built-in scalar functions that can be applied to expressions or arrays.
@@ -51,6 +54,9 @@ pub trait ExprBuiltins: Sized {
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<Expression>;
+
+    /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
+    fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression>;
 }
 
 impl ExprBuiltins for Expression {
@@ -77,6 +83,10 @@ impl ExprBuiltins for Expression {
     fn not(&self) -> VortexResult<Expression> {
         Not.try_new_expr(EmptyOptions, [self.clone()])
     }
+
+    fn zip(&self, if_false: Expression, mask: Expression) -> VortexResult<Expression> {
+        Zip.try_new_expr(EmptyOptions, [self.clone(), if_false, mask])
+    }
 }
 
 pub trait ArrayBuiltins: Sized {
@@ -99,6 +109,9 @@ pub trait ArrayBuiltins: Sized {
 
     /// Boolean negation.
     fn not(&self) -> VortexResult<ArrayRef>;
+
+    /// Conditional selection: `result[i] = if mask[i] then self[i] else if_false[i]`.
+    fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef>;
 }
 
 impl ArrayBuiltins for ArrayRef {
@@ -143,5 +156,12 @@ impl ArrayBuiltins for ArrayRef {
     fn not(&self) -> VortexResult<ArrayRef> {
         Not.try_new_array(self.len(), EmptyOptions, [self.clone()])?
             .optimize()
+    }
+
+    fn zip(&self, if_false: ArrayRef, mask: ArrayRef) -> VortexResult<ArrayRef> {
+        let scalar_fn =
+            Zip.try_new_array(self.len(), EmptyOptions, [self.clone(), if_false, mask])?;
+        let mut ctx = ExecutionCtx::new(VortexSession::empty());
+        scalar_fn.execute::<ArrayRef>(&mut ctx)
     }
 }

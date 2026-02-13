@@ -8,17 +8,14 @@ use crate::Array;
 use crate::ArrayRef;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::compute::ZipKernel;
-use crate::compute::ZipKernelAdapter;
 use crate::compute::zip;
-use crate::register_kernel;
+use crate::expr::ZipReduce;
 
-// Push down the zip call to the chunks. Without this kernel
+// Push down the zip call to the chunks. Without this rule
 // the default implementation canonicalises the chunked array
 // then zips once.
-impl ZipKernel for ChunkedVTable {
+impl ZipReduce for ChunkedVTable {
     fn zip(
-        &self,
         if_true: &ChunkedArray,
         if_false: &dyn Array,
         mask: &Mask,
@@ -71,8 +68,6 @@ impl ZipKernel for ChunkedVTable {
         Ok(Some(chunked.to_array()))
     }
 }
-
-register_kernel!(ZipKernelAdapter(ChunkedVTable).lift());
 
 #[cfg(test)]
 mod tests {

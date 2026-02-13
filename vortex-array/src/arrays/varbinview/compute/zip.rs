@@ -12,22 +12,21 @@ use vortex_vector::binaryview::BinaryView;
 
 use crate::Array;
 use crate::ArrayRef;
+use crate::ExecutionCtx;
 use crate::arrays::VarBinViewArray;
 use crate::arrays::VarBinViewVTable;
 use crate::builders::DeduplicatedBuffers;
 use crate::builders::LazyBitBufferBuilder;
-use crate::compute::ZipKernel;
-use crate::compute::ZipKernelAdapter;
-use crate::register_kernel;
+use crate::expr::ZipKernel;
 
 // A dedicated VarBinView zip kernel that builds the result directly by adjusting views and validity,
 // instead of routing through the generic builder (which would redo buffer lookups per mask slice).
 impl ZipKernel for VarBinViewVTable {
     fn zip(
-        &self,
         if_true: &VarBinViewArray,
         if_false: &dyn Array,
         mask: &Mask,
+        _ctx: &mut ExecutionCtx,
     ) -> VortexResult<Option<ArrayRef>> {
         let Some(if_false) = if_false.as_opt::<VarBinViewVTable>() else {
             return Ok(None);
@@ -37,7 +36,6 @@ impl ZipKernel for VarBinViewVTable {
             vortex_bail!("input arrays to zip must have the same dtype");
         }
 
-        // compute fn already asserts if_true.len() == if_false.len()
         let len = if_true.len();
         let dtype = if_true
             .dtype()
@@ -204,8 +202,6 @@ fn push_view(
     views_builder.push(adjusted);
     validity_builder.append_non_null();
 }
-
-register_kernel!(ZipKernelAdapter(VarBinViewVTable).lift());
 
 #[cfg(test)]
 mod tests {

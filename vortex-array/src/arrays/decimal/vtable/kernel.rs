@@ -4,7 +4,7 @@
 use crate::arrays::DecimalVTable;
 use crate::arrays::TakeExecuteAdaptor;
 use crate::compute::CastExecuteAdaptor;
-use crate::compute::FillNullExecuteAdaptor;
+use crate::expr::FillNullExecuteAdaptor;
 use crate::kernel::ParentKernelSet;
 
 pub(super) const PARENT_KERNELS: ParentKernelSet<DecimalVTable> = ParentKernelSet::new(&[

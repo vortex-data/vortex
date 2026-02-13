@@ -7,7 +7,7 @@ use vortex_scalar::Scalar;
 use crate::ArrayRef;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
-use crate::compute::FillNullReduce;
+use crate::expr::FillNullReduce;
 use crate::expr::fill_null_constant;
 
 impl FillNullReduce for ConstantVTable {

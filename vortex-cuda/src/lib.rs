@@ -8,6 +8,7 @@ use std::process::Command;
 pub mod arrow;
 mod canonical;
 mod device_buffer;
+pub mod dynamic_dispatch;
 pub mod executor;
 mod host_to_device_allocator;
 mod kernel;

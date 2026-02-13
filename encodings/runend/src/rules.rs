@@ -8,7 +8,7 @@ use vortex_array::arrays::ConstantArray;
 use vortex_array::arrays::ConstantVTable;
 use vortex_array::arrays::ScalarFnArray;
 use vortex_array::compute::CastReduceAdaptor;
-use vortex_array::compute::FillNullReduceAdaptor;
+use vortex_array::expr::FillNullReduceAdaptor;
 use vortex_array::optimizer::rules::ArrayParentReduceRule;
 use vortex_array::optimizer::rules::ParentRuleSet;
 use vortex_dtype::DType;

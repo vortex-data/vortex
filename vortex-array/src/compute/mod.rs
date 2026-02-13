@@ -105,7 +105,6 @@ pub fn warm_up_vtables() {
     min_max::warm_up_vtable();
     nan_count::warm_up_vtable();
     sum::warm_up_vtable();
-    zip::warm_up_vtable();
 }
 
 impl ComputeFn {
