@@ -43,8 +43,6 @@ impl vortex_array::arrays::slice::SliceKernel for vortex_sparse::SparseVTable
 pub fn vortex_sparse::SparseVTable::slice(array: &vortex_sparse::SparseArray, range: core::ops::range::Range<usize>, _ctx: &mut vortex_array::executor::ExecutionCtx) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::compute::cast::CastReduce for vortex_sparse::SparseVTable
 pub fn vortex_sparse::SparseVTable::cast(array: &vortex_sparse::SparseArray, dtype: &vortex_dtype::dtype::DType) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
-impl vortex_array::compute::numeric::NumericKernel for vortex_sparse::SparseVTable
-pub fn vortex_sparse::SparseVTable::numeric(&self, array: &vortex_sparse::SparseArray, rhs: &dyn vortex_array::array::Array, op: vortex_scalar::typed_view::primitive::numeric_operator::NumericOperator) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::expr::exprs::not::kernel::NotReduce for vortex_sparse::SparseVTable
 pub fn vortex_sparse::SparseVTable::invert(array: &vortex_sparse::SparseArray) -> vortex_error::VortexResult<core::option::Option<vortex_array::array::ArrayRef>>
 impl vortex_array::vtable::VTable for vortex_sparse::SparseVTable
