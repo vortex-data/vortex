@@ -7,12 +7,15 @@ use divan::Bencher;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use vortex_array::Canonical;
 use vortex_array::IntoArray;
+use vortex_array::VortexSessionExecute;
 use vortex_array::arrays::DictArray;
 use vortex_array::arrays::PrimitiveArray;
 use vortex_array::compute::mask;
 use vortex_array::compute::warm_up_vtables;
 use vortex_mask::Mask;
+use vortex_session::VortexSession;
 
 fn main() {
     warm_up_vtables();
@@ -59,7 +62,14 @@ fn bench_dict_mask(bencher: Bencher, (fraction_valid, fraction_masked): (f64, f6
     let values = PrimitiveArray::from_option_iter([None, Some(42i32)]).into_array();
     let array = DictArray::try_new(codes, values).unwrap().into_array();
     let filter_mask = filter_mask(len, fraction_masked, &mut rng);
+    let session = VortexSession::empty();
     bencher
         .with_inputs(|| (&array, &filter_mask))
-        .bench_refs(|(array, filter_mask)| mask(array.as_ref(), filter_mask).unwrap());
+        .bench_refs(|(array, filter_mask)| {
+            let mut ctx = session.create_execution_ctx();
+            mask(array.as_ref(), filter_mask)
+                .unwrap()
+                .execute::<Canonical>(&mut ctx)
+                .unwrap()
+        });
 }
