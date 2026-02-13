@@ -5,8 +5,10 @@ import argparse
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from .dedup import check_duplicate
@@ -38,6 +40,28 @@ def _write_github_output(key: str, value: str) -> None:
     if output_file:
         with open(output_file, "a") as f:
             f.write(f"{key}={value}\n")
+
+
+def _run_gh(cmd: list[str], *, retries: int = 1, **kwargs) -> subprocess.CompletedProcess:
+    """Run a gh CLI command with logging and retry on failure.
+
+    Prints the command before execution and surfaces stderr on failure.
+    Retries up to ``retries`` times (default 1) with a short back-off.
+    """
+    print(f"+ {shlex.join(cmd)}", file=sys.stderr)
+    last_exc: subprocess.CalledProcessError | None = None
+    for attempt in range(1 + retries):
+        if attempt > 0:
+            wait = 5 * attempt
+            print(f"Retrying in {wait}s (attempt {attempt + 1}/{1 + retries})...", file=sys.stderr)
+            time.sleep(wait)
+        try:
+            return subprocess.run(cmd, check=True, **kwargs)
+        except subprocess.CalledProcessError as exc:
+            last_exc = exc
+            stderr_text = exc.stderr if isinstance(exc.stderr, str) else (exc.stderr or b"").decode()
+            print(f"gh command failed (exit {exc.returncode}): {stderr_text}", file=sys.stderr)
+    raise last_exc  # type: ignore[misc]
 
 
 def _load_crash_info(path: str | Path) -> CrashInfo:
@@ -128,7 +152,7 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
     Returns the new count.
     """
     # List all comments on the issue
-    result = subprocess.run(
+    result = _run_gh(
         [
             "gh",
             "api",
@@ -139,7 +163,6 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
         ],
         capture_output=True,
         text=True,
-        check=True,
     )
 
     existing_id = None
@@ -161,7 +184,7 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
     if existing_id:
         # Update existing comment (not atomic — race is acceptable since
         # fuzz CI jobs are serialized)
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "api",
@@ -171,11 +194,10 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
                 "-f",
                 f"body={body}",
             ],
-            check=True,
         )
     else:
         # Create new recurrence comment
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "api",
@@ -183,7 +205,6 @@ def _update_recurrence_count(repo: str, issue_number: int | str) -> int:
                 "-f",
                 f"body={body}",
             ],
-            check=True,
         )
 
     return new_count
@@ -302,7 +323,7 @@ def cmd_report(args: argparse.Namespace) -> int:
         body_file = Path("comment_body.md")
         body_file.write_text(body)
 
-        subprocess.run(
+        _run_gh(
             [
                 "gh",
                 "issue",
@@ -313,7 +334,6 @@ def cmd_report(args: argparse.Namespace) -> int:
                 "--body-file",
                 str(body_file),
             ],
-            check=True,
         )
         print(f"Commented on #{existing_issue}", file=sys.stderr)
         _write_github_output("issue_number", str(existing_issue))
@@ -322,10 +342,22 @@ def cmd_report(args: argparse.Namespace) -> int:
         title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_target}"
 
         body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
+
+        # GitHub issue body limit is 65536 chars; truncate if needed.
+        max_body = 65000
+        if len(body) > max_body:
+            truncation_note = "\n\n---\n*Body truncated — full details in crash artifact.*\n"
+            body = body[:max_body - len(truncation_note)] + truncation_note
+            print(f"Warning: Issue body truncated from {len(body)} to {max_body} chars", file=sys.stderr)
+
         body_file = Path("issue_body.md")
         body_file.write_text(body)
 
-        result = subprocess.run(
+        print(f"Issue title: {title}", file=sys.stderr)
+        print(f"Issue body size: {len(body)} chars", file=sys.stderr)
+        print(f"Repo: {args.repo}", file=sys.stderr)
+
+        result = _run_gh(
             [
                 "gh",
                 "issue",
@@ -339,7 +371,6 @@ def cmd_report(args: argparse.Namespace) -> int:
                 "--body-file",
                 str(body_file),
             ],
-            check=True,
             capture_output=True,
             text=True,
         )

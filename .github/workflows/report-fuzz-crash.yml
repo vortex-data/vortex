@@ -116,7 +116,7 @@ jobs:
           claude_args: |
             --model claude-opus-4-6
             --max-turns 5
-            --allowedTools "Read,Write,Bash(cat:*),Bash(jq:*)"
+            --allowedTools "Read,Write,Grep,Glob,Bash(cat:*),Bash(jq:*),Bash(head:*),Bash(xxd:*)"
 
       - name: Create or comment on issue
         id: report
