@@ -11,6 +11,7 @@ use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
 use crate::arrays::SliceReduceAdaptor;
 use crate::compute::CastReduceAdaptor;
+use crate::expr::MaskReduceAdaptor;
 use crate::optimizer::rules::ArrayParentReduceRule;
 use crate::optimizer::rules::ParentRuleSet;
 use crate::vtable::ValidityHelper;
@@ -18,6 +19,7 @@ use crate::vtable::ValidityHelper;
 pub(crate) const RULES: ParentRuleSet<BoolVTable> = ParentRuleSet::new(&[
     ParentRuleSet::lift(&BoolMaskedValidityRule),
     ParentRuleSet::lift(&CastReduceAdaptor(BoolVTable)),
+    ParentRuleSet::lift(&MaskReduceAdaptor(BoolVTable)),
     ParentRuleSet::lift(&SliceReduceAdaptor(BoolVTable)),
 ]);
 

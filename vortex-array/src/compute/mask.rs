@@ -1,47 +1,30 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::sync::LazyLock;
+use std::ops::Not;
 
-use arcref::ArcRef;
-use arrow_array::BooleanArray;
-use vortex_dtype::DType;
-use vortex_error::VortexError;
 use vortex_error::VortexResult;
-use vortex_error::vortex_bail;
-use vortex_error::vortex_err;
 use vortex_mask::Mask;
 use vortex_scalar::Scalar;
 
 use crate::Array;
 use crate::ArrayRef;
 use crate::IntoArray;
+use crate::arrays::BoolArray;
 use crate::arrays::ConstantArray;
-use crate::arrow::FromArrowArray;
-use crate::arrow::IntoArrowArray;
+use crate::arrays::ScalarFnArrayExt;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::ComputeFn;
-use crate::compute::ComputeFnVTable;
-use crate::compute::InvocationArgs;
-use crate::compute::Kernel;
-use crate::compute::Output;
-use crate::vtable::VTable;
-
-static MASK_FN: LazyLock<ComputeFn> = LazyLock::new(|| {
-    let compute = ComputeFn::new("mask".into(), ArcRef::new_ref(&MaskFn));
-    for kernel in inventory::iter::<MaskKernelRef> {
-        compute.register_kernel(kernel.0.clone());
-    }
-    compute
-});
-
-pub(crate) fn warm_up_vtable() -> usize {
-    MASK_FN.kernels().len()
-}
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
+use crate::validity::Validity;
 
 /// Replace values with null where the mask is true.
 ///
 /// The returned array is nullable but otherwise has the same dtype and length as `array`.
+///
+/// This function returns a lazy `ScalarFnArray` wrapping the [`Mask`](crate::expr::exprs::mask::Mask)
+/// expression that defers the actual masking operation until execution time. The mask is inverted
+/// (true=mask-out becomes true=keep) and passed as a boolean child to the expression.
 ///
 /// # Examples
 ///
@@ -70,131 +53,31 @@ pub(crate) fn warm_up_vtable() -> usize {
 /// ```
 ///
 pub fn mask(array: &dyn Array, mask: &Mask) -> VortexResult<ArrayRef> {
-    MASK_FN
-        .invoke(&InvocationArgs {
-            inputs: &[array.into(), mask.into()],
-            options: &(),
-        })?
-        .unwrap_array()
-}
+    let mask_true_count = mask.true_count();
 
-pub struct MaskKernelRef(ArcRef<dyn Kernel>);
-inventory::collect!(MaskKernelRef);
-
-pub trait MaskKernel: VTable {
-    /// Replace masked values with null in array.
-    fn mask(&self, array: &Self::Array, mask: &Mask) -> VortexResult<ArrayRef>;
-}
-
-#[derive(Debug)]
-pub struct MaskKernelAdapter<V: VTable>(pub V);
-
-impl<V: VTable + MaskKernel> MaskKernelAdapter<V> {
-    pub const fn lift(&'static self) -> MaskKernelRef {
-        MaskKernelRef(ArcRef::new_ref(self))
-    }
-}
-
-impl<V: VTable + MaskKernel> Kernel for MaskKernelAdapter<V> {
-    fn invoke(&self, args: &InvocationArgs) -> VortexResult<Option<Output>> {
-        let inputs = MaskArgs::try_from(args)?;
-        let Some(array) = inputs.array.as_opt::<V>() else {
-            return Ok(None);
-        };
-        Ok(Some(V::mask(&self.0, array, inputs.mask)?.into()))
-    }
-}
-
-struct MaskFn;
-
-impl ComputeFnVTable for MaskFn {
-    fn invoke(
-        &self,
-        args: &InvocationArgs,
-        kernels: &[ArcRef<dyn Kernel>],
-    ) -> VortexResult<Output> {
-        let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
-
-        let mask_true_count = mask.true_count();
-        if mask_true_count == 0 {
-            // Fast-path for empty mask
-            return Ok(array.to_array().cast(array.dtype().as_nullable())?.into());
-        }
-
-        if mask_true_count == mask.len() {
-            // Fast-path for full mask.
-            return Ok(
-                ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len())
-                    .into_array()
-                    .into(),
-            );
-        }
-
-        // Do nothing if the array is already all nulls.
-        if array.all_invalid()? {
-            return Ok(array.to_array().into());
-        }
-
-        for kernel in kernels {
-            if let Some(output) = kernel.invoke(args)? {
-                return Ok(output);
-            }
-        }
-
-        // Fallback: implement using Arrow kernels.
-        tracing::debug!("No mask implementation found for {}", array.encoding_id());
-
-        let array_ref = array.to_array().into_arrow_preferred()?;
-        let mask = BooleanArray::new(mask.to_bit_buffer().into(), None);
-
-        let masked = arrow_select::nullif::nullif(array_ref.as_ref(), &mask)?;
-
-        Ok(ArrayRef::from_arrow(masked.as_ref(), true)?.into())
+    if mask_true_count == 0 {
+        // Fast-path for empty mask: nothing to mask out.
+        return array.to_array().cast(array.dtype().as_nullable());
     }
 
-    fn return_dtype(&self, args: &InvocationArgs) -> VortexResult<DType> {
-        let MaskArgs { array, .. } = MaskArgs::try_from(args)?;
-        Ok(array.dtype().as_nullable())
+    if mask_true_count == mask.len() {
+        // Fast-path for full mask: everything is masked out.
+        return Ok(
+            ConstantArray::new(Scalar::null(array.dtype().as_nullable()), array.len()).into_array(),
+        );
     }
 
-    fn return_len(&self, args: &InvocationArgs) -> VortexResult<usize> {
-        let MaskArgs { array, mask } = MaskArgs::try_from(args)?;
-
-        if mask.len() != array.len() {
-            vortex_bail!(
-                "mask.len() is {}, does not equal array.len() of {}",
-                mask.len(),
-                array.len()
-            );
-        }
-
-        Ok(mask.len())
+    // Do nothing if the array is already all nulls.
+    if array.all_invalid()? {
+        return Ok(array.to_array());
     }
 
-    fn is_elementwise(&self) -> bool {
-        true
-    }
-}
-
-struct MaskArgs<'a> {
-    array: &'a dyn Array,
-    mask: &'a Mask,
-}
-
-impl<'a> TryFrom<&InvocationArgs<'a>> for MaskArgs<'a> {
-    type Error = VortexError;
-
-    fn try_from(value: &InvocationArgs<'a>) -> Result<Self, Self::Error> {
-        if value.inputs.len() != 2 {
-            vortex_bail!("Mask function requires 2 arguments");
-        }
-        let array = value.inputs[0]
-            .array()
-            .ok_or_else(|| vortex_err!("Expected input 0 to be an array"))?;
-        let mask = value.inputs[1]
-            .mask()
-            .ok_or_else(|| vortex_err!("Expected input 1 to be a mask"))?;
-
-        Ok(MaskArgs { array, mask })
-    }
+    // Lazy wrap: invert the mask (true=mask_out → true=keep) and create a ScalarFnArray
+    // wrapping the Mask expression.
+    let keep_mask = BoolArray::new(mask.to_bit_buffer().not(), Validity::NonNullable);
+    MaskExpr.try_new_array(
+        array.len(),
+        EmptyOptions,
+        [array.to_array(), keep_mask.into_array()],
+    )
 }

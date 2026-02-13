@@ -2,28 +2,23 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask as MaskType;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::MaskedArray;
 use crate::arrays::MaskedVTable;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::compute::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for MaskedVTable {
-    fn mask(&self, array: &MaskedArray, mask_arg: &MaskType) -> VortexResult<ArrayRef> {
-        // Combine the mask with the existing validity
-        // The child remains unchanged (no nulls), only validity is updated
-        let combined_validity = array.validity().mask(mask_arg);
-
-        Ok(MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array())
+impl MaskReduce for MaskedVTable {
+    fn mask(array: &MaskedArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        let combined_validity = array.validity().clone().and(validity.clone());
+        Ok(Some(
+            MaskedArray::try_new(array.child.clone(), combined_validity)?.into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(MaskedVTable).lift());
 
 #[cfg(test)]
 mod tests {

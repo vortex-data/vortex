@@ -1,31 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_dtype::Nullability;
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::ConstantArray;
 use crate::arrays::ConstantVTable;
 use crate::arrays::MaskedArray;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::compute::MaskReduce;
 use crate::validity::Validity;
 
-impl MaskKernel for ConstantVTable {
-    fn mask(&self, array: &ConstantArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        MaskedArray::try_new(
-            array.to_array(),
-            Validity::from_mask(!mask, Nullability::Nullable),
-        )
-        .map(|a| a.into_array())
+impl MaskReduce for ConstantVTable {
+    fn mask(array: &ConstantArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        if array.scalar.is_null() {
+            // Already all nulls, masking has no effect.
+            return Ok(Some(array.to_array()));
+        }
+        Ok(Some(
+            MaskedArray::try_new(array.to_array(), validity.clone())?.into_array(),
+        ))
     }
 }
-
-register_kernel!(MaskKernelAdapter(ConstantVTable).lift());
 
 #[cfg(test)]
 mod test {

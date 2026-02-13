@@ -9,10 +9,6 @@ use vortex_array::ExecutionCtx;
 use vortex_array::IntoArray;
 use vortex_array::arrays::FilterReduce;
 use vortex_array::arrays::TakeExecute;
-use vortex_array::compute::MaskKernel;
-use vortex_array::compute::MaskKernelAdapter;
-use vortex_array::compute::mask;
-use vortex_array::register_kernel;
 use vortex_error::VortexResult;
 use vortex_mask::Mask;
 
@@ -36,15 +32,6 @@ impl TakeExecute for ZigZagVTable {
         Ok(Some(ZigZagArray::try_new(encoded)?.into_array()))
     }
 }
-
-impl MaskKernel for ZigZagVTable {
-    fn mask(&self, array: &ZigZagArray, filter_mask: &Mask) -> VortexResult<ArrayRef> {
-        let encoded = mask(array.encoded(), filter_mask)?;
-        Ok(ZigZagArray::try_new(encoded)?.into_array())
-    }
-}
-
-register_kernel!(MaskKernelAdapter(ZigZagVTable).lift());
 
 pub(crate) trait ZigZagEncoded {
     type Int: zigzag::ZigZag;

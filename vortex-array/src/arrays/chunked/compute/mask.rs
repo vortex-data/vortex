@@ -1,151 +1,42 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use itertools::Itertools as _;
-use vortex_buffer::BitBuffer;
-use vortex_buffer::BitBufferMut;
-use vortex_dtype::DType;
 use vortex_error::VortexResult;
-use vortex_mask::AllOr;
-use vortex_mask::Mask;
-use vortex_mask::MaskIter;
-use vortex_scalar::Scalar;
 
-use super::filter::ChunkFilter;
-use super::filter::chunk_filters;
-use super::filter::find_chunk_idx;
 use crate::ArrayRef;
 use crate::IntoArray;
-use crate::arrays::BoolArray;
 use crate::arrays::ChunkedArray;
 use crate::arrays::ChunkedVTable;
-use crate::arrays::ConstantArray;
-use crate::arrays::chunked::compute::filter::FILTER_SLICES_SELECTIVITY_THRESHOLD;
-use crate::builtins::ArrayBuiltins;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::compute::mask;
-use crate::register_kernel;
+use crate::arrays::ScalarFnArrayExt;
+use crate::compute::MaskReduce;
+use crate::expr::EmptyOptions;
+use crate::expr::mask::Mask as MaskExpr;
 use crate::validity::Validity;
 
-impl MaskKernel for ChunkedVTable {
-    fn mask(&self, array: &ChunkedArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let new_dtype = array.dtype().as_nullable();
-        let new_chunks = match mask.threshold_iter(FILTER_SLICES_SELECTIVITY_THRESHOLD) {
-            AllOr::All => unreachable!("handled in top-level mask"),
-            AllOr::None => unreachable!("handled in top-level mask"),
-            AllOr::Some(MaskIter::Indices(indices)) => mask_indices(array, indices, &new_dtype),
-            AllOr::Some(MaskIter::Slices(slices)) => {
-                mask_slices(array, slices.iter().cloned(), &new_dtype)
-            }
-        }?;
-        debug_assert_eq!(new_chunks.len(), array.nchunks());
-        debug_assert_eq!(
-            new_chunks.iter().map(|x| x.len()).sum::<usize>(),
-            array.len()
-        );
-        ChunkedArray::try_new(new_chunks, new_dtype).map(|c| c.into_array())
+impl MaskReduce for ChunkedVTable {
+    fn mask(array: &ChunkedArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
+        let Validity::Array(validity_array) = validity else {
+            // Precondition guarantees Array variant, but handle gracefully
+            return Ok(None);
+        };
+
+        let chunk_offsets = array.chunk_offsets();
+        let new_chunks: Vec<ArrayRef> = array
+            .chunks()
+            .iter()
+            .enumerate()
+            .map(|(i, chunk)| {
+                let start: usize = chunk_offsets[i].try_into()?;
+                let end: usize = chunk_offsets[i + 1].try_into()?;
+                let chunk_mask = validity_array.slice(start..end)?;
+                MaskExpr.try_new_array(chunk.len(), EmptyOptions, [chunk.clone(), chunk_mask])
+            })
+            .collect::<VortexResult<_>>()?;
+
+        Ok(Some(
+            ChunkedArray::try_new(new_chunks, array.dtype().as_nullable())?.into_array(),
+        ))
     }
-}
-
-register_kernel!(MaskKernelAdapter(ChunkedVTable).lift());
-
-fn mask_indices(
-    array: &ChunkedArray,
-    indices: &[usize],
-    new_dtype: &DType,
-) -> VortexResult<Vec<ArrayRef>> {
-    let mut new_chunks = Vec::with_capacity(array.nchunks());
-    let mut current_chunk_id = 0;
-    let mut chunk_indices = Vec::<usize>::new();
-
-    let chunk_offsets = array.chunk_offsets();
-
-    for &set_index in indices {
-        let (chunk_id, index) = find_chunk_idx(set_index, &chunk_offsets)?;
-        if chunk_id != current_chunk_id {
-            let chunk = array.chunk(current_chunk_id).clone();
-            let chunk_len = chunk.len();
-            // chunk_indices contains indices to null out, but chunk.mask() expects
-            // mask=true to mean "retain". So we create a mask with bits set at indices
-            // to null, then invert it to get mask=true at indices to retain.
-            let mask = BoolArray::new(
-                !BitBuffer::from_indices(chunk_len, &chunk_indices),
-                Validity::NonNullable,
-            )
-            .into_array();
-            let masked_chunk = chunk.mask(mask)?;
-            // Advance the chunk forward, reset the chunk indices buffer.
-            chunk_indices = Vec::new();
-            new_chunks.push(masked_chunk);
-            current_chunk_id += 1;
-
-            while current_chunk_id < chunk_id {
-                // Chunks that are not affected by the mask, must still be casted to the correct dtype.
-                let chunk = array.chunk(current_chunk_id).cast(new_dtype.clone())?;
-                new_chunks.push(chunk);
-                current_chunk_id += 1;
-            }
-        }
-
-        chunk_indices.push(index);
-    }
-
-    if !chunk_indices.is_empty() {
-        let chunk = array.chunk(current_chunk_id).clone();
-        let chunk_len = chunk.len();
-        // Same inversion as above: invert the mask so mask=true means "retain"
-        let masked_chunk = chunk.mask(
-            BoolArray::new(
-                !BitBufferMut::from_indices(chunk_len, &chunk_indices).freeze(),
-                Validity::NonNullable,
-            )
-            .into_array(),
-        )?;
-        new_chunks.push(masked_chunk);
-        current_chunk_id += 1;
-    }
-
-    while current_chunk_id < array.nchunks() {
-        let chunk = array.chunk(current_chunk_id);
-        new_chunks.push(chunk.cast(new_dtype.clone())?);
-        current_chunk_id += 1;
-    }
-
-    Ok(new_chunks)
-}
-
-fn mask_slices(
-    array: &ChunkedArray,
-    slices: impl Iterator<Item = (usize, usize)>,
-    new_dtype: &DType,
-) -> VortexResult<Vec<ArrayRef>> {
-    let chunked_filters = chunk_filters(array, slices)?;
-
-    array
-        .chunks()
-        .iter()
-        .zip_eq(chunked_filters)
-        .map(|(chunk, chunk_filter)| -> VortexResult<ArrayRef> {
-            match chunk_filter {
-                ChunkFilter::All => {
-                    // entire chunk is masked out
-                    Ok(
-                        ConstantArray::new(Scalar::null(new_dtype.clone()), chunk.len())
-                            .into_array(),
-                    )
-                }
-                ChunkFilter::None => {
-                    // entire chunk is not affected by mask
-                    chunk.cast(new_dtype.clone())
-                }
-                ChunkFilter::Slices(slices) => {
-                    // Slices of indices that must be set to null
-                    mask(chunk, &Mask::from_slices(chunk.len(), slices))
-                }
-            }
-        })
-        .process_results(|iter| iter.collect::<Vec<_>>())
 }
 
 #[cfg(test)]

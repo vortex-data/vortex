@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
 use std::fmt::Formatter;
-use std::ops::Not;
 
+pub use kernel::*;
 use vortex_dtype::DType;
 use vortex_dtype::Nullability;
 use vortex_error::VortexExpect;
@@ -14,8 +15,10 @@ use vortex_scalar::Scalar;
 use vortex_session::VortexSession;
 
 use crate::ArrayRef;
+use crate::Canonical;
+use crate::IntoArray;
 use crate::arrays::BoolArray;
-use crate::compute;
+use crate::arrays::mask_validity_canonical;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::EmptyOptions;
@@ -94,9 +97,13 @@ impl VTable for Mask {
             .try_into()
             .map_err(|_| vortex_err!("Wrong arg count"))?;
 
+        // Execute mask child to BoolArray (true=keep, false=null-out).
         let mask_bool = mask_array.execute::<BoolArray>(args.ctx)?;
-        let inverted = mask_bool.to_bit_buffer().not();
-        compute::mask(&input, &vortex_mask::Mask::from(inverted))?.execute(args.ctx)
+        let validity_mask = vortex_mask::Mask::from(mask_bool.to_bit_buffer());
+
+        // Execute input to canonical and apply the validity mask.
+        let canonical = input.execute::<Canonical>(args.ctx)?;
+        Ok(mask_validity_canonical(canonical, &validity_mask, args.ctx)?.into_array())
     }
 
     fn simplify(

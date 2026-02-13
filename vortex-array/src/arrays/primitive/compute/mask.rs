@@ -2,34 +2,28 @@
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
 use vortex_error::VortexResult;
-use vortex_mask::Mask;
 
 use crate::ArrayRef;
 use crate::IntoArray;
 use crate::arrays::PrimitiveVTable;
 use crate::arrays::primitive::PrimitiveArray;
-use crate::compute::MaskKernel;
-use crate::compute::MaskKernelAdapter;
-use crate::register_kernel;
+use crate::compute::MaskReduce;
+use crate::validity::Validity;
 use crate::vtable::ValidityHelper;
 
-impl MaskKernel for PrimitiveVTable {
-    fn mask(&self, array: &PrimitiveArray, mask: &Mask) -> VortexResult<ArrayRef> {
-        let validity = array.validity().mask(mask);
-
+impl MaskReduce for PrimitiveVTable {
+    fn mask(array: &PrimitiveArray, validity: &Validity) -> VortexResult<Option<ArrayRef>> {
         // SAFETY: validity and data buffer still have same length
-        Ok(unsafe {
+        Ok(Some(unsafe {
             PrimitiveArray::new_unchecked_from_handle(
                 array.buffer_handle().clone(),
                 array.ptype(),
-                validity,
+                array.validity().clone().and(validity.clone()),
             )
             .into_array()
-        })
+        }))
     }
 }
-
-register_kernel!(MaskKernelAdapter(PrimitiveVTable).lift());
 
 #[cfg(test)]
 mod test {
