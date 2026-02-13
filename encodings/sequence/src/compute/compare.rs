@@ -1,67 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use vortex_array::Array;
-use vortex_array::ArrayRef;
-use vortex_array::arrays::BoolArray;
-use vortex_array::arrays::ConstantArray;
-use vortex_array::compute::CompareKernel;
-use vortex_array::compute::Operator;
-use vortex_array::validity::Validity;
-use vortex_buffer::BitBuffer;
 use vortex_dtype::NativePType;
-use vortex_dtype::Nullability;
 use vortex_dtype::match_each_integer_ptype;
 use vortex_error::VortexExpect;
-use vortex_error::VortexResult;
 use vortex_scalar::PValue;
-use vortex_scalar::Scalar;
-
-use crate::SequenceArray;
-use crate::array::SequenceVTable;
-
-impl CompareKernel for SequenceVTable {
-    fn compare(
-        &self,
-        lhs: &SequenceArray,
-        rhs: &dyn Array,
-        operator: Operator,
-    ) -> VortexResult<Option<ArrayRef>> {
-        if operator != Operator::Eq {
-            return Ok(None);
-        };
-
-        let Some(constant) = rhs.as_constant() else {
-            return Ok(None);
-        };
-
-        // Check if there exists an integer solution to const = base + (0..len) * multiplier.
-        let set_idx = find_intersection_scalar(
-            lhs.base(),
-            lhs.multiplier(),
-            lhs.len(),
-            constant
-                .as_primitive()
-                .pvalue()
-                .vortex_expect("non-null constant"),
-        );
-
-        let nullability = lhs.dtype().nullability() | rhs.dtype().nullability();
-        let validity = match nullability {
-            Nullability::NonNullable => Validity::NonNullable,
-            Nullability::Nullable => Validity::AllValid,
-        };
-
-        if let Some(set_idx) = set_idx {
-            let buffer = BitBuffer::from_iter((0..lhs.len()).map(|idx| idx == set_idx));
-            Ok(Some(BoolArray::new(buffer, validity).to_array()))
-        } else {
-            Ok(Some(
-                ConstantArray::new(Scalar::bool(false, nullability), lhs.len()).to_array(),
-            ))
-        }
-    }
-}
 
 /// Find the index where `base + idx * multiplier == intercept`, if one exists.
 ///

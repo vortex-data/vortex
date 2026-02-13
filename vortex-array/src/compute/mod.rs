@@ -96,7 +96,6 @@ pub struct ComputeFn {
 pub fn warm_up_vtables() {
     #[allow(unused_qualifications)]
     between::warm_up_vtable();
-    compare::warm_up_vtable();
     is_constant::warm_up_vtable();
     is_sorted::warm_up_vtable();
     like::warm_up_vtable();
