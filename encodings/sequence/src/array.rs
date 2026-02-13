@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
-use std::hash::Hash;
-
 use num_traits::cast::FromPrimitive;
-use num_traits::zero;
+use std::hash::Hash;
 use vortex_array::ArrayBufferVisitor;
 use vortex_array::ArrayChildVisitor;
 use vortex_array::ArrayRef;
@@ -19,8 +17,8 @@ use vortex_array::buffer::BufferHandle;
 use vortex_array::expr::stats::Precision as StatPrecision;
 use vortex_array::expr::stats::Stat;
 use vortex_array::serde::ArrayChildren;
-use vortex_array::stats::ArrayStats;
 use vortex_array::stats::StatsSetRef;
+use vortex_array::stats::{ArrayStats, StatsSet};
 use vortex_array::validity::Validity;
 use vortex_array::vtable;
 use vortex_array::vtable::ArrayId;
@@ -133,24 +131,27 @@ impl SequenceArray {
 
         // A sequence A[i] = base + i * multiplier is sorted iff multiplier >= 0,
         // and strictly sorted iff multiplier > 0.
-        let (is_sorted, is_strict_sorted) = match_each_native_ptype!(ptype, |P| {
-            let m = multiplier.cast::<P>();
-            (m >= zero::<P>(), m > zero::<P>())
-        });
+        let m_int = multiplier.cast::<i64>();
+        let is_sorted = m_int >= 0;
+        let is_strict_sorted = m_int > 0;
 
-        let stats_set = ArrayStats::default();
-        stats_set.set(Stat::IsSorted, StatPrecision::Exact(is_sorted.into()));
-        stats_set.set(
-            Stat::IsStrictSorted,
-            StatPrecision::Exact(is_strict_sorted.into()),
-        );
+        // SAFETY: we don't have duplicate stats
+        let stats_set = unsafe {
+            StatsSet::new_unchecked(vec![
+                (Stat::IsSorted, StatPrecision::Exact(is_sorted.into())),
+                (
+                    Stat::IsStrictSorted,
+                    StatPrecision::Exact(is_strict_sorted.into()),
+                ),
+            ])
+        };
 
         Self {
             base,
             multiplier,
             dtype,
             len: length,
-            stats_set,
+            stats_set: ArrayStats::from(stats_set),
         }
     }
 
