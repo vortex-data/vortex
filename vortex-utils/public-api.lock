@@ -1,24 +1,47 @@
 pub mod vortex_utils
+
 pub mod vortex_utils::aliases
+
 pub use vortex_utils::aliases::DefaultHashBuilder
+
 pub mod vortex_utils::aliases::hash_map
+
 pub type vortex_utils::aliases::hash_map::DefaultHashBuilder = hashbrown::hasher::DefaultHashBuilder
+
 pub type vortex_utils::aliases::hash_map::Entry<'a, K, V, S> = hashbrown::map::Entry<'a, K, V, S>
+
 pub type vortex_utils::aliases::hash_map::HashMap<K, V, S> = hashbrown::map::HashMap<K, V, S>
+
 pub type vortex_utils::aliases::hash_map::HashTable<T> = hashbrown::table::HashTable<T>
+
 pub type vortex_utils::aliases::hash_map::HashTableEntry<'a, T> = hashbrown::table::Entry<'a, T>
+
 pub type vortex_utils::aliases::hash_map::IntoIter<K, V> = hashbrown::map::IntoIter<K, V>
+
 pub type vortex_utils::aliases::hash_map::RandomState = hashbrown::hasher::DefaultHashBuilder
+
 pub mod vortex_utils::aliases::hash_set
+
 pub type vortex_utils::aliases::hash_set::Entry<'a, V, S> = hashbrown::set::Entry<'a, V, S>
+
 pub type vortex_utils::aliases::hash_set::HashSet<V, S> = hashbrown::set::HashSet<V, S>
+
 pub type vortex_utils::aliases::hash_set::IntoIter<V> = hashbrown::set::IntoIter<V>
+
 pub struct vortex_utils::aliases::StringEscape<'a>(pub &'a str)
+
 impl core::fmt::Display for vortex_utils::aliases::StringEscape<'_>
+
 pub fn vortex_utils::aliases::StringEscape<'_>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<'a> core::fmt::Debug for vortex_utils::aliases::StringEscape<'a>
+
 pub fn vortex_utils::aliases::StringEscape<'a>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub mod vortex_utils::debug_with
+
 pub struct vortex_utils::debug_with::DebugWith<F> where F: core::ops::function::Fn(&mut core::fmt::Formatter<'_>) -> core::fmt::Result(pub F)
+
 impl<F> core::fmt::Debug for vortex_utils::debug_with::DebugWith<F> where F: core::ops::function::Fn(&mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 pub fn vortex_utils::debug_with::DebugWith<F>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result

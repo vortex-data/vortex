@@ -1,78 +1,155 @@
 pub mod vortex_session
+
 pub mod vortex_session::registry
+
 pub struct vortex_session::registry::Context<T>
+
 impl<T: core::clone::Clone> vortex_session::registry::Context<T>
+
 pub fn vortex_session::registry::Context<T>::empty() -> Self
+
 pub fn vortex_session::registry::Context<T>::intern(&self, id: &vortex_session::registry::Id) -> core::option::Option<u16>
+
 pub fn vortex_session::registry::Context<T>::new(ids: alloc::vec::Vec<vortex_session::registry::Id>) -> Self
+
 pub fn vortex_session::registry::Context<T>::resolve(&self, idx: u16) -> core::option::Option<vortex_session::registry::Id>
+
 pub fn vortex_session::registry::Context<T>::to_ids(&self) -> alloc::vec::Vec<vortex_session::registry::Id>
+
 pub fn vortex_session::registry::Context<T>::with_registry(self, registry: vortex_session::registry::Registry<T>) -> Self
+
 impl<T: core::clone::Clone> core::clone::Clone for vortex_session::registry::Context<T>
+
 pub fn vortex_session::registry::Context<T>::clone(&self) -> vortex_session::registry::Context<T>
+
 impl<T: core::fmt::Debug> core::fmt::Debug for vortex_session::registry::Context<T>
+
 pub fn vortex_session::registry::Context<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<T> core::default::Default for vortex_session::registry::Context<T>
+
 pub fn vortex_session::registry::Context<T>::default() -> Self
+
 pub struct vortex_session::registry::Registry<T>(_)
+
 impl<T: core::clone::Clone> vortex_session::registry::Registry<T>
+
 pub fn vortex_session::registry::Registry<T>::empty() -> Self
+
 pub fn vortex_session::registry::Registry<T>::find(&self, id: &vortex_session::registry::Id) -> core::option::Option<T>
+
 pub fn vortex_session::registry::Registry<T>::find_many<'a>(&self, ids: impl core::iter::traits::collect::IntoIterator<Item = &'a vortex_session::registry::Id>) -> impl core::iter::traits::iterator::Iterator<Item = core::option::Option<impl core::ops::deref::Deref<Target = T>>>
+
 pub fn vortex_session::registry::Registry<T>::ids(&self) -> impl core::iter::traits::iterator::Iterator<Item = vortex_session::registry::Id> + '_
+
 pub fn vortex_session::registry::Registry<T>::items(&self) -> impl core::iter::traits::iterator::Iterator<Item = T> + '_
+
 pub fn vortex_session::registry::Registry<T>::register(&self, id: impl core::convert::Into<vortex_session::registry::Id>, item: impl core::convert::Into<T>)
+
 pub fn vortex_session::registry::Registry<T>::with(self, id: impl core::convert::Into<vortex_session::registry::Id>, item: impl core::convert::Into<T>) -> Self
+
 impl<T: core::clone::Clone> core::clone::Clone for vortex_session::registry::Registry<T>
+
 pub fn vortex_session::registry::Registry<T>::clone(&self) -> vortex_session::registry::Registry<T>
+
 impl<T: core::fmt::Debug> core::fmt::Debug for vortex_session::registry::Registry<T>
+
 pub fn vortex_session::registry::Registry<T>::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl<T> core::default::Default for vortex_session::registry::Registry<T>
+
 pub fn vortex_session::registry::Registry<T>::default() -> Self
+
 pub type vortex_session::registry::Id = arcref::ArcRef<str>
+
 pub struct vortex_session::Ref<'a, T>(_)
+
 impl<'a, T> vortex_session::Ref<'a, T>
+
 pub fn vortex_session::Ref<'a, T>::map<F, U>(self, f: F) -> vortex_session::Ref<'a, U> where F: core::ops::function::FnOnce(&T) -> &U
+
 impl<'a, T> core::ops::deref::Deref for vortex_session::Ref<'a, T>
+
 pub type vortex_session::Ref<'a, T>::Target = T
+
 pub fn vortex_session::Ref<'a, T>::deref(&self) -> &Self::Target
+
 pub struct vortex_session::RefMut<'a, T>(_)
+
 impl<'a, T> vortex_session::RefMut<'a, T>
+
 pub fn vortex_session::RefMut<'a, T>::map<F, U>(self, f: F) -> vortex_session::RefMut<'a, U> where F: core::ops::function::FnOnce(&mut T) -> &mut U
+
 impl<'a, T> core::ops::deref::Deref for vortex_session::RefMut<'a, T>
+
 pub type vortex_session::RefMut<'a, T>::Target = T
+
 pub fn vortex_session::RefMut<'a, T>::deref(&self) -> &Self::Target
+
 impl<'a, T> core::ops::deref::DerefMut for vortex_session::RefMut<'a, T>
+
 pub fn vortex_session::RefMut<'a, T>::deref_mut(&mut self) -> &mut Self::Target
+
 pub struct vortex_session::VortexSession(_)
+
 impl vortex_session::VortexSession
+
 pub fn vortex_session::VortexSession::empty() -> Self
+
 pub fn vortex_session::VortexSession::with<V: vortex_session::SessionVar + core::default::Default>(self) -> Self
+
 impl core::clone::Clone for vortex_session::VortexSession
+
 pub fn vortex_session::VortexSession::clone(&self) -> vortex_session::VortexSession
+
 impl core::fmt::Debug for vortex_session::VortexSession
+
 pub fn vortex_session::VortexSession::fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+
 impl vortex_session::SessionExt for vortex_session::VortexSession
+
 pub fn vortex_session::VortexSession::get<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::Ref<'_, V>
+
 pub fn vortex_session::VortexSession::get_mut<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::RefMut<'_, V>
+
 pub fn vortex_session::VortexSession::get_mut_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::RefMut<'_, V>>
+
 pub fn vortex_session::VortexSession::get_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::Ref<'_, V>>
+
 pub fn vortex_session::VortexSession::session(&self) -> vortex_session::VortexSession
+
 pub trait vortex_session::SessionExt: core::marker::Sized + vortex_session::private::Sealed
+
 pub fn vortex_session::SessionExt::get<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::Ref<'_, V>
+
 pub fn vortex_session::SessionExt::get_mut<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::RefMut<'_, V>
+
 pub fn vortex_session::SessionExt::get_mut_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::RefMut<'_, V>>
+
 pub fn vortex_session::SessionExt::get_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::Ref<'_, V>>
+
 pub fn vortex_session::SessionExt::session(&self) -> vortex_session::VortexSession
+
 impl vortex_session::SessionExt for vortex_session::VortexSession
+
 pub fn vortex_session::VortexSession::get<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::Ref<'_, V>
+
 pub fn vortex_session::VortexSession::get_mut<V: vortex_session::SessionVar + core::default::Default>(&self) -> vortex_session::RefMut<'_, V>
+
 pub fn vortex_session::VortexSession::get_mut_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::RefMut<'_, V>>
+
 pub fn vortex_session::VortexSession::get_opt<V: vortex_session::SessionVar>(&self) -> core::option::Option<vortex_session::Ref<'_, V>>
+
 pub fn vortex_session::VortexSession::session(&self) -> vortex_session::VortexSession
+
 pub trait vortex_session::SessionVar: core::any::Any + core::marker::Send + core::marker::Sync + core::fmt::Debug + 'static
+
 pub fn vortex_session::SessionVar::as_any(&self) -> &dyn core::any::Any
+
 pub fn vortex_session::SessionVar::as_any_mut(&mut self) -> &mut dyn core::any::Any
+
 impl<T: core::marker::Send + core::marker::Sync + core::fmt::Debug + 'static> vortex_session::SessionVar for T
+
 pub fn T::as_any(&self) -> &dyn core::any::Any
+
 pub fn T::as_any_mut(&mut self) -> &mut dyn core::any::Any
