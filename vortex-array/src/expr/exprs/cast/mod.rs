@@ -1,8 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-FileCopyrightText: Copyright the Vortex contributors
 
+mod kernel;
+
 use std::fmt::Formatter;
 
+pub use kernel::*;
 use prost::Message;
 use vortex_dtype::DType;
 use vortex_error::VortexExpect;
@@ -29,8 +32,6 @@ use crate::arrays::PrimitiveVTable;
 use crate::arrays::StructVTable;
 use crate::arrays::VarBinViewVTable;
 use crate::builtins::ArrayBuiltins;
-use crate::compute::CastKernel;
-use crate::compute::CastReduce;
 use crate::expr::Arity;
 use crate::expr::ChildName;
 use crate::expr::ExecutionArgs;
