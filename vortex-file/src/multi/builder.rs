@@ -19,6 +19,7 @@ use super::glob::list_all;
 use super::source::MultiFileDataSource;
 use super::source::VortexFileFactory;
 use super::source::data_source_from_file;
+use crate::FooterCacheRef;
 use crate::OpenOptionsSessionExt;
 use crate::VortexOpenOptions;
 use crate::filesystem::FileListing;
@@ -87,6 +88,7 @@ pub struct MultiFileDataSourceBuilder {
     open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
     prefetch: Option<usize>,
     dtype: Option<DType>,
+    footer_cache: Option<FooterCacheRef>,
 }
 
 impl MultiFileDataSource {
@@ -94,10 +96,7 @@ impl MultiFileDataSource {
     ///
     /// To scope the data source to a subdirectory, wrap the filesystem with
     /// [`FileSystem::prefix`](crate::filesystem::FileSystem::prefix).
-    pub fn builder(
-        session: VortexSession,
-        fs: FileSystemRef,
-    ) -> MultiFileDataSourceBuilder {
+    pub fn builder(session: VortexSession, fs: FileSystemRef) -> MultiFileDataSourceBuilder {
         MultiFileDataSourceBuilder {
             session,
             fs,
@@ -106,6 +105,7 @@ impl MultiFileDataSource {
             open_options_fn: Arc::new(|opts| opts),
             prefetch: None,
             dtype: None,
+            footer_cache: None,
         }
     }
 }
@@ -155,6 +155,15 @@ impl MultiFileDataSourceBuilder {
     /// Defaults to  [`std::thread::available_parallelism`].
     pub fn with_prefetch(mut self, prefetch: usize) -> Self {
         self.prefetch = Some(prefetch);
+        self
+    }
+
+    /// Set a [`FooterCache`](crate::FooterCache) to reuse parsed footers across file opens.
+    ///
+    /// When provided, footers are looked up before opening each file (saving the footer I/O)
+    /// and stored after opening (for future reuse).
+    pub fn with_footer_cache(mut self, cache: FooterCacheRef) -> Self {
+        self.footer_cache = Some(cache);
         self
     }
 
@@ -229,8 +238,16 @@ impl MultiFileDataSourceBuilder {
             if let Some(size) = first.size {
                 first_options = first_options.with_file_size(size);
             }
+            if let Some(ref cache) = self.footer_cache
+                && let Some(footer) = cache.get(&first.path)
+            {
+                first_options = first_options.with_footer(footer);
+            }
             let source = self.fs.open_read(&first.path).await?;
             let first_file = first_options.open(source).await?;
+            if let Some(ref cache) = self.footer_cache {
+                cache.put(&first.path, first_file.footer().clone());
+            }
 
             let dtype = first_file.dtype().clone();
             debug!(dtype = %dtype, "determined dtype from first file");
@@ -264,6 +281,7 @@ impl MultiFileDataSourceBuilder {
                     file: file.clone(),
                     session: self.session.clone(),
                     open_options_fn: self.open_options_fn.clone(),
+                    footer_cache: self.footer_cache.clone(),
                 }) as Arc<dyn DataSourceFactory>
             })
             .collect()

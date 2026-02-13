@@ -64,9 +64,9 @@ pub(super) async fn expand_glob(
 
     let mut files: Vec<FileListing> = fs
         .list(listing_prefix)
-        .try_filter_map(|listing| async move {
-            Ok(pattern.matches(&listing.path).then_some(listing))
-        })
+        .try_filter_map(
+            |listing| async move { Ok(pattern.matches(&listing.path).then_some(listing)) },
+        )
         .try_collect()
         .await?;
 

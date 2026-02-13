@@ -285,11 +285,13 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
     benchmark: &B,
     format: Format,
 ) -> anyhow::Result<()> {
+    use vortex::file::InMemoryFooterCache;
     use vortex::file::filesystem::object_store::ObjectStoreFileSystem;
     use vortex::io::session::RuntimeSessionExt;
     use vortex_datafusion::v2::VortexTable;
 
     let benchmark_base = benchmark.data_url().join(&format!("{}/", format.name()))?;
+    let footer_cache = Arc::new(InMemoryFooterCache::new());
 
     for table in benchmark.table_specs().iter() {
         let pattern = benchmark.pattern(table.name, format);
@@ -313,6 +315,7 @@ async fn register_v2_tables<B: Benchmark + ?Sized>(
         };
         let multi_ds = MultiFileDataSource::builder(SESSION.clone(), fs)
             .with_discovery(discovery)
+            .with_footer_cache(footer_cache.clone())
             .build()
             .await?;
 

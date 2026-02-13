@@ -44,6 +44,8 @@ use vortex::expr::and_collect;
 use vortex::expr::col;
 use vortex::expr::root;
 use vortex::expr::select;
+use vortex::file::FooterCache;
+use vortex::file::FooterCacheRef;
 use vortex::file::OpenOptionsSessionExt;
 use vortex::file::VortexFile;
 use vortex::file::VortexOpenOptions;
@@ -74,7 +76,7 @@ use crate::duckdb::LogicalType;
 use crate::duckdb::TableFunction;
 use crate::duckdb::TableInitInput;
 use crate::duckdb::VirtualColumnsResult;
-use crate::duckdb::footer_cache::FooterCache;
+use crate::duckdb::footer_cache::DuckDbFooterCache;
 use crate::exporter::ArrayExporter;
 use crate::exporter::ConversionCache;
 use crate::utils::glob::expand_glob;
@@ -240,17 +242,19 @@ async fn open_file(url: Url, options: VortexOpenOptions) -> VortexResult<VortexF
 struct VortexFileFactory {
     url: Url,
     filter: Option<Expression>,
-    object_cache: duckdb::ObjectCacheRef<'static>,
+    footer_cache: FooterCacheRef,
 }
 
 #[async_trait]
 impl DataSourceFactory for VortexFileFactory {
     async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
-        let cache = FooterCache::new(self.object_cache);
-        let entry = cache.entry(self.url.as_ref());
-        let options = entry.apply_to_file(SESSION.open_options());
+        let mut options = SESSION.open_options();
+        if let Some(footer) = self.footer_cache.get(self.url.as_ref()) {
+            options = options.with_footer(footer);
+        }
         let file = open_file(self.url.clone(), options).await?;
-        entry.put_if_absent(|| file.footer().clone());
+        self.footer_cache
+            .put(self.url.as_ref(), file.footer().clone());
 
         if let Some(ref filter) = self.filter
             && file.can_prune(filter)?
@@ -325,12 +329,14 @@ impl TableFunction for VortexTableFunction {
             vortex_bail!("No files matched the glob");
         };
 
-        let footer_cache = FooterCache::new(ctx.object_cache());
-        let entry = footer_cache.entry(first_file_url.as_ref());
-        let first_file = RUNTIME.block_on(async move {
-            let options = entry.apply_to_file(SESSION.open_options());
+        let footer_cache = Arc::new(DuckDbFooterCache::new(ctx.object_cache()));
+        let first_file = RUNTIME.block_on(async {
+            let mut options = SESSION.open_options();
+            if let Some(footer) = footer_cache.get(first_file_url.as_ref()) {
+                options = options.with_footer(footer);
+            }
             let file = open_file(first_file_url.clone(), options).await?;
-            entry.put_if_absent(|| file.footer().clone());
+            footer_cache.put(first_file_url.as_ref(), file.footer().clone());
             VortexResult::Ok(file)
         })?;
 
@@ -432,7 +438,8 @@ impl TableFunction for VortexTableFunction {
         let num_workers = bind_data.max_threads as usize;
 
         let client_context = init_input.client_context()?;
-        let object_cache = client_context.object_cache();
+        let footer_cache: FooterCacheRef =
+            Arc::new(DuckDbFooterCache::new(client_context.object_cache()));
 
         let use_scan_api = std::env::var("VORTEX_USE_SCAN_API").is_ok_and(|v| v == "1");
 
@@ -442,7 +449,7 @@ impl TableFunction for VortexTableFunction {
                 projection_expr,
                 filter_expr,
                 num_workers,
-                object_cache,
+                footer_cache,
             )?
         } else {
             init_global_direct(
@@ -450,7 +457,7 @@ impl TableFunction for VortexTableFunction {
                 projection_expr,
                 filter_expr,
                 num_workers,
-                object_cache,
+                footer_cache,
             )?
         };
 
@@ -558,7 +565,7 @@ fn init_global_scan_api(
     projection_expr: Expression,
     filter_expr: Option<Expression>,
     num_workers: usize,
-    object_cache: duckdb::ObjectCacheRef<'static>,
+    footer_cache: FooterCacheRef,
 ) -> VortexResult<ScanIterator> {
     let first_reader = bind_data.first_file.layout_reader()?;
     let first_ds: DataSourceRef =
@@ -570,7 +577,7 @@ fn init_global_scan_api(
             Arc::new(VortexFileFactory {
                 url: url.clone(),
                 filter: filter_expr.clone(),
-                object_cache,
+                footer_cache: footer_cache.clone(),
             }) as Arc<dyn DataSourceFactory>
         })
         .collect();
@@ -612,7 +619,7 @@ fn init_global_direct(
     projection_expr: Expression,
     filter_expr: Option<Expression>,
     num_workers: usize,
-    object_cache: duckdb::ObjectCacheRef<'static>,
+    footer_cache: FooterCacheRef,
 ) -> VortexResult<ScanIterator> {
     let handle = RUNTIME.handle();
     let first_file = bind_data.first_file.clone();
@@ -623,7 +630,7 @@ fn init_global_direct(
             let filter_expr = filter_expr.clone();
             let projection_expr = projection_expr.clone();
             let conversion_cache = Arc::new(ConversionCache::new(idx as u64));
-            let object_cache = object_cache;
+            let footer_cache = footer_cache.clone();
 
             handle
                 .spawn(async move {
@@ -632,11 +639,12 @@ fn init_global_direct(
                         // the first file was already opened during bind.
                         Ok(first_file)
                     } else {
-                        let cache = FooterCache::new(object_cache);
-                        let entry = cache.entry(url.as_ref());
-                        let options = entry.apply_to_file(SESSION.open_options());
+                        let mut options = SESSION.open_options();
+                        if let Some(footer) = footer_cache.get(url.as_ref()) {
+                            options = options.with_footer(footer);
+                        }
                         let file = open_file(url.clone(), options).await?;
-                        entry.put_if_absent(|| file.footer().clone());
+                        footer_cache.put(url.as_ref(), file.footer().clone());
                         VortexResult::Ok(file)
                     }?;
 

@@ -30,6 +30,7 @@ use vortex_scan::multi::DataSourceFactory;
 use vortex_scan::multi::MultiDataSource;
 use vortex_session::VortexSession;
 
+use crate::FooterCacheRef;
 use crate::OpenOptionsSessionExt;
 use crate::VortexFile;
 use crate::VortexOpenOptions;
@@ -90,6 +91,7 @@ pub(super) struct VortexFileFactory {
     pub(super) file: FileListing,
     pub(super) session: VortexSession,
     pub(super) open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    pub(super) footer_cache: Option<FooterCacheRef>,
 }
 
 #[async_trait]
@@ -100,8 +102,16 @@ impl DataSourceFactory for VortexFileFactory {
         if let Some(size) = self.file.size {
             options = options.with_file_size(size);
         }
+        if let Some(ref cache) = self.footer_cache
+            && let Some(footer) = cache.get(&self.file.path)
+        {
+            options = options.with_footer(footer);
+        }
         let source = self.fs.open_read(&self.file.path).await?;
         let file = options.open(source).await?;
+        if let Some(ref cache) = self.footer_cache {
+            cache.put(&self.file.path, file.footer().clone());
+        }
 
         let ds = data_source_from_file(&file, &self.session)?;
         debug!(path = %self.file.path, "opened vortex file");
