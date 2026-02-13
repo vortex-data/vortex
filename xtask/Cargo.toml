@@ -19,7 +19,7 @@ version = { workspace = true }
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 prost-build = { workspace = true }
-public-api = "0.50"
+public-api = { workspace = true }
 xshell = { workspace = true }
 
 [lints]
