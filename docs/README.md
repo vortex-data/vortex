@@ -9,6 +9,12 @@ inherits some of its doc strings from Rust docstrings:
 cd ../vortex-python && uv run maturin develop
 ```
 
+The docs also require the [`doxygen`](https://www.doxygen.nl/) tool, which can be installed with:
+
+```
+brew install doxygen
+```
+
 Build the Vortex docs:
 
 ```

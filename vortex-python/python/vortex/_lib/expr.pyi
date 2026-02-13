@@ -6,9 +6,6 @@ from typing import TypeAlias, final
 
 from typing_extensions import override
 
-from vortex.type_aliases import IntoArray
-
-from .arrays import Array
 from .dtype import DType
 from .scalar import ScalarPyType
 
@@ -16,7 +13,6 @@ IntoExpr: TypeAlias = Expr | int | str | date | datetime | None
 
 @final
 class Expr:
-    def evaluate(self, array: IntoArray) -> Array: ...
     @override
     def __eq__(self, other: IntoExpr) -> Expr: ...  # pyright: ignore[reportIncompatibleMethodOverride]
     @override
