@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use itertools::Itertools;
 use num_traits::Zero;
 use vortex_buffer::BitBufferMut;
 use vortex_buffer::Buffer;
@@ -55,9 +54,9 @@ pub fn element_mask_from_offsets<O: IntegerPType>(
         }
     } else {
         // Sparse iteration: process individual selected lists.
-        for (start, end) in selection.bit_buffer().set_indices().tuple_windows() {
-            let list_start = offsets[start].as_() - first_offset;
-            let list_end = offsets[end].as_() - first_offset;
+        for idx in selection.bit_buffer().set_indices() {
+            let list_start = offsets[idx].as_() - first_offset;
+            let list_end = offsets[idx + 1].as_() - first_offset;
 
             // Process the elements for this list.
             process_element_range(list_start, list_end, &mut mask_builder);
