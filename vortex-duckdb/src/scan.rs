@@ -465,9 +465,9 @@ impl TableFunction for VortexTableFunction {
         unsafe {
             use custom_labels::sys;
 
-            if sys::labelset_current().is_null() {
-                let ls = sys::labelset_new(0);
-                sys::labelset_replace(ls);
+            if sys::current().is_null() {
+                let ls = sys::new(0);
+                sys::replace(ls);
             };
         }
 
