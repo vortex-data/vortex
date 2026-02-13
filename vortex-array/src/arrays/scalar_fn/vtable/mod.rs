@@ -79,6 +79,7 @@ impl VTable for ScalarFnVTable {
         _bytes: &[u8],
         _dtype: &DType,
         _len: usize,
+        _buffers: &[BufferHandle],
         _session: &VortexSession,
     ) -> VortexResult<Self::Metadata> {
         vortex_bail!("Deserialization of ScalarFnVTable metadata is not supported");
