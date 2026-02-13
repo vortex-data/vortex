@@ -20,8 +20,7 @@ use crate::executor::CudaExecute;
 
 // See `DecimalBytePartsArray`
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct DecimalBytePartsExecutor;
+pub(crate) struct DecimalBytePartsExecutor;
 
 #[async_trait]
 impl CudaExecute for DecimalBytePartsExecutor {

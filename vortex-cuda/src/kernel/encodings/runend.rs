@@ -35,8 +35,7 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA executor for run-end encoded arrays.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct RunEndExecutor;
+pub(crate) struct RunEndExecutor;
 
 impl RunEndExecutor {
     fn try_specialize(array: ArrayRef) -> Option<RunEndArray> {

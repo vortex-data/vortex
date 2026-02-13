@@ -187,7 +187,7 @@ pub async fn zstd_kernel_prepare(
 
 /// CUDA executor for ZSTD decompression using nvCOMP.
 #[derive(Debug)]
-pub struct ZstdExecutor;
+pub(crate) struct ZstdExecutor;
 
 impl ZstdExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZstdArray> {

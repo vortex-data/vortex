@@ -35,8 +35,7 @@ use crate::kernel::patches::execute_patches;
 
 /// CUDA decoder for bit-packed arrays.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct BitPackedExecutor;
+pub(crate) struct BitPackedExecutor;
 
 impl BitPackedExecutor {
     fn try_specialize(array: ArrayRef) -> Option<BitPackedArray> {

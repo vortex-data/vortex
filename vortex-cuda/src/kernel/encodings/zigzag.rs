@@ -27,7 +27,7 @@ use crate::executor::CudaExecutionCtx;
 
 /// CUDA decoder for ZigZag decoding.
 #[derive(Debug)]
-pub struct ZigZagExecutor;
+pub(crate) struct ZigZagExecutor;
 
 impl ZigZagExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ZigZagArray> {

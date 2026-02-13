@@ -36,8 +36,7 @@ use crate::executor::CudaExecutionCtx;
 /// Materializes a constant array by filling a device buffer with the scalar value.
 /// Supports primitive types (integers, floats) and decimal types (i128, i256).
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct ConstantNumericExecutor;
+pub(crate) struct ConstantNumericExecutor;
 
 impl ConstantNumericExecutor {
     fn try_specialize(array: ArrayRef) -> Option<ConstantArray> {

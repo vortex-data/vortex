@@ -34,7 +34,7 @@ use crate::executor::CudaExecute;
 use crate::executor::CudaExecutionCtx;
 
 #[derive(Debug)]
-pub struct ZstdBuffersExecutor;
+pub(crate) struct ZstdBuffersExecutor;
 
 #[async_trait]
 impl CudaExecute for ZstdBuffersExecutor {

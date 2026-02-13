@@ -39,8 +39,7 @@ use crate::executor::CudaExecutionCtx;
 ///
 /// Combines the days, seconds, and subseconds components into a single i64 timestamp array.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct DateTimePartsExecutor;
+pub(crate) struct DateTimePartsExecutor;
 
 #[async_trait]
 impl CudaExecute for DateTimePartsExecutor {

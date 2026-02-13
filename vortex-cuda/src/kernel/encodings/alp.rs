@@ -33,8 +33,7 @@ use crate::kernel::patches::execute_patches;
 
 /// CUDA decoder for ALP (Adaptive Lossless floating-Point) decompression.
 #[derive(Debug)]
-#[doc(hidden)]
-pub struct ALPExecutor;
+pub(crate) struct ALPExecutor;
 
 #[async_trait]
 impl CudaExecute for ALPExecutor {

@@ -26,12 +26,14 @@ mod filter;
 mod patches;
 mod slice;
 
-pub use arrays::ConstantNumericExecutor;
-pub use arrays::DictExecutor;
-pub use arrays::SharedExecutor;
-pub use encodings::*;
-pub use filter::FilterExecutor;
-pub use slice::SliceExecutor;
+pub(crate) use arrays::ConstantNumericExecutor;
+pub(crate) use arrays::DictExecutor;
+pub(crate) use arrays::SharedExecutor;
+pub use encodings::ZstdKernelPrep;
+pub use encodings::zstd_kernel_prepare;
+pub(crate) use encodings::*;
+pub(crate) use filter::FilterExecutor;
+pub(crate) use slice::SliceExecutor;
 
 use crate::CudaKernelEvents;
 #[cfg(feature = "tracing")]
