@@ -135,12 +135,20 @@ impl LogicalType {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UBIGINT)
     }
 
+    pub fn uint128() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_UHUGEINT)
+    }
+
     pub fn int32() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_INTEGER)
     }
 
     pub fn int64() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_BIGINT)
+    }
+
+    pub fn int128() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_HUGEINT)
     }
 
     pub fn bool() -> Self {
@@ -153,6 +161,14 @@ impl LogicalType {
 
     pub fn float64() -> Self {
         Self::new(DUCKDB_TYPE::DUCKDB_TYPE_DOUBLE)
+    }
+
+    pub fn timestamp() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP)
+    }
+
+    pub fn timestamp_tz() -> Self {
+        Self::new(DUCKDB_TYPE::DUCKDB_TYPE_TIMESTAMP_TZ)
     }
 
     pub fn as_decimal(&self) -> (u8, u8) {
