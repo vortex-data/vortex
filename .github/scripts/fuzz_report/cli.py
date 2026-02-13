@@ -77,6 +77,21 @@ def _find_crash_file(crash_dir: str, crash_name: str) -> str | None:
     return None
 
 
+def _truncate(text: str, max_chars: int) -> str:
+    """Truncate text to max_chars, appending a note if truncated."""
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars] + f"\n... ({len(text) - max_chars} chars truncated)"
+
+
+# GitHub issue body limit is 65536 chars. Reserve ~5k for the fixed template
+# chrome (headings, summary table, reproduction steps, etc.) and split the
+# remaining budget between the two variable-length fields.
+_BODY_BUDGET = 60000
+_TEMPLATE_OVERHEAD = 5000
+_FIELD_BUDGET = _BODY_BUDGET - _TEMPLATE_OVERHEAD  # 55k split between the two
+
+
 def _build_template_variables(
     crash_info: CrashInfo,
     var_args: list[tuple[str, str]] | None = None,
@@ -88,11 +103,28 @@ def _build_template_variables(
         for key, value in var_args:
             variables[key] = value
 
+    panic_msg = crash_info.panic_message
+    stack_trace = crash_info.stack_trace_raw
+
+    # Truncate the two large fields so their combined size fits the budget.
+    combined = len(panic_msg) + len(stack_trace)
+    if combined > _FIELD_BUDGET:
+        # Give panic_message up to half, stack_trace gets the rest.
+        msg_limit = min(len(panic_msg), _FIELD_BUDGET // 2)
+        trace_limit = _FIELD_BUDGET - msg_limit
+        panic_msg = _truncate(panic_msg, msg_limit)
+        stack_trace = _truncate(stack_trace, trace_limit)
+        print(
+            f"Warning: Truncated issue fields to fit body limit "
+            f"(panic_message={msg_limit}, stack_trace={trace_limit})",
+            file=sys.stderr,
+        )
+
     # Auto-populate from crash info (don't override explicit -v args)
     auto_vars = {
-        "PANIC_MESSAGE": crash_info.panic_message,
+        "PANIC_MESSAGE": panic_msg,
         "CRASH_LOCATION": crash_info.crash_location,
-        "STACK_TRACE_RAW": crash_info.stack_trace_raw,
+        "STACK_TRACE_RAW": stack_trace,
         "DEBUG_OUTPUT": crash_info.debug_output,
         "SEED_HASH": crash_info.seed_hash,
         "STACK_TRACE_HASH": crash_info.stack_trace_hash,
@@ -342,14 +374,6 @@ def cmd_report(args: argparse.Namespace) -> int:
         title = f"Fuzzing Crash: {crash_info.error_variant} in {fuzz_target}"
 
         body = render_template(str(TEMPLATES_DIR / "new_issue.md"), variables, use_env=False)
-
-        # GitHub issue body limit is 65536 chars; truncate if needed.
-        max_body = 65000
-        if len(body) > max_body:
-            truncation_note = "\n\n---\n*Body truncated — full details in crash artifact.*\n"
-            body = body[:max_body - len(truncation_note)] + truncation_note
-            print(f"Warning: Issue body truncated from {len(body)} to {max_body} chars", file=sys.stderr)
-
         body_file = Path("issue_body.md")
         body_file.write_text(body)
 
@@ -379,6 +403,34 @@ def cmd_report(args: argparse.Namespace) -> int:
 
         print(f"Created issue #{issue_number}: {issue_url}", file=sys.stderr)
         _write_github_output("issue_number", issue_number)
+
+        # Post full debug output as a follow-up comment (collapsed).
+        debug_output = variables.get("DEBUG_OUTPUT", "")
+        if debug_output and debug_output != "(not set)":
+            comment_body = (
+                "<details>\n<summary>Debug Output</summary>\n\n"
+                f"```\n{debug_output}\n```\n</details>"
+            )
+            # Truncate comment to GitHub's limit too.
+            if len(comment_body) > max_body:
+                comment_body = comment_body[:max_body - 50] + "\n```\n</details>\n\n*Truncated*"
+            comment_file = Path("debug_comment.md")
+            comment_file.write_text(comment_body)
+            try:
+                _run_gh(
+                    [
+                        "gh",
+                        "issue",
+                        "comment",
+                        issue_number,
+                        "--repo",
+                        args.repo,
+                        "--body-file",
+                        str(comment_file),
+                    ],
+                )
+            except subprocess.CalledProcessError:
+                print("Warning: failed to post debug output comment", file=sys.stderr)
 
     return 0
 

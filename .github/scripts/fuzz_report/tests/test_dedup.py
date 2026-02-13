@@ -144,15 +144,13 @@ class TestCheckErrorPattern:
         assert result.duplicate is True
         assert result.confidence == "high"
 
-    def test_variant_match(self):
+    def test_variant_only_does_not_match(self):
         result = check_error_pattern(
             "nomatchhash",
             "ScalarMismatch",
             EXISTING_ISSUES,
         )
-        assert result.duplicate is True
-        assert result.confidence == "medium"
-        assert result.issue_number == 101
+        assert result.duplicate is False
 
     def test_no_match(self):
         result = check_error_pattern("nomatch", "UnknownVariant", EXISTING_ISSUES)

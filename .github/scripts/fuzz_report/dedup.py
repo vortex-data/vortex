@@ -176,26 +176,6 @@ def check_error_pattern(message_hash: str, error_variant: str, issues: list[dict
                 },
             )
 
-    # Second try: same error variant (lower confidence)
-    if error_variant and error_variant != "unknown":
-        for issue in issues:
-            body = issue.get("body", "")
-            if error_variant in body:
-                return DedupResult(
-                    duplicate=True,
-                    check="error_pattern",
-                    confidence="medium",
-                    issue_number=issue["number"],
-                    issue_url=issue.get("url"),
-                    issue_title=issue.get("title"),
-                    reason=f"Same error variant type: {error_variant}",
-                    debug={
-                        "message_hash": message_hash,
-                        "error_variant": error_variant,
-                        "matched_issue": issue["number"],
-                    },
-                )
-
     return DedupResult(
         duplicate=False,
         check="error_pattern",
