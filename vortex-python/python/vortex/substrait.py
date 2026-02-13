@@ -228,7 +228,7 @@ def extension_function(
                 case "is_null":
                     return _expr.is_null
                 case "is_not_null":
-                    return lambda e: _expr.not_(_expr.is_null(e))
+                    return _is_not_null
                 case name:
                     raise NotImplementedError(f"Function name {name} not supported")
         case "https://github.com/substrait-io/substrait/blob/main/extensions/functions_arithmetic.yaml":
@@ -245,6 +245,13 @@ def extension_function(
                     raise NotImplementedError(f"Arithmetic function {name} not supported")
         case uri:
             raise NotImplementedError(f"Extension URI {uri} not supported")
+
+
+def _is_not_null(e: _expr.Expr) -> _expr.Expr:
+    """
+    Helper function to have a well-typed callable to return
+    """
+    return _expr.not_(_expr.is_null(e))
 
 
 def expression(
