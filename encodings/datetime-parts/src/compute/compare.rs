@@ -10,7 +10,6 @@ use vortex_array::compute::CompareKernel;
 use vortex_array::compute::CompareKernelAdapter;
 use vortex_array::compute::Operator;
 use vortex_array::compute::and_kleene;
-use vortex_array::compute::cast;
 use vortex_array::compute::compare;
 use vortex_array::compute::or_kleene;
 use vortex_array::register_kernel;
