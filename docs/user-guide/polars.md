@@ -3,6 +3,8 @@
 :::{warning}
 The Polars integration is experimental. Polars' expression API is unstable and not all pushdown
 expressions are currently supported.
+
+If you run into any issues or are looking for more features related to this integration, please [file an issue](https://github.com/vortex-data/vortex/issues).
 :::
 
 Vortex integrates with Polars via {meth}`.VortexFile.to_polars`, which returns a
