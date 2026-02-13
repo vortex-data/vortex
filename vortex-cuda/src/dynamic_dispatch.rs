@@ -16,7 +16,7 @@
 //!
 //! # Example
 //!
-//! ```ignore
+//! ```text
 //! let plan = DynamicDispatchPlan::new(
 //!     SourceOp::bitunpack(6),
 //!     &[ScalarOp::frame_of_ref(100), ScalarOp::alp(10.0, 1.0)],
