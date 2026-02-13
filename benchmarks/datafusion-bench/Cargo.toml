@@ -29,8 +29,6 @@ datafusion = { workspace = true, features = [
 datafusion-common = { workspace = true }
 datafusion-physical-plan = { workspace = true }
 futures.workspace = true
-glob = { workspace = true }
-tracing = { workspace = true }
 itertools.workspace = true
 object_store = { workspace = true, features = ["aws", "gcp"] }
 opentelemetry.workspace = true

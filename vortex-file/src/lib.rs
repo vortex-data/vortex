@@ -94,6 +94,7 @@ mod counting;
 mod file;
 pub mod filesystem;
 mod footer;
+pub mod multi;
 mod open;
 mod pruning;
 mod read;

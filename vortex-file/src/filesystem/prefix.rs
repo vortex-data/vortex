@@ -63,7 +63,7 @@ impl FileSystem for PrefixFileSystem {
 
 impl dyn FileSystem + '_ {
     /// Create a new filesystem that applies the given prefix to all operations on this filesystem.
-    pub fn prefix(self: Arc<Self>, prefix: String) -> FileSystemRef {
+    pub fn with_prefix(self: Arc<Self>, prefix: String) -> FileSystemRef {
         Arc::new(PrefixFileSystem::new(self, prefix))
     }
 }

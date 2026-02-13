@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: Apache-2.0
+// SPDX-FileCopyrightText: Copyright the Vortex contributors
+
+//! A reusable, engine-agnostic multi-file [`DataSource`] for scanning across multiple Vortex files.
+//!
+//! [`MultiFileDataSource`] wraps a [`MultiDataSource`] and presents multiple Vortex files as a
+//! single scannable data source. It is constructed via [`MultiFileDataSourceBuilder`].
+//!
+//! # Future Work
+//!
+//! - **Hive-style partitioning**: Extract partition values from file paths (e.g. `year=2024/month=01/`)
+//!   and expose them as virtual columns.
+//! - **Virtual columns**: `filename`, `file_row_number`, `file_index`.
+//! - **Per-file statistics**: Merge column statistics across files for planner hints.
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use tracing::debug;
+use vortex_dtype::DType;
+use vortex_error::VortexResult;
+use vortex_scan::api::DataSource;
+use vortex_scan::api::DataSourceRef;
+use vortex_scan::api::DataSourceScanRef;
+use vortex_scan::api::Estimate;
+use vortex_scan::api::ScanRequest;
+use vortex_scan::api::SplitRef;
+use vortex_scan::layout::LayoutReaderDataSource;
+use vortex_scan::multi::DataSourceFactory;
+use vortex_scan::multi::MultiDataSource;
+use vortex_session::VortexSession;
+
+use crate::FooterCacheRef;
+use crate::OpenOptionsSessionExt;
+use crate::VortexFile;
+use crate::VortexOpenOptions;
+use crate::filesystem::FileListing;
+use crate::filesystem::FileSystemRef;
+use crate::v2::FileStatsLayoutReader;
+
+/// A [`DataSource`] that scans across multiple Vortex files, presenting them as a single source.
+///
+/// Constructed via [`MultiFileDataSourceBuilder`](super::MultiFileDataSourceBuilder).
+/// Internally delegates to [`MultiDataSource`] for scan orchestration, prefetching, and
+/// split interleaving.
+pub struct MultiFileDataSource {
+    dtype: DType,
+    inner: MultiDataSource,
+    file_count: usize,
+}
+
+impl MultiFileDataSource {
+    pub(super) fn new(dtype: DType, inner: MultiDataSource, file_count: usize) -> Self {
+        Self {
+            dtype,
+            inner,
+            file_count,
+        }
+    }
+
+    /// Returns the number of files in this data source.
+    pub fn file_count(&self) -> usize {
+        self.file_count
+    }
+}
+
+impl DataSource for MultiFileDataSource {
+    fn dtype(&self) -> &DType {
+        &self.dtype
+    }
+
+    fn row_count_estimate(&self) -> Estimate<u64> {
+        self.inner.row_count_estimate()
+    }
+
+    fn deserialize_split(&self, data: &[u8], session: &VortexSession) -> VortexResult<SplitRef> {
+        self.inner.deserialize_split(data, session)
+    }
+
+    fn scan(&self, scan_request: ScanRequest) -> VortexResult<DataSourceScanRef> {
+        self.inner.scan(scan_request)
+    }
+}
+
+/// A [`DataSourceFactory`] that lazily opens a single Vortex file and wraps it in a
+/// [`LayoutReaderDataSource`].
+///
+/// Handles statistics-based pruning via [`VortexFile::can_prune`].
+pub(super) struct VortexFileFactory {
+    pub(super) fs: FileSystemRef,
+    pub(super) file: FileListing,
+    pub(super) session: VortexSession,
+    pub(super) open_options_fn: Arc<dyn Fn(VortexOpenOptions) -> VortexOpenOptions + Send + Sync>,
+    pub(super) footer_cache: Option<FooterCacheRef>,
+}
+
+#[async_trait]
+impl DataSourceFactory for VortexFileFactory {
+    async fn open(&self) -> VortexResult<Option<DataSourceRef>> {
+        debug!(path = %self.file.path, "opening vortex file");
+        let mut options = (self.open_options_fn)(self.session.open_options());
+        if let Some(size) = self.file.size {
+            options = options.with_file_size(size);
+        }
+        if let Some(ref cache) = self.footer_cache
+            && let Some(footer) = cache.get(&self.file.path)
+        {
+            options = options.with_footer(footer);
+        }
+        let source = self.fs.open_read(&self.file.path).await?;
+        let file = options.open(source).await?;
+        if let Some(ref cache) = self.footer_cache {
+            cache.put(&self.file.path, file.footer().clone());
+        }
+
+        let ds = data_source_from_file(&file, &self.session)?;
+        debug!(path = %self.file.path, "opened vortex file");
+        Ok(Some(ds))
+    }
+}
+
+/// Create a [`DataSourceRef`] from a [`VortexFile`], wrapping with
+/// [`FileStatsLayoutReader`] when file-level statistics are available.
+pub(super) fn data_source_from_file(
+    file: &VortexFile,
+    session: &VortexSession,
+) -> VortexResult<DataSourceRef> {
+    let mut reader = file.layout_reader()?;
+    if let Some(stats) = file.file_stats().cloned() {
+        reader = Arc::new(FileStatsLayoutReader::new(reader, stats, session.clone()));
+    }
+    Ok(Arc::new(LayoutReaderDataSource::new(
+        reader,
+        session.clone(),
+    )))
+}
